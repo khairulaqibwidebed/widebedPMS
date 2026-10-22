@@ -149,6 +149,7 @@
 import { collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { loadProperties, loadUnits, loadExpenses, monthDoc, completedUnitIds, audit, friendlyError } from '@/lib/finance-data.js';
+import { markDirty } from '@/lib/summary-data.js';
 import { rm, amt, dmy, ddmm, monthName, shortMonth, monthOffset, dayOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 
@@ -254,6 +255,7 @@ export default {
             createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
           audit(b, me, { action: 'expense.create', entity: `expenses/${ref.id}`, propertyId: this.propertyId, month: p.month,
             changes: [{ field: 'amount', old: null, new: amount }] });
+          markDirty(b, this.propertyId, p.month, [p.unitId]);   // that unit's month summary is worked out again
         } else {
           const o = { ...p.original, cost: p.original.cost ?? p.original.amount, marginType: p.original.marginType || 'pct', marginValue: p.original.marginValue ?? 0 };
           const changes = Object.keys(data).filter(k => String(o[k] ?? '') !== String(data[k] ?? '')).map(k => ({ field: k, old: o[k] ?? null, new: data[k] }));
@@ -263,6 +265,9 @@ export default {
           if (!p.reason.trim()) { p.busy = false; return p.error = 'Add a short reason. It goes in the audit log.'; }
           b.update(doc(db, 'expenses', p.id), { ...data, updatedBy: me.user.uid, updatedByName: me.name, updatedAt: serverTimestamp() });
           audit(b, me, { action: 'expense.update', entity: `expenses/${p.id}`, propertyId: this.propertyId, month: p.month, changes, reason: p.reason.trim() });
+          // Both units' summaries when the line moved to another unit (or month)
+          markDirty(b, this.propertyId, p.month, [p.unitId, ...(p.original.month === p.month ? [p.original.unitId] : [])]);
+          if (p.original.month !== p.month) markDirty(b, p.original.propertyId || this.propertyId, p.original.month, [p.original.unitId]);
         }
         await b.commit();
         this.okMsg = `${p.id ? 'Updated' : 'Added'}: ${this.unitCode(p.unitId)}, ${p.description.trim()}, RM ${amt(amount)}` + (p.month !== this.month ? ` (on ${monthName(p.month)})` : '') + '.';
@@ -281,6 +286,7 @@ export default {
         b.update(doc(db, 'expenses', p.id), { deleted: true, deletedReason: p.reason.trim(), updatedBy: me.user.uid, updatedByName: me.name, updatedAt: serverTimestamp() });
         audit(b, me, { action: 'expense.remove', entity: `expenses/${p.id}`, propertyId: this.propertyId, month: p.original.month,
           changes: [{ field: 'deleted', old: false, new: true }], reason: p.reason.trim() });
+        markDirty(b, p.original.propertyId || this.propertyId, p.original.month, [p.original.unitId]);
         await b.commit();
         this.okMsg = 'Line removed.';
         p.busy = false; this.panelOpen = false;

@@ -4,17 +4,19 @@
       <div><h1>{{ cfg.title }}</h1><div class="sub">{{ cfg.sub }}</div></div>
       <div class="head-tools">
         <span class="chip" v-show="!canEdit">View only</span>
-        <template v-if="canEdit"><label class="btn">Upload document<input type="file" hidden @change="upload($event)"></label></template>
-        <button class="btn btn-primary" v-show="canEdit && !editing" @click="startEdit()">Edit SOP</button>
+        <template v-if="canEdit"><label class="btn" :class="{ disabled: busy || loading }">Upload document<input type="file" hidden @change="upload($event)"></label></template>
+        <button class="btn btn-primary" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit SOP</button>
       </div>
     </div>
+    <div class="notice error" v-show="loadErr">{{ loadErr }}</div>
+    <div class="loading-bar" v-show="loading"></div>
     <div class="side-grid">
       <section class="card">
-        <div class="card-head"><h2>{{ cfg.stepsTitle }}</h2><span class="help">{{ `Last edited by ${data.editedBy} · ${data.editedOn}` }}</span></div>
+        <div class="card-head"><h2>{{ cfg.stepsTitle }}</h2><span class="help">{{ data.editedBy ? `Last edited by ${data.editedBy} · ${data.editedOn}` : 'Starter text, not edited yet' }}</span></div>
         <template v-if="!editing">
           <div>
             <ol class="sop-steps"><li v-for="(st, i) in data.steps" :key="i"><span class="sop-num">{{ i + 1 }}</span><span>{{ st }}</span></li></ol>
-            <p class="help" style="margin:10px 0 0">Sample text. HR types the real SOP.<span class="sample-tag">Saved in this browser for now</span></p>
+            <p class="help" style="margin:10px 0 0" v-show="!loading && !saved">Starter text. HR types the real SOP; the first save keeps it for all staff.</p>
           </div>
         </template>
         <template v-if="editing">
@@ -26,7 +28,7 @@
             <div class="field" style="margin-top:14px"><label for="sopWhy">Reason for the change (saved in the log)</label>
               <input class="input" id="sopWhy" v-model="reason" placeholder="e.g. New working hours from November"></div>
             <div class="notice error" v-show="err">{{ err }}</div>
-            <div class="actions"><button class="btn btn-primary" @click="saveEdit()">Save SOP</button><button class="btn" @click="editing = false">Cancel</button></div>
+            <div class="actions"><button class="btn btn-primary" :disabled="busy" @click="saveEdit()">{{ busy ? 'Saving…' : 'Save SOP' }}</button><button class="btn" @click="editing = false">Cancel</button></div>
           </div>
         </template>
       </section>
@@ -37,8 +39,8 @@
             <div class="doc-row" v-for="(d, i) in data.docs" :key="d.name + i">
               <span class="doc-badge">{{ ext(d.name) }}</span>
               <div class="doc-name"><b>{{ d.name }}</b><small>{{ `Added by ${d.by} · ${d.on}` }}</small></div>
-              <button class="editlink" @click="toast('Sample file, nothing to download yet')">Download</button>
-              <button class="doc-remove" v-show="canEdit" @click="removeDoc(i)">Remove</button>
+              <button class="editlink" @click="toast('This file is not linked yet. Files will be kept in the company Google Drive.')">Download</button>
+              <button class="doc-remove" v-show="canEdit" :disabled="busy" @click="removeDoc(i)">Remove</button>
             </div>
             <div class="empty" v-show="!data.docs.length">No documents yet.</div>
           </div>
@@ -60,45 +62,81 @@
 // HR SOP pages (Attendance, Advance, Allowance, Claim SOCSO). One component, four addresses: the route's meta.sop picks the SOP.
 // SOP pages only explain the rules (clock-in happens outside the PMS). Everyone can read and download;
 // only HR edits (Director too, full access) and every edit is logged. HR is not a login yet, so Director edits and Finance views.
-// Text and the document list are kept in this browser until the SOPs move to Firebase; files will sit in the company Google Drive.
+// Each SOP is sops/{key}: steps, document list, a short change log, updatedAt/updatedBy. Until the first save the
+// starter text from sops.js shows; the first save creates the document. Files will sit in the company Google Drive.
+import { doc, getDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase.js';
+import { audit, friendlyError } from '@/lib/finance-data.js';
 import { toast } from '@/lib/toast.js';
 import { useSession } from '@/stores/session.js';
 import { SOPS } from './sops.js';
 
 const me = useSession();
 
-const today = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const load = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
-const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const fmt = d => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const today = () => fmt(new Date());
+const LOG_MAX = 20;
 
 export default {
   data() {
     const key = this.$route.meta.sop;
     const cfg = SOPS[key];
-    const seed = { steps: [...cfg.steps], editedBy: 'HR user 1', editedOn: '18 Oct 2026', log: [],
-      docs: cfg.docs.map(([name, on]) => ({ name, on, by: 'HR user 1' })) };
-    return { KEY: 'wb.sop.' + key, cfg, data: load('wb.sop.' + key) || seed, canEdit: me.role === 'director', editing: false, draft: [], reason: '', err: '' };
+    // Starter content until HR saves the SOP for the first time.
+    const seed = { steps: [...cfg.steps], editedBy: '', editedOn: '', log: [], docs: cfg.docs.map(([name, on]) => ({ name, on, by: 'HR' })) };
+    return { key, cfg, data: seed, saved: false, loading: true, loadErr: '', busy: false,
+      canEdit: ['director', 'hr'].includes(me.role), editing: false, draft: [], reason: '', err: '' };
+  },
+  async mounted() {
+    try {
+      const snap = await getDoc(doc(db, 'sops', this.key));
+      if (snap.exists()) {
+        const d = snap.data();
+        this.data = { steps: d.steps || [], docs: d.docs || [], log: d.log || [], editedBy: d.updatedBy || '',
+          editedOn: d.updatedAt?.toDate ? fmt(d.updatedAt.toDate()) : '' };
+        this.saved = true;
+      }
+    } catch (e) { this.loadErr = friendlyError(e, 'load this SOP'); }
+    this.loading = false;
   },
   methods: {
     toast,
     ext(n) { return (n.split('.').pop() || '').toUpperCase().slice(0, 4); },
-    save(what) { this.data.log.unshift({ what: `${what} · ${me.name}`, when: today() }); store(this.KEY, this.data); },
+    // Writes the whole SOP (the first save creates sops/{key}) with its audit entry. Returns true when saved.
+    async save(what, action, next, reason = '') {
+      this.busy = true;
+      try {
+        const log = [{ what: `${what} · ${me.name}`, when: today() }, ...this.data.log].slice(0, LOG_MAX);
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'sops', this.key), { steps: next.steps, docs: next.docs, log,
+          updatedAt: serverTimestamp(), updatedBy: me.name, updatedByUid: me.user.uid });
+        audit(batch, me, { action, entity: `sops/${this.key}`, changes: [{ field: 'sop', old: null, new: what }], reason });
+        await batch.commit();
+        this.data = { ...next, log, editedBy: me.name, editedOn: today() }; this.saved = true;
+        return true;
+      } catch (e) { toast(friendlyError(e, 'save the SOP')); return false; }
+      finally { this.busy = false; }
+    },
     startEdit() { this.draft = [...this.data.steps]; this.reason = ''; this.err = ''; this.editing = true; },
-    saveEdit() {
+    async saveEdit() {
       const steps = this.draft.map(s => s.trim()).filter(Boolean);
       if (!steps.length) return this.err = 'Keep at least one step.';
       if (!this.reason.trim()) return this.err = 'Add a short reason. It goes in the change log.';
-      this.data.steps = steps; this.data.editedBy = me.name; this.data.editedOn = today();
-      this.save(`Edited the steps: ${this.reason.trim()}`); this.editing = false; toast('SOP saved.');
+      if (await this.save(`Edited the steps: ${this.reason.trim()}`, 'sop.update', { steps, docs: this.data.docs }, this.reason.trim())) {
+        this.editing = false; toast('SOP saved.');
+      }
     },
-    upload(e) {
+    async upload(e) {
       const f = e.target.files[0]; e.target.value = '';
-      if (!f) return;
+      if (!f || this.busy) return;
       if (f.size > 20 * 1024 * 1024) return toast('Files must be 20 MB or less.');
-      this.data.docs.unshift({ name: f.name, on: today(), by: me.name });
-      this.save(`Added ${f.name}`); toast(`${f.name} added. Files go to the company Google Drive once that is set up.`);
+      const docs = [{ name: f.name, on: today(), by: me.name }, ...this.data.docs];
+      if (await this.save(`Added ${f.name}`, 'sop.docAdd', { steps: this.data.steps, docs })) toast(`${f.name} added. Files go to the company Google Drive once that is set up.`);
     },
-    removeDoc(i) { const d = this.data.docs.splice(i, 1)[0]; this.save(`Removed ${d.name}`); toast(`${d.name} removed.`); }
+    async removeDoc(i) {
+      const d = this.data.docs[i];
+      const docs = this.data.docs.filter((_, j) => j !== i);
+      if (await this.save(`Removed ${d.name}`, 'sop.docRemove', { steps: this.data.steps, docs })) toast(`${d.name} removed.`);
+    }
   }
 };
 </script>

@@ -59,13 +59,13 @@
     <section class="card" style="margin-top:20px">
       <div class="card-head"><h2>What each role can do</h2></div>
       <div class="role-list">
-        <div><b>Director</b><span>Everything, including Staff accounts and Director Override. Can sign in now.</span></div>
-        <div><b>Finance</b><span>Upload eZee, expenses, month-end payout, exports. Can sign in now.</span></div>
-        <div><b>IT</b><span>View-only, personal details hidden. Signs in once the IT pages are built.</span></div>
-        <div><b>Operations</b><span>Issues, offline inquiries, booking forms. Later increment.</span></div>
-        <div><b>HR</b><span>SOP pages, complaints, onboarding. Later increment.</span></div>
-        <div><b>Procurement</b><span>The 10 Fillout form links. Later increment.</span></div>
-        <div><b>Marketing</b><span>New owner listings and tasks with Operations and Procurement. Later increment.</span></div>
+        <div><b>Director</b><span>Everything, including Staff accounts and Director Override.</span></div>
+        <div><b>Finance</b><span>Upload eZee, expenses, month-end payout, exports.</span></div>
+        <div><b>IT</b><span>View-only, personal details hidden, except on Issues: raises, comments on and completes tickets tagged IT. Sees Issues, offline inquiries (no names), Playbook and SOPs for now.</span></div>
+        <div><b>Operations</b><span>Issues, offline inquiries assigned to them, booking forms, Playbook and SOPs.</span></div>
+        <div><b>HR</b><span>SOP pages, complaints, Playbook, Staff accounts and Audit log, Issues.</span></div>
+        <div><b>Procurement</b><span>The Fillout form links, Issues, Playbook and SOPs.</span></div>
+        <div><b>Marketing</b><span>Issues, Playbook and SOPs for now. Own pages come later.</span></div>
       </div>
     </section>
 

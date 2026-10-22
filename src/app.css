@@ -15,6 +15,7 @@
   --amber: #A66300;
   --amber-soft: #FDF3DC;
   --red: #C2452B;
+  --danger: #DC2626;   /* Log out and other leave/destroy buttons: true red in every theme */
   --red-soft: #FDEBE6;
   --blue: #2563A8;
   --blue-soft: #E5EFFA;
@@ -39,6 +40,9 @@ button { font: inherit; cursor: pointer; }
   height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); font-weight: 600; white-space: nowrap; }
 .btn:hover { border-color: color-mix(in srgb, var(--border) 70%, var(--text)); }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-danger:hover { background: color-mix(in srgb, var(--danger) 86%, #000); border-color: color-mix(in srgb, var(--danger) 86%, #000); }
+.bell-btn { padding: 0; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn-primary:hover { background: color-mix(in srgb, var(--accent) 86%, #000); border-color: color-mix(in srgb, var(--accent) 86%, #000); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -87,6 +91,8 @@ button { font: inherit; cursor: pointer; }
   border: 0; background: none; padding: 16px 12px 8px; color: var(--muted); font-size: 11px;
   font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .nav-group-btn .chev { transition: transform .15s; }
+/* Loose links (Tasks, Reports) after a group: a rule above so they don't read as part of that group. */
+.nav-flat-after { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .nav-group-btn[aria-expanded="true"] .chev { transform: rotate(90deg); }
 .nav-group[hidden] { display: none; }
 
@@ -98,6 +104,8 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted); }
 .search-btn kbd { margin-left: auto; font-family: inherit; font-size: 11px; background: var(--bg); border-radius: 4px; padding: 2px 6px; }
 .user-name { font-weight: 500; }
+/* A badge or tag in the person's role colour: set --rc (lib/avatars.js roleTint). */
+.role-tint { background: color-mix(in srgb, var(--rc) 15%, var(--surface)) !important; color: color-mix(in srgb, var(--rc) 82%, var(--text)) !important; }
 .role-badge { background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700;
   letter-spacing: .04em; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; }
 
@@ -315,11 +323,7 @@ button.link { background: none; border: 0; padding: 0; }
 .filedrop b { display: block; color: var(--text-2); font-weight: 500; font-size: 13px; }
 .k3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .user-menu { position: relative; }
-.user-menu > button { border: 0; background: none; display: flex; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 8px; color: var(--text); }
-.user-menu > button:hover { background: var(--bg); }
-.user-pop { position: absolute; right: 0; top: 42px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.12); min-width: 180px; padding: 6px; z-index: 20; }
-.user-pop a { display: block; padding: 9px 12px; border-radius: 6px; font-size: 13px; }
-.user-pop a:hover { background: var(--bg); }
+.user-id { display: flex; align-items: center; gap: 10px; padding: 4px 6px; color: var(--text); }
 @media (max-width: 1000px) { .side-grid { grid-template-columns: minmax(0,1fr); } .k3 { grid-template-columns: minmax(0,1fr); } }
 
 /* ---------- Appearance: colour theme per account (Settings > Appearance) ---------- */

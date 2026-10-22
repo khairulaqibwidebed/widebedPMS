@@ -166,7 +166,9 @@ import { collection, doc, getDocs, query, where, writeBatch, serverTimestamp }
   from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { parseCSV, readEzee, bookingPTO, effectiveRates, DEFAULT_OTA, DM_STARTER, ARRANGEMENTS, unitIdOf, byUnit, r2, nextMonth } from '@/lib/engine.js';
-import { parseFinanceStatement, sheetText } from '@/lib/finance-import.js';
+import { parseFinanceStatement, sheetText, rowHash } from '@/lib/finance-import.js';
+import { markDirty, markFrom } from '@/lib/summary-data.js';
+import { ALL_MONTHS } from '@/lib/summaries.js';
 import { loadProperties, loadUnits, loadSetup, latestVersion, monthDoc, completedUnitIds, audit, friendlyError, download, toCSV, loadXlsxLib } from '@/lib/finance-data.js';
 import { monthName, monthOffset, stamp, dayOffset, amt } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
@@ -175,7 +177,7 @@ const me = useSession();
 
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
 const pause = ms => new Promise(r => setTimeout(r, ms));
-const CHUNK = 200;   // bookings per batch: 2 writes each, under Firestore's 500 limit
+const CHUNK = 120;   // bookings per batch: 2 writes each, plus up to 2 summary marks each, under Firestore's 500 limit
 let params = new URLSearchParams(location.search);
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const shortName = ym => { const [y, m] = ym.split('-'); return `${SHORT[+m - 1]} ${y}`; };
@@ -289,8 +291,9 @@ export default {
         if (code === 'DM') for (const [main, al] of Object.entries(DM_STARTER.aliases)) if (al.includes(unitCode)) return main;
         return unitCode;
       };
-      const existing = new Set(), savedUnit = {};
-      if (prop) (await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', prop.id), where('departureMonth', '==', this.month)))).docs.forEach(d => { existing.add(d.id); savedUnit[d.id] = d.data().unitId; });
+      const existing = new Set(), savedUnit = {}, savedHash = {};
+      // This read was already here; it also brings each saved booking's rawHash, so unchanged rows can be skipped
+      if (prop) (await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', prop.id), where('departureMonth', '==', this.month)))).docs.forEach(d => { existing.add(d.id); savedUnit[d.id] = d.data().unitId; savedHash[d.id] = d.data().rawHash || null; });
       const noUnit = [];
       for (const r of recs) {
         r.propertyId = property.id;
@@ -309,7 +312,7 @@ export default {
       const newUnitRecs = [...new Map(recs.filter(r => r.unitId && r.status === 'active' && !known.has(r.unitId)).map(r => [r.unitId, r])).values()];
       const active = recs.filter(r => r.status === 'active');
       return {
-        kind: 'ezee', property, records: recs, noUnit, active: active.length, lockedUnits,
+        kind: 'ezee', property, records: recs, noUnit, active: active.length, lockedUnits, savedUnit, savedHash, month: this.month,
         newCount: active.filter(r => r.isNew).length,
         cancelled: recs.length - active.length,
         ctrip: active.filter(r => r.otaKey === 'ctrip').length,
@@ -318,20 +321,56 @@ export default {
       };
     },
 
-    // Bookings: raw row kept as uploaded; names go to private/main (IT never sees them)
-    async saveBookings(list, batchRef, from, to) {
-      for (let i = 0; i < list.length; i += CHUNK) {
+    // Bookings: raw row kept as uploaded; names go to private/main (IT never sees them).
+    // A booking whose rawHash matches the saved one is not written again (and its unit's summary stays as it is);
+    // every booking that is written marks its unit's month summary stale in the same batch (and the unit it moved from).
+    async saveBookings(list, batchRef, from, to, check) {
+      const month = check.month, pid = check.property.id;
+      const tally = { created: 0, changed: 0, unchanged: 0, writes: 0 };
+      let rows = list.map(r => {
+        const { private: priv, propertyCode, isNew, ...data } = r;
+        return { r, priv, data, isNew, hash: rowHash(data, priv) };
+      });
+      // One reservation on several rows (a multi-room booking) is one document, written row by row with the last row
+      // winning, as before. Its fingerprint covers all its rows, and they are all written again or all skipped, so the
+      // saved document always ends up exactly as a full upload leaves it.
+      const groups = new Map();
+      for (const x of rows) { const k = x.r.reservationNo; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x.hash); }
+      rows = rows.map(x => {
+        const hs = groups.get(x.r.reservationNo);
+        const hash = hs.length === 1 ? x.hash : rowHash({ rows: hs }, null);
+        return { ...x, hash, same: !x.isNew && check.savedHash?.[x.r.reservationNo] === hash };
+      });
+      // A booking new to this month may be saved under another month (its check-out moved): that month's summary is stale too.
+      // Only the new ones are looked up, 30 at a time (a missing one costs nothing; at least one read per lookup).
+      const moved = {};
+      const fresh = rows.filter(x => x.isNew).map(x => x.r.reservationNo);
+      for (let i = 0; i < fresh.length; i += 30) {
+        const snap = await getDocs(query(collection(db, 'bookings'), where('reservationNo', 'in', fresh.slice(i, i + 30))));
+        snap.docs.forEach(d => { const o = d.data(); if (o.departureMonth && (o.departureMonth !== month || o.propertyId !== pid)) moved[d.id] = o; });
+      }
+      for (const x of rows) if (x.r.status === 'active') tally[x.isNew ? 'created' : x.same ? 'unchanged' : 'changed']++;
+      const write = rows.filter(x => !x.same);
+      for (let i = 0; i < write.length; i += CHUNK) {
         const b = writeBatch(db);
-        for (const r of list.slice(i, i + CHUNK)) {
-          const { private: priv, propertyCode, isNew, ...data } = r;
-          data.importBatchId = batchRef.id; data.lastImportedAt = serverTimestamp();
+        const dirty = new Map();   // "propertyId|month" -> unit ids
+        const touch = (p, m, u) => { const k = `${p}|${m}`; if (!dirty.has(k)) dirty.set(k, []); dirty.get(k).push(u); };
+        for (const { r, priv, data, isNew, hash } of write.slice(i, i + CHUNK)) {
+          data.importBatchId = batchRef.id; data.lastImportedAt = serverTimestamp(); data.rawHash = hash;
           if (isNew) data.firstImportedAt = serverTimestamp();
           b.set(doc(db, 'bookings', r.reservationNo), data, { merge: true });
           b.set(doc(db, 'bookings', r.reservationNo, 'private', 'main'), priv, { merge: true });
+          touch(pid, month, r.unitId || null);
+          if (!isNew && check.savedUnit?.[r.reservationNo] !== r.unitId) touch(pid, month, check.savedUnit[r.reservationNo] || null);   // room move
+          const o = moved[r.reservationNo];
+          if (o) touch(o.propertyId, o.departureMonth, o.unitId || null);
         }
+        for (const [k, ids] of dirty) { const [p, m] = k.split('|'); markDirty(b, p, m, ids); }
         await b.commit();
-        this.percent = Math.round(from + (to - from) * Math.min(1, (i + CHUNK) / list.length));
+        tally.writes += 2 * Math.min(CHUNK, write.length - i);
+        this.percent = Math.round(from + (to - from) * Math.min(1, (i + CHUNK) / write.length));
       }
+      return tally;
     },
 
     // ---- Finance's completed statement for a past month (reference only) ----
@@ -456,14 +495,17 @@ export default {
           });
           audit(b, me, { action: 'property.create', entity: `properties/${p.id}`, propertyId: p.id, reason: 'New property found in Finance statement' });
         }
-        for (const code of c.newUnits)
+        for (const code of c.newUnits) {
           b.set(doc(db, 'units', unitIdOf(p.id, code)), { propertyId: p.id, unitCode: code, ezeeRoomMatch: code,
             aliases: p.code === 'DM' ? (DM_STARTER.aliases[code] || []) : [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+          markFrom(b, p.id, ALL_MONTHS, unitIdOf(p.id, code));   // a new unit counts in every month's summary
+        }
         // Unit settings read from the file, effective from the file's month (later months keep their own versions)
         const stamp = Date.now();
         for (const t of c.termChanges)
           b.set(doc(db, 'units', t.unitId, 'terms', `${c.month}_${stamp}`), { ...t.terms, otaOverrides: null, effectiveFrom: c.month,
             reason: `From Finance statement ${this.fileName}`, createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+        for (const t of c.termChanges) markFrom(b, p.id, c.month, t.unitId);
         if (c.termChanges.length)
           audit(b, me, { action: 'unitTerms.fromStatement', entity: `properties/${p.id}`, propertyId: p.id, month: c.month,
             changes: c.termChanges.map(t => ({ field: t.unitCode, old: null, new: t.terms.arrangement })), reason: this.fileName });
@@ -475,6 +517,7 @@ export default {
             auto: true, sourceStatementId: null, sourceMonth: c.month, sourceImportId: batchRef.id, files: [], deleted: false,
             createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
         }
+        if (c.negatives.length) markDirty(b, p.id, c.next, c.negatives.map(u => unitIdOf(p.id, u.unitCode)));
         await b.commit();
         this.percent = 10;
         for (let i = 0; i < c.docs.length; i += 400) {
@@ -485,9 +528,10 @@ export default {
           await b.commit();
           this.percent = Math.round(10 + 45 * Math.min(1, (i + 400) / c.docs.length));
         }
-        if (c.bookings) await this.saveBookings(c.bookings.records, batchRef, 55, 95);
+        const tally = c.bookings ? await this.saveBookings(c.bookings.records, batchRef, 55, 95, c.bookings) : null;
         b = writeBatch(db);
-        const counts = { units: c.units.length, bookings: c.bookings?.active || 0, financeAmounts: c.bookings?.matched || 0, historyRows: c.docs.length, historyMonths: c.historyCount, negatives: c.negatives.length, balToPay: c.balToPay };
+        const counts = { units: c.units.length, bookings: c.bookings?.active || 0, financeAmounts: c.bookings?.matched || 0, historyRows: c.docs.length, historyMonths: c.historyCount, negatives: c.negatives.length, balToPay: c.balToPay,
+          ...(tally ? { created: tally.created, changed: tally.changed, unchanged: tally.unchanged } : {}) };
         b.set(batchRef, { kind: 'financeStatement', fileName: this.fileName, filePath: null, months: [c.month], propertyIds: [p.id], counts, result: 'ok',
           uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
         audit(b, me, { action: 'financeStatement.import', entity: `importBatches/${batchRef.id}`, propertyId: p.id, month: c.month,
@@ -496,7 +540,7 @@ export default {
         this.percent = 100;
         this.newUnitsSaved = c.newUnits.length > 0;
         this.done = `Saved ${monthName(c.month)} as reference: ${c.units.length} owner payouts` +
-          (c.bookings ? `, ${c.bookings.active} daily rental bookings` : '') +
+          (c.bookings ? `, ${c.bookings.active} daily rental bookings (${tally.created} new, ${tally.changed} changed, ${tally.unchanged} unchanged)` : '') +
           (c.historyCount ? ` and payout history back to ${monthName(c.historyMonths[0])}` : '') + '.' +
           (c.termChanges.length ? ` ${c.termChanges.length} units set up from the file, from ${monthName(c.month)}.` : '') +
           (c.negatives.length ? ` ${c.negatives.length} negative ${c.negatives.length === 1 ? 'balance' : 'balances'} carried into ${monthName(c.next)}.` : '');
@@ -523,16 +567,19 @@ export default {
           });
           audit(b, me, { action: 'property.create', entity: `properties/${p.id}`, propertyId: p.id, reason: 'New property found in eZee upload' });
         }
-        for (const r of c.newUnitRecs)
+        for (const r of c.newUnitRecs) {
           b.set(doc(db, 'units', r.unitId), { propertyId: p.id, unitCode: r.unitCode, ezeeRoomMatch: r.unitCode,
             aliases: p.code === 'DM' ? (DM_STARTER.aliases[r.unitCode] || []) : [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+          markFrom(b, p.id, ALL_MONTHS, r.unitId);   // a new unit counts in every month's summary
+        }
         await b.commit();
         this.percent = 5;
         const list = c.records;
-        await this.saveBookings(list, batchRef, 5, 95);
+        const tally = await this.saveBookings(list, batchRef, 5, 95, c);
         b = writeBatch(db);
         const counts = { rows: list.length, bookings: c.active, cancelled: c.cancelled, noUnit: c.noUnit.length, ctripNeedingAmount: c.ctrip,
-          created: c.newCount, updated: c.active - c.newCount, otherMonthsLeftOut: c.otherMonths.reduce((s, m) => s + m.count, 0) };
+          created: c.newCount, updated: c.active - c.newCount, otherMonthsLeftOut: c.otherMonths.reduce((s, m) => s + m.count, 0),
+          changed: tally.changed, unchanged: tally.unchanged, bookingWrites: tally.writes };
         b.set(batchRef, { kind: 'ezee', fileName: this.fileName, filePath: null, months: [this.month], propertyIds: [p.id], counts, result: 'ok',
           uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
         audit(b, me, { action: 'ezee.upload', entity: `importBatches/${batchRef.id}`, propertyId: p.id, month: this.month,
@@ -540,7 +587,7 @@ export default {
         await b.commit();
         this.percent = 100;
         this.newUnitsSaved = c.newUnits.length > 0;
-        this.done = `Saved ${c.active} bookings for ${monthName(this.month)} (${c.newCount} new, ${c.active - c.newCount} updated).` +
+        this.done = `Saved ${c.active} bookings for ${monthName(this.month)} (${tally.created} new, ${tally.changed} changed, ${tally.unchanged} unchanged).` +
           (c.newUnits.length ? ` ${c.newUnits.length} new units need setting up in Portfolio.` : '') +
           (c.ctrip ? ` ${c.ctrip} Ctrip bookings need their Trip.com amount on Month-end payout.` : '');
         if (p.isNew) { this.properties = await loadProperties(); this.propertyId = p.id; }

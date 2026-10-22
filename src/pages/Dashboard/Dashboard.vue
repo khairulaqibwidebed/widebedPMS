@@ -16,9 +16,10 @@
         <select class="select" v-model="month" @change="load()" aria-label="Month">
           <template v-for="m in months" :key="m"><option :value="m" :selected="m === month">{{ monthName(m) }}</option></template>
         </select>
-        <select class="select" v-show="role === 'director'" v-model="view" @change="load()" aria-label="View as">
+        <select class="select" v-show="role === 'director'" v-model="view" @change="viewAs()" aria-label="View as">
           <option value="director">View as: Director</option>
           <option value="finance">View as: Finance</option>
+          <template v-for="r in OTHER_VIEWS" :key="r"><option :value="r">{{ `View as: ${ROLE_LABEL[r]}` }}</option></template>
         </select>
       </div>
     </div>
@@ -49,8 +50,8 @@
           <template v-if="view === 'director'">
             <div class="card kpi">
               <div class="label">Open tickets</div>
-              <div class="value">—</div>
-              <div class="hint">Issues page has sample tickets until it is saved to Firebase</div>
+              <div class="value">{{ issues ? issues.total : '—' }}</div>
+              <div class="hint">{{ issues ? (issues.total ? `${issues.notStarted} not started yet` : 'Nothing open on Issues') : (issuesError || 'Loading…') }}</div>
             </div>
           </template>
           <div class="card kpi">
@@ -93,8 +94,8 @@
                   <template v-for="(a, i) in data.attention.slice(0, 8)" :key="i">
                     <div class="row"><span>{{ a.text }}</span><span class="r">{{ a.tag }}</span></div>
                   </template>
-                  <div class="empty" v-show="!data.attention.length">Nothing needs attention for this month.</div>
-                  <div class="note" v-show="data.attention.length > 8">{{ `+ ${data.attention.length - 8} more on Month-end payout` }}</div>
+                  <div class="empty" v-show="!data.attentionCount">Nothing needs attention for this month.</div>
+                  <div class="note" v-show="data.attentionCount > 8">{{ `+ ${data.attentionCount - 8} more on Month-end payout` }}</div>
                 </div>
               </section>
               <section class="card">
@@ -140,8 +141,18 @@
             </div>
             <div class="stack">
               <section class="card">
-                <div class="card-head"><h2>Open tickets by role</h2></div>
-                <div class="empty">The Issues page shows sample tickets for now. <RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
+                <div class="card-head"><h2>Open tickets by role</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
+                <div class="rows" v-if="issues">
+                  <template v-for="r in issues.byTag" :key="r.tag">
+                    <div class="row"><span>{{ r.tag }}</span><span class="pill amber">{{ r.count }}</span></div>
+                  </template>
+                  <template v-for="t in issues.recent" :key="t.id">
+                    <div class="row"><RouterLink class="link" :to="`/Operations/issues?id=${t.id}`">{{ `${t.id} · ${t.title}` }}</RouterLink><span class="r">{{ t.status === 'progress' ? 'In progress' : 'Open' }}</span></div>
+                  </template>
+                  <div class="empty" v-show="!issues.total">No open tickets.</div>
+                  <div class="note" v-show="issues.total > issues.recent.length">{{ `Newest ${issues.recent.length} of ${issues.total} open tickets. A ticket tagged to two roles counts once for each.` }}</div>
+                </div>
+                <div class="empty" v-else>{{ issuesError || 'Loading…' }}</div>
               </section>
               <section class="card">
                 <div class="card-head"><h2>Team activity</h2><RouterLink to="/Settings/staff" class="link">Staff accounts ›</RouterLink></div>
@@ -178,9 +189,13 @@
 
 <script>
 import { notBuilt } from '@/lib/toast.js';
-import { loadProperties, loadMonth, loadTeamActivity } from '@/lib/dashboard-data.js';
+import { loadProperties, loadMonth, loadTeamActivity, loadOpenIssues } from '@/lib/dashboard-data.js';
 import { rm, signed, monthName, shortMonth, ddmm, monthOffset, when, stamp } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { ROLE_LABEL } from '@/lib/firebase.js';
+
+// The other roles' dashboards (RoleDashboard.vue), reached with ?as=role.
+const OTHER_VIEWS = ['it', 'hr', 'operations', 'procurement', 'marketing'];
 
 const me = useSession();
 
@@ -188,13 +203,13 @@ export default {
   data() {
     return {
       role: me.role,
-      view: me.role,                      // Director can "View as" Finance
+      view: me.role === 'director' && this.$route.query.as === 'finance' ? 'finance' : me.role,   // Director can "View as" Finance (or another role)
       month: monthOffset(-1),             // month-end work is for last month
       months: Array.from({ length: 12 }, (_, i) => monthOffset(-i)),
       propertyId: 'all',
       properties: [],
-      data: null, team: [], loading: true, error: '',
-      rm, signed, monthName, shortMonth, ddmm, when, stamp,
+      data: null, team: [], issues: null, issuesError: '', loading: true, error: '',
+      rm, signed, monthName, shortMonth, ddmm, when, stamp, ROLE_LABEL, OTHER_VIEWS,
       soon: notBuilt
     };
   },
@@ -206,11 +221,20 @@ export default {
     await this.load();
   },
   methods: {
+    // Director and Finance switch in place; another role's dashboard is a different page (?as=role).
+    viewAs() {
+      if (OTHER_VIEWS.includes(this.view) || this.$route.query.as) this.$router.replace({ path: '/Dashboard', query: this.view === 'director' ? {} : { as: this.view } });
+      else this.load();
+    },
     async load() {
       this.loading = true; this.error = '';
       try {
-        this.data = await loadMonth({ propertyId: this.propertyId, month: this.month, propertyIds: this.properties.map(p => p.id) });
-        if (this.view === 'director') this.team = await loadTeamActivity();
+        this.data = await loadMonth({ properties: this.properties, propertyId: this.propertyId, month: this.month, me });
+        if (this.view === 'director') {
+          this.team = await loadTeamActivity();
+          // Tickets don't change with the property or month, so they are read once.
+          if (!this.issues) this.issues = await loadOpenIssues().catch(e => { console.error(e); this.issuesError = 'Could not load the tickets.'; return null; });
+        }
       } catch (e) { this.fail(e); }
       this.loading = false;
     },
@@ -226,8 +250,8 @@ export default {
       const p = this.propertyId === 'all' ? 'All properties' : (this.properties.find(x => x.id === this.propertyId)?.name || '');
       return `${monthName(this.month)} · ${p} · ${this.view === 'director' ? 'the whole business at a glance' : 'month-end and owner payouts'}`;
     },
-    directorItems() { return this.data ? this.data.attention.filter(a => a.tag === 'Set up') : []; },
-    attentionCount() { return this.view === 'director' ? this.directorItems().length : (this.data ? this.data.attention.length : 0); }
+    directorItems() { return this.data ? this.data.setupItems : []; },
+    attentionCount() { return this.view === 'director' ? this.directorItems().length : (this.data ? this.data.attentionCount : 0); }
   }
 };
 </script>

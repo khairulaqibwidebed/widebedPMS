@@ -1,22 +1,24 @@
 // One place that starts Firebase. Everything imports from here.
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, doc, getDoc } from 'firebase/firestore';
 import { firebaseConfig } from '../firebase-config.js';
 
 export const configMissing = firebaseConfig.apiKey.startsWith('PASTE');
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-// Offline cache: reopening a page reads from the browser first, which saves free-plan reads.
+// Offline cache (persistent, shared by every tab): documents read or written are kept in this browser profile
+// (IndexedDB). Pages read finished data from it first (completed statements, month summaries that are still current:
+// see summary-data.js readMonthDoc and Month-end's cachedStatement), which saves free-plan reads. Because the copy stays
+// in the browser profile, Log out deletes it (logOut below), so the next person on a shared computer starts empty.
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   ignoreUndefinedProperties: true
 });
 
-// Roles that can sign in during Increment 1 (Finance MVP). Other roles can be given now
-// and start working when their pages are built.
-export const ALLOWED_ROLES = ['director', 'finance'];
+// Roles that can sign in. Each sees only the pages in its sidebar (nav.js) and its route list (router.js).
+export const ALLOWED_ROLES = ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing'];   // every role signs in (Khairul 21 Oct)
 export const ROLE_LABEL = { director: 'Director', finance: 'Finance', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing' };
 
 // A person's role lives on their staff record, users/{uid} (set on the Staff accounts page).
@@ -43,7 +45,13 @@ export function whoAmI() {
   });
 }
 
+// Log out also clears the offline cache: Firestore is stopped first (the cache can only be cleared then), the saved
+// copy is deleted from this browser profile, and the page reloads so Firestore starts again empty for the next person.
+// If another tab still holds the cache open, clearing fails; signing out still happens, and the copy is cleared at the
+// next Log out with one tab.
 export async function logOut() {
   await signOut(auth);
+  try { await terminate(db); await clearIndexedDbPersistence(db); }
+  catch (e) { console.warn('Could not clear the offline copy (another Widebed tab is open?):', e.code || e.message); }
   location.replace('/');
 }

@@ -55,7 +55,7 @@
             <tr class="clickable" @click="open(r)">
               <td><b>{{ r.unitCode }}</b></td>
               <td>{{ r.arrangementLabel }}</td>
-              <td class="num">{{ r.lines.length }}</td>
+              <td class="num">{{ r.bookingCount }}</td>
               <td class="num">{{ amt(r.totals.totalReceivable) }}</td>
               <td class="num">{{ amt(r.fixed ? r.totals.reimburse - r.totals.deduction : -(r.totals.serviceFee + r.totals.utilityFee + r.totals.sstOnFee) + r.totals.totalExpenses) }}</td>
               <td class="num" :class="r.totals.payout < 0 ? 'neg-amt' : ''"><b>{{ amt(r.totals.payout) }}</b></td>
@@ -280,12 +280,14 @@
 </template>
 
 <script>
-import { collection, doc, getDocs, setDoc, writeBatch, serverTimestamp, query, where }
+import { collection, doc, getDoc, getDocFromCache, getDocs, setDoc, writeBatch, serverTimestamp, query, where }
   from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { toast } from '@/lib/toast.js';
-import { ARRANGEMENTS, DM_STARTER, effectiveRates, unitStatement, paymentSummary, byUnit, nextMonth, unitIdOf, r2 } from '@/lib/engine.js';
-import { loadProperties, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, completedUnitIds, monthSummary } from '@/lib/finance-data.js';
+import { ARRANGEMENTS, DM_STARTER, paymentSummary, byUnit, nextMonth, r2 } from '@/lib/engine.js';
+import { loadProperties, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, monthSummary } from '@/lib/finance-data.js';
+import { draftRecord, monthEndFromSummaries, ALL_MONTHS } from '@/lib/summaries.js';
+import { propertyMonth, readUnit, markDirty, markFrom, canWriteSummaries } from '@/lib/summary-data.js';
 import { rm, amt, pct, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 
@@ -299,23 +301,9 @@ const SOURCE = { pms: 'Completed in the PMS', finance: "Finance's statement (Pay
 const pctIn = v => (v === '' || v == null ? null : Number(v) / 100);
 const pctOut = v => (v == null ? '' : +(v * 100).toFixed(4));
 
-// One statement in the shape that is saved on completion (and shown on screen either way).
-function record(s, u, month) {
-  return {
-    unitId: u.id, unitCode: u.unitCode, ownerId: u.ownerId || null, propertyId: u.propertyId, month,
-    arrangement: s.rates.arrangement || 'notSetUp', arrangementLabel: ARRANGEMENTS[s.rates.arrangement]?.label || 'Not set up',
-    fixed: s.fixed, status: s.status,
-    rates: { serviceFeePct: s.rates.serviceFeePct, utilityFeePct: s.rates.utilityFeePct, sstOnFeePct: s.rates.sstOnFeePct,
-      fixedRentAmount: s.rates.fixedRentAmount, versionId: s.rates.versionId },
-    lines: s.lines.map(l => ({ reservationNo: l.booking.reservationNo, source: l.booking.source, otaKey: l.otaKey, arrival: l.booking.arrival,
-      departure: l.booking.departure, nights: l.booking.nights, method: l.method, guestPaid: l.guestPaid, platform: l.platform,
-      pto: l.pto, estimated: l.estimated, final: !!l.final, edited: l.edited, note: l.note, financeAmount: l.booking.financeAmount ?? null })),
-    expenseLines: s.expenses.map(e => ({ expenseId: e.id, date: e.date, kind: e.kind, type: e.type, description: e.description, amount: e.signed })),
-    totals: { nights: s.nights, totalReceivable: s.totalReceivable, serviceFee: s.serviceFee || 0, utilityFee: s.utilityFee || 0, sstOnFee: s.sstOnFee || 0,
-      entitlement: s.entitlement ?? s.totalReceivable, totalExpenses: s.totalExpenses ?? (s.reimburse - s.deduction), netReceivable: s.netReceivable ?? s.payout,
-      roundingAdjust: s.roundingAdjust || 0, payout: s.payout, deduction: s.deduction || 0, reimburse: s.reimburse || 0, bookingIncome: s.bookingIncome ?? null }
-  };
-}
+// The statement record (saved on completion, shown either way) is statementRecord in lib/summaries.js.
+// The list comes from the unit month summaries; a unit's bookings are read only when its statement is opened.
+const msOf = t => (t?.toMillis ? t.toMillis() : (t?.seconds != null ? t.seconds * 1000 : null));
 
 export default {
   beforeCreate() { params = new URLSearchParams(location.search); },
@@ -325,7 +313,7 @@ export default {
       role: me.role,
       properties: [], propertyId: params.get('property') || '', month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
-      setup: { units: [], rates: null }, bookings: [], expenses: [], stored: [], payHistory: {},
+      prop: null, ums: [], unitFull: {}, rateVersions: null, payHistory: {},
       rows: [], checklist: [], summary: { income: 0, fixed: 0, share: 0, balToPay: 0, carried: 0 },
       completed: false,
       loading: true, busy: false, error: '', okMsg: '',
@@ -353,48 +341,78 @@ export default {
       if (!this.propertyId) { this.loading = false; return; }
       this.loading = true; this.error = ''; this.selOpen = false; this.confirming = false; this.reopening = false;
       try {
-        const [setup, bookings, expenses, st, ph] = await Promise.all([
-          loadSetup(this.propertyId, this.month), loadBookings(this.propertyId, this.month), loadExpenses(this.propertyId, this.month),
-          getDocs(query(collection(db, 'statements'), where('propertyId', '==', this.propertyId), where('month', '==', this.month))),
-          getDocs(query(collection(db, 'payoutHistory'), where('propertyId', '==', this.propertyId), where('year', '==', this.month.slice(0, 4))))
-        ]);
-        this.payHistory = {}; ph.docs.forEach(d => { this.payHistory[d.id] = d.data(); });
-        Object.assign(this, { setup, bookings, expenses });
-        this.stored = st.docs.map(d => ({ id: d.id, ...d.data() }));
+        // The property is read again here: its counters say which summaries are stale, and this page changes them.
+        const ps = await getDoc(doc(db, 'properties', this.propertyId));
+        this.prop = { id: this.propertyId, ...(ps.exists() ? ps.data() : {}) };
+        const pm = await propertyMonth(this.prop, this.month, { me, canWrite: canWriteSummaries(me), unitSummaries: true });
+        this.ums = pm.units; this.unitFull = {}; this.rateVersions = null; this.payHistory = {};
         this.compute();
       } catch (e) { this.error = friendlyError(e, 'load the month'); }
       this.loading = false;
     },
 
-    // Drafts are worked out here every time (never stored). Completion is per unit: a completed unit shows what was saved,
-    // the others are worked out as drafts. A reopened unit (status 'reopened') is a draft again until it is completed.
+    // Drafts are worked out by the engine (summaries.js keeps the result per unit, and works it out again when a unit's
+    // data changes). Completion is per unit: a completed unit shows what was saved. A reopened unit is a draft again.
     compute() {
-      const done = this.stored.filter(s => s.status === 'completed');
-      const doneIds = new Set(done.map(s => s.unitId));
-      const units = this.setup.units.filter(u => !doneIds.has(u.id));
-      const active = this.bookings.filter(b => b.status !== 'cancelled');
-      // Bookings whose unit record is missing still get a statement (flagged Not set up)
-      for (const b of active) if (b.unitId && !doneIds.has(b.unitId) && !units.some(u => u.id === b.unitId))
-        units.push({ id: b.unitId, unitCode: b.unitCode, propertyId: this.propertyId, terms: null, termHistory: [] });
-      const live = this.expenses.filter(e => !e.deleted);
-      const drafts = units.map(u => {
-        const rates = effectiveRates(this.setup.rates, u.terms);
-        const bk = active.filter(b => b.unitId === u.id), ex = live.filter(e => e.unitId === u.id);
-        if (!bk.length && !ex.length && rates.arrangement !== 'fixedRent') return null;
-        return record(unitStatement({ unit: u, rates, bookings: bk, expenses: ex }), u, this.month);
-      }).filter(Boolean);
-      this.rows = [...drafts, ...done.map(s => ({ ...s, status: 'completed' }))].sort((a, b) => byUnit(a.unitCode, b.unitCode));
+      const { rows, drafts, doneCount, activeCount, noUnit } = monthEndFromSummaries(this.ums, this.month);
+      this.rows = rows;
       this.completed = this.rows.length > 0 && !drafts.length;
       // Each item names its unit; items with no unit (nothing uploaded, a room not recognised) hold back every unit.
       const c = [];
-      if (!active.length && !doneIds.size) c.push({ unitId: null, text: `No bookings for ${monthName(this.month)} yet. Upload the eZee report first.`, label: 'Upload', action: () => this.$router.push('/Finance/upload') });
-      for (const b of active.filter(b => !b.unitId)) c.push({ unitId: null, text: `${b.reservationNo}: room "${b.roomRaw}" not recognised` });
+      if (!activeCount && !doneCount) c.push({ unitId: null, text: `No bookings for ${monthName(this.month)} yet. Upload the eZee report first.`, label: 'Upload', action: () => this.$router.push('/Finance/upload') });
+      for (const b of noUnit) c.push({ unitId: null, text: `${b.reservationNo}: room "${b.roomRaw}" not recognised` });
       for (const r of drafts.filter(r => r.status === 'notSetUp')) c.push({ unitId: r.unitId, text: `${r.unitCode}: not set up (no arrangement)`, label: 'Set up', action: () => this.openSettings(this.unitById(r.unitId)) });
-      for (const r of drafts.filter(r => !r.fixed)) for (const l of r.lines.filter(l => l.estimated))
-        c.push({ unitId: r.unitId, text: `${r.unitCode}: Ctrip ${l.reservationNo} needs the Trip.com amount`, label: 'Open', action: () => this.open(r) });
+      for (const r of drafts.filter(r => !r.fixed)) for (const no of r.estimatedLines)
+        c.push({ unitId: r.unitId, text: `${r.unitCode}: Ctrip ${no} needs the Trip.com amount`, label: 'Open', action: () => this.open(r) });
       this.checklist = c;
       this.summary = paymentSummary(this.rows.map(r => ({ fixed: r.fixed, payout: r.totals.payout, totalReceivable: r.totals.totalReceivable })));
-      if (this.sel) { const again = this.rows.find(r => r.unitId === this.sel.unitId); if (again) this.sel = again; else this.selOpen = false; }
+      if (this.sel) { const again = this.rows.find(r => r.unitId === this.sel.unitId) && this.fullRecord(this.sel.unitId); if (again) this.sel = again; else this.selOpen = false; }
+    },
+    // ---- one unit's full data (its statement page) ----
+    async loadUnitFull(unitId) {
+      if (this.unitFull[unitId]) return this.unitFull[unitId];
+      const um = this.ums.find(u => u.unitId === unitId);
+      const d = await readUnit(this.propertyId, this.month, unitId, this.rateVersions, um?.row?.status === 'completed' ? (ref => this.cachedStatement(ref, um)) : null);
+      this.rateVersions = d.rateVersions;
+      const ph = await getDocs(query(collection(db, 'payoutHistory'), where('unitId', '==', unitId), where('year', '==', this.month.slice(0, 4))));
+      ph.docs.forEach(x => { if (x.data().propertyId === this.propertyId) this.payHistory[x.id] = x.data(); });
+      this.unitFull[unitId] = d;
+      return d;
+    },
+    // A completed statement never changes except by a Director reopen, so the copy saved in this browser is used
+    // when it matches the unit's summary (same status, revision and completion time); otherwise it is read again.
+    async cachedStatement(ref, um) {
+      try {
+        const c = await getDocFromCache(ref);
+        const s = c.exists() ? c.data() : null, m = um.statement || {};
+        if (s && s.status === 'completed' && m.status === 'completed' && s.revision === m.revision && msOf(s.completedAt) === m.completedAtMs) return c;
+      } catch (_) { /* not saved in this browser */ }
+      return getDoc(ref);
+    },
+    // The unit's statement as Month-end payout shows it: the saved one when completed, otherwise the engine's draft.
+    fullRecord(unitId) {
+      const d = this.unitFull[unitId];
+      if (!d) return null;
+      if (d.statement?.status === 'completed') return { ...d.statement, status: 'completed' };
+      return draftRecord({ propertyId: this.propertyId, month: this.month, unitId, unit: d.unit, propertyRates: d.propertyRates, bookings: d.bookings, expenses: d.expenses });
+    },
+    // Every row with its booking and expense lines (Download xlsx): the whole month is read, as before.
+    async fullRows() {
+      const [setup, bookings, expenses, st, ph] = await Promise.all([
+        loadSetup(this.propertyId, this.month), loadBookings(this.propertyId, this.month), loadExpenses(this.propertyId, this.month),
+        getDocs(query(collection(db, 'statements'), where('propertyId', '==', this.propertyId), where('month', '==', this.month))),
+        getDocs(query(collection(db, 'payoutHistory'), where('propertyId', '==', this.propertyId), where('year', '==', this.month.slice(0, 4))))
+      ]);
+      ph.docs.forEach(d => { this.payHistory[d.id] = d.data(); });
+      const done = st.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => s.status === 'completed');
+      const doneIds = new Set(done.map(s => s.unitId));
+      const units = setup.units.filter(u => !doneIds.has(u.id));
+      const active = bookings.filter(b => b.status !== 'cancelled');
+      const missing = [];
+      for (const b of active) if (b.unitId && !doneIds.has(b.unitId) && !units.some(u => u.id === b.unitId) && !missing.includes(b.unitId)) missing.push(b.unitId);
+      const drafts = [...units.map(u => u.id), ...missing].map(id => draftRecord({ propertyId: this.propertyId, month: this.month, unitId: id,
+        unit: units.find(u => u.id === id) || null, propertyRates: setup.rates, bookings: bookings.filter(b => b.unitId === id), expenses: expenses.filter(e => e.unitId === id) })).filter(Boolean);
+      return [...drafts, ...done.map(s => ({ ...s, status: 'completed' }))].sort((a, b) => byUnit(a.unitCode, b.unitCode));
     },
     // ---- Monthly payout summary (like the strip at the bottom of Finance's unit sheets) ----
     yearMonths() { const y = this.month.slice(0, 4); return SHORT.map((_, i) => `${y}-${String(i + 1).padStart(2, '0')}`); },
@@ -403,7 +421,7 @@ export default {
       const h = this.payHistory[`${r.unitId}_${m}`];
       return h ? { value: h.payout, label: `${SOURCE[h.source] || h.source}${h.fileName ? ` · ${h.fileName}` : ''}` } : null;
     },
-    bookingCount() { return this.rows.reduce((s, r) => s + r.lines.length, 0); },
+    bookingCount() { return this.rows.reduce((s, r) => s + r.bookingCount, 0); },
     match(r, key) {
       if (key === 'all') return true;
       if (key === 'attention') return r.status === 'notSetUp' || r.status === 'estimated';
@@ -417,15 +435,29 @@ export default {
       const q = this.search.trim().toLowerCase();
       return this.rows.filter(r => this.match(r, this.filter) && (!q || r.unitCode.toLowerCase().includes(q)));
     },
-    unitById(id) { return this.setup.units.find(u => u.id === id) || { id, unitCode: this.rows.find(r => r.unitId === id)?.unitCode || id, termHistory: [] }; },
-    open(r) { this.sel = r; this.ctripInput = {}; this.confirming = false; this.reopening = false; this.overrideReason = ''; this.selOpen = true; window.scrollTo(0, 0); },
+    unitById(id) { return this.unitFull[id]?.unit || { id, unitCode: this.rows.find(r => r.unitId === id)?.unitCode || id, termHistory: [], missing: !this.unitFull[id] }; },
+    async open(r) {
+      this.busy = true; this.error = '';
+      try {
+        await this.loadUnitFull(r.unitId);
+        this.sel = this.fullRecord(r.unitId) || r; this.ctripInput = {}; this.confirming = false; this.reopening = false; this.overrideReason = ''; this.selOpen = true; window.scrollTo(0, 0);
+      } catch (e) { this.error = friendlyError(e, 'open the statement'); }
+      this.busy = false;
+    },
     askComplete() { this.confirming = true; this.$nextTick(() => this.$refs.completeBox?.scrollIntoView({ behavior: 'smooth', block: 'center' })); },
     doneCount() { return this.rows.filter(r => r.status === 'completed').length; },
     isDone(unitId) { return this.rows.some(r => r.unitId === unitId && r.status === 'completed'); },
     // What holds back this unit's Approve & complete: its own items, plus month-wide ones (nothing uploaded, unknown rooms)
     blockers(r) { return r && r.status !== 'completed' ? this.checklist.filter(c => !c.unitId || c.unitId === r.unitId) : []; },
     // A unit completed before and reopened: completing it again is a new revision (Director Override)
-    reopened(r) { return !!r && this.stored.some(s => s.unitId === r.unitId && s.status === 'reopened'); },
+    reopened(r) { return !!r && this.ums.some(u => u.unitId === r.unitId && u.statement?.status === 'reopened'); },
+    // A unit's statement for another month is completed (one read)
+    async doneIn(unitId, month) { const s = await getDoc(doc(db, 'statements', statementId(unitId, month))); return s.exists() && s.data().status === 'completed'; },
+    // This unit's expense lines for another month (the brought-forward line lives there)
+    async unitExpenses(unitId, month) {
+      const snap = await getDocs(query(collection(db, 'expenses'), where('unitId', '==', unitId), where('month', '==', month)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.propertyId === this.propertyId);
+    },
 
     // ---- Ctrip amount typed per booking (ARR-13) ----
     async saveCtrip(l) {
@@ -436,21 +468,24 @@ export default {
       try {
         const b = writeBatch(db);
         const ctrip = { guestPaid: v, enteredBy: me.user.uid, enteredByName: me.name, enteredAt: serverTimestamp() };
+        const unitId = this.sel.unitId, full = this.unitFull[unitId];
         b.set(doc(db, 'bookings', l.reservationNo), { ctrip }, { merge: true });
+        markDirty(b, this.propertyId, this.month, [unitId]);   // the unit's summary is worked out again
         audit(b, me, { action: 'ctrip.enter', entity: `bookings/${l.reservationNo}`, propertyId: this.propertyId, month: this.month,
-          changes: [{ field: 'ctrip.guestPaid', old: this.bookings.find(x => x.id === l.reservationNo)?.ctrip?.guestPaid ?? null, new: v }] });
+          changes: [{ field: 'ctrip.guestPaid', old: full?.bookings.find(x => x.id === l.reservationNo)?.ctrip?.guestPaid ?? null, new: v }] });
         await b.commit();
-        const bk = this.bookings.find(x => x.id === l.reservationNo); if (bk) bk.ctrip = { guestPaid: v };
+        const bk = full?.bookings.find(x => x.id === l.reservationNo); if (bk) bk.ctrip = { guestPaid: v };
         this.ctripInput[l.reservationNo] = '';
-        this.compute();
+        await this.refreshKeepingUnit(unitId);
         this.okMsg = `Trip.com amount saved for ${l.reservationNo}.`;
       } catch (e) { this.error = friendlyError(e, 'save the Ctrip amount'); }
       this.busy = false;
     },
 
     // ---- Unit settings (effective-dated terms, ARR-15/16) ----
-    openSettings(u) {
+    async openSettings(u) {
       if (this.isDone(u.id)) return;   // a completed unit's settings for this month are read-only
+      if (u.missing) { try { await this.loadUnitFull(u.id); } catch (e) { this.error = friendlyError(e, 'open the unit settings'); return; } u = this.unitById(u.id); }
       const t = u.terms || {};
       this.set = { unitId: u.id, unitCode: u.unitCode, arrangement: t.arrangement || 'profitShare20', fixedRentAmount: t.fixedRentAmount ?? '',
         serviceFeePct: pctOut(t.serviceFeePct), utilityFeePct: pctOut(t.utilityFeePct), sstOnFeePct: pctOut(t.sstOnFeePct),
@@ -476,9 +511,12 @@ export default {
       try {
         const b = writeBatch(db);
         // A unit seen only in bookings gets its unit record now
-        if (!this.setup.units.some(u => u.id === s.unitId))
+        if (!this.unitFull[s.unitId]?.unit) {
           b.set(doc(db, 'units', s.unitId), { propertyId: this.propertyId, unitCode: s.unitCode, ezeeRoomMatch: s.unitCode, aliases: [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+          markFrom(b, this.propertyId, ALL_MONTHS, s.unitId);
+        }
         b.set(doc(db, 'units', s.unitId, 'terms', `${s.effectiveFrom}_${Date.now()}`), data);
+        markFrom(b, this.propertyId, s.effectiveFrom, s.unitId);   // summaries from that month on are worked out again
         audit(b, me, { action: 'unitTerms.create', entity: `units/${s.unitId}/terms`, propertyId: this.propertyId, month: s.effectiveFrom,
           changes: [{ field: 'arrangement', old: this.unitById(s.unitId).terms?.arrangement || null, new: s.arrangement }], reason: s.reason.trim() });
         await b.commit();
@@ -498,11 +536,13 @@ export default {
         const b = writeBatch(db);
         let n = 0;
         const stamp = Date.now();
-        for (const u of this.setup.units.filter(u => !u.terms && !this.isDone(u.id))) {
+        const { units } = await loadSetup(this.propertyId, this.month);
+        for (const u of units.filter(u => !u.terms && !this.isDone(u.id))) {
           const share = DM_STARTER.units.find(x => x[0] === u.unitCode), fixed = DM_STARTER.fixed.find(x => x[0] === u.unitCode);
           if (!share && !fixed) continue;
           const data = fixed ? this.termsDoc('fixedRent', { fixedRentAmount: fixed[1] }) : this.termsDoc(share[1], share[2] || {});
           b.set(doc(db, 'units', u.id, 'terms', `${this.month}_${stamp}`), { ...data, effectiveFrom: this.month, reason: 'Starter settings (Upload CSV test page, Finance Sep 2026 set-up)' });
+          markFrom(b, this.propertyId, this.month, u.id);
           n++;
         }
         audit(b, me, { action: 'unitTerms.starter', entity: `properties/${this.propertyId}`, propertyId: this.propertyId, month: this.month,
@@ -526,18 +566,21 @@ export default {
     async complete() {
       const r = this.sel;
       if (!r || r.status === 'completed' || this.blockers(r).length) return;
-      const again = this.reopened(r), prev = this.stored.find(s => s.unitId === r.unitId);
+      const again = this.reopened(r), prev = this.unitFull[r.unitId]?.statement;
       if (again && me.role !== 'director') { this.error = `${r.unitCode} was reopened. Only a Director can complete it again (Director Override).`; return; }
       if (again && !this.overrideReason.trim()) { this.error = 'Add the reason for the new revision.'; return; }
       this.busy = true; this.error = '';
       try {
         const next = nextMonth(this.month), id = statementId(r.unitId, this.month);
-        if ((await completedUnitIds(this.propertyId, next)).has(r.unitId)) throw new Error(`${r.unitCode} is already completed for ${monthName(next)}, so its balance can't carry forward into it.`);
+        if (await this.doneIn(r.unitId, next)) throw new Error(`${r.unitCode} is already completed for ${monthName(next)}, so its balance can't carry forward into it.`);
         const b = writeBatch(db);
+        let nextChanged = r.totals.payout < 0;
         // A Brought Forward line made earlier (from Finance's statement for this month) goes if the PMS payout is no longer negative
-        for (const e of (await loadExpenses(this.propertyId, next)).filter(e => e.auto && e.sourceMonth === this.month && !e.deleted && e.unitId === r.unitId))
-          if (!(r.totals.payout < 0))
+        for (const e of (await this.unitExpenses(r.unitId, next)).filter(e => e.auto && e.sourceMonth === this.month && !e.deleted))
+          if (!(r.totals.payout < 0)) {
             b.update(doc(db, 'expenses', e.id), { deleted: true, auto: true, deletedReason: `${r.unitCode} ${monthName(this.month)} completed in the PMS` });
+            nextChanged = true;
+          }
         b.set(doc(db, 'payoutHistory', id), { propertyId: this.propertyId, unitId: r.unitId, unitCode: r.unitCode, month: this.month, year: this.month.slice(0, 4),
           source: 'pms', totalIncome: r.totals.totalReceivable, charges: r2(r.totals.totalReceivable - r.totals.payout), payout: r.totals.payout, fixed: r.fixed, remark: '',
           fileName: null, importedBy: me.user.uid, importedByName: me.name, importedAt: serverTimestamp() });
@@ -553,6 +596,9 @@ export default {
         const doneIds = new Set([...this.rows.filter(x => x.status === 'completed').map(x => x.unitId), r.unitId]);
         const m = this.monthSummaryDoc(doneIds);
         b.set(doc(db, 'months', `${this.propertyId}_${this.month}`), m, { merge: true });
+        // The unit's summary now comes from the completed statement; the next month's changes with its brought-forward line
+        markDirty(b, this.propertyId, this.month, [r.unitId]);
+        if (nextChanged) markDirty(b, this.propertyId, next, [r.unitId]);
         audit(b, me, { action: again ? 'statement.override' : 'statement.complete', entity: `statements/${id}`,
           propertyId: this.propertyId, month: this.month, changes: [{ field: 'status', old: again ? 'reopened' : 'open', new: 'completed' }], reason: this.overrideReason.trim() });
         await b.commit();
@@ -570,15 +616,19 @@ export default {
       this.busy = true; this.error = '';
       try {
         const next = nextMonth(this.month), id = statementId(r.unitId, this.month);
-        if ((await completedUnitIds(this.propertyId, next)).has(r.unitId)) throw new Error(`${r.unitCode} is already completed for ${monthName(next)}, which holds its brought-forward line. Reopen ${monthName(next)} for this unit first.`);
-        const reason = this.overrideReason.trim(), s = this.stored.find(x => x.unitId === r.unitId);
+        if (await this.doneIn(r.unitId, next)) throw new Error(`${r.unitCode} is already completed for ${monthName(next)}, which holds its brought-forward line. Reopen ${monthName(next)} for this unit first.`);
+        const reason = this.overrideReason.trim(), s = this.unitFull[r.unitId].statement;
         const { id: _id, ...data } = s;
         await setDoc(doc(db, 'statements', id, 'revisions', String(s.revision || 1)), { ...data, reopenReason: reason, reopenedBy: me.user.uid, reopenedAt: serverTimestamp() });
-        const nextExp = await loadExpenses(this.propertyId, next);
+        const nextExp = await this.unitExpenses(r.unitId, next);
         const b = writeBatch(db);
         b.update(doc(db, 'statements', id), { status: 'reopened', reopenReason: reason, reopenedBy: me.user.uid, reopenedByName: me.name, reopenedAt: serverTimestamp() });
-        for (const e of nextExp.filter(e => e.auto && e.sourceMonth === this.month && !e.deleted && e.unitId === r.unitId))
+        const bf = nextExp.filter(e => e.auto && e.sourceMonth === this.month && !e.deleted);
+        for (const e of bf)
           b.update(doc(db, 'expenses', e.id), { deleted: true, auto: true, deletedReason: `${r.unitCode} ${monthName(this.month)} reopened` });
+        // The unit is a draft again: its summary is worked out from the bookings again (and the next month's, if a line went)
+        markDirty(b, this.propertyId, this.month, [r.unitId]);
+        if (bf.length) markDirty(b, this.propertyId, next, [r.unitId]);
         const doneIds = new Set(this.rows.filter(x => x.status === 'completed' && x.unitId !== r.unitId).map(x => x.unitId));
         b.set(doc(db, 'months', `${this.propertyId}_${this.month}`), { ...this.monthSummaryDoc(doneIds), reopenedBy: me.user.uid, reopenedByName: me.name, reopenedAt: serverTimestamp() }, { merge: true });
         audit(b, me, { action: 'statement.reopen', entity: `statements/${id}`, propertyId: this.propertyId, month: this.month,
@@ -593,7 +643,16 @@ export default {
     async reloadAt(unitId) {
       await this.load();
       const again = this.rows.find(x => x.unitId === unitId);
-      if (again) { this.sel = again; this.ctripInput = {}; this.selOpen = true; }
+      if (again) { await this.loadUnitFull(unitId); this.sel = this.fullRecord(unitId) || again; this.ctripInput = {}; this.selOpen = true; }
+    },
+    // After a change made on the open statement: the list is read again (the unit's summary is refreshed),
+    // the statement stays open and is worked out from the data already in memory.
+    async refreshKeepingUnit(unitId) {
+      const full = this.unitFull[unitId], ph = this.payHistory, rv = this.rateVersions;
+      await this.load();
+      this.unitFull[unitId] = full; this.payHistory = ph; this.rateVersions = rv;
+      const again = this.rows.find(x => x.unitId === unitId) && this.fullRecord(unitId);
+      if (again) { this.sel = again; this.selOpen = true; }
     },
 
     // ---- xlsx in Finance's order: Payment To Owner, statements, every booking, expenses ----
@@ -601,6 +660,7 @@ export default {
       this.busy = true;
       try {
         const X = await loadXlsxLib(), wb = X.utils.book_new(), R = v => (typeof v === 'number' ? r2(v) : v);
+        const rows = await this.fullRows();   // the export needs every booking line, so the whole month is read here
         const add = (name, aoa, widths) => {
           const ws = X.utils.aoa_to_sheet(aoa.map(r => r.map(R)));
           ws['!cols'] = widths.map(w => ({ wch: w }));
@@ -608,22 +668,22 @@ export default {
           X.utils.book_append_sheet(wb, ws, name);
         };
         const pay = [['Unit', 'Arrangement', 'Total Rental Income', 'Service Fees (Include SST) & Charges', 'Payment To Owner', 'Remark', 'Statement']];
-        this.rows.forEach(r => pay.push([r.unitCode, r.arrangementLabel, r.totals.totalReceivable, r.totals.totalReceivable - r.totals.payout, r.totals.payout,
+        rows.forEach(r => pay.push([r.unitCode, r.arrangementLabel, r.totals.totalReceivable, r.totals.totalReceivable - r.totals.payout, r.totals.payout,
           r.fixed ? 'FIXED' : r.totals.payout < 0 ? 'Negative: carried forward' : STATUS[r.status][0], r.status === 'completed' ? 'Completed' : 'Open']));
         pay.push([], ['Total', '', this.summary.income], ['', '', '', 'Bal to pay', this.summary.balToPay], ['', '', '', 'Fixed Rent', this.summary.fixed], ['', '', '', 'Profit Sharing', this.summary.share]);
         add('Payment To Owner', pay, [12, 18, 18, 22, 18, 26, 11]);
         const st = [['Unit', 'Arrangement', 'Bookings', 'Nights', 'Total Receivable', 'Service Fee', 'Utilities', 'SST on Fee', "Owner's Entitlement", 'Expenses', 'Nett Receivable', 'Rounding', 'Payout', 'Status']];
-        this.rows.forEach(r => st.push([r.unitCode, r.arrangementLabel, r.lines.length, r.totals.nights, r.totals.totalReceivable, -r.totals.serviceFee, -r.totals.utilityFee, -r.totals.sstOnFee,
+        rows.forEach(r => st.push([r.unitCode, r.arrangementLabel, r.lines.length, r.totals.nights, r.totals.totalReceivable, -r.totals.serviceFee, -r.totals.utilityFee, -r.totals.sstOnFee,
           r.totals.entitlement, r.totals.totalExpenses, r.totals.netReceivable, r.totals.roundingAdjust, r.totals.payout, STATUS[r.status][0]]));
         add('Statements', st, [12, 18, 9, 8, 15, 12, 12, 11, 16, 12, 15, 10, 12, 12]);
         const bk = [['Unit', 'Source', 'Reservation No', 'Check In', 'Check Out', 'Nights', 'Method', 'Guest paid (before commission)', 'Platform charges', 'PTO (RM)', "Finance's amount", 'Note']];
-        this.rows.forEach(r => r.lines.forEach(l => bk.push([r.unitCode, l.source, l.reservationNo, dmy(l.arrival), dmy(l.departure), l.nights, l.method, l.guestPaid, l.platform, l.pto, l.financeAmount ?? '', l.note || ''])));
+        rows.forEach(r => r.lines.forEach(l => bk.push([r.unitCode, l.source, l.reservationNo, dmy(l.arrival), dmy(l.departure), l.nights, l.method, l.guestPaid, l.platform, l.pto, l.financeAmount ?? '', l.note || ''])));
         add('Bookings', bk, [12, 16, 14, 11, 11, 7, 10, 16, 14, 12, 14, 40]);
         const ym = this.yearMonths(), ps = [['Unit', ...ym.map(m => `${SHORT[+m.slice(5) - 1]} ${m.slice(0, 4)}`)]];
-        this.rows.forEach(r => ps.push([r.unitCode, ...ym.map(m => this.payoutFor(r, m)?.value ?? '')]));
+        rows.forEach(r => ps.push([r.unitCode, ...ym.map(m => this.payoutFor(r, m)?.value ?? '')]));
         add('Monthly Payout Summary', ps, [12, ...ym.map(() => 11)]);
         const ex = [['Unit', 'Date', 'Kind', 'Description', 'Amount']];
-        this.rows.forEach(r => r.expenseLines.forEach(e => ex.push([r.unitCode, dmy(e.date), e.kind, e.description, e.amount])));
+        rows.forEach(r => r.expenseLines.forEach(e => ex.push([r.unitCode, dmy(e.date), e.kind, e.description, e.amount])));
         add('Expenses', ex, [12, 11, 14, 36, 12]);
         const out = X.write(wb, { bookType: 'xlsx', type: 'array' });
         download(`${this.property().code || this.propertyId} ${monthName(this.month)} owner payout${this.completed ? '' : ' (draft)'}.xlsx`, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));

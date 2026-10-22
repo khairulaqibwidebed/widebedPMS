@@ -6,15 +6,17 @@
         <div class="sub">What Widebed does and how it earns money. Read this in your first week.</div>
       </div>
       <div class="head-tools">
-        <span class="chip">{{ `Last updated by ${page.updatedBy} · ${page.updatedOn}` }}</span>
-        <button class="btn" v-show="isDirector && !editing" @click="startEdit()">Edit page</button>
+        <span class="chip" v-show="!loading">{{ page.updatedBy ? `Last updated by ${page.updatedBy} · ${page.updatedOn}` : 'Starter text, not edited yet' }}</span>
+        <button class="btn" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit page</button>
       </div>
     </div>
+    <div class="notice error" v-show="error">{{ error }}</div>
+    <div class="loading-bar" v-show="loading"></div>
 
     <div class="edit-bar" v-show="editing">
-      <span>Editing. Everyone else sees the page read-only. Saved in this browser for now; saving for all staff comes later.</span>
+      <span>Editing. Everyone else sees the page read-only. Saving updates it for all staff.</span>
       <button class="btn" @click="cancel()">Cancel</button>
-      <button class="btn btn-primary" @click="save()">Save page</button>
+      <button class="btn btn-primary" :disabled="busy" @click="save()">{{ busy ? 'Saving…' : 'Save page' }}</button>
     </div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
@@ -51,12 +53,15 @@
 </template>
 
 <script>
+import { doc, getDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { db, ROLE_LABEL } from '@/lib/firebase.js';
+import { audit, friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
 
+// Starter text (shown until HR or a Director saves the page for the first time).
 const DEFAULT = {
-  updatedBy: 'HR', updatedOn: '17 Oct 2026',
   sections: [
     { title: 'What Widebed does', body: 'Widebed manages serviced apartments on behalf of unit owners in Malaysia.\nEach unit is rented out either as short stays (29 nights or less, sold through booking sites) or as a monthly or yearly tenancy (30 nights or more).\nWidebed handles guests, cleaning, repairs and payments, and pays the owner every month.' },
     { title: 'How Widebed earns money', body: 'Each owner signs one of four arrangements:\n• Fixed rent: Widebed pays the owner a fixed amount every month and keeps the rest.\n• Profit share 40% (daily stays): 20% service fee + 20% utilities, taken from the monthly total.\n• Profit share 20% (monthly stays).\n• Long-term tenant: 10% fee plus SST on the fee.' },
@@ -73,28 +78,49 @@ const DEFAULT = {
     { term: 'Deposit', meaning: '2 months, required for every long-term tenant' }
   ]
 };
-const KEY = 'wb.businessModel.v1';
-const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || structuredClone(DEFAULT); } catch { return structuredClone(DEFAULT); } };
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmt = d => `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`;
+const copy = v => JSON.parse(JSON.stringify(v));
+// The page lives in playbook/businessModel. Until the first save the starter text above shows.
+const REF = () => doc(db, 'playbook', 'businessModel');
 
 export default {
   data() {
     return {
-      isDirector: me.role === 'director', page: read(), draft: read(), editing: false, okMsg: ''
+      canEdit: ['director', 'hr'].includes(me.role), page: { ...copy(DEFAULT), updatedBy: '', updatedOn: '' }, draft: copy(DEFAULT),
+      editing: false, okMsg: '', error: '', loading: true, busy: false
     };
+  },
+  async mounted() {
+    try {
+      const snap = await getDoc(REF());
+      if (snap.exists()) {
+        const d = snap.data();
+        this.page = { sections: d.sections || [], terms: d.terms || [], updatedBy: d.updatedBy || '', updatedOn: d.updatedAt?.toDate ? fmt(d.updatedAt.toDate()) : '' };
+      }
+    } catch (e) { this.error = friendlyError(e, 'load the page'); }
+    this.loading = false;
   },
   methods: {
     view() { return this.editing ? this.draft : this.page; },
-    startEdit() { this.draft = JSON.parse(JSON.stringify(this.page)); this.editing = true; this.okMsg = ''; },
+    startEdit() { this.draft = copy(this.page); this.editing = true; this.okMsg = ''; this.error = ''; },
     cancel() { this.editing = false; },
-    save() {
-      const d = this.draft, now = new Date();
-      d.sections = d.sections.filter(s => s.title.trim() || s.body.trim());
-      d.terms = d.terms.filter(t => t.term.trim());
-      d.updatedBy = 'Director'; d.updatedOn = `${now.getDate()} ${MON[now.getMonth()]} ${now.getFullYear()}`;
-      this.page = JSON.parse(JSON.stringify(d)); this.editing = false;
-      try { localStorage.setItem(KEY, JSON.stringify(d)); } catch {}
-      this.okMsg = 'Page saved.';
+    async save() {
+      const d = this.draft;
+      const sections = d.sections.filter(s => s.title.trim() || s.body.trim()).map(s => ({ title: s.title, body: s.body }));
+      const terms = d.terms.filter(t => t.term.trim()).map(t => ({ term: t.term, meaning: t.meaning }));
+      const by = ROLE_LABEL[me.role] || me.name;
+      this.busy = true; this.error = '';
+      try {
+        const batch = writeBatch(db);
+        batch.set(REF(), { sections, terms, updatedAt: serverTimestamp(), updatedBy: by, updatedByUid: me.user.uid });
+        audit(batch, me, { action: 'playbook.update', entity: 'playbook/businessModel',
+          changes: [{ field: 'sections', old: this.page.sections.length, new: sections.length }, { field: 'terms', old: this.page.terms.length, new: terms.length }] });
+        await batch.commit();
+        this.page = { sections, terms, updatedBy: by, updatedOn: fmt(new Date()) }; this.editing = false;
+        this.okMsg = 'Page saved.';
+      } catch (e) { this.error = friendlyError(e, 'save the page'); }
+      this.busy = false;
     }
   }
 };

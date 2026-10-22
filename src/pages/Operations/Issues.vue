@@ -1,16 +1,18 @@
 <template>
   <main class="content">
+    <div class="loading-bar" v-show="loading || busy"></div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
+    <div class="notice error" v-show="error">{{ error }}</div>
 
     <!-- ===== Ticket list ===== -->
     <template v-if="!ticket">
       <div>
         <div class="page-head">
           <div>
-            <h1>Issues <span class="sample-tag">sample</span></h1>
+            <h1>Issues</h1>
             <div class="sub">Raise a ticket for anything at a unit or in the office. You only see tickets tagged to your role, tickets you raised, and Directors see all.</div>
           </div>
-          <button class="btn btn-primary" @click="openRaise()">+ Raise a ticket</button>
+          <button class="btn btn-primary" v-if="canRaise" @click="openRaise()">+ Raise a ticket</button>
         </div>
 
         <div class="kpis k3">
@@ -34,7 +36,7 @@
 
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Ticket no.</th><th>Title</th><th>Unit</th><th>Tags</th><th>Raised by</th><th>Raised on</th><th>Status</th><th class="cnt" title="Comments">💬</th><th class="cnt" title="Attachments">📎</th></tr></thead>
+            <thead><tr><th>Ticket no.</th><th>Title</th><th>Unit</th><th>Tags</th><th>Raised by</th><th>Raised on</th><th>Status</th><th class="cnt" title="Comments">💬</th><th class="cnt" title="Drive links">🔗</th></tr></thead>
             <tbody>
               <template v-for="t in shown()" :key="t.id">
                 <tr class="clickable" @click="open(t.id)">
@@ -42,20 +44,20 @@
                   <td class="t-title">{{ t.title }}</td>
                   <td class="nw">{{ t.unit || '—' }}</td>
                   <td class="nw"><template v-for="g in t.tags" :key="g"><span class="tag">{{ g }}</span></template></td>
-                  <td>{{ t.raisedBy }}</td>
+                  <td><span class="who"><Avatar :uid="t.raisedByUid" :name="t.raisedBy" :role="t.raisedRole" :size="20" />{{ t.raisedBy }}<span class="tag role-tint" :style="roleTint(t.raisedRole)" v-if="showRole(t.raisedBy, t.raisedRole)">{{ t.raisedRole }}</span></span></td>
                   <td class="nw">{{ day(t.raisedAt) }}</td>
                   <td class="nw"><span class="pill" :class="STATUS[t.status].cls">{{ STATUS[t.status].label }}</span></td>
-                  <td class="cnt">{{ t.comments.length }}</td>
-                  <td class="cnt">{{ fileCount(t) }}</td>
+                  <td class="cnt">{{ t.replyCount || 0 }}</td>
+                  <td class="cnt">{{ t.linkCount || 0 }}</td>
                 </tr>
               </template>
-              <tr v-show="!shown().length"><td colspan="9" class="muted">No tickets match.</td></tr>
+              <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">No tickets match.</td></tr>
             </tbody>
           </table>
         </div>
         <p class="help" style="margin-top:12px">Completed tickets are locked: no new comments or tag changes. They stay searchable under Completed.
-          <span>{{ `You can see ${visible().length} of ${tickets.length} tickets.` }}</span>
-          Sample tickets are kept in this browser only; saving to Firebase and files to the company Google Drive come later.</p>
+          <span>{{ `You can see ${visible().length} ticket${visible().length === 1 ? '' : 's'}.` }}</span>
+          Files stay in the company Google Drive; tickets keep only the links.</p>
       </div>
     </template>
 
@@ -65,40 +67,47 @@
         <div class="page-head">
           <div>
             <h1>{{ ticket.id + ' · ' + ticket.title }}</h1>
-            <div class="sub">{{ (ticket.property || 'Office') + (ticket.unit ? ' · ' + ticket.unit : '') + ' · Raised by ' + ticket.raisedBy + ' on ' + stamp(ticket.raisedAt) }}</div>
+            <div class="sub">{{ (ticket.property || 'Office') + (ticket.unit ? ' · ' + ticket.unit : '') + ' · Raised by ' + ticket.raisedBy + (showRole(ticket.raisedBy, ticket.raisedRole) ? ` (${ticket.raisedRole})` : '') + ' on ' + stamp(ticket.raisedAt) }}</div>
           </div>
           <div class="head-tools">
             <button class="btn" @click="back()">← All tickets</button>
-            <button class="btn" v-show="ticket.status === 'open' && canUpdate()" @click="setProgress()">Mark in progress</button>
-            <button class="btn btn-primary" v-show="ticket.status !== 'done' && canUpdate()" @click="confirmDone = true">Mark completed</button>
+            <button class="btn" v-show="ticket.status === 'open' && canUpdate()" @click="setProgress()" :disabled="busy">Mark in progress</button>
+            <button class="btn btn-primary" v-show="ticket.status !== 'done' && canUpdate()" @click="confirmDone = true; doneError = ''">Mark completed</button>
           </div>
         </div>
 
         <div class="side-grid">
           <div class="thread">
             <div class="post orig">
-              <div class="post-head"><span class="avatar"></span><b>{{ ticket.raisedBy }}</b><span class="when">{{ stamp(ticket.raisedAt) }}</span><span class="tag">Original issue</span></div>
+              <div class="post-head"><Avatar :uid="ticket.raisedByUid" :name="ticket.raisedBy" :role="ticket.raisedRole" :size="24" /><b>{{ ticket.raisedBy }}</b><span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ ticket.raisedRole }}</span><span class="when">{{ stamp(ticket.raisedAt) }}</span><span class="tag">Original issue</span></div>
               <p>{{ ticket.body }}</p>
-              <div class="files" v-show="ticket.files.length"><template v-for="fn in ticket.files" :key="fn"><span class="file-chip">{{ icon(fn) + ' ' + fn }}</span></template></div>
+              <div class="files" v-show="ticket.links.length"><template v-for="l in ticket.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
             </div>
-            <template v-for="c in ticket.comments" :key="c.at + c.by">
+            <template v-for="c in replies" :key="c.id">
               <div class="post">
-                <div class="post-head"><span class="avatar"></span><b>{{ c.by }}</b><span class="when">{{ stamp(c.at) }}</span></div>
+                <div class="post-head"><Avatar :uid="c.byUid" :name="c.by" :role="c.byRole" :size="24" /><b>{{ c.by }}</b><span class="tag role-tint" :style="roleTint(c.byRole)" v-if="showRole(c.by, c.byRole)">{{ c.byRole }}</span><span class="when">{{ stamp(c.at) }}</span></div>
                 <p>{{ c.text }}</p>
-                <div class="files" v-show="c.files.length"><template v-for="fn in c.files" :key="fn"><span class="file-chip">{{ icon(fn) + ' ' + fn }}</span></template></div>
+                <div class="files" v-show="c.links.length"><template v-for="l in c.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
               </div>
             </template>
 
-            <div class="post composer" v-show="ticket.status !== 'done'">
+            <div class="post composer" v-show="ticket.status !== 'done' && canComment()">
               <textarea class="input" placeholder="Write a comment..." v-model="draft.text" aria-label="Comment"></textarea>
-              <div class="files" v-show="draft.files.length"><template v-for="(fn, i) in draft.files" :key="fn + i"><span class="file-chip"><span>{{ icon(fn) + ' ' + fn }}</span><button @click="draft.files.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
+              <div class="files" v-show="draft.links.length"><template v-for="(l, i) in draft.links" :key="l.url + i"><span class="file-chip"><span>{{ icon(l.name) + ' ' + l.name }}</span><button @click="draft.links.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
+              <div class="link-add" v-show="draft.adding">
+                <input class="input" v-model="draft.linkName" placeholder="Name, e.g. Vendor quote" aria-label="Link name">
+                <input class="input" v-model="draft.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(draft)">
+                <button class="btn" type="button" @click="addLink(draft)">Add</button>
+              </div>
+              <div class="notice error" v-show="draft.error">{{ draft.error }}</div>
               <div class="composer-row">
-                <label class="btn" style="cursor:pointer">📎 Attach<input type="file" multiple hidden @change="addFiles($event, draft.files)"></label>
-                <span class="help">Images, PDF, Word, Excel or PowerPoint, up to 20 MB each</span>
-                <button class="btn btn-primary" @click="postComment()" :disabled="!draft.text.trim() && !draft.files.length">Post comment</button>
+                <button class="btn" type="button" @click="draft.adding = !draft.adding">🔗 Add Drive link</button>
+                <span class="help">Put the file in the company Google Drive and paste its link here</span>
+                <button class="btn btn-primary" @click="postComment()" :disabled="busy || (!draft.text.trim() && !draft.links.length)">Post comment</button>
               </div>
             </div>
-            <div class="locked" v-show="ticket.status === 'done'">{{ 'Completed on ' + stamp(ticket.doneAt) + ' by ' + ticket.doneBy + '. This ticket is locked: no edits, tag changes, comments or attachments.' }}</div>
+            <div class="locked" v-show="ticket.status === 'done'">{{ 'Completed on ' + stamp(ticket.doneAt) + ' by ' + ticket.doneBy + '. This ticket is locked: no edits, tag changes, comments or links.' }}</div>
+            <div class="locked" v-show="ticket.status !== 'done' && !canComment()">View only. Your role can read this ticket but not comment on it.</div>
           </div>
 
           <div class="stack" style="gap:16px">
@@ -107,7 +116,7 @@
               <div class="kv"><span>Status</span><span><span class="pill" :class="STATUS[ticket.status].cls">{{ STATUS[ticket.status].label }}</span></span></div>
               <div class="kv"><span>Property</span><span>{{ ticket.property || '—' }}</span></div>
               <div class="kv"><span>Unit</span><span>{{ ticket.unit || '—' }}</span></div>
-              <div class="kv"><span>Raised by</span><span>{{ ticket.raisedBy }}</span></div>
+              <div class="kv"><span>Raised by</span><span class="who">{{ ticket.raisedBy }}<span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ ticket.raisedRole }}</span></span></div>
               <div class="kv"><span>Raised on</span><span>{{ day(ticket.raisedAt) }}</span></div>
               <div class="kv"><span>Tagged</span><span><template v-for="g in ticket.tags" :key="g"><span class="tag">{{ g }}</span></template></span></div>
               <button class="btn" style="width:100%;margin-top:8px" v-show="ticket.status !== 'done' && canUpdate()" @click="openTags()">Edit tags (reason needed)</button>
@@ -117,7 +126,7 @@
               <div class="card-head"><h2>Audit log</h2></div>
               <div class="audit-list">
                 <template v-for="a in ticket.audit" :key="a.at + a.text">
-                  <div><div class="when">{{ stamp(a.at) }}</div><div>{{ a.text }}</div></div>
+                  <div><div class="when">{{ stamp(a.at) }}</div><div v-if="a.by"><b>{{ a.by }}</b><span class="tag role-tint" :style="roleTint(a.role)" v-if="showRole(a.by, a.role)">{{ a.role }}</span> {{ a.text }}</div><div v-else>{{ a.text }}</div></div>
                 </template>
               </div>
             </div>
@@ -136,15 +145,20 @@
           <div class="field"><label for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
           <div class="field"><label for="rUnit">Unit (optional)</label>
             <input class="input" id="rUnit" list="unitOpts" v-model="raise.unit" placeholder="Choose a unit · leave blank for office issues">
-            <datalist id="unitOpts"><template v-for="un in UNITS" :key="un"><option :value="un"></option></template></datalist></div>
+            <datalist id="unitOpts"><template v-for="un in units" :key="un.id"><option :value="un.unitCode"></option></template></datalist></div>
           <div class="field"><label for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
           <div class="field" style="margin-bottom:8px"><label>Tag the roles who should handle it</label>
             <div class="checks"><template v-for="g in TAGS" :key="g"><label><input type="checkbox" :value="g" v-model="raise.tags"><span>{{ g }}</span></label></template></div>
             <div class="help">Only tagged roles, you and Directors will see this ticket.</div></div>
-          <label class="filedrop"><b>Drop files here or click to choose</b>Images, PDF, Word, Excel, PowerPoint · up to 20 MB each
-            <input type="file" multiple hidden @change="addFiles($event, raise.files)"></label>
-          <div class="files" v-show="raise.files.length"><template v-for="(fn, i) in raise.files" :key="fn + i"><span class="file-chip"><span>{{ icon(fn) + ' ' + fn }}</span><button type="button" @click="raise.files.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
-          <div class="modal-foot"><button type="button" class="btn" @click="raise = null">Cancel</button><button class="btn btn-primary">Raise ticket</button></div>
+          <div class="field" style="margin-bottom:6px"><label for="rLinkName">Add Drive link (optional)</label>
+            <div class="link-add" style="margin-top:0">
+              <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
+              <input class="input" v-model="raise.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(raise)">
+              <button class="btn" type="button" @click="addLink(raise)">Add</button>
+            </div>
+            <div class="help">Files stay in the company Google Drive; the ticket keeps only the link.</div></div>
+          <div class="files" v-show="raise.links.length"><template v-for="(l, i) in raise.links" :key="l.url + i"><span class="file-chip"><span>{{ icon(l.name) + ' ' + l.name }}</span><button type="button" @click="raise.links.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
+          <div class="modal-foot"><button type="button" class="btn" @click="raise = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Raise ticket</button></div>
         </form>
       </template>
     </div>
@@ -158,7 +172,7 @@
           <div class="checks" style="margin-bottom:14px"><template v-for="g in TAGS" :key="g"><label><input type="checkbox" :value="g" v-model="tagEdit.tags"><span>{{ g }}</span></label></template></div>
           <div class="field"><label for="tWhy">Reason</label><input class="input" id="tWhy" v-model="tagEdit.reason" placeholder="e.g. Not an IT issue"></div>
           <div class="help">Removing your own role's tag may hide the ticket from your team.</div>
-          <div class="modal-foot"><button type="button" class="btn" @click="tagEdit = null">Cancel</button><button class="btn btn-primary">Save tags</button></div>
+          <div class="modal-foot"><button type="button" class="btn" @click="tagEdit = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Save tags</button></div>
         </form>
       </template>
     </div>
@@ -167,94 +181,107 @@
     <div class="modal-back" v-show="confirmDone" @click.self="confirmDone = false">
       <div class="modal" role="dialog" aria-label="Mark completed" style="max-width:440px">
         <h2>Mark this ticket completed?</h2>
-        <p class="help" style="font-size:13px">It will be locked and archived. Nobody can comment, attach files or change tags after this.</p>
-        <div class="modal-foot"><button class="btn" @click="confirmDone = false">Cancel</button><button class="btn btn-primary" @click="complete()">Mark completed</button></div>
+        <p class="help" style="font-size:13px">It will be locked and archived. Nobody can comment, add links or change tags after this.</p>
+        <div class="notice error" v-show="doneError">{{ doneError }}</div>
+        <div class="modal-foot"><button class="btn" @click="confirmDone = false">Cancel</button><button class="btn btn-primary" @click="complete()" :disabled="busy">Mark completed</button></div>
       </div>
     </div>
   </main>
 </template>
 
 <script>
-import { ROLE_LABEL } from '@/lib/firebase.js';
+// Issues in Firestore: issues/{IS-0001} (title, unit, tags, status, Drive links, a short audit trail) and
+// issues/{id}/replies/{autoId} for comments. Files stay in the company Google Drive; tickets keep only links.
+// Completed tickets are locked by the rules too (no updates or replies once status is 'done').
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
+  arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
+import { db, ROLE_LABEL } from '@/lib/firebase.js';
+import Avatar from '@/components/Avatar.vue';
+import { roleTint } from '@/lib/avatars.js';
 import { useSession } from '@/stores/session.js';
+import { audit, friendlyError } from '@/lib/finance-data.js';
 
 const me = useSession();
 const myRole = ROLE_LABEL[me.role] || me.role;          // 'Finance', 'Director'
 const isDirector = me.role === 'director';
-const myLabel = isDirector ? 'Director' : `${myRole} user`;
+// Posts, Raised by and the ticket's audit trail show the person's name with their role as a badge.
+const myLabel = me.name || (isDirector ? 'Director' : `${myRole} user`);
+// Every role raises, comments on and works its own tickets. IT included (Khairul 21 Oct), though IT is view-only elsewhere.
+const canWrite = !!me.role;
 
-const KEY = 'wb.issues.v1';
-const TAGS = ['IT', 'Admin', 'HR', 'Finance', 'Operations'];
-const UNITS = ['DM 07-10', 'DM 07-12', 'DM 07-19', 'DM 12-03', 'DM 13-01', 'DM 14-02', 'DM 16-02', 'DM 19-05'];
+const TAGS = ['IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
 const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' } };
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];
+const LIST_LIMIT = 500;
+// Links must point at the company Google Drive (Drive, Docs, Sheets, Slides).
+const DRIVE_HOSTS = ['drive.google.com', 'docs.google.com'];
 
-const at = (d, t) => `2026-10-${d}T${t}:00`;
-// Placeholder roles only, no real names.
-const SAMPLE = [
-  { id: 'CI-0042', title: 'Aircond leaking in master bedroom', property: "D'Majestic", unit: 'DM 14-02', tags: ['Admin', 'Finance'], raisedBy: 'Operations', raisedRole: 'Operations', raisedAt: at(15, '10:12'), status: 'open',
-    body: 'Guest reported water dripping from the aircond in the master bedroom onto the floor. Towels placed underneath. Guest checks out 17 Oct.', files: ['aircond_drip.jpg', 'floor.jpg'],
-    comments: [{ by: 'Admin', at: at(15, '11:05'), text: 'Vendor booked for 16 Oct, 2pm. Operations please let the guest know.', files: [] },
-      { by: 'Operations', at: at(15, '11:20'), text: 'Guest informed, OK with the time.', files: [] },
-      { by: 'Admin', at: at(16, '15:40'), text: 'Drain pipe cleared. Vendor quote attached for Finance (to go on the October statement as an expense).', files: ['vendor_quote.pdf', 'parts_list.xlsx'] }],
-    audit: [{ at: at(15, '10:12'), text: 'Operations raised the ticket, tagged Admin, IT' }, { at: at(15, '11:05'), text: 'Admin commented' },
-      { at: at(16, '09:30'), text: 'Admin removed tag IT · reason: "Not an IT issue"' }, { at: at(16, '15:40'), text: 'Admin added tag Finance · reason: "Quote for the statement"' }] },
-  { id: 'CI-0041', title: 'Smart lock not accepting new passcode', property: "D'Majestic", unit: 'DM 07-19', tags: ['IT', 'Admin'], raisedBy: 'Operations', raisedRole: 'Operations', raisedAt: at(14, '09:40'), status: 'progress', body: 'New passcode set after rent was paid, the lock still rejects it.', files: ['lock_screen.jpg'],
-    comments: [1, 2, 3, 4, 5].map(i => ({ by: i % 2 ? 'IT' : 'Operations', at: at(14, `1${i}:00`), text: i % 2 ? 'Checking the lock app.' : 'Tenant waiting downstairs.', files: [] })), audit: [{ at: at(14, '09:40'), text: 'Operations raised the ticket, tagged IT, Admin' }] },
-  { id: 'CI-0040', title: 'Guest left item, asking for courier', property: "D'Majestic", unit: 'DM 07-10', tags: ['Admin'], raisedBy: 'Housekeeping', raisedRole: 'Housekeeping', raisedAt: at(13, '16:05'), status: 'open', body: 'Found a jacket in the wardrobe after check-out. Guest wants it couriered.', files: ['jacket.jpg'],
-    comments: [{ by: 'Admin', at: at(13, '17:00'), text: 'Asked the guest for an address.', files: [] }], audit: [{ at: at(13, '16:05'), text: 'Housekeeping raised the ticket, tagged Admin' }] },
-  { id: 'CI-0039', title: 'Wi-Fi password card missing', property: "D'Majestic", unit: 'DM 19-05', tags: ['IT'], raisedBy: 'Operations', raisedRole: 'Operations', raisedAt: at(12, '12:30'), status: 'progress', body: 'The Wi-Fi card on the fridge is gone.', files: [],
-    comments: [{ by: 'IT', at: at(12, '13:00'), text: 'Printing a new card.', files: [] }, { by: 'Operations', at: at(12, '15:00'), text: 'Thanks.', files: [] }], audit: [{ at: at(12, '12:30'), text: 'Operations raised the ticket, tagged IT' }] },
-  { id: 'CI-0038', title: 'Payroll login not working', property: '', unit: '', tags: ['HR', 'IT'], raisedBy: 'Finance user', raisedRole: 'Finance', raisedAt: at(11, '09:15'), status: 'open', body: 'The payroll site says my password expired and the reset email never arrives.', files: [],
-    comments: [], audit: [{ at: at(11, '09:15'), text: 'Finance user raised the ticket, tagged HR, IT' }] },
-  { id: 'CI-0037', title: 'Water heater replaced', property: "D'Majestic", unit: 'DM 16-02', tags: ['Admin', 'Finance'], raisedBy: 'Operations', raisedRole: 'Operations', raisedAt: at('02', '10:00'), status: 'done', doneAt: at('09', '17:20'), doneBy: 'Admin',
-    body: 'Water heater stopped working, tenant has no hot water.', files: ['heater.jpg', 'invoice.pdf', 'warranty.pdf'],
-    comments: [1, 2, 3, 4, 5, 6].map(i => ({ by: i % 2 ? 'Admin' : 'Finance user', at: at('0' + (2 + Math.ceil(i / 2)), `1${i}:00`), text: i % 2 ? 'Vendor update.' : 'Noted for the statement.', files: [] })),
-    audit: [{ at: at('02', '10:00'), text: 'Operations raised the ticket, tagged Admin, Finance' }, { at: at('09', '17:20'), text: 'Admin marked the ticket completed' }] },
-  { id: 'CI-0036', title: 'Owner asking why September payout is lower', property: "D'Majestic", unit: 'DM 13-01', tags: ['Finance'], raisedBy: 'Operations', raisedRole: 'Operations', raisedAt: at('01', '11:30'), status: 'progress', body: 'Owner called about the September statement. Negative balance carried forward from a repair?', files: [],
-    comments: [{ by: 'Finance user', at: at('01', '14:00'), text: 'Yes, the repair was larger than the month income. Sending the statement PDF.', files: [] }], audit: [{ at: at('01', '11:30'), text: 'Operations raised the ticket, tagged Finance' }] }
-];
-
-function load() {
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(s) && s.length) return s; } catch {}
-  return structuredClone(SAMPLE);
-}
 const pad = n => String(n).padStart(2, '0');
-const nowIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`; };
+const localIso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+const nowIso = () => localIso(new Date());
+const isoOf = t => (t?.toDate ? localIso(t.toDate()) : typeof t === 'string' ? t : '');
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], raisedAt: isoOf(d.createdAt), doneAt: isoOf(d.doneAt) });
 
 export default {
+  components: { Avatar },
   data() {
     return {
-      TAGS, UNITS, STATUS, FILTERS,
-      tickets: load(), ticket: null, search: '', filter: 'all', unitFilter: '', okMsg: '',
-      raise: null, tagEdit: null, confirmDone: false, draft: { text: '', files: [] }
+      TAGS, STATUS, FILTERS, canRaise: canWrite,
+      tickets: [], ticket: null, replies: [], units: [], search: '', filter: 'all', unitFilter: '', okMsg: '', error: '', doneError: '',
+      loading: true, busy: false, raise: null, tagEdit: null, confirmDone: false, draft: this.newDraft()
     };
   },
   // ?id= opens a ticket. Opening one or going back changes the address, which remounts the page
   // (Back/Forward included); a message for the next screen travels in history.state.
-  mounted() {
-    this.route();
+  async mounted() {
+    await this.route();
+    this.loading = false;
   },
   methods: {
-    route() {
+    roleTint,
+    newDraft() { return { text: '', links: [], adding: false, linkName: '', linkUrl: '', error: '' }; },
+    async route() {
       const id = this.$route.query.id;
-      const t = id && this.visible().find(x => x.id === id);
-      this.ticket = t || null;
-      this.draft = { text: '', files: [] };
-      this.okMsg = (!id || t) && history.state?.okMsg || '';
+      try {
+        if (id) {
+          const snap = await getDoc(doc(db, 'issues', id)).catch(e => { if (e.code === 'permission-denied') return null; throw e; });
+          const t = snap?.exists() ? toTicket(id, snap.data()) : null;
+          this.ticket = t && this.canSee(t) ? t : null;
+          if (this.ticket) await this.loadReplies();
+        }
+        if (!this.ticket) await this.loadList();
+      } catch (e) { this.error = friendlyError(e, 'load the tickets'); }
+      this.draft = this.newDraft();
+      this.okMsg = (!id || this.ticket) && history.state?.okMsg || '';
     },
-    persist() { try { localStorage.setItem(KEY, JSON.stringify(this.tickets)); } catch {} },
+    // Rules are not filters: Directors read every ticket; everyone else asks for tickets tagged to their role
+    // and tickets they raised, and the two lists are merged.
+    async loadList() {
+      const col = collection(db, 'issues');
+      const snaps = isDirector ? [await getDocs(query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT)))]
+        : await Promise.all([getDocs(query(col, where('tags', 'array-contains', myRole), limit(LIST_LIMIT))),
+          getDocs(query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)))]);
+      const seen = new Map();
+      for (const s of snaps) for (const d of s.docs) seen.set(d.id, toTicket(d.id, d.data()));
+      this.tickets = [...seen.values()];
+    },
+    async loadReplies() {
+      const snap = await getDocs(query(collection(db, 'issues', this.ticket.id, 'replies'), orderBy('createdAt')));
+      this.replies = snap.docs.map(d => ({ id: d.id, links: [], ...d.data() }));
+    },
     open(id) { this.$router.push({ query: { id } }); },
     back() { this.$router.push({ query: {}, state: { okMsg: this.okMsg } }); },
 
     // Visibility: tagged to my role, raised by me, or Director (sees all)
-    raisedByMe(t) { return t.raisedRole === myRole || t.raisedBy === myLabel || t.raisedUid === me.user.uid; },
-    visible() { return this.tickets.filter(t => isDirector || t.tags.includes(myRole) || this.raisedByMe(t)); },
-    canUpdate() { const t = this.ticket; return t && t.status !== 'done' && (isDirector || t.tags.includes(myRole)); },
+    raisedByMe(t) { return t.raisedByUid === me.user.uid; },
+    canSee(t) { return isDirector || t.tags.includes(myRole) || this.raisedByMe(t); },
+    visible() { return this.tickets.filter(t => this.canSee(t)); },
+    canUpdate() { const t = this.ticket; return t && canWrite && t.status !== 'done' && (isDirector || t.tags.includes(myRole)); },
+    canComment() { return canWrite; },
     count(s) { return this.visible().filter(t => t.status === s).length; },
-    needReply() { return this.visible().filter(t => t.status === 'open' && (isDirector || t.tags.includes(myRole)) && (t.comments.at(-1)?.by || t.raisedBy) !== myLabel).length; },
+    needReply() { return this.visible().filter(t => t.status === 'open' && (isDirector || t.tags.includes(myRole)) && (t.lastBy || t.raisedBy) !== myLabel).length; },
     completedThisMonth() { const ym = nowIso().slice(0, 7); return this.visible().filter(t => t.status === 'done' && (t.doneAt || '').slice(0, 7) === ym).length; },
     unitList() { return [...new Set(this.visible().map(t => t.unit).filter(Boolean))].sort(); },
     shown() {
@@ -267,54 +294,131 @@ export default {
         return !q || [t.id, t.title, t.unit].some(v => (v || '').toLowerCase().includes(q));
       }).sort((a, b) => b.id.localeCompare(a.id));
     },
-    fileCount(t) { return t.files.length + t.comments.reduce((n, c) => n + c.files.length, 0); },
     day(iso) { return iso ? `${+iso.slice(8, 10)} ${MON[+iso.slice(5, 7) - 1]} ${iso.slice(0, 4)}` : ''; },
     stamp(iso) { return iso ? `${this.day(iso)}, ${iso.slice(11, 16)}` : ''; },
-    icon(fn) { return /\.(jpe?g|png|gif|webp|heic)$/i.test(fn) ? '🖼' : /\.(xlsx?|csv)$/i.test(fn) ? '📊' : '📄'; },
-    addFiles(e, list) {
-      for (const f of e.target.files) { if (f.size > 20 * 1024 * 1024) { this.okMsg = `${f.name} is over 20 MB, not added.`; continue; } list.push(f.name); }
-      e.target.value = '';
+    icon(fn) { return /\.(jpe?g|png|gif|webp|heic)$/i.test(fn) || /photo|image|picture/i.test(fn) ? '🖼' : /\.(xlsx?|csv)$/i.test(fn) || /sheet/i.test(fn) ? '📊' : '📄'; },
+    // Add Drive link: a name and a Google Drive URL (nothing is uploaded to the PMS).
+    addLink(target) {
+      target.error = '';
+      let url;
+      try { url = new URL(target.linkUrl.trim()); } catch { url = null; }
+      if (!url || url.protocol !== 'https:' || !DRIVE_HOSTS.includes(url.hostname)) return target.error = 'Paste a Google Drive link, starting with https://drive.google.com/ or https://docs.google.com/.';
+      if (target.links.some(l => l.url === url.href)) return target.error = 'That link is already added.';
+      if (target.links.length >= 10) return target.error = 'Up to 10 links each time.';
+      target.links.push({ name: target.linkName.trim().slice(0, 80) || 'Drive link', url: url.href });
+      target.linkName = ''; target.linkUrl = ''; target.adding = false;
     },
-    log(t, text) { t.audit.push({ at: nowIso(), text }); },
+    entry(text) { return { at: nowIso(), by: myLabel, role: myRole, text }; },
+    // Older tickets saved the role as the name ('Director', 'Finance user'): no badge repeating it.
+    showRole(name, role) { return !!role && name !== role && name !== `${role} user`; },
+    async units4raise() {
+      if (this.units.length) return;
+      // Operations, Finance and Directors can read units; other roles type the unit instead.
+      try {
+        const [ps, us] = await Promise.all([getDocs(collection(db, 'properties')), getDocs(collection(db, 'units'))]);
+        const names = Object.fromEntries(ps.docs.map(d => [d.id, d.data().name]));
+        this.units = us.docs.map(d => ({ id: d.id, ...d.data(), propertyName: names[d.data().propertyId] || '' }))
+          .filter(u => u.active !== false && u.unitCode).sort((a, b) => a.unitCode.localeCompare(b.unitCode));
+      } catch { this.units = []; }
+    },
 
-    openRaise() { this.raise = { title: '', unit: '', body: '', tags: [], files: [], error: '' }; this.$nextTick(() => this.$refs.rTitle?.focus()); },
-    saveRaise() {
+    openRaise() {
+      this.raise = { title: '', unit: '', body: '', tags: [], links: [], linkName: '', linkUrl: '', error: '' };
+      this.$nextTick(() => this.$refs.rTitle?.focus());
+      this.units4raise();
+    },
+    async saveRaise() {
       const r = this.raise;
       if (!r.title.trim()) return r.error = 'Give the ticket a title.';
       if (!r.body.trim()) return r.error = 'Describe what happened.';
       if (!r.tags.length) return r.error = 'Tag at least one role to handle it.';
-      const n = Math.max(0, ...this.tickets.map(t => +t.id.slice(3))) + 1;
-      const id = 'CI-' + String(n).padStart(4, '0'), when = nowIso();
-      const t = { id, title: r.title.trim(), property: r.unit.trim() ? "D'Majestic" : '', unit: r.unit.trim().toUpperCase(), tags: [...r.tags], raisedBy: myLabel, raisedRole: myRole, raisedUid: me.user.uid,
-        raisedAt: when, status: 'open', body: r.body.trim(), files: [...r.files], comments: [], audit: [] };
-      this.log(t, `${myLabel} raised the ticket, tagged ${t.tags.join(', ')}` + (t.files.length ? ` · ${t.files.length} attachment${t.files.length > 1 ? 's' : ''}` : ''));
-      this.tickets.push(t); this.persist();
-      this.raise = null; this.okMsg = `${id} raised and tagged ${t.tags.join(', ')}.`;
+      if (r.linkUrl.trim()) { this.addLink(r); if (r.error) return; }
+      const code = r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
+      const tags = TAGS.filter(g => r.tags.includes(g));
+      const h = this.entry(`raised the ticket, tagged ${tags.join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
+      this.busy = true; r.error = '';
+      try {
+        // One transaction: the next IS number (counters/issues), the ticket and the audit entry.
+        const id = await runTransaction(db, async tx => {
+          const cRef = doc(db, 'counters', 'issues');
+          const c = await tx.get(cRef);
+          const n = c.exists() ? c.data().next || 1 : 1, id = 'IS-' + String(n).padStart(4, '0'), ref = doc(db, 'issues', id);
+          if ((await tx.get(ref)).exists()) throw Object.assign(new Error(`${id} already exists. Ask a Director to check counters/issues.`), { plain: true });
+          tx.set(cRef, { next: n + 1 });
+          tx.set(ref, { title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
+            property: unit?.propertyName || '', propertyId: unit?.propertyId || null, tags, status: 'open',
+            raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
+            audit: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          audit(tx, me, { action: 'issue.create', entity: `issues/${id}`, propertyId: unit?.propertyId || null, changes: [{ field: 'tags', old: null, new: tags.join(', ') }] });
+          return id;
+        });
+        this.raise = null; this.okMsg = `${id} raised and tagged ${tags.join(', ')}.`;
+        await this.loadList();
+      } catch (e) { r.error = e.plain ? e.message : friendlyError(e, 'raise the ticket'); }
+      this.busy = false;
     },
-    postComment() {
-      const t = this.ticket; if (t.status === 'done') return;
-      const text = this.draft.text.trim(), files = [...this.draft.files];
-      t.comments.push({ by: myLabel, at: nowIso(), text, files });
-      this.log(t, `${myLabel} commented` + (files.length ? ` and added ${files.length} attachment${files.length > 1 ? 's' : ''}` : ''));
-      this.draft = { text: '', files: [] }; this.persist();
+    async postComment() {
+      const t = this.ticket, d = this.draft; if (t.status === 'done' || !canWrite) return;
+      if (d.linkUrl.trim()) { this.addLink(d); if (d.error) return; }
+      const text = d.text.trim(), links = [...d.links];
+      if (!text && !links.length) return;
+      const h = this.entry(`commented` + (links.length ? ` and added ${links.length} Drive link${links.length > 1 ? 's' : ''}` : ''));
+      this.busy = true; d.error = '';
+      try {
+        const b = writeBatch(db), ref = doc(db, 'issues', t.id);
+        b.set(doc(collection(db, 'issues', t.id, 'replies')), { by: myLabel, byRole: myRole, byUid: me.user.uid, at: nowIso(), text, links, createdAt: serverTimestamp() });
+        b.update(ref, { replyCount: increment(1), linkCount: increment(links.length), lastBy: myLabel, audit: arrayUnion(h), updatedAt: serverTimestamp() });
+        audit(b, me, { action: 'issue.comment', entity: `issues/${t.id}`, propertyId: t.propertyId || null, changes: links.length ? [{ field: 'links', old: null, new: links.length }] : [] });
+        await b.commit();
+        t.replyCount = (t.replyCount || 0) + 1; t.linkCount = (t.linkCount || 0) + links.length; t.lastBy = myLabel; t.audit.push(h);
+        this.draft = this.newDraft();
+        await this.loadReplies();
+      } catch (e) { d.error = friendlyError(e, 'post the comment'); }
+      this.busy = false;
     },
-    setProgress() { const t = this.ticket; t.status = 'progress'; this.log(t, `${myLabel} marked it in progress`); this.persist(); },
+    // Progress, tags and completion: one update with its audit lines, plus the audit log entry.
+    async change(fields, lines, action, changes, reason = '') {
+      const t = this.ticket, hs = lines.map(x => this.entry(x));
+      const b = writeBatch(db);
+      b.update(doc(db, 'issues', t.id), { ...fields, audit: arrayUnion(...hs), updatedAt: serverTimestamp() });
+      audit(b, me, { action, entity: `issues/${t.id}`, propertyId: t.propertyId || null, changes, reason });
+      await b.commit();
+      t.audit.push(...hs);
+    },
+    async setProgress() {
+      const t = this.ticket; this.busy = true; this.error = '';
+      try {
+        await this.change({ status: 'progress' }, [`marked it in progress`], 'issue.progress', [{ field: 'status', old: t.status, new: 'progress' }]);
+        t.status = 'progress';
+      } catch (e) { this.error = friendlyError(e, 'update the ticket'); }
+      this.busy = false;
+    },
     openTags() { this.tagEdit = { tags: [...this.ticket.tags], reason: '', error: '' }; },
-    saveTags() {
+    async saveTags() {
       const e = this.tagEdit, t = this.ticket;
       if (!e.tags.length) return e.error = 'Keep at least one role tagged.';
       const added = e.tags.filter(g => !t.tags.includes(g)), removed = t.tags.filter(g => !e.tags.includes(g));
       if (!added.length && !removed.length) return this.tagEdit = null;
       if (!e.reason.trim()) return e.error = 'Give a reason for the tag change.';
-      const why = ` · reason: "${e.reason.trim()}"`;
-      added.forEach(g => this.log(t, `${myLabel} added tag ${g}${why}`));
-      removed.forEach(g => this.log(t, `${myLabel} removed tag ${g}${why}`));
-      t.tags = TAGS.filter(g => e.tags.includes(g)); this.persist(); this.tagEdit = null;
-      if (!isDirector && !t.tags.includes(myRole) && !this.raisedByMe(t)) { this.okMsg = `${t.id} is no longer tagged to ${myRole}, so it has left your list.`; this.back(); }
+      const why = ` · reason: "${e.reason.trim()}"`, tags = TAGS.filter(g => e.tags.includes(g));
+      this.busy = true; e.error = '';
+      try {
+        await this.change({ tags }, [...added.map(g => `added tag ${g}${why}`), ...removed.map(g => `removed tag ${g}${why}`)],
+          'issue.tags', [{ field: 'tags', old: t.tags.join(', '), new: tags.join(', ') }], e.reason.trim());
+        t.tags = tags; this.tagEdit = null;
+        if (!this.canSee(t)) { this.okMsg = `${t.id} is no longer tagged to ${myRole}, so it has left your list.`; this.back(); }
+      } catch (err) { e.error = friendlyError(err, 'save the tags'); }
+      this.busy = false;
     },
-    complete() {
-      const t = this.ticket; t.status = 'done'; t.doneAt = nowIso(); t.doneBy = myLabel;
-      this.log(t, `${myLabel} marked the ticket completed`); this.persist(); this.confirmDone = false;
+    async complete() {
+      const t = this.ticket; this.busy = true; this.doneError = '';
+      try {
+        await this.change({ status: 'done', doneAt: serverTimestamp(), doneBy: myLabel, doneByUid: me.user.uid }, [`marked the ticket completed`],
+          'issue.complete', [{ field: 'status', old: t.status, new: 'done' }]);
+        Object.assign(t, { status: 'done', doneAt: nowIso(), doneBy: myLabel });
+        this.confirmDone = false;
+      } catch (e) { this.doneError = friendlyError(e, 'complete the ticket'); }
+      this.busy = false;
     }
   }
 };
@@ -332,9 +436,9 @@ export default {
     .post { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 16px 14px; }
     .post.orig { border-color: var(--accent); }
     .post-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
-    .avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--chip); flex: none; }
-    .post.orig .avatar { background: var(--accent-soft); }
     .post-head .when { color: var(--muted); font-size: 12px; }
+    .who { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .audit-list b + .tag { margin: 0 2px 0 6px; }
     .post p { margin: 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
     .files { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .file-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px; background: var(--surface); }
@@ -343,6 +447,10 @@ export default {
     .composer textarea { height: 64px; }
     .composer-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
     .composer-row .help { flex: 1; min-width: 160px; }
+    .link-add { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .link-add .input { flex: 1 1 160px; min-width: 0; height: 34px; }
+    a.file-chip { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+    a.file-chip:hover { text-decoration: underline; }
     .audit-list { display: grid; gap: 10px; font-size: 12px; }
     .audit-list .when { color: var(--muted); font-size: 11px; }
     .checks { display: flex; gap: 16px; flex-wrap: wrap; margin: 6px 0 4px; font-size: 13px; }

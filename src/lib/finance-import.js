@@ -145,3 +145,27 @@ export function parseFinanceStatement(X, wb) {
   }
   return { propertyCode, month, ezeeRows, units: [...units.values()].map(u => ({ ...u, payout: r2(u.payout), charges: r2(u.charges || 0) })), summaries, warnings };
 }
+
+// ---------- Upload only what changed (scale work, 22 Oct 2026) ----------
+// rawHash: a fingerprint of everything an upload writes on a booking (the eZee row's columns, the amounts read from
+// them, unit, status, and Finance's amount when it comes from their statement), plus the names kept in private/main.
+// The upload skips a booking whose saved rawHash is the same: no write, and its unit's summary stays fresh.
+// Fields the upload stamps itself (import batch, times) are not part of it.
+const STAMPS = new Set(['importBatchId', 'lastImportedAt', 'firstImportedAt', 'rawHash']);
+function stable(v) {
+  if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).filter(k => v[k] !== undefined).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}';
+  return JSON.stringify(v ?? null);
+}
+// cyrb53 (public domain): a fast 53-bit string hash, plenty to tell two versions of one row apart
+function cyrb53(str) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) { const ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+export function rowHash(data, priv) {
+  const d = {}; for (const [k, v] of Object.entries(data)) if (!STAMPS.has(k)) d[k] = v;
+  return 'h1-' + cyrb53(stable({ d, p: priv || {} }));
+}

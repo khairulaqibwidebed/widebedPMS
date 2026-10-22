@@ -2,10 +2,30 @@
   <main class="content">
     <div class="page-head">
       <div>
-        <h1>Appearance</h1>
-        <div class="sub">How the PMS looks on your screen. Changing it affects only you.</div>
+        <h1>Profile &amp; Appearance</h1>
+        <div class="sub">Your account details, and how the PMS looks on your screen.</div>
       </div>
     </div>
+
+    <section class="card">
+      <div class="card-head"><h2>Profile</h2><div class="head-btns"><button class="btn" @click="resetPw" :disabled="busy || !email">Reset password</button><button class="btn btn-danger" @click="logOut">Log out</button></div></div>
+      <div class="profile">
+        <div class="pic">
+          <Avatar :uid="uid" :name="me.name" :role="me.role" :size="96" />
+          <div class="pic-btns">
+            <label class="btn">{{ hasPic ? 'Change photo' : 'Upload photo' }}<input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="pick" :disabled="busy"></label>
+            <button class="btn" v-if="hasPic" @click="removePic" :disabled="busy">Remove photo</button>
+          </div>
+        </div>
+        <div class="facts">
+          <div class="kv"><span>Name</span><b>{{ me.name || '-' }}</b></div>
+          <div class="kv"><span>Email</span><b>{{ email || '-' }}</b></div>
+          <div class="kv"><span>Role</span><span><span class="role-badge role-tint" :style="roleTint(me.role)">{{ roleLabel }}</span></span></div>
+          <p class="ok" v-if="okMsg">{{ okMsg }}</p>
+          <p class="err" v-if="error">{{ error }}</p>
+        </div>
+      </div>
+    </section>
 
     <section class="card">
       <div class="card-head"><h2>Colour theme</h2></div>
@@ -50,13 +70,23 @@
 <script>
 import { readTheme, saveTheme, applyTheme } from '@/lib/theme.js';
 import { toast } from '@/lib/toast.js';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth, ROLE_LABEL, logOut } from '@/lib/firebase.js';
+import { useSession } from '@/stores/session.js';
+import Avatar from '@/components/Avatar.vue';
+import { avatarSrc, squareShrink, saveMyAvatar, removeMyAvatar, roleTint, MAX_OUT } from '@/lib/avatars.js';
+
+const MAX_IN = 10 * 1024 * 1024;
 
 const dark = matchMedia('(prefers-color-scheme: dark)');
 const follow = () => applyTheme();
 
 export default {
+  components: { Avatar },
   data() {
+    const me = useSession();
     return {
+      me, uid: me.user?.uid || null, email: me.user?.email || '', busy: false, okMsg: '', error: '',
       t: readTheme(),
       themes: [
         { key: 'widebed', label: 'Widebed', note: 'Orange and white (default)', c: ['#F26D4D', '#C2452B', '#FDEBE6'] },
@@ -74,13 +104,64 @@ export default {
   // "Match computer" follows the OS setting live
   mounted() { dark.addEventListener('change', follow); },
   unmounted() { dark.removeEventListener('change', follow); },
+  computed: {
+    hasPic() { return !!avatarSrc(this.uid); },
+    roleLabel() { return ROLE_LABEL[this.me.role] || this.me.role || '-'; }
+  },
   methods: {
+    roleTint, logOut,
+    pick(e) {
+      this.error = ''; this.okMsg = '';
+      const f = e.target.files[0]; e.target.value = '';
+      if (!f) return;
+      if (!/^image\/(png|jpeg|webp)$/.test(f.type)) return this.error = 'Choose a JPG, PNG or WebP picture.';
+      if (f.size > MAX_IN) return this.error = 'That picture is over 10 MB. Choose a smaller one.';
+      const url = URL.createObjectURL(f), img = new Image();
+      img.onload = async () => {
+        URL.revokeObjectURL(url);
+        const src = squareShrink(img);
+        if (src.length > MAX_OUT * 1.4) return this.error = 'That picture could not be made small enough. Try another one.';
+        this.busy = true;
+        try { await saveMyAvatar(this.uid, src); toast('Photo saved'); }
+        catch (_) { this.error = 'Could not save the photo. Check your connection and try again.'; }
+        this.busy = false;
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); this.error = 'That file could not be read as a picture.'; };
+      img.src = url;
+    },
+    async removePic() {
+      this.error = ''; this.okMsg = ''; this.busy = true;
+      try { await removeMyAvatar(this.uid); toast('Photo removed'); }
+      catch (_) { this.error = 'Could not remove the photo. Try again.'; }
+      this.busy = false;
+    },
+    async resetPw() {
+      this.error = ''; this.okMsg = ''; this.busy = true;
+      try { await sendPasswordResetEmail(auth, this.email); this.okMsg = `A password reset link was sent to ${this.email}. Check your inbox and spam folder.`; }
+      catch (_) { this.error = 'Could not send the reset email. Try again in a few minutes.'; }
+      this.busy = false;
+    },
     set(patch) { this.t = { ...this.t, ...patch }; saveTheme(this.t); toast('Appearance saved'); }
   }
 };
 </script>
 
 <style scoped>
+    .head-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .profile { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); gap: 28px; align-items: start; }
+    .pic { display: grid; gap: 12px; justify-items: start; }
+    .pic-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pic-btns label.btn { cursor: pointer; }
+    .facts { display: grid; gap: 10px; min-width: 0; }
+    .facts .kv { display: grid; grid-template-columns: 90px minmax(0, 1fr); justify-content: start; justify-items: start; gap: 12px; align-items: center; font-size: 14px; text-align: left; }
+    .facts .kv > * { text-align: left; }
+    .kv > span:first-child { color: var(--muted); font-size: 13px; }
+    .kv b { overflow-wrap: anywhere; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .small { margin: 0; }
+    .ok { color: var(--green, #1F8A4C); font-size: 13px; margin: 0; }
+    .err { color: var(--red, #C0392B); font-size: 13px; margin: 0; }
+    @media (max-width: 700px) { .profile { grid-template-columns: minmax(0, 1fr); } }
     .theme-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
     .mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
     .choice { border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface); padding: 14px; text-align: left; color: var(--text); display: grid; gap: 10px; }

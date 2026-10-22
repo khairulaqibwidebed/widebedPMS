@@ -23,8 +23,8 @@
     <section class="kpis">
       <div class="card kpi"><div class="label">Owner statements</div><div class="value">{{ count('statement') }}</div>
         <div class="hint">{{ count('statement') ? `${shortName(month)} · completed` : `None completed for ${shortName(month)} yet` }}</div></div>
-      <div class="card kpi"><div class="label">Tenant invoices <span class="sample-tag">Sample</span></div><div class="value">{{ count('invoice') }}</div><div class="hint">Approved by Finance, then completed</div></div>
-      <div class="card kpi"><div class="label">Receipts <span class="sample-tag">Sample</span></div><div class="value">{{ count('receipt') }}</div><div class="hint">Long-term rent received</div></div>
+      <div class="card kpi"><div class="label">Tenant invoices</div><div class="value">{{ count('invoice') }}</div><div class="hint">None yet. Rent invoices come with leases</div></div>
+      <div class="card kpi"><div class="label">Receipts</div><div class="value">{{ count('receipt') }}</div><div class="hint">None yet. Rent receipts come with leases</div></div>
       <div class="card kpi"><div class="label">Paid to owners</div><div class="value">{{ rm(paidToOwners()) }}</div><div class="hint">{{ `${shortName(month)} total` }}</div></div>
     </section>
 
@@ -39,7 +39,7 @@
 
     <section class="card">
       <div class="card-head"><h2>{{ `Documents · ${monthName(month)}` }}</h2></div>
-      <p class="card-intro">Only documents Finance has approved and completed appear here. Drafts stay on Month-end payout and the unit statement. To correct a completed owner statement, a Director reopens it on the unit statement: a new revision is made and the old one is kept. Tenant invoices, receipts and folios are sample rows until the Bookings tab saves them.</p>
+      <p class="card-intro">Only documents Finance has approved and completed appear here. Drafts stay on Month-end payout and the unit statement. To correct a completed owner statement, a Director reopens it on the unit statement: a new revision is made and the old one is kept. Tenant invoices, receipts and folios will appear here once leases and rent invoices are built.</p>
 
       <div class="selbar" v-show="picked.length">
         <b>{{ `${picked.length} selected` }}</b>
@@ -70,7 +70,7 @@
             <template v-for="d in shown()" :key="d.id">
               <tr :class="{ picked: picked.includes(d.id) }">
                 <td><input type="checkbox" :aria-label="`Tick ${d.no}`" :checked="picked.includes(d.id)" @change="toggle(d.id)"></td>
-                <td><b>{{ d.no }}</b><span class="sample-tag" v-show="d.sample">Sample</span></td>
+                <td><b>{{ d.no }}</b></td>
                 <td>{{ TYPE[d.type] }}</td>
                 <td>{{ d.unitCode }}</td>
                 <td>{{ shortName(d.month) }}</td>
@@ -147,7 +147,7 @@ const me = useSession();
 
 const TYPE = { statement: 'Owner statement', invoice: 'Tenant invoice', receipt: 'Receipt', folio: 'Folio' };
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'statement', label: 'Owner statements' }, { key: 'invoice', label: 'Tenant invoices' }, { key: 'receipt', label: 'Receipts' }, { key: 'folio', label: 'Folios' }];
-const HEAD = ['Document no.', 'Type', 'Unit', 'Period', 'Completed on', 'Status', 'Amount (RM)', 'Sample'];
+const HEAD = ['Document no.', 'Type', 'Unit', 'Period', 'Completed on', 'Status', 'Amount (RM)'];
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const shortName = ym => ym ? `${SHORT[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}` : '';
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -155,22 +155,6 @@ const dayText = ts => { if (!ts) return ''; const d = ts.toDate ? ts.toDate() : 
 let params = new URLSearchParams(location.search);
 const digits = code => String(code || '').replace(/^[A-Z]+\s*/i, '').replace(/[^0-9A-Z]/gi, '');
 const yymm = ym => ym.slice(2, 4) + ym.slice(5, 7);
-
-// Tenant invoices, receipts and folios have no collection yet (Portfolio > Bookings will make them). Sample rows, placeholder data only.
-function samples(code, month) {
-  const [y, m] = month.split('-').map(Number);
-  const prev = new Date(y, m - 2, 28), last = new Date(y, m, 0);
-  const d = x => `${x.getDate()} ${SHORT[x.getMonth()]} ${x.getFullYear()}`;
-  const base = { sample: true, month };
-  const inv = (unit, rent) => ({ ...base, id: `s-inv-${unit}`, type: 'invoice', no: `INV-${code}-${yymm(month)}-${digits(unit)}`, unitCode: unit, amount: rent, completedOn: d(prev),
-    party: 'Tenant A (sample)', items: [['Monthly rental', rent], ['Wi-Fi fee', 0], ['Car park', 0]] });
-  const rcp = (unit, rent, day) => ({ ...base, id: `s-rcp-${unit}`, type: 'receipt', no: `RCP-${code}-${yymm(month)}-${digits(unit)}`, unitCode: unit, amount: rent,
-    completedOn: d(new Date(y, m - 1, day)), party: 'Tenant A (sample)', items: [['Rental received (bank transfer)', rent]] });
-  return [inv(`${code} 12-03`, 4200), inv(`${code} 16-02`, 2100), inv(`${code} 18-08`, 1850),
-    rcp(`${code} 12-03`, 4200, 1), rcp(`${code} 16-02`, 2100, Math.min(3, last.getDate())), rcp(`${code} 18-08`, 1850, 2),
-    { ...base, id: 's-fol-1', type: 'folio', no: `FOL-${code}-${yymm(month)}-0001`, unitCode: `${code} 07-19`, amount: 486, completedOn: d(new Date(y, m - 1, 4)),
-      party: 'Guest B (sample)', items: [['Room charges, 3 nights', 450], ['SST 8%', 36]] }];
-}
 
 export default {
   beforeCreate() { params = new URLSearchParams(location.search); },
@@ -204,9 +188,9 @@ export default {
         const code = this.code();
         const st = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => s.status === 'completed')
           .sort((a, b) => byUnit(a.unitCode, b.unitCode))
-          .map(s => ({ id: s.id, type: 'statement', sample: false, no: `OS-${code}-${yymm(this.month)}-${digits(s.unitCode)}`, unitCode: s.unitCode, month: s.month,
+          .map(s => ({ id: s.id, type: 'statement', no: `OS-${code}-${yymm(this.month)}-${digits(s.unitCode)}`, unitCode: s.unitCode, month: s.month,
             amount: s.totals?.payout ?? 0, completedOn: dayText(s.completedAt), completedBy: s.completedByName || '', revision: s.revision || 1, statement: s }));
-        this.docs = [...st, ...samples(code, this.month)];
+        this.docs = st;
       } catch (e) { this.error = friendlyError(e, 'load the documents'); }
       this.loading = false;
     },
@@ -232,9 +216,8 @@ export default {
       const tbl = (rows, foot) => `<table style="width:100%;border-collapse:collapse;font-size:12px">${rows.map(r => `<tr>${r.map((c, i) =>
         `<td style="padding:6px 4px;border-bottom:1px solid #EEF0F3;${i === r.length - 1 ? 'text-align:right;white-space:nowrap' : ''}">${c}</td>`).join('')}</tr>`).join('')}
         ${foot ? `<tr>${foot.map((c, i) => `<td style="padding:8px 4px;font-weight:700;border-top:1px solid #999;${i === foot.length - 1 ? 'text-align:right;white-space:nowrap' : ''}">${c}</td>`).join('')}</tr>` : ''}</table>`;
-      const sampleNote = d.sample ? `<p style="font-size:11px;color:#A66300;margin:0 0 12px">Sample document: placeholder data, not a real invoice.</p>` : '';
       if (d.type !== 'statement') {
-        return head + sampleNote + `<p style="font-size:12px;margin:0 0 12px">${d.type === 'folio' ? 'Guest' : 'Tenant'}: ${esc(d.party)}<br>Date: ${esc(d.completedOn)}</p>`
+        return head + `<p style="font-size:12px;margin:0 0 12px">${d.type === 'folio' ? 'Guest' : 'Tenant'}: ${esc(d.party)}<br>Date: ${esc(d.completedOn)}</p>`
           + tbl(d.items.map(([k, v]) => [esc(k), money(v)]), [d.type === 'receipt' ? 'Amount received' : 'Total', money(d.amount)]);
       }
       const s = d.statement, t = s.totals || {};
@@ -275,7 +258,7 @@ export default {
     },
 
     // ---- Export list (.xlsx), after a preview ----
-    listRow(d) { return [d.no, TYPE[d.type], d.unitCode, shortName(d.month), d.completedOn, 'Completed', Math.round(d.amount * 100) / 100, d.sample ? 'Sample' : '']; },
+    listRow(d) { return [d.no, TYPE[d.type], d.unitCode, shortName(d.month), d.completedOn, 'Completed', Math.round(d.amount * 100) / 100]; },
     openPreview(list) { if (list.length) this.preview = list; },
     async exportXlsx() {
       this.busy = true;

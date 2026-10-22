@@ -1,4 +1,5 @@
-// Content of the four HR SOP pages (Attendance, Advance, Allowance, Claim SOCSO). Sample text until HR types the real SOPs.
+// Content of the four HR SOP pages (Attendance, Advance, Allowance, Claim SOCSO). Starter text shown until HR saves
+// each SOP for the first time (it then lives in Firestore sops/{key}).
 export const SOPS = {
   attendance: { label: 'Attendance SOP', title: 'Attendance SOP', sub: 'Working hours, clocking in and what to do if you are late or absent', stepsTitle: 'Steps to follow',
     steps: ['Clock in when you arrive and clock out when you leave, using the office clock-in system.',

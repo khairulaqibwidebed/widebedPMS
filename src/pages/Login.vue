@@ -35,6 +35,7 @@ import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from 'fir
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, configMissing, profileOf, ALLOWED_ROLES } from '../lib/firebase.js';
 import { useSession } from '../stores/session.js';
+import { homeFor } from '../nav.js';
 
 const NO_ACCESS = 'Your account has no access to this system yet. Ask a Director to give you a role.';
 const MESSAGES = {
@@ -53,7 +54,7 @@ export default {
     // Already signed in with a working role: go straight to the dashboard.
     if (!configMissing) {
       const me = await useSession().check();
-      if (me.user && ALLOWED_ROLES.includes(me.role)) this.$router.replace('/Dashboard');
+      if (me.user && ALLOWED_ROLES.includes(me.role)) this.$router.replace(homeFor(me.role));
     }
   },
   methods: {
@@ -67,7 +68,7 @@ export default {
         if (!ALLOWED_ROLES.includes(profile.role)) { await signOut(auth); throw { code: 'noaccess' }; }
         try { await updateDoc(doc(db, 'users', cred.user.uid), { lastLoginAt: serverTimestamp() }); } catch (_) {}
         useSession().set({ user: cred.user, ...profile });
-        this.$router.replace('/Dashboard');
+        this.$router.replace(homeFor(profile.role));
       } catch (e) {
         this.err = e.code === 'noaccess' ? NO_ACCESS : (MESSAGES[e.code] || 'Could not sign in. Try again.');
         this.busy = false;

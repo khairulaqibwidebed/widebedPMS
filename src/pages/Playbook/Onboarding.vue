@@ -19,23 +19,49 @@
         <!-- Checklist -->
         <template v-if="tab === 'checklist'">
           <div class="stack" style="gap:16px">
+            <div class="notice error" v-show="error">{{ error }}</div>
             <div class="card">
-              <div class="prog-head"><h2>{{ `Your progress · ${doneCount()} of ${total()} done` }}</h2><span class="tag" v-show="intern">Intern</span></div>
+              <div class="prog-head"><h2>{{ `Your progress · ${doneCount()} of ${total()} done` }}</h2><span class="tag" v-show="intern">Intern</span>
+                <button class="btn btn-sm" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit checklist</button></div>
               <div class="bar"><div :style="`width:${total() ? doneCount() / total() * 100 : 0}%`"></div></div>
+              <div class="loading-bar" v-show="loading" style="margin-top:10px"></div>
             </div>
-            <template v-for="st in STAGES" :key="st.key">
-              <div class="card stage-card">
-                <div class="card-head"><h2>{{ st.title }}</h2>
-                  <span class="pill" :class="stageDone(st) === st.items.length ? 'green' : 'grey'">{{ `${stageDone(st)} of ${st.items.length}` }}</span></div>
-                <div class="stage-sub">{{ st.sub }}</div>
-                <template v-for="(it, i) in st.items" :key="st.key + i">
-                  <label class="tick" :class="isTicked(st.key, i) && 'done'">
-                    <input type="checkbox" :checked="isTicked(st.key, i)" @change="toggle(st.key, i)"><span>{{ it }}</span>
-                  </label>
-                </template>
-              </div>
+            <template v-if="!editing">
+              <template v-for="st in stages" :key="st.key">
+                <div class="card stage-card">
+                  <div class="card-head"><h2>{{ st.title }}</h2>
+                    <span class="pill" :class="stageDone(st) === st.items.length ? 'green' : 'grey'">{{ `${stageDone(st)} of ${st.items.length}` }}</span></div>
+                  <div class="stage-sub">{{ st.sub }}</div>
+                  <template v-for="it in st.items" :key="it.id">
+                    <label class="tick" :class="isTicked(it.id) && 'done'">
+                      <input type="checkbox" :checked="isTicked(it.id)" :disabled="loading" @change="toggle(it.id)"><span>{{ it.text }}</span>
+                    </label>
+                  </template>
+                </div>
+              </template>
+              <p class="help">Your ticks are saved to your account. HR and the Directors can see how far you are.</p>
             </template>
-            <p class="help">Your ticks are kept in this browser for now; saving them to your account comes with the HR increment.</p>
+            <template v-if="editing">
+              <div class="edit-bar">
+                <span>Editing the checklist for everyone. Ticks stay with each item.</span>
+                <button class="btn" @click="editing = false">Cancel</button>
+                <button class="btn btn-primary" :disabled="busy" @click="saveEdit()">{{ busy ? 'Saving…' : 'Save checklist' }}</button>
+              </div>
+              <template v-for="(st, si) in draft" :key="st.key">
+                <div class="card stage-card">
+                  <input class="input stage-title" v-model="st.title" :aria-label="`Stage ${si + 1} title`">
+                  <input class="input" v-model="st.sub" :aria-label="`Stage ${si + 1} note`" placeholder="Short note under the title">
+                  <template v-for="(it, i) in st.items" :key="it.id">
+                    <div class="item-edit"><input class="input" v-model="it.text" :aria-label="`Stage ${si + 1} item ${i + 1}`">
+                      <button class="icon-btn" @click="st.items.splice(i, 1)" aria-label="Remove item">×</button></div>
+                  </template>
+                  <div class="actions" style="margin-top:8px"><button class="btn btn-sm" @click="addItem(st)">+ Add item</button>
+                    <button class="editlink" @click="draft.splice(si, 1)">Remove stage</button></div>
+                </div>
+              </template>
+              <button class="btn" @click="addStage()">+ Add stage</button>
+              <div class="notice error" v-show="editErr">{{ editErr }}</div>
+            </template>
           </div>
         </template>
 
@@ -115,11 +141,12 @@
           <div class="card-head"><h2>Who to ask</h2></div>
           <div class="ask"><template v-for="w in WHO" :key="w.team + w.what"><div><b>{{ w.team }}</b><span>{{ w.what }}</span></div></template></div>
         </div>
-        <div class="card newc" v-show="isDirector">
-          <div class="card-head"><h2>Newcomers (HR and Directors)</h2><span class="sample-tag">sample</span></div>
-          <template v-for="n in NEWCOMERS" :key="n.who">
+        <div class="card newc" v-show="seesAll">
+          <div class="card-head"><h2>Newcomers (HR and Directors)</h2></div>
+          <template v-for="n in newcomers" :key="n.uid">
             <div class="kv"><span>{{ n.who }}</span><span>{{ `${n.done} / ${total()}` + (n.done >= total() ? ' ✓' : '') }}</span></div>
           </template>
+          <div class="empty" v-show="!newcomers.length">No one has ticked anything yet.</div>
           <div class="help" style="margin-top:6px">HR edits the stages and items for each role.</div>
         </div>
         <div class="callout">New here? Read the <RouterLink class="navlink" to="/Playbook/business-model">Business Model brief</RouterLink> in your first week.</div>
@@ -129,18 +156,17 @@
 </template>
 
 <script>
+import { collection, doc, getDoc, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { db, ROLE_LABEL } from '@/lib/firebase.js';
+import { audit, friendlyError } from '@/lib/finance-data.js';
+import { toast } from '@/lib/toast.js';
 import { useSession } from '@/stores/session.js';
+import { STAGES, withIds } from './onboarding-stages.js';
 
 const me = useSession();
 
 const TABS = [{ key: 'checklist', label: 'Checklist' }, { key: 'how', label: 'How Widebed works' }, { key: 'who', label: 'Who to ask' },
   { key: 'walk', label: 'PMS walkthrough' }, { key: 'faq', label: 'FAQ & glossary' }];
-const STAGES = [
-  { key: 'before', title: 'Before day 1', sub: 'Sent with your offer letter', items: ['Sign and return the PDPA confidentiality form', 'Get your PMS login from HR', 'Read the Business Model brief'] },
-  { key: 'day1', title: 'Day 1', sub: 'Your first day in the office', items: ['Meet your supervisor and the team you sit with', 'Tour of the office and one unit', 'Log in to the PMS and set your colour theme', 'Read "How Widebed works"'] },
-  { key: 'week1', title: 'Week 1', sub: 'Learn the daily routine', items: ['Shadow Operations on a check-in and check-out', 'Watch Finance upload an eZee report', 'Raise and close a test ticket in Issues', 'Learn the owner arrangements (fixed rent, profit share, long-term)', 'Ask three questions in your first check-in'] },
-  { key: 'month1', title: 'Month 1', sub: 'Work on your own', items: ['Help prepare one month-end statement with Finance', 'Explain OTA commission to your supervisor', 'Write down anything confusing for the next intern', 'Month-1 review with your supervisor', 'Give feedback on this onboarding', 'Sign off from HR'] }
-];
 const WHO = [
   { team: 'Finance', what: 'Statements, payouts, expenses, invoices' },
   { team: 'Operations', what: 'Check-ins, guests, smart-lock passcodes' },
@@ -187,30 +213,76 @@ const GLOSS = [
   ['Deposit', '2 months, required for every long-term tenant'],
   ['Completed', 'A month that Finance has approved; its statements are locked PDFs']
 ];
-const NEWCOMERS = [{ who: 'Intern · started 13 Oct', done: 6 }, { who: 'Operations · started 1 Oct', done: 15 }, { who: 'Finance · started 15 Sep', done: 18 }];
-const keyOf = () => 'wb.onboarding.' + me.user.uid;
-const readTicks = () => { try { return JSON.parse(localStorage.getItem(keyOf())) || {}; } catch { return {}; } };
+// Checklist content lives in playbook/onboarding (HR and Directors edit it); until the first save the stages above show.
+// Each item has an id so ticks stay with the item when the list is edited. Each person's ticks are in
+// onboardingProgress/{uid}: only that person writes them, HR and Directors read everyone's.
+const copy = v => JSON.parse(JSON.stringify(v));
+const uid6 = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 export default {
   data() {
     return {
-      TABS, STAGES, WHO, WALK, FAQ, GLOSS, NEWCOMERS,
-      isDirector: me.role === 'director', intern: !!me.intern,
-      tab: 'checklist', walkRole: me.role === 'finance' ? 'Finance' : 'Everyone', ticks: readTicks()
+      TABS, WHO, WALK, FAQ, GLOSS, stages: withIds(STAGES), newcomers: [],
+      seesAll: ['director', 'hr'].includes(me.role), canEdit: ['director', 'hr'].includes(me.role), intern: !!me.intern,
+      tab: 'checklist', walkRole: me.role === 'finance' ? 'Finance' : 'Everyone', ticks: {},
+      loading: true, error: '', editing: false, draft: [], editErr: '', busy: false
     };
   },
-  mounted() { const h = this.$route.hash.slice(1); if (TABS.some(t => t.key === h)) this.tab = h; },
+  async mounted() {
+    const h = this.$route.hash.slice(1); if (TABS.some(t => t.key === h)) this.tab = h;
+    try {
+      const [content, mine] = await Promise.all([getDoc(doc(db, 'playbook', 'onboarding')), getDoc(doc(db, 'onboardingProgress', me.user.uid))]);
+      if (content.exists() && Array.isArray(content.data().stages)) this.stages = content.data().stages;
+      if (mine.exists()) this.ticks = mine.data().ticks || {};
+      if (this.seesAll) await this.loadNewcomers();
+    } catch (e) { this.error = friendlyError(e, 'load the checklist'); }
+    this.loading = false;
+  },
   methods: {
     // Keeps the router's history state; a router navigation would remount the page.
     setTab(k) { this.tab = k; history.replaceState(history.state, '', '#' + k); },
-    isTicked(s, i) { return !!this.ticks[`${s}.${i}`]; },
-    toggle(s, i) {
-      const k = `${s}.${i}`; this.ticks = { ...this.ticks, [k]: !this.ticks[k] };
-      try { localStorage.setItem(keyOf(), JSON.stringify(this.ticks)); } catch {}
+    async loadNewcomers() {
+      const [prog, users] = await Promise.all([getDocs(collection(db, 'onboardingProgress')), getDocs(collection(db, 'users'))]);
+      const names = Object.fromEntries(users.docs.map(u => [u.id, u.data()]));
+      this.newcomers = prog.docs.map(d => {
+        const u = names[d.id] || {};
+        return { uid: d.id, who: `${u.displayName || 'Staff member'}${u.role ? ' · ' + (ROLE_LABEL[u.role] || u.role) : ''}`, ticks: d.data().ticks || {} };
+      }).map(n => ({ ...n, done: this.countTicks(n.ticks) })).sort((a, b) => a.done - b.done || a.who.localeCompare(b.who));
     },
-    stageDone(st) { return st.items.filter((_, i) => this.isTicked(st.key, i)).length; },
-    doneCount() { return STAGES.reduce((n, st) => n + this.stageDone(st), 0); },
-    total() { return STAGES.reduce((n, st) => n + st.items.length, 0); }
+    isTicked(id) { return !!this.ticks[id]; },
+    async toggle(id) {
+      const was = !!this.ticks[id];
+      this.ticks = { ...this.ticks, [id]: !was };
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'onboardingProgress', me.user.uid), { ticks: { [id]: !was }, updatedAt: serverTimestamp() }, { merge: true });
+        audit(batch, me, { action: 'onboarding.tick', entity: `onboardingProgress/${me.user.uid}`, changes: [{ field: id, old: was, new: !was }] });
+        await batch.commit();
+      } catch (e) { this.ticks = { ...this.ticks, [id]: was }; toast(friendlyError(e, 'save your tick')); }
+    },
+    countTicks(ticks) { return this.stages.reduce((n, st) => n + st.items.filter(it => ticks[it.id]).length, 0); },
+    stageDone(st) { return st.items.filter(it => this.isTicked(it.id)).length; },
+    doneCount() { return this.countTicks(this.ticks); },
+    total() { return this.stages.reduce((n, st) => n + st.items.length, 0); },
+    startEdit() { this.draft = copy(this.stages); this.editErr = ''; this.editing = true; },
+    addItem(st) { st.items.push({ id: `${st.key}-${uid6()}`, text: '' }); },
+    addStage() { this.draft.push({ key: 's' + uid6(), title: 'New stage', sub: '', items: [] }); },
+    async saveEdit() {
+      const stages = this.draft.map(st => ({ key: st.key, title: st.title.trim(), sub: st.sub.trim(),
+        items: st.items.map(it => ({ id: it.id, text: it.text.trim() })).filter(it => it.text) })).filter(st => st.title || st.items.length);
+      if (!stages.some(st => st.items.length)) return this.editErr = 'Keep at least one item.';
+      this.busy = true; this.editErr = '';
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'playbook', 'onboarding'), { stages, updatedAt: serverTimestamp(), updatedBy: me.name, updatedByUid: me.user.uid });
+        audit(batch, me, { action: 'playbook.update', entity: 'playbook/onboarding', changes: [{ field: 'items', old: this.total(), new: stages.reduce((n, st) => n + st.items.length, 0) }] });
+        await batch.commit();
+        this.stages = stages; this.editing = false;
+        this.newcomers = this.newcomers.map(n => ({ ...n, done: this.countTicks(n.ticks) }));
+        toast('Checklist saved.');
+      } catch (e) { this.editErr = friendlyError(e, 'save the checklist'); }
+      this.busy = false;
+    }
   }
 };
 </script>
@@ -222,6 +294,13 @@ export default {
     .bar { height: 8px; background: var(--chip); border-radius: 999px; overflow: hidden; }
     .bar > div { height: 100%; background: var(--accent); transition: width .2s; }
     .stage-card .card-head { margin-bottom: 4px; }
+    .prog-head .btn { margin-left: auto; }
+    .stage-title { font-weight: 600; margin-bottom: 6px; }
+    .stage-card > .input { margin-bottom: 6px; }
+    .item-edit { display: grid; grid-template-columns: minmax(0,1fr) 28px; gap: 6px; margin-bottom: 6px; }
+    .item-edit .input { height: 32px; font-size: 13px; }
+    .edit-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--amber-soft); color: var(--amber); border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+    .edit-bar span { margin-right: auto; }
     .stage-sub { color: var(--text-2); font-size: 12px; margin-bottom: 10px; }
     .tick { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; font-size: 13px; cursor: pointer; }
     .tick input { width: 16px; height: 16px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }

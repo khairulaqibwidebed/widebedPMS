@@ -1,9 +1,10 @@
 <template>
   <main class="content">
     <div class="page-head"><div><h1>Send a complaint to the Directors</h1><div class="sub">Only HR can use this form</div></div>
-      <div class="head-tools"><span class="sample-tag">Saved in this browser for now</span></div></div>
+      </div>
     <div class="callout" style="margin-bottom:20px">HR sends these complaints and the Directors read them. HR has no login yet, so for now the form shows to Directors so it can be tried out; the inbox below is what Directors see.</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
+    <div class="notice error" v-show="loadErr">{{ loadErr }}</div>
     <div class="side-grid">
       <section class="card">
         <div class="card-head"><h2>New complaint</h2></div>
@@ -14,7 +15,7 @@
           <label class="filedrop"><input type="file" multiple hidden @change="files = [...$event.target.files].map(f => f.name)"><b>Upload document</b>Optional · supporting documents</label>
           <div class="file-names" v-show="files.length">{{ files.join(', ') }}</div>
           <div class="notice error" v-show="err" style="margin-top:12px">{{ err }}</div>
-          <div class="actions" style="margin-top:14px"><button class="btn btn-primary" type="submit">Send to Directors</button><button class="btn" type="button" @click="clear()">Cancel</button></div>
+          <div class="actions" style="margin-top:14px"><button class="btn btn-primary" type="submit" :disabled="busy">{{ busy ? 'Sending…' : 'Send to Directors' }}</button><button class="btn" type="button" @click="clear()">Cancel</button></div>
         </form>
       </section>
       <div class="stack" style="gap:20px">
@@ -27,20 +28,23 @@
         <section class="card">
           <div class="card-head"><h2>Sent before</h2></div>
           <div class="rows">
-            <div class="row" v-for="c in list" :key="c.ref"><span>{{ `${c.ref} · ${c.date}` }}</span><span class="pill" :class="c.read ? 'green' : 'amber'">{{ c.read ? 'Read' : 'Not read' }}</span></div>
+            <div class="row" v-for="c in list" :key="c.id"><span>{{ `${c.ref} · ${c.date}` }}</span><span class="pill" :class="c.read ? 'green' : 'amber'">{{ c.read ? 'Read' : 'Not read' }}</span></div>
+            <div class="row muted" v-show="!loading && !list.length"><span>Nothing sent yet.</span></div>
           </div>
         </section>
       </div>
     </div>
     <section class="card" style="margin-top:20px">
       <div class="card-head"><h2>Directors' inbox</h2><span class="help">{{ `${list.filter(c => !c.read).length} not read` }}</span></div>
+      <div class="loading-bar" v-show="loading"></div>
       <div class="table-wrap">
         <table class="table">
           <thead><tr><th>Ref</th><th>Date</th><th>From</th><th>Subject</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            <tr class="clickable" v-for="c in list" :key="c.ref" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.fromName }}</td><td>{{ c.subject }}</td>
+            <tr class="clickable" v-for="c in list" :key="c.id" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.fromName }}</td><td>{{ c.subject }}</td>
               <td><span class="pill" :class="c.read ? 'green' : 'amber'">{{ c.read ? 'Read' : 'New' }}</span></td>
               <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td></tr>
+            <tr v-show="!loading && !list.length"><td colspan="6" class="muted">No complaints yet.</td></tr>
           </tbody>
         </table>
       </div>
@@ -52,7 +56,7 @@
           <div class="kv"><span>Date</span><span>{{ sel.date }}</span></div>
           <div class="kv"><span>From</span><span>{{ sel.fromName }}</span></div>
           <div class="field" style="margin-top:12px"><label>Details</label><div class="detail">{{ sel.details }}</div></div>
-          <div class="file-names" v-show="sel.files.length">{{ 'Attached: ' + sel.files.join(', ') }}</div>
+          <div class="file-names" v-show="sel.files && sel.files.length">{{ 'Attached: ' + sel.files.join(', ') }}</div>
           <div class="modal-foot"><button class="btn" @click="sel = null">Close</button></div>
         </div>
       </div>
@@ -61,7 +65,10 @@
 </template>
 
 <script>
-import { directorComplaints, saveDirectorComplaints, nextRef, today } from './complaints.js';
+// HR sends, Directors read. HR is not a login yet, so the form also shows to Directors so it can be tried out.
+// Only a Director opening a complaint marks it read. IT and other staff never see this page.
+import { loadComplaints, createComplaint, markRead } from './complaints.js';
+import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
@@ -70,21 +77,35 @@ export default {
   data() {
     return {
       WHO: [['HR', true], ['Directors', true], ['IT', false], ['Other staff', false]],
-      list: directorComplaints(), subject: '', details: '', files: [], err: '', okMsg: '', sel: null
+      list: [], loading: true, loadErr: '', busy: false, subject: '', details: '', files: [], err: '', okMsg: '', sel: null
     };
   },
+  async mounted() { await this.load(); },
   methods: {
+    async load() {
+      this.loading = true; this.loadErr = '';
+      try { this.list = await loadComplaints('director'); }
+      catch (e) { this.loadErr = friendlyError(e, 'load the complaints'); }
+      this.loading = false;
+    },
     clear() { this.subject = ''; this.details = ''; this.files = []; this.err = ''; },
     // Opening a complaint marks it as read for the Directors
-    open(c) { this.sel = c; if (!c.read) { c.read = true; saveDirectorComplaints(this.list); } },
-    send() {
+    async open(c) {
+      this.sel = c;
+      if (c.read || me.role !== 'director') return;
+      try { await markRead(me, c); c.read = true; }
+      catch (e) { this.loadErr = friendlyError(e, 'mark the complaint as read'); }
+    },
+    async send() {
       this.err = ''; this.okMsg = '';
       if (!this.subject.trim()) return this.err = 'Add a subject.';
       if (!this.details.trim()) return this.err = 'Add the details.';
-      const ref = nextRef(this.list, 'DC-', 3);
-      this.list.unshift({ ref, date: today(), fromName: me.name, subject: this.subject.trim(), details: this.details.trim(), read: false, files: this.files });
-      saveDirectorComplaints(this.list);
-      this.okMsg = `Sent to the Directors as ${ref}.`; this.clear();
+      this.busy = true;
+      try {
+        const ref = await createComplaint(me, 'director', { subject: this.subject.trim(), details: this.details.trim(), files: this.files });
+        this.okMsg = `Sent to the Directors as ${ref}.`; this.clear(); await this.load();
+      } catch (e) { this.err = friendlyError(e, 'send the complaint'); }
+      this.busy = false;
     }
   }
 };

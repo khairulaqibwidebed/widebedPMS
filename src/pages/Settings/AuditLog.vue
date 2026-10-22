@@ -63,9 +63,11 @@ import { friendlyError } from '@/lib/finance-data.js';
 
 const PAGE = 50;
 const AREAS = [{ key: 'all', label: 'All' }, { key: 'money', label: 'Expenses & Ctrip' }, { key: 'units', label: 'Units & rates' },
-  { key: 'owners', label: 'Owners' }, { key: 'statements', label: 'Statements & month-end' }, { key: 'uploads', label: 'Uploads' }, { key: 'staff', label: 'Staff accounts' }];
+  { key: 'owners', label: 'Owners' }, { key: 'statements', label: 'Statements & month-end' }, { key: 'uploads', label: 'Uploads' }, { key: 'staff', label: 'Staff accounts' },
+  { key: 'ops', label: 'Inquiries & issues' }, { key: 'hr', label: 'HR & Playbook' }];
 const AREA_OF = { expense: 'money', ctrip: 'money', unit: 'units', unitTerms: 'units', rates: 'units', property: 'units', owner: 'owners',
-  statement: 'statements', month: 'statements', ezee: 'uploads', financeStatement: 'uploads', staff: 'staff' };
+  statement: 'statements', month: 'statements', ezee: 'uploads', financeStatement: 'uploads', staff: 'staff',
+  offlineInquiry: 'ops', offlineBooking: 'ops', tenant: 'ops', issue: 'ops', sop: 'hr', complaint: 'hr', onboarding: 'hr', playbook: 'hr', brandLogo: 'hr' };
 const ACTIONS = {
   'expense.create': 'Added an expense line', 'expense.update': 'Edited an expense line', 'expense.remove': 'Removed an expense line',
   'ctrip.enter': 'Typed a Trip.com amount', 'unit.create': 'Added a unit', 'unit.update': 'Changed unit settings',
@@ -73,7 +75,13 @@ const ACTIONS = {
   'rates.create': 'Changed fees & rates or OTA commissions', 'property.create': 'Added a property', 'property.update': 'Edited property details',
   'owner.create': 'Added an owner', 'owner.update': 'Edited an owner', 'owner.deactivate': 'Deactivated an owner', 'owner.reactivate': 'Turned an owner back on',
   'month.complete': 'Approved & completed a month', 'month.reopen': 'Reopened a month', 'statement.complete': 'Approved & completed a unit statement', 'statement.reopen': 'Reopened a unit statement', 'statement.override': 'Edited a statement (Director Override)',
-  'ezee.upload': 'Uploaded an eZee report', 'financeStatement.import': "Imported Finance's statement", 'staff.create': 'Invited staff', 'staff.update': 'Changed a staff account'
+  'ezee.upload': 'Uploaded an eZee report', 'financeStatement.import': "Imported Finance's statement", 'staff.create': 'Invited staff', 'staff.update': 'Changed a staff account',
+  'offlineInquiry.create': 'Logged an offline inquiry', 'offlineInquiry.assign': 'Assigned an offline inquiry', 'offlineInquiry.update': 'Updated an offline inquiry',
+  'offlineInquiry.contact': "Edited a customer's details", 'offlineBooking.create': 'Created an offline booking', 'offlineBooking.ezee': 'Linked an eZee reservation',
+  'tenant.update': "Edited a tenant's details", 'issue.create': 'Raised an issue', 'issue.comment': 'Commented on an issue', 'issue.progress': 'Moved an issue to In progress',
+  'issue.tags': 'Changed an issue\'s tags', 'issue.complete': 'Completed an issue', 'sop.update': 'Edited an SOP', 'sop.docAdd': 'Added an SOP document', 'sop.docRemove': 'Removed an SOP document',
+  'complaint.create': 'Sent a complaint', 'complaint.read': 'Read a Director complaint', 'onboarding.tick': 'Ticked an onboarding step', 'playbook.update': 'Edited a Playbook page',
+  'brandLogo.update': 'Changed a brand logo'
 };
 // Personal data (PDPA): show that it changed, never the value.
 const PII = /(^|\.)(ic|icPassport|passport|nric|email|phone|whatsapp|wechat|address|bank|bankName|bankAccount|accountNo|accountHolder|dob|dateOfBirth|fullName|name|contact)/i;

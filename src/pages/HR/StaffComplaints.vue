@@ -2,23 +2,25 @@
   <main class="content">
     <div class="page-head">
       <div><h1>Staff complaints</h1><div class="sub">Complaints sent to HR by staff</div></div>
-      <div class="head-tools"><span class="chip">View only</span><span class="sample-tag">Saved in this browser for now</span></div>
+      <div class="head-tools"><span class="chip">View only</span></div>
     </div>
+    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="pills brand" style="margin-bottom:16px">
       <button class="pill-btn" v-for="f in filters" :key="f[0]" :class="{ on: filter === f[0] }" @click="filter = f[0]">{{ f[1] }}</button>
     </div>
+    <div class="loading-bar" v-show="loading"></div>
     <div class="table-wrap">
       <table class="table">
         <thead><tr><th>Ref</th><th>Date</th><th>From</th><th>Subject</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          <tr class="clickable" v-for="c in shown()" :key="c.ref" @click="sel = c">
+          <tr class="clickable" v-for="c in shown()" :key="c.id" @click="sel = c">
             <td>{{ c.ref }}</td><td>{{ c.date }}</td>
             <td><span class="anon" v-show="c.anonymous">Anonymous</span><span v-show="!c.anonymous">{{ c.fromName }}</span></td>
             <td>{{ c.subject }}</td>
-            <td><span class="pill" :class="STATUS[c.status][1]">{{ STATUS[c.status][0] }}</span></td>
+            <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td>
             <td class="num"><button class="editlink" @click.stop="sel = c">Open</button></td>
           </tr>
-          <tr v-show="!shown().length"><td colspan="6" class="muted">No complaints here.</td></tr>
+          <tr v-show="!loading && !shown().length"><td colspan="6" class="muted">No complaints here.</td></tr>
         </tbody>
       </table>
     </div>
@@ -30,9 +32,9 @@
           <h2>{{ `${sel.ref} · ${sel.subject}` }}</h2>
           <div class="kv"><span>Date</span><span>{{ sel.date }}</span></div>
           <div class="kv"><span>From</span><span>{{ sel.anonymous ? 'Anonymous' : sel.fromName }}</span></div>
-          <div class="kv"><span>Status</span><span><span class="pill" :class="STATUS[sel.status][1]">{{ STATUS[sel.status][0] }}</span></span></div>
+          <div class="kv"><span>Status</span><span><span class="pill" :class="st(sel)[1]">{{ st(sel)[0] }}</span></span></div>
           <div class="field" style="margin-top:12px"><label>Details</label><div class="detail">{{ sel.details }}</div></div>
-          <div class="file-names" v-show="sel.files.length">{{ 'Attached: ' + sel.files.join(', ') }}</div>
+          <div class="file-names" v-show="sel.files && sel.files.length">{{ 'Attached: ' + sel.files.join(', ') }}</div>
           <div class="modal-foot"><button class="btn" @click="sel = null">Close</button></div>
         </div>
       </div>
@@ -41,16 +43,24 @@
 </template>
 
 <script>
-import { staffComplaints, STATUS } from './complaints.js';
+// HR and Directors read staff complaints; nobody changes or deletes them. Anonymous ones carry no sender at all.
+import { loadComplaints, STATUS } from './complaints.js';
+import { friendlyError } from '@/lib/finance-data.js';
 
 export default {
   data() {
     return {
-      STATUS, list: staffComplaints(), filter: 'all', sel: null,
+      STATUS, list: [], loading: true, error: '', filter: 'all', sel: null,
       filters: [['all', 'All'], ['new', 'New'], ['review', 'In review'], ['closed', 'Closed']]
     };
   },
+  async mounted() {
+    try { this.list = await loadComplaints('staff'); }
+    catch (e) { this.error = friendlyError(e, 'load the complaints'); }
+    this.loading = false;
+  },
   methods: {
+    st(c) { return STATUS[c.status] || STATUS.new; },
     shown() { return this.list.filter(c => this.filter === 'all' || c.status === this.filter); }
   }
 };

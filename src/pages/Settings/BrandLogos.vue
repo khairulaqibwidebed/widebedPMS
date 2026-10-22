@@ -2,13 +2,14 @@
   <main class="content">
     <div class="page-head">
       <div>
-        <h1>Brand logos <span class="sample-tag">Saved in this browser for now</span></h1>
+        <h1>Brand logos</h1>
         <div class="sub">Director only. The logo shown in the sidebar and printed on statements, invoices and receipts.</div>
       </div>
     </div>
 
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
+    <div class="loading-bar" v-show="loading" style="margin-bottom:12px"></div>
 
     <div class="logo-grid">
       <template v-for="slot in slots" :key="slot.key">
@@ -20,15 +21,16 @@
           </div>
           <div class="logo-file">{{ fileLine(slot) }}</div>
           <div class="logo-acts">
-            <label class="btn" :for="'up-' + slot.key">Upload new</label>
+            <template v-if="canEdit"><label class="btn" :for="'up-' + slot.key">Upload new</label>
             <input type="file" :id="'up-' + slot.key" accept=".png,.svg,image/png,image/svg+xml" hidden @change="pick(slot.key, $event)">
-            <span class="help">PNG or SVG, at least 400 px wide</span>
+            <span class="help">PNG or SVG, at least 400 px wide. Resized to 512 px.</span></template>
+            <span class="chip" v-if="!canEdit">View only</span>
           </div>
           <template v-if="draft[slot.key]">
             <div>
               <div class="pending">{{ 'Not saved yet: ' + draft[slot.key].name }}</div>
               <div class="logo-acts" style="margin-top:8px">
-                <button class="btn btn-primary btn-sm" @click="save(slot.key)">Save logo</button>
+                <button class="btn btn-primary btn-sm" :disabled="busy" @click="save(slot.key)">{{ busy ? 'Saving…' : 'Save logo' }}</button>
                 <button class="btn btn-sm" @click="draft[slot.key] = null">Discard</button>
               </div>
             </div>
@@ -47,7 +49,7 @@
       </div>
     </section>
 
-    <div class="callout">A new logo only appears on PDFs made after you save it. Completed statements, invoices and receipts keep the logo they were made with. PDFs always use Widebed company colours, whatever theme staff pick. When the Drive link is set up, logo files are kept in the company Google Drive and the PMS stores only the link.</div>
+    <div class="callout">A new logo only appears on PDFs made after you save it. Completed statements, invoices and receipts keep the logo they were made with. PDFs always use Widebed company colours, whatever theme staff pick. Logos are resized in your browser to at most 512 px and saved with the PMS (each up to 200 KB).</div>
 
     <div class="table-wrap">
       <table class="table">
@@ -70,41 +72,61 @@
 </template>
 
 <script>
+// Each logo is one small document, brandLogos/{light|dark}: the picture as a data URL (resized in the browser to
+// at most 512 px and 200 KB, since file storage needs the paid plan), its file name and a short version list.
+// Director edits; everyone signed in reads (the app may show the logo).
+import { doc, getDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase.js';
+import { audit, friendlyError } from '@/lib/finance-data.js';
 import { toast } from '@/lib/toast.js';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
 
-// No storage collection yet: the chosen logos live in this browser only (localStorage).
-// Later: the file goes to the company Google Drive, the PMS keeps the link + version list in Firestore.
-const KEY = 'wb.logos';
-const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
-const START = {
-  light: null, dark: null,
-  versions: [
-    { n: 1, slot: 'light', file: 'widebed_logo.svg', by: 'Director', on: '2 Jan 2026', inUse: true },
-    { n: 1, slot: 'dark', file: 'widebed_logo_dark.svg', by: 'Director', on: '2 Jan 2026', inUse: true }
-  ]
-};
-const MAX = 1024 * 1024;
+// The built-in wordmark counts as version 1 until a logo is saved.
+const START = slot => ({ src: null, name: null, versions: [{ n: 1, file: slot === 'dark' ? 'widebed_logo_dark.svg' : 'widebed_logo.svg', by: 'Director', on: '2 Jan 2026' }], n: 1 });
+const MAX_IN = 5 * 1024 * 1024, MAX_OUT = 200 * 1024, SIDE = 512;
+const today = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+const bytesOf = url => Math.ceil((url.length - url.indexOf(',') - 1) * 3 / 4);
+
+// Draws the picture at most 512 px on its longest side and returns the smaller of WebP and PNG (both keep transparency).
+function shrink(img) {
+  const w0 = img.naturalWidth || SIDE, h0 = img.naturalHeight || Math.round(SIDE / 3);
+  const k = Math.min(1, SIDE / Math.max(w0, h0));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w0 * k)); c.height = Math.max(1, Math.round(h0 * k));
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const webp = c.toDataURL('image/webp', 0.9), png = c.toDataURL('image/png');
+  return webp.startsWith('data:image/webp') && webp.length < png.length ? webp : png;
+}
 
 export default {
   data() {
     return {
       slots: [{ key: 'light', title: 'Logo on light background', use: 'used on PDFs and light theme' },
               { key: 'dark', title: 'Logo on dark background', use: 'used in dark mode' }],
-      saved: read() || structuredClone(START),
+      saved: { light: START('light'), dark: START('dark') },
       draft: { light: null, dark: null },
-      error: '', okMsg: ''
+      canEdit: me.role === 'director', loading: true, busy: false, error: '', okMsg: ''
     };
   },
+  async mounted() {
+    try {
+      const snaps = await Promise.all(this.slots.map(sl => getDoc(doc(db, 'brandLogos', sl.key))));
+      snaps.forEach((d, i) => { if (d.exists()) this.saved[this.slots[i].key] = { ...START(this.slots[i].key), ...d.data() }; });
+    } catch (e) { this.error = friendlyError(e, 'load the logos'); }
+    this.loading = false;
+  },
   computed: {
-    versions() { return [...this.saved.versions].sort((a, b) => b.n - a.n || a.slot.localeCompare(b.slot)); }
+    versions() {
+      return ['light', 'dark'].flatMap(slot => this.saved[slot].versions.map(v => ({ ...v, slot, inUse: v.n === this.saved[slot].n })))
+        .sort((a, b) => b.n - a.n || a.slot.localeCompare(b.slot));
+    }
   },
   methods: {
     shownSrc(k) { return this.draft[k]?.src || this.saved[k]?.src || null; },
     fileLine(slot) {
-      const cur = this.saved.versions.find(v => v.slot === slot.key && v.inUse);
+      const cur = this.saved[slot.key].versions.find(v => v.n === this.saved[slot.key].n);
       return `${cur ? cur.file : 'widebed_logo.svg'} · ${slot.use}`;
     },
     pick(k, e) {
@@ -112,32 +134,42 @@ export default {
       const f = e.target.files[0]; e.target.value = '';
       if (!f) return;
       if (!/\.(png|svg)$/i.test(f.name)) return this.error = 'Choose a PNG or SVG file.';
-      if (f.size > MAX) return this.error = 'That file is over 1 MB. Export a smaller PNG or use SVG.';
+      if (f.size > MAX_IN) return this.error = 'That file is over 5 MB. Export a smaller PNG or use SVG.';
       const r = new FileReader();
       r.onload = () => {
-        const src = r.result;
-        if (f.name.toLowerCase().endsWith('.png')) {
-          const img = new Image();
-          img.onload = () => {
-            if (img.naturalWidth < 400) this.error = `This PNG is ${img.naturalWidth} px wide. Use one at least 400 px wide so PDFs stay sharp.`;
-            else this.draft[k] = { name: f.name, src };
-          };
-          img.src = src;
-        } else this.draft[k] = { name: f.name, src };
+        const img = new Image();
+        img.onload = () => {
+          const isPng = f.name.toLowerCase().endsWith('.png');
+          if (isPng && img.naturalWidth < 400) return this.error = `This PNG is ${img.naturalWidth} px wide. Use one at least 400 px wide so PDFs stay sharp.`;
+          let src;
+          try { src = shrink(img); } catch { return this.error = 'This picture could not be read. Try exporting it again as PNG.'; }
+          const kb = Math.round(bytesOf(src) / 1024);
+          if (kb > MAX_OUT / 1024) return this.error = `Even at 512 px this logo is ${kb} KB; the limit is 200 KB. Use a simpler picture or fewer colours.`;
+          this.draft[k] = { name: f.name, src };
+        };
+        img.onerror = () => { this.error = 'This picture could not be read. Try exporting it again as PNG.'; };
+        img.src = r.result;
       };
       r.readAsDataURL(f);
     },
-    save(k) {
-      const d = this.draft[k]; if (!d) return;
-      const n = Math.max(0, ...this.saved.versions.filter(v => v.slot === k).map(v => v.n)) + 1;
-      this.saved.versions.forEach(v => { if (v.slot === k) v.inUse = false; });
-      this.saved.versions.push({ n, slot: k, file: d.name, by: me.name, on: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }), inUse: true });
-      this.saved[k] = { src: d.src, name: d.name };
-      try { localStorage.setItem(KEY, JSON.stringify(this.saved)); }
-      catch { this.error = 'This browser could not keep the file (storage full). It shows until you leave the page.'; }
-      this.draft[k] = null;
-      this.okMsg = `Saved. New PDFs will use ${d.name}.`;
-      toast('Logo saved');
+    async save(k) {
+      const d = this.draft[k]; if (!d || this.busy) return;
+      const cur = this.saved[k];
+      const n = Math.max(0, ...cur.versions.map(v => v.n)) + 1;
+      // Keep the last 20 versions (names only; the picture is kept just for the logo in use).
+      const versions = [...cur.versions, { n, file: d.name, by: me.name, on: today() }].slice(-20);
+      this.busy = true; this.error = ''; this.okMsg = '';
+      try {
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'brandLogos', k), { src: d.src, name: d.name, n, versions, updatedAt: serverTimestamp(), updatedBy: me.name, updatedByUid: me.user.uid });
+        audit(batch, me, { action: 'brandLogo.update', entity: `brandLogos/${k}`, changes: [{ field: 'file', old: cur.name || null, new: d.name }] });
+        await batch.commit();
+        this.saved[k] = { ...cur, src: d.src, name: d.name, n, versions };
+        this.draft[k] = null;
+        this.okMsg = `Saved. New PDFs will use ${d.name}.`;
+        toast('Logo saved');
+      } catch (e) { this.error = friendlyError(e, 'save the logo'); }
+      this.busy = false;
     }
   }
 };
