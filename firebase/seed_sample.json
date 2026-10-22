@@ -1,0 +1,46 @@
+{
+  "_note": "Sample shapes only. Placeholder people; replace amounts with Finance's real setup. Paths are collection/doc.",
+  "properties/dmajestic": { "name": "D'Majestic", "code": "DM", "active": true },
+  "properties/dmajestic/rateVersions/2026-01": {
+    "effectiveFrom": "2026-01", "serviceFeePct": 0.20, "utilityFeePct": 0.20, "sstOnFeePct": 0.08, "tourismTaxPerNight": 10,
+    "ota": {
+      "agoda": { "payout": "net", "divisor": 0.8164 },
+      "tiket": { "payout": "net", "divisor": 0.83 },
+      "traveloka": { "payout": "net", "divisor": 0.85 },
+      "expedia": { "payout": "net", "divisor": 0.83 },
+      "ctrip": { "payout": "net", "estimatePct": 0.15 },
+      "bookingcom": { "payout": "gross", "commissionPct": 0.18, "paymentFeePct": 0.028, "sstPct": 0.08 }
+    },
+    "reason": "Initial setup", "createdBy": "uid_director_1", "createdAt": "SERVER_TIMESTAMP"
+  },
+  "owners/OWN-001": { "name": "Owner A", "code": "OWN-001", "active": true },
+  "owners/OWN-001/private/main": { "phone": "+60 12-000 0000", "email": "owner.a@example.com", "icNo": "000000-00-0000", "bankName": "Sample Bank", "bankAccount": "0000000000" },
+  "units/dmajestic_DM-07-19": { "propertyId": "dmajestic", "unitCode": "DM 07-19", "ezeeRoomMatch": "DM 07-19", "ownerId": "OWN-001", "active": true },
+  "units/dmajestic_DM-07-19/terms/2026-09": { "effectiveFrom": "2026-09", "arrangement": "profitShare40", "fixedRentAmount": null, "serviceFeePct": null, "utilityFeePct": null, "sstOnFeePct": null, "otaOverrides": null, "reason": "Initial setup", "createdBy": "uid_finance_1", "createdAt": "SERVER_TIMESTAMP" },
+  "units/dmajestic_DM-07-10": { "propertyId": "dmajestic", "unitCode": "DM 07-10", "ezeeRoomMatch": "DM 07-10", "ownerId": "OWN-002", "active": true },
+  "units/dmajestic_DM-07-10/terms/2026-09": { "effectiveFrom": "2026-09", "arrangement": "fixedRent", "fixedRentAmount": 1350, "reason": "Initial setup", "createdBy": "uid_finance_1", "createdAt": "SERVER_TIMESTAMP" },
+  "bookings/DMRS00001": {
+    "reservationNo": "DMRS00001", "propertyId": "dmajestic", "unitId": "dmajestic_DM-07-19", "roomRaw": "DM 07-19-Deluxe", "source": "Expedia", "otaKey": "expedia",
+    "arrival": "2026-08-31", "departure": "2026-09-01", "departureMonth": "2026-09", "nights": 1, "status": "active",
+    "allRoomCharges": 68.61, "sst": 6.72, "totalInclTax": 75.33, "commission": 0, "cleaningFee": 0, "earlyCheckIn": 0, "damageClaim": 0, "otherCharges": 0, "tourismTax": 0,
+    "guestPaid": 90.76, "guestPaidEstimated": false, "platformCharges": 15.43, "pto": 68.61,
+    "ratesUsed": { "divisor": 0.83, "rateVersion": "properties/dmajestic/rateVersions/2026-01" },
+    "ctrip": null, "bookingcom": null, "edits": null,
+    "raw": { "c001": "1", "c002": "DMRS00001", "c005": null, "...": "all 192 columns as text" },
+    "importBatchId": "batch_20261001_01"
+  },
+  "bookings/DMRS00001/private/main": { "guestName": "Guest 1", "billToName": null, "regNo": null },
+  "expenses/exp_0001": { "propertyId": "dmajestic", "unitId": "dmajestic_DM-07-19", "date": "2026-09-12", "month": "2026-09", "kind": "expense", "type": "sewerage", "description": "IWK 09/26", "amount": 381.35, "auto": false, "sourceStatementId": null, "files": [], "createdBy": "uid_finance_1", "createdByName": "Finance User 1", "createdAt": "SERVER_TIMESTAMP", "deleted": false },
+  "months/dmajestic_2026-09": { "propertyId": "dmajestic", "month": "2026-09", "status": "open" },
+  "statements/dmajestic_DM-07-19_2026-09": {
+    "propertyId": "dmajestic", "unitId": "dmajestic_DM-07-19", "ownerId": "OWN-001", "month": "2026-09", "revision": 1, "status": "completed",
+    "arrangement": "profitShare40",
+    "rates": { "serviceFeePct": 0.20, "utilityFeePct": 0.20, "sstOnFeePct": 0, "source": "property", "versionId": "2026-01" },
+    "lines": [ { "reservationNo": "DMRS00001", "source": "Expedia", "checkIn": "2026-08-31", "checkOut": "2026-09-01", "nights": 1, "guestPaid": 90.76, "platformCut": 15.43, "sst": 6.72, "pto": 68.61, "estimated": false, "edited": false } ],
+    "expenseLines": [],
+    "totals": { "nights": 17, "totalReceivable": 1619.2089, "serviceFee": 323.8418, "utilityFee": 323.8418, "sstOnFee": 0, "entitlement": 971.5253, "totalExpenses": 0, "totalReimburse": 0, "netReceivable": 971.5253, "roundingAdjust": 0.0247, "payout": 971.55 },
+    "fixedRent": null, "nextBooking": { "checkIn": "2026-10-02", "checkOut": "2026-10-04" }, "note": "",
+    "pdfPath": "statements/2026-09/dmajestic_DM-07-19_r1.pdf", "completedBy": "uid_finance_1", "completedByName": "Finance User 1", "completedAt": "SERVER_TIMESTAMP"
+  },
+  "users/uid_finance_1": { "displayName": "Finance User 1", "email": "finance1@example.com", "role": "finance", "active": true }
+}

@@ -367,6 +367,7 @@
           <div class="drawer-head"><h2>{{ u.isNew ? 'Add unit' : `Edit unit · ${u.unitCode}` }}</h2><button class="icon-btn" @click="unitOpen = false" aria-label="Close">×</button></div>
           <form class="drawer-body" id="unitForm" @submit.prevent="saveUnit()">
             <div class="notice error" v-show="u.error">{{ u.error }}</div>
+            <p class="help from-listing" v-if="u.fromListing">{{ `Filled in from new owner listing ${u.fromListing.listingId}. Check the details, then Save unit.` }}</p>
             <div class="field"><label for="uCode">Unit code</label>
               <input class="input" id="uCode" v-model="u.unitCode" :readonly="!u.isNew" :placeholder="`${property().code || 'DM'} 1615`">
               <span class="help" v-show="u.isNew">As Finance writes it: property code, space, floor and unit, e.g. DM 0719.</span></div>
@@ -449,6 +450,7 @@
           <div class="drawer-head"><h2>{{ np.id ? `Edit property · ${np.name}` : 'Add property' }}</h2><button class="icon-btn" @click="propOpen = false" aria-label="Close">×</button></div>
           <form class="drawer-body" id="propForm" @submit.prevent="saveProperty()">
             <div class="notice error" v-show="np.error">{{ np.error }}</div>
+            <p class="help from-listing" v-if="np.fromListing">{{ `Filled in from new owner listing ${np.fromListing.listingId}. Add the short code and the rest, then Add property.` }}</p>
             <div class="form-sec">Property details</div>
             <div class="grid-fields">
               <div class="field"><label for="pName">Property name</label><input class="input" id="pName" v-model="np.name" placeholder="e.g. D'Majestic"></div>
@@ -484,6 +486,7 @@
           <div class="drawer-head"><h2>{{ o.isNew ? 'Add owner' : `${o.code}${o.fullName ? ' · ' + o.fullName : ''}` }}</h2><button class="icon-btn" @click="ownerOpen = false" aria-label="Close">×</button></div>
           <form class="drawer-body" id="ownerForm" @submit.prevent="saveOwner()">
             <div class="notice error" v-show="o.error">{{ o.error }}</div>
+            <p class="help from-listing" v-if="o.fromListing">{{ `Filled in from new owner listing ${o.fromListing.listingId}. Check the details, then Add owner.` }}</p>
             <div class="notice warn" v-show="o.active === false">{{ `Deactivated${o.deactivatedReason ? ': ' + o.deactivatedReason : ''}. Their history stays; they can't be linked to new units.` }}</div>
             <template v-if="!o.isNew">
               <div>
@@ -547,7 +550,7 @@
 </template>
 
 <script>
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { ARRANGEMENTS, DEFAULT_OTA, DM_STARTER, unitIdOf } from '@/lib/engine.js';
 import { loadProperties, loadUnits, loadSetup, latestVersion, audit, friendlyError } from '@/lib/finance-data.js';
@@ -555,6 +558,7 @@ import { propertyMonth, markFrom, canWriteSummaries } from '@/lib/summary-data.j
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { amt, monthName, monthOffset, stamp, pct, dmy } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
 
 const me = useSession();
 
@@ -622,6 +626,7 @@ export default {
     if (!this.months.includes(this.asOf)) this.months.push(this.asOf);
     if (!this.PTABS.some(t => t.key === this.ptab)) this.ptab = 'units';
     await this.go();
+    await this.pickUpHandoff();
   },
   methods: {
     onProperty() { return this.top === 'properties' && this.propertyId !== 'all'; },
@@ -650,6 +655,51 @@ export default {
       if (url === this.$route.fullPath) { this.go(); return; }
       carry = { section: this.top, state: Object.fromEntries(CARRY.map(k => [k, this[k]])) };
       this.$router.replace(url);
+    },
+    // Create property / unit / owner on a new owner listing: open the add form filled in from it (lib/handoff.js,
+    // in memory). The person still checks it and saves. A unit needs its property: the id the listing recorded, or
+    // the property with the listing's name; the page moves to that property first, then opens the form.
+    async pickUpHandoff() {
+      const h = peekHandoff();
+      if (!h || !this.canAdd || this.error) return;
+      if (h.kind === 'owner' && this.top === 'owners') {
+        takeHandoff();
+        this.openOwnerForm(null);
+        Object.assign(this.o, { fullName: h.ownerName || '', phone: h.ownerPhone || '', email: h.ownerEmail || '', fromListing: h });
+      } else if (h.kind === 'property' && this.top === 'properties' && !this.onProperty()) {
+        takeHandoff();
+        this.openProperty(null);
+        Object.assign(this.np, { name: h.property || '', fromListing: h });
+      } else if (h.kind === 'unit' && this.top === 'properties') {
+        const name = (h.property || '').trim().toLowerCase();
+        const p = this.properties.find(x => x.id === h.portfolio?.propertyId)
+          || (name && this.properties.find(x => (x.name || '').trim().toLowerCase() === name || x.id === slug(name)));
+        if (!p) {
+          takeHandoff();
+          this.error = `No property called "${h.property || '(not set on the listing)'}" in Portfolio yet. Create the property first (Create property on ${h.listingId}), then Create unit.`;
+          return;
+        }
+        if (this.propertyId !== p.id) { this.$router.replace(this.urlFor('properties', p.id, 'units')); return; }
+        takeHandoff();
+        if (this.ptab !== 'units') { this.ptab = 'units'; this.syncUrl(); }
+        this.openUnit(null);
+        Object.assign(this.u, { unitCode: [p.code, h.unit].filter(Boolean).join(' '), reason: `New owner listing ${h.listingId}`, fromListing: h,
+          ownerId: this.owners.some(x => x.id === h.portfolio?.ownerId && x.active !== false) ? h.portfolio.ownerId : '' });
+      }
+    },
+    // After a save from a listing: note the new id on it (Directors; Procurement and Directors edit listings, and
+    // Procurement don't add in Portfolio). Returns a sentence for the message.
+    async noteOnListing(h, key, id, what) {
+      if (!h?.recordBack) return '';
+      try {
+        const ref = doc(db, 'newOwnerListings', h.listingId);
+        const snap = await getDoc(ref);
+        const portfolio = { ...(snap.exists() ? snap.data().portfolio || {} : {}), [key]: id };
+        const d = new Date(), at = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+        await updateDoc(ref, { portfolio, updatedAt: serverTimestamp(), updatedByUid: me.user.uid, updatedByName: me.name,
+          history: arrayUnion({ at, by: me.name, text: `Created in Portfolio: ${what} ${id}.` }) });
+        return ` Noted on ${h.listingId}.`;
+      } catch (e) { return ` Not noted on ${h.listingId}: ${friendlyError(e, 'update the listing')}`; }
     },
     async setPtab(k) { this.ptab = k; this.okMsg = ''; this.syncUrl(); if ((k === 'rates' || k === 'ota') && !this.viewOnly) await this.openRates(); },
 
@@ -813,8 +863,9 @@ export default {
         audit(b, me, { action: o.isNew ? 'owner.create' : 'owner.update', entity: `owners/${id}`, propertyId: this.propertyId === 'all' ? null : this.propertyId,
           changes: changed.map(k => ({ field: k, old: null, new: '(changed)' })), reason: o.reason.trim() || 'Added on Portfolio' });
         await b.commit();
+        const noted = o.isNew ? await this.noteOnListing(o.fromListing, 'ownerId', id, 'owner') : '';
         this.ownerOpen = false;
-        this.okMsg = `${id} saved.`;
+        this.okMsg = `${id} saved.${noted}`;
         await this.go();
       } catch (e) { o.error = friendlyError(e, 'save the owner'); }
       this.busy = false;
@@ -910,8 +961,9 @@ export default {
         audit(b, me, { action: u.isNew ? 'unit.create' : 'unit.update', entity: `units/${id}`, propertyId: this.propertyId, month: u.effectiveFrom,
           changes: [...unitChanges, ...termChanges], reason: u.reason.trim() });
         await b.commit();
+        const noted = u.isNew ? await this.noteOnListing(u.fromListing, 'unitId', id, 'unit') : '';
         this.unitOpen = false;
-        this.okMsg = `${code} saved` + (termsChanged ? `, settings apply from ${monthName(u.effectiveFrom)}.` : '.');
+        this.okMsg = `${code} saved` + (termsChanged ? `, settings apply from ${monthName(u.effectiveFrom)}.` : '.') + noted;
         await this.go();
       } catch (e) { u.error = friendlyError(e, 'save the unit'); }
       this.busy = false;
@@ -1018,8 +1070,9 @@ export default {
           reason: 'Default OTA settings', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
         audit(b, me, { action: 'property.create', entity: `properties/${id}`, propertyId: id, reason: 'Added on Portfolio' });
         await b.commit();
+        const noted = await this.noteOnListing(p.fromListing, 'propertyId', id, 'property');
         this.propOpen = false;
-        this.okMsg = `${name} added. Upload its eZee report to bring in units, or add them here.`;
+        this.okMsg = `${name} added. Upload its eZee report to bring in units, or add them here.${noted}`;
         this.openPropertyPage(id);
       } catch (e) { p.error = friendlyError(e, 'add the property'); }
       this.busy = false;
@@ -1064,5 +1117,6 @@ export default {
     .table td.nw { white-space: nowrap; }
     .drawer .field { align-content: start; }
     .history-list .row { font-size: 12px; }
+    .from-listing { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text-2); }
     @media (max-width: 720px) { .grid-3, .info-grid { grid-template-columns: 1fr; } }
 </style>

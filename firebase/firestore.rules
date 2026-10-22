@@ -1,0 +1,529 @@
+rules_version = '2';
+// Widebed PMS Firestore rules. Draft 0.9 (tidied), 22 Oct 2026: same behaviour as Draft 0.9, with helpers at the top,
+// one match block per collection and blocks grouped by area.
+// History: 0.9 New Owner Listings. 0.8 profile pictures (avatars). 0.7 month summaries (unitMonths, months.summary).
+// 0.6 every role signs in; Portfolio for Operations/Procurement/Marketing; direct bookings. 0.5 offline inquiries,
+// tenants, offline bookings, Issues, SOPs, complaints, Playbook, brand logos. 0.4 month-end completion is per unit.
+// 0.3 HR manages staff accounts and reads the audit log.
+// Merged in: rules_ops.txt, rules_dash.txt, rules_directbooking.txt, rules_hr.txt, rules_portfolio.txt, rules_scale.txt.
+// Roles come from users/{uid}.role, set on the Staff accounts page (or tools/set-role.js for the first Director).
+// Rules OR together: a request is allowed if any matching allow line allows it.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ================= Helpers =================
+
+    // ---- Roles ----
+    function signedIn()   { return request.auth != null; }
+    // The role is read from the person's staff record. A switched-off record (active == false) has no role.
+    function myRecord()   { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function role() {
+      return signedIn() && exists(myRecord()) && get(myRecord()).data.get('active', true) == true
+        ? get(myRecord()).data.get('role', null) : null;
+    }
+    function isDirector() { return role() == 'director'; }
+    function isFinance()  { return role() == 'finance'; }
+    function isIT()       { return role() == 'it'; }
+    function isHR()       { return role() == 'hr'; }
+    function isOps()      { return role() == 'operations'; }
+    function isProc()     { return role() == 'procurement'; }
+    // Any active staff record with a role (every role, including IT).
+    function anyStaff()   { return role() != null; }
+    // Staff accounts: Director and HR. HR can't create, edit or promote anyone to Director.
+    function staffAdmin() { return isDirector() || isHR(); }
+    function finOrDir()   { return isDirector() || isFinance(); }
+    function hrOrDir()    { return isHR() || isDirector(); }
+    function staff()      { return finOrDir() || isIT(); }
+    function portfolioViewer() { return role() in ['operations', 'procurement', 'marketing']; }
+    function listingEditor()   { return isDirector() || isProc(); }
+
+    // ---- Paths and writes ----
+    function docPath(col, id)    { return /databases/$(database)/documents/$(col)/$(id); }
+    function changed()           { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function newKeysOnly(keys)   { return request.resource.data.keys().hasOnly(keys); }
+    function createdNow(col, id) { return !exists(docPath(col, id)) && existsAfter(docPath(col, id)); }
+
+    // ---- Month-end: completion is per unit, statements/{unitId}_{month} ----
+    function statementPath(unitId, month) {
+      return /databases/$(database)/documents/statements/$(unitId + '_' + month);
+    }
+    function unitCompleted(unitId, month) {
+      return exists(statementPath(unitId, month))
+        && get(statementPath(unitId, month)).data.status == 'completed';
+    }
+    function unitMonthKeys() {
+      return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'fixedRentAmount',
+        'firstBookingId', 'row', 'noUnit', 'dash', 'statement', 'stale', 'dirtyRev', 'cleanRev', 'marks', 'computedAt', 'computedBy'];
+    }
+
+    // ---- Operations: inquiries, Create booking, direct bookings ----
+    function assignedToMe(inqId) { return get(docPath('offlineInquiries', inqId)).data.get('assignedToUid', null) == request.auth.uid; }
+    // True only inside the Create booking transaction: offline_{id} doesn't exist before and does after.
+    function bookingMadeNow(inqId) {
+      return !exists(docPath('offlineBookings', 'offline_' + inqId)) && existsAfter(docPath('offlineBookings', 'offline_' + inqId));
+    }
+    // Operations write a tenant only through Create booking on an inquiry assigned to them, and only the tenant it points at.
+    function opsBooking(inqId, tenantId) {
+      return isOps() && inqId is string && assignedToMe(inqId) && bookingMadeNow(inqId)
+        && getAfter(docPath('offlineBookings', 'offline_' + inqId)).data.tenantId == tenantId
+        && getAfter(docPath('offlineInquiries', inqId)).data.tenantId == tenantId;
+    }
+    // True only inside the transaction that creates this direct booking (offline_BK-0001) for this tenant.
+    function directBookingMadeNow(bookingId, tenantId) {
+      return bookingId is string && bookingId.matches('offline_BK-[0-9]+')
+        && !exists(docPath('offlineBookings', bookingId))
+        && getAfter(docPath('offlineBookings', bookingId)).data.tenantId == tenantId
+        && getAfter(docPath('offlineBookings', bookingId)).data.createdBy == request.auth.uid;
+    }
+
+    // ---- Issues: the tag each role answers to ('Admin' has no sign-in role yet) ----
+    function myIssueTag() {
+      return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing' }.get(role(), '-');
+    }
+    function canSeeIssue(d) { return anyStaff() && (isDirector() || myIssueTag() in d.tags || d.raisedByUid == request.auth.uid); }
+
+    // ---- Complaints ----
+    function complaintAfter(id) { return getAfter(docPath('complaints', id)).data; }
+    function complaintNow(id)   { return get(docPath('complaints', id)).data; }
+
+    // ================= Shared: private data, accounts, counters, logs =================
+
+    // Personal data lives only in {doc}/private/main. IT never reads it. Complaint text (HR/Directors) and new owner
+    // listings' contact details (Director/Procurement) have their own rules below.
+    match /{parent=**}/private/{docId} {
+      allow read, write: if finOrDir() && parent[0] != 'complaints' && parent[0] != 'newOwnerListings';
+      // Returning tenant search: collectionGroup('private') where kind == 'tenant'. kind is written only on
+      // tenants/{id}/private/main; Operations can't add it to an inquiry's private doc.
+      allow read: if (isOps() || finOrDir()) && resource.data.get('kind', '') == 'tenant';
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || staffAdmin() || isIT());
+      allow create: if isDirector() || (isHR() && request.resource.data.role != 'director');
+      // A Director cannot remove their own Director role or switch themselves off (no lock-out).
+      allow update: if isDirector() && (uid != request.auth.uid
+        || (request.resource.data.role == 'director' && request.resource.data.get('active', true) == true));
+      // HR: anyone except Directors and themselves, and never to Director.
+      allow update: if isHR() && uid != request.auth.uid
+        && resource.data.role != 'director' && request.resource.data.role != 'director';
+      // Sign-in stamps lastLoginAt on your own record (Team activity).
+      allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
+      allow delete: if false;
+    }
+
+    match /config/{docId} {
+      allow read: if staff();
+      allow write: if isDirector();
+    }
+
+    // Numbered IDs (LD-, TEN-, IS-, BK-, CP-, DC-, NL-): taken one at a time inside a transaction.
+    match /counters/{name} {
+      allow read: if (name == 'offlineInquiries' && finOrDir())
+        || (name == 'tenants' && (finOrDir() || isOps()))
+        || (name == 'issues' && anyStaff());
+      allow create: if request.resource.data.next == 2 && (
+           (name == 'offlineInquiries' && isDirector())
+        || (name == 'tenants' && (finOrDir() || isOps()))
+        || (name == 'issues' && anyStaff()));
+      allow update: if request.resource.data.next == resource.data.next + 1 && (
+           (name == 'offlineInquiries' && isDirector())
+        || (name == 'tenants' && (finOrDir() || isOps()))
+        || (name == 'issues' && anyStaff()));
+      // Direct bookings.
+      allow read: if name == 'offlineBookings' && (finOrDir() || isOps());
+      allow create: if name == 'offlineBookings' && (finOrDir() || isOps()) && request.resource.data.next == 2;
+      allow update: if name == 'offlineBookings' && (finOrDir() || isOps()) && request.resource.data.next == resource.data.next + 1;
+      // Complaints.
+      allow read: if name == 'staffComplaints' && anyStaff();
+      allow read: if name == 'directorComplaints' && hrOrDir();
+      allow create: if ((name == 'staffComplaints' && anyStaff()) || (name == 'directorComplaints' && hrOrDir()))
+        && request.resource.data.next == 2;
+      allow update: if ((name == 'staffComplaints' && anyStaff()) || (name == 'directorComplaints' && hrOrDir()))
+        && request.resource.data.next == resource.data.next + 1;
+      // New owner listings.
+      allow read: if name == 'newOwnerListings' && listingEditor();
+      allow create: if name == 'newOwnerListings' && listingEditor() && request.resource.data.next == 2;
+      allow update: if name == 'newOwnerListings' && listingEditor() && request.resource.data.next == resource.data.next + 1;
+      allow delete: if false;
+    }
+
+    // Every role writes its own audit entries; an anonymous complaint is logged with NO uid.
+    match /auditLog/{id} {
+      allow read: if staff() || isHR();
+      allow create: if anyStaff() && request.resource.data.uid == request.auth.uid;
+      allow create: if anyStaff() && request.resource.data.uid == null && request.resource.data.userName == 'Anonymous'
+        && request.resource.data.role == null && request.resource.data.action == 'complaint.create';
+      allow update, delete: if false;
+    }
+
+    match /accessLog/{id} {
+      allow read: if isDirector() || isIT();
+      allow create: if isIT() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Profile pictures: avatars/{uid} = { src, updatedAt }, a 128 px square data URL. Each person writes only their own.
+    match /avatars/{uid} {
+      allow read: if anyStaff();
+      allow create, update: if anyStaff() && request.auth.uid == uid
+        && newKeysOnly(['src', 'updatedAt'])
+        && request.resource.data.src is string && request.resource.data.src.size() <= 60000
+        && request.resource.data.src.matches('^data:image/(webp|jpeg|png);base64,.*')
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if anyStaff() && request.auth.uid == uid;
+    }
+
+    // Brand logos: brandLogos/light and brandLogos/dark, a data URL each (<= 512 px). Director edits.
+    match /brandLogos/{key} {
+      allow read: if anyStaff();
+      allow create, update: if isDirector() && key in ['light', 'dark']
+        && request.resource.data.src is string && request.resource.data.src.size() <= 280000
+        && request.resource.data.src.matches('^data:image/(png|webp);base64,.*');
+      allow delete: if false;
+    }
+
+    // ================= Setup data (Portfolio) =================
+    // Finance/Directors write. Operations, Procurement and Marketing read the parents only (no terms, rates or
+    // owners' private data). Operations may also create properties, units and owners (create only, never edit).
+    // Version documents are add-only: a change is a new document.
+
+    match /properties/{propertyId} {
+      allow read: if staff() || portfolioViewer();
+      allow write: if finOrDir();
+      allow create: if isOps() && newKeysOnly(['name', 'code', 'info', 'active', 'createdAt', 'createdBy'])
+        && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.name is string && request.resource.data.code is string
+        && (!('info' in request.resource.data) || request.resource.data.info.keys().hasOnly(['address', 'city', 'state', 'ezeeAccount', 'ezeeName']));
+      // The batch that adds a unit notes it on its property (summaryMarks); the only change Operations may make.
+      allow update: if isOps() && changed().hasOnly(['summaryMarks']);
+      match /rateVersions/{v} {
+        allow read: if staff();
+        allow create: if finOrDir() && request.resource.data.reason is string;
+        // Operations: only the default OTA rates, only in the batch that creates the property.
+        allow create: if isOps() && v == '2000-01_default' && createdNow('properties', propertyId)
+          && request.resource.data.effectiveFrom == '2000-01' && request.resource.data.createdBy == request.auth.uid
+          && newKeysOnly(['effectiveFrom', 'ota', 'earlyCheckInToOwner', 'tourismTaxPerNight', 'reason', 'createdBy', 'createdByName', 'createdAt']);
+        allow update, delete: if false;
+      }
+    }
+
+    match /units/{unitId} {
+      allow read: if staff() || portfolioViewer();
+      allow write: if finOrDir();
+      // Operations: no terms (arrangement, fixed rent, fees).
+      allow create: if isOps() && newKeysOnly(['propertyId', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
+          'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+        && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
+        && exists(docPath('properties', request.resource.data.propertyId))
+        && request.resource.data.info.keys().hasOnly(['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb']);
+      match /terms/{v} {
+        allow read: if staff();
+        allow create: if finOrDir() && request.resource.data.reason is string;
+        allow update, delete: if false;
+      }
+      match /ownership/{id} {
+        allow read: if staff();
+        allow write: if finOrDir();
+      }
+    }
+
+    // The owner parent holds bankLast4 (not shown to portfolio viewers); Operations create it with none.
+    match /owners/{ownerId} {
+      allow read: if staff() || portfolioViewer();
+      allow write: if finOrDir();
+      allow create: if isOps() && newKeysOnly(['code', 'active', 'bankLast4', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+        && request.resource.data.active == true && request.resource.data.get('bankLast4', null) == null
+        && request.resource.data.createdBy == request.auth.uid;
+      // Operations write name and contact details once, in the batch that creates the owner, and never read them back.
+      match /private/{docId} {
+        allow create: if isOps() && docId == 'main' && createdNow('owners', ownerId)
+          && newKeysOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'updatedAt', 'updatedBy'])
+          && request.resource.data.updatedBy == request.auth.uid;
+      }
+    }
+
+    match /agreements/{id} {
+      allow read: if staff();
+      allow write: if finOrDir();
+    }
+
+    // ================= Finance: bookings and month-end =================
+
+    // eZee uploads. Operations read the latest for "Last eZee upload" on their dashboard.
+    match /importBatches/{id} {
+      allow read: if staff() || isOps();
+      allow create: if finOrDir();
+      allow update, delete: if false;
+    }
+
+    // Locked months are protected by the app posting changes as adjustments (CSV-13); Edit on a completed month goes
+    // through a Director Override revision.
+    // ===== Role dashboards (dash): Operations read today's check-ins/outs (parent docs only, no write).
+    match /bookings/{reservationNo} {
+      allow read: if staff() || isOps();
+      allow create, update: if finOrDir();
+      allow delete: if false;
+    }
+
+    // Each unit's payout per month: completed statements, and Finance's past statements uploaded as reference.
+    match /payoutHistory/{id} {
+      allow read: if staff();
+      allow create, update: if finOrDir();
+      allow delete: if isDirector();
+    }
+
+    // months/{propertyId}_{month}: open -> partial -> completed as units are completed, plus a `summary` field.
+    match /months/{id} {
+      allow read: if staff();
+      allow create: if finOrDir() && request.resource.data.status in ['open', 'partial', 'completed'];
+      // Once completed, only a Director may change the status (Override / unit reopen).
+      allow update: if finOrDir() && (resource.data.status != 'completed' || isDirector())
+        && request.resource.data.status in ['open', 'partial', 'completed'];
+      // Summary-only writes, on any month.
+      allow create: if finOrDir()
+        && newKeysOnly(['propertyId', 'month', 'summary'])
+        && id == request.resource.data.propertyId + '_' + request.resource.data.month;
+      allow update: if finOrDir()
+        && changed().hasOnly(['propertyId', 'month', 'summary'])
+        && request.resource.data.propertyId == resource.data.get('propertyId', request.resource.data.propertyId)
+        && request.resource.data.month == resource.data.get('month', request.resource.data.month);
+      // Approve & complete on a summary-only month document (no status yet means open).
+      allow update: if finOrDir() && resource.data.get('status', 'open') != 'completed'
+        && request.resource.data.status in ['open', 'partial', 'completed'];
+      allow delete: if false;
+    }
+
+    // ===== Month summaries (scale): unitMonths/{unitId}_{month}, worked out once by lib/summaries.js. Never deleted.
+    match /unitMonths/{id} {
+      allow read: if staff();
+      allow create, update: if finOrDir()
+        && request.resource.data.keys().hasOnly(unitMonthKeys())
+        && request.resource.data.propertyId is string && request.resource.data.month is string && request.resource.data.unitId is string
+        && id == request.resource.data.unitId + '_' + request.resource.data.month;
+      allow delete: if false;
+    }
+
+    match /expenses/{id} {
+      allow read: if staff();
+      allow create: if finOrDir()
+        && !unitCompleted(request.resource.data.unitId, request.resource.data.month);
+      // Automatic Brought Forward lines are only rewritten by Approve & complete / Reopen (auto stays true).
+      allow update: if finOrDir()
+        && (resource.data.auto != true || request.resource.data.auto == true)
+        && !unitCompleted(resource.data.unitId, resource.data.month)
+        && !unitCompleted(request.resource.data.unitId, request.resource.data.month)
+        && request.resource.data.month == resource.data.month;
+      allow delete: if false;   // "Remove" sets deleted = true
+    }
+
+    match /statements/{id} {
+      allow read: if staff();
+      // Approve & complete, one unit at a time.
+      allow create: if finOrDir() && request.resource.data.revision == 1 && request.resource.data.status == 'completed';
+      // Director reopens one unit: same revision, status 'reopened', and the revision is saved first.
+      allow update: if isDirector()
+        && resource.data.status == 'completed' && request.resource.data.status == 'reopened'
+        && request.resource.data.revision == resource.data.revision
+        && exists(/databases/$(database)/documents/statements/$(id)/revisions/$(string(resource.data.revision)));
+      // Director Override (completing a reopened unit again): revision goes up by one, the old one saved first.
+      allow update: if isDirector()
+        && request.resource.data.status == 'completed'
+        && request.resource.data.revision == resource.data.revision + 1
+        && exists(/databases/$(database)/documents/statements/$(id)/revisions/$(string(resource.data.revision)));
+      allow delete: if false;
+      match /revisions/{rev} {
+        allow read: if staff();
+        allow create: if isDirector();
+        allow update, delete: if false;
+      }
+    }
+
+    match /exports/{id} {
+      allow read: if staff();
+      allow create: if finOrDir();
+      allow update, delete: if false;
+    }
+
+    // ================= Operations: inquiries, tenants, offline bookings, Issues =================
+
+    // Directors log inquiries; Finance and Directors read all; IT reads the parent only (no contact details);
+    // Operations read and update only the ones assigned to them.
+    match /offlineInquiries/{id} {
+      allow read: if finOrDir() || isIT() || (isOps() && resource.data.assignedToUid == request.auth.uid);
+      allow create: if isDirector()
+        && request.resource.data.loggedByUid == request.auth.uid
+        && request.resource.data.status in ['new', 'interested', 'considering', 'uninterested']
+        && request.resource.data.get('bookingId', null) == null;
+      // Directors: anything, including (re)assigning.
+      allow update: if isDirector() && request.resource.data.status in ['new', 'interested', 'considering', 'uninterested', 'booked'];
+      // Finance: status, notes, booking; not the assignee.
+      allow update: if isFinance()
+        && !changed().hasAny(['assignedToUid', 'assignedToName', 'loggedByUid', 'loggedByName', 'createdAt'])
+        && request.resource.data.status in ['new', 'interested', 'considering', 'uninterested', 'booked'];
+      // The assignee: status, history and (only in Create booking) the tenant and booking links.
+      allow update: if isOps() && resource.data.assignedToUid == request.auth.uid
+        && changed().hasOnly(['status', 'history', 'updatedAt', 'tenantId', 'bookingId'])
+        && request.resource.data.status in ['new', 'interested', 'considering', 'uninterested', 'booked']
+        && (bookingMadeNow(id)
+            || (!changed().hasAny(['tenantId', 'bookingId']) && (request.resource.data.status != 'booked' || resource.data.status == 'booked')));
+      allow delete: if false;
+      // Contact details: Finance/Directors through the catch-all; the assignee here.
+      match /private/{docId} {
+        allow read: if isOps() && assignedToMe(id);
+        allow create, update: if isOps() && assignedToMe(id)
+          && newKeysOnly(['contactName', 'phone', 'phoneKey', 'email']);
+        allow delete: if false;
+      }
+    }
+
+    // Written by Finance/Directors, and by Operations only inside Create booking (opsBooking, lastInquiryId)
+    // or a direct booking (directBookingMadeNow, lastBookingId).
+    match /tenants/{tenantId} {
+      allow read: if finOrDir() || isOps();
+      allow create, update: if finOrDir();
+      allow create, update: if opsBooking(request.resource.data.get('lastInquiryId', null), tenantId)
+        && (resource == null || changed().hasOnly(['status', 'lastInquiryId', 'updatedAt', 'updatedBy']));
+      allow create, update: if isOps() && directBookingMadeNow(request.resource.data.get('lastBookingId', null), tenantId)
+        && (resource == null || changed().hasOnly(['status', 'lastBookingId', 'updatedAt', 'updatedBy']));
+      allow delete: if false;
+      match /private/{docId} {
+        allow read: if isOps();
+        allow create, update: if opsBooking(getAfter(docPath('tenants', tenantId)).data.get('lastInquiryId', null), tenantId);
+        allow create, update: if isOps()
+          && directBookingMadeNow(getAfter(docPath('tenants', tenantId)).data.get('lastBookingId', null), tenantId);
+        allow delete: if false;
+      }
+    }
+
+    // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
+    // offline_{inquiryId} from Create booking, or offline_BK-0001 for a direct booking (no inquiry).
+    match /offlineBookings/{bookingId} {
+      allow read: if finOrDir() || isOps() || portfolioViewer();
+      allow create: if finOrDir() && bookingId == 'offline_' + request.resource.data.inquiryId;
+      allow update: if finOrDir() && request.resource.data.inquiryId == resource.data.inquiryId;
+      // Operations: Create booking on their own inquiry (the inquiry must point back and be booked in the same write).
+      allow create: if isOps() && bookingId == 'offline_' + request.resource.data.inquiryId
+        && assignedToMe(request.resource.data.inquiryId)
+        && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.bookingId == bookingId
+        && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.status == 'booked';
+      // ...and adding the eZee reservation no. later.
+      allow update: if isOps() && assignedToMe(resource.data.inquiryId)
+        && changed().hasOnly(['ezeeReservationNo', 'updatedAt', 'updatedBy']);
+      // Direct booking (Portfolio > Bookings > + New booking).
+      allow create: if (finOrDir() || isOps()) && bookingId.matches('offline_BK-[0-9]+')
+        && request.resource.data.source == 'direct' && request.resource.data.inquiryId == null
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.tenantId is string
+        && getAfter(docPath('tenants', request.resource.data.tenantId)) != null;
+      allow delete: if false;
+    }
+
+    // Issues: seen by the tagged roles, the person who raised it and Directors. Every role raises tickets.
+    // Completed tickets are locked.
+    match /issues/{id} {
+      allow read: if canSeeIssue(resource.data);
+      allow create: if anyStaff()
+        && request.resource.data.raisedByUid == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+      // A comment (anyone who can see it): counters, last poster and the ticket's audit trail.
+      allow update: if anyStaff() && canSeeIssue(resource.data) && resource.data.status != 'done'
+        && changed().hasOnly(['replyCount', 'linkCount', 'lastBy', 'audit', 'updatedAt']);
+      // In progress, tags and Mark completed: Directors and the tagged roles.
+      allow update: if anyStaff() && resource.data.status != 'done'
+        && (isDirector() || myIssueTag() in resource.data.tags)
+        && changed().hasOnly(['status', 'tags', 'doneAt', 'doneBy', 'doneByUid', 'audit', 'updatedAt'])
+        && request.resource.data.status in ['open', 'progress', 'done']
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+      allow delete: if false;
+      match /replies/{replyId} {
+        allow read: if canSeeIssue(get(docPath('issues', id)).data);
+        allow create: if anyStaff() && request.resource.data.byUid == request.auth.uid
+          && canSeeIssue(get(docPath('issues', id)).data)
+          && get(docPath('issues', id)).data.status != 'done';
+        allow update, delete: if false;
+      }
+    }
+
+    // ================= HR: SOPs, Playbook, onboarding, complaints =================
+
+    // sops/{attendance|advance|allowance|socso}. Everyone reads; HR and Directors edit. Never deleted.
+    match /sops/{sopKey} {
+      allow read: if anyStaff();
+      allow create, update: if hrOrDir() && sopKey in ['attendance', 'advance', 'allowance', 'socso']
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.steps is list && request.resource.data.steps.size() > 0;
+      allow delete: if false;
+    }
+
+    // playbook/businessModel and playbook/onboarding. Everyone reads; HR and Directors edit.
+    match /playbook/{pageId} {
+      allow read: if anyStaff();
+      allow create, update: if hrOrDir() && pageId in ['businessModel', 'onboarding']
+        && request.resource.data.updatedByUid == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Onboarding ticks: each person writes their own; HR and Directors read everyone's.
+    match /onboardingProgress/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || hrOrDir());
+      allow create, update: if anyStaff() && request.auth.uid == uid
+        && newKeysOnly(['ticks', 'updatedAt']) && request.resource.data.ticks is map;
+      allow delete: if false;
+    }
+
+    // complaints/{id}, kind 'staff' (any staff -> HR) or 'director' (HR -> Directors). The parent holds only ref, kind,
+    // date, createdAt and status/read (plus fromId on a named staff complaint); the text is in private/main.
+    // An anonymous staff complaint has no fromId or fromName anywhere.
+    match /complaints/{id} {
+      allow read: if hrOrDir();
+      // The sender of a named complaint follows it under My complaints.
+      allow read: if signedIn() && resource.data.kind == 'staff' && resource.data.get('fromId', null) == request.auth.uid;
+      // An anonymous sender's browser keeps the (random) id and reads only the status.
+      allow get: if anyStaff() && resource.data.kind == 'staff' && resource.data.anonymous == true;
+      allow create: if anyStaff() && request.resource.data.kind == 'staff' && request.resource.data.status == 'new'
+        && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'status', 'anonymous', 'fromId'])
+        && ((request.resource.data.anonymous == false && request.resource.data.fromId == request.auth.uid)
+          || (request.resource.data.anonymous == true && !('fromId' in request.resource.data)));
+      // Director complaints: HR sends (Directors too, so the form can be tried out).
+      allow create: if hrOrDir() && request.resource.data.kind == 'director' && request.resource.data.read == false
+        && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'read']);
+      // Only a Director opening a Director complaint marks it read. Staff complaints are never changed.
+      allow update: if isDirector() && resource.data.kind == 'director'
+        && changed().hasOnly(['read', 'readAt', 'readBy'])
+        && request.resource.data.read == true && request.resource.data.readBy == request.auth.uid;
+      allow delete: if false;
+      match /private/{docId} {
+        allow read: if hrOrDir();
+        allow read: if signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid;
+        // Written once, in the same transaction as the parent. Anonymous: no fromName.
+        allow create: if docId == 'main' && anyStaff()
+          && newKeysOnly(['subject', 'details', 'files', 'fromName'])
+          && ((complaintAfter(id).kind == 'staff'
+                && (complaintAfter(id).anonymous == true ? !('fromName' in request.resource.data) : complaintAfter(id).fromId == request.auth.uid))
+            || (complaintAfter(id).kind == 'director' && hrOrDir()));
+        allow update, delete: if false;
+      }
+    }
+
+    // ================= Procurement: New Owner Listings =================
+
+    // newOwnerListings/{NL-0001}: one new unit from service agreement to Live. Director and Procurement create and edit;
+    // Finance, Operations and Marketing read. Owner phone and email in private/main (Director and Procurement edit, Operations reads).
+    match /newOwnerListings/{id} {
+      allow read: if role() in ['director', 'finance', 'operations', 'procurement', 'marketing'];
+      allow create: if listingEditor() && id.matches('NL-[0-9]{4,}')
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.status in ['inProgress', 'live'];
+      allow update: if listingEditor()
+        && !changed().hasAny(['createdByUid', 'createdByName', 'createdAt'])
+        && request.resource.data.status in ['inProgress', 'live'];
+      allow delete: if false;
+      match /private/{docId} {
+        allow read: if (listingEditor() || isOps()) && docId == 'main';
+        allow write: if listingEditor() && docId == 'main';
+      }
+    }
+
+  }
+}

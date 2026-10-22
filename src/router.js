@@ -35,7 +35,8 @@ const routes = [
   { path: '/Operations/sales-leads', redirect: to => ({ path: '/Operations/offline-inquiries', query: to.query }) },
   page('/Operations/booking-forms', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', [...FD, 'operations']),
 
-  page('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'New Owner Listings', [...FD, 'operations', 'marketing']),
+  // New Owner Listings: Director and Procurement edit; Finance, Operations and Marketing view only.
+  page('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'New Owner Listings', [...FD, 'operations', 'procurement', 'marketing']),
   { path: '/Procurement/new-listings', redirect: to => ({ path: '/Procurement/new-owner-listings', query: to.query }) },
   page('/Procurement/forms', () => import('./pages/Procurement/Forms.vue'), 'Forms', [...FD, 'procurement'], { title: 'Procurement forms' }),
 

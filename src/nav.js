@@ -60,7 +60,7 @@ export const NAV = {
   procurement: [
     { items: [P('Dashboard', '/Dashboard')] },
     PORTFOLIO,
-    { label: 'Procurement', items: [P('Forms', '/Procurement/forms')] },
+    { label: 'Procurement', items: [P('New Owner Listings', '/Procurement/new-owner-listings'), P('Forms', '/Procurement/forms')] },
     { label: 'Operations', items: [P('Issues', '/Operations/issues')] },
     PLAYBOOK, HR_STAFF,
     MY_ACCOUNT
