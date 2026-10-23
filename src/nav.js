@@ -3,15 +3,18 @@
 // P = a page (label, route, icon). G = a department group (label, icon, pages); the group icon is what shows in the collapsed rail.
 const P = (label, to = null, icon = 'dot') => ({ label, to, icon });
 const G = (label, icon, items) => ({ label, icon, items });
-
+<<<<<<< HEAD
 const PORTFOLIO = G('Portfolio', 'building', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'), P('Bookings', '/Portfolio/bookings', 'calendar')]);
 // Director and Finance also get Bulk Upload (only they may write properties, units and owners in full).
+=======
 const PORTFOLIO_EDIT = G('Portfolio', 'building', [...PORTFOLIO.items, P('Bulk Upload', '/Portfolio/bulk-upload', 'folderUp')]);
 const HR_STAFF = G('HR', 'users', [P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]);
 const NEW_LISTINGS = G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home')]);
 // Every role's own account page, last in the sidebar.
+=======
 const MY_ACCOUNT = G('My Account', 'user', [P('Profile & Appearance', '/Settings/appearance', 'sliders')]);
 const PLAYBOOK = G('Playbook', 'book', [P('Onboarding', '/Playbook/onboarding', 'book'), P('Business Model', '/Playbook/business-model', 'briefcase')]);
+>>>>>>> 8655d18c528e5d1b5daf55002dfccf6ba88cc40f
 
 export const NAV = {
   finance: [
