@@ -10,7 +10,7 @@
 </template>
 
 <script>
-import { NAV_ICONS } from './navIcons.js';
+import { NAV_ICONS } from './NavIcons.js';
 
 export default {
   props: { item: Object, active: String },
