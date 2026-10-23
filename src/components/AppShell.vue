@@ -55,7 +55,7 @@ import NavItem from './NavItem.vue';
 import Avatar from './Avatar.vue';
 import { roleTint } from '../lib/avatars.js';
 import CommandPalette from './CommandPalette.vue';
-import { NAV_ICONS } from './navIcons.js';
+import { NAV_ICONS } from './NavIcons.js';
 
 // Sidebar groups a person has folded, remembered in this browser.
 const FOLDED_KEY = 'wb.navFolded';
