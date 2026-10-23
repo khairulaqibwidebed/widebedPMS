@@ -25,8 +25,8 @@ import { toast } from '@/lib/toast.js';
 // Fillout links: Khairul pastes each real Fillout link here in place of '#'.
 // While a link is '#', its Open button says "Link not added yet".
 const LINKS = [
-  { name: "Offline Payment Check Dashboard", about: "Monitor, reconcile and verify offline sales payments.", url: '#' },
-  { name: "Offline Payment Submission Form", about: "Submit sales statements for offline payments.", url: '#' }
+  { name: "Offline Payment Check Dashboard", about: "Monitor, reconcile and verify offline sales payments.", url: 'https://bromwaw5jj.zite.so/' },
+  { name: "Offline Payment Submission Form", about: "Submit sales statements for offline payments.", url: 'https://script.google.com/a/macros/widebed.com/s/AKfycby7c9rK4pQq2m0WbWfTejlT8a2Q5n6p3TrEdSM4UtfzvQ5sE90UQl507ungKS1sQBpo/exec' }
 ];
 
 export default {

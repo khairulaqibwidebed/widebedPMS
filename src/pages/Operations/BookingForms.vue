@@ -22,10 +22,10 @@
 // Fillout links: Khairul pastes each real Fillout link here in place of '#'.
 // While a link is '#', its Open button says "Link not added yet".
 const LINKS = [
-  { name: "Reservation Lodgment Form", about: "Log a verified customer check-in record.", url: '#' },
-  { name: "Utility Lodgment Form", about: "Log utility invoices to an active property.", url: '#' },
-  { name: "General Tenancy Agreement Form", about: "Complete the details needed to prepare a tenancy agreement.", url: '#' },
-  { name: "Property Inspection Form", about: "Record the condition of the property during an inspection.", url: '#' }
+  { name: "Reservation Lodgment Form", about: "Log a verified customer check-in record.", url: 'https://script.google.com/a/macros/widebed.com/s/AKfycbzNXjXJVSjh3c0HX49qEq0rsUmjjZdpawB5hnl1P2HV8k3UWp7fI3CBhA0iEOphUO-L/exec' },
+  { name: "Utility Lodgment Form", about: "Log utility invoices to an active property.", url: 'https://script.google.com/a/macros/widebed.com/s/AKfycbzNXjXJVSjh3c0HX49qEq0rsUmjjZdpawB5hnl1P2HV8k3UWp7fI3CBhA0iEOphUO-L/exec?page=utility' },
+  { name: "General Tenancy Agreement Form", about: "Complete the details needed to prepare a tenancy agreement.", url: 'https://widebed.fillout.com/t/bk9L7uVgSdus' },
+  { name: "Property Inspection Form", about: "Record the condition of the property during an inspection.", url: 'https://widebed.fillout.com/t/jMKvwZhJ7Pus' }
 ];
 
 import { toast } from '@/lib/toast.js';
