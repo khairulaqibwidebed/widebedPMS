@@ -22,6 +22,7 @@ const routes = [
 
   ...['owners', 'properties', 'bookings'].map(section =>
     page(`/Portfolio/${section}`, () => import('./pages/Portfolio/Portfolio.vue'), section[0].toUpperCase() + section.slice(1), PORTFOLIO_ROLES, { section })),
+  page('/Portfolio/bulk-upload', () => import('./pages/Portfolio/BulkUpload.vue'), 'Bulk Upload'),
   { path: '/Portfolio', redirect: to => ({ path: `/Portfolio/${['owners', 'bookings'].includes(to.query.tab) ? to.query.tab : 'properties'}`, query: { ...to.query, tab: undefined } }) },
 
   page('/Finance/upload', () => import('./pages/Finance/Upload.vue'), 'Upload eZee Report'),

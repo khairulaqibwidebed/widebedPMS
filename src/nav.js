@@ -2,6 +2,8 @@
 // to = null means the page is not built yet. icon = key from components/navIcons.js.
 const P = (label, to = null, icon = 'dot') => ({ label, to, icon });
 const PORTFOLIO = { label: 'Portfolio', items: [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'), P('Bookings', '/Portfolio/bookings', 'calendar')] };
+// Director and Finance also get Bulk Upload (only they may write properties, units and owners in full).
+const PORTFOLIO_EDIT = { label: 'Portfolio', items: [...PORTFOLIO.items, P('Bulk Upload', '/Portfolio/bulk-upload', 'folderUp')] };
 const HR_STAFF = { label: 'HR', items: [P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')] };
 const NEW_LISTINGS = { label: 'Procurement', items: [P('New Owner Listings', '/Procurement/new-owner-listings', 'home')] };
 // Every role's own account page, last in the sidebar.
@@ -11,7 +13,7 @@ const PLAYBOOK = { label: 'Playbook', items: [P('Onboarding', '/Playbook/onboard
 export const NAV = {
   finance: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
-    PORTFOLIO,
+    PORTFOLIO_EDIT,
     { label: 'Finance', items: [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Reimbursements', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')] },
     { label: 'Operations', items: [P('Issues', '/Operations/issues', 'alert')] },
@@ -21,7 +23,7 @@ export const NAV = {
   ],
   director: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
-    PORTFOLIO,
+    PORTFOLIO_EDIT,
     { label: 'Finance', items: [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Reimbursements', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart')] },
     { label: 'Operations', items: [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard')] },
