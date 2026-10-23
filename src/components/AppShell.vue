@@ -1,20 +1,33 @@
 <template>
-  <div class="app">
+  <div class="app" :class="{ collapsed: rail }">
     <aside class="sidebar" :class="{ open: menuOpen }">
-      <div class="brand"><div class="brand-mark">W</div><div><div class="brand-name">Widebed</div><div class="brand-sub">Property Management</div></div></div>
+      <div class="brand">
+        <div class="brand-mark">W</div>
+        <div class="brand-text"><div class="brand-name">Widebed</div><div class="brand-sub">Property Management</div></div>
+      </div>
+
       <nav>
         <template v-for="(g, i) in groups" :key="i">
           <div v-if="!g.label" :class="{ 'nav-flat-after': i > 0 && groups[i - 1].label }">
-            <NavItem v-for="it in g.items" :key="it.label" :item="it" :active="active" @soon="notBuilt" />
+            <NavItem v-for="it in g.items" :key="it.label" :item="it" :active="active" :collapsed="rail" @soon="notBuilt" />
           </div>
           <template v-else>
-            <button class="nav-group-btn" :aria-expanded="String(isOpen(g, i))" @click="toggle(g, i)">{{ g.label }}<span class="chev">›</span></button>
+            <button class="nav-group-btn" :class="{ 'has-active': hasActive(g) }" :aria-expanded="rail ? null : String(isOpen(g, i))" :title="rail ? g.label : null" @click="toggle(g, i)">
+              <svg class="grp-icon" viewBox="0 0 24 24" aria-hidden="true" v-html="groupIcon(g)"></svg>
+              <span class="grp-label">{{ g.label }}</span>
+              <span class="chev">›</span>
+            </button>
             <div class="nav-group" v-show="isOpen(g, i)">
-              <NavItem v-for="it in g.items" :key="it.label" :item="it" :active="active" @soon="notBuilt" />
+              <NavItem v-for="it in g.items" :key="it.label" :item="it" :active="active" :collapsed="rail" @soon="notBuilt" />
             </div>
           </template>
         </template>
       </nav>
+
+      <button class="sidebar-toggle" type="button" :aria-expanded="String(!rail)" :aria-label="rail ? 'Expand sidebar' : 'Collapse sidebar'" :title="rail ? 'Expand sidebar' : null" @click="toggleSidebar">
+        <svg class="toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path class="collapse-arrow" d="m16 15-3-3 3-3"/></svg>
+        <span class="toggle-label">Collapse</span>
+      </button>
     </aside>
     <div class="main">
       <header class="topbar">
@@ -42,18 +55,32 @@ import NavItem from './NavItem.vue';
 import Avatar from './Avatar.vue';
 import { roleTint } from '../lib/avatars.js';
 import CommandPalette from './CommandPalette.vue';
+import { NAV_ICONS } from './navIcons.js';
 
 // Sidebar groups a person has folded, remembered in this browser.
 const FOLDED_KEY = 'wb.navFolded';
 function readFolded() { try { return JSON.parse(localStorage.getItem(FOLDED_KEY)) || []; } catch (_) { return []; } }
 
+// Whether the whole sidebar is collapsed to an icon rail, remembered in this browser.
+const COLLAPSED_KEY = 'wb.navCollapsed';
+function readCollapsed() { try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch (_) { return false; } }
+
+// The icon rail only exists on desktop. Keep this equal to the breakpoint in the <style> block below.
+const DESKTOP_QUERY = '(min-width: 901px)';
+
 export default {
   components: { NavItem, CommandPalette, Avatar },
-  data: () => ({ ROLE_LABEL, menuOpen: false, paletteOpen: false, openGroup: -1, folded: readFolded() }),
+  data: () => ({
+    ROLE_LABEL, menuOpen: false, paletteOpen: false, openGroup: -1,
+    folded: readFolded(), collapsed: readCollapsed(),
+    wide: window.matchMedia(DESKTOP_QUERY).matches
+  }),
   computed: {
     me: () => useSession(),
     groups() { return NAV[this.me.role] || []; },
-    active() { return this.$route.meta.label; }
+    active() { return this.$route.meta.label; },
+    // Collapsed AND on desktop. On mobile the sidebar is always the full drawer.
+    rail() { return this.collapsed && this.wide; }
   },
   watch: {
     // Only the current page's group is open. On an ungrouped page (Dashboard) the first group opens.
@@ -69,15 +96,38 @@ export default {
   mounted() {
     this.onKey = e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); this.paletteOpen = true; } };
     document.addEventListener('keydown', this.onKey);
+    this.mq = window.matchMedia(DESKTOP_QUERY);
+    this.onMq = e => { this.wide = e.matches; };
+    this.mq.addEventListener('change', this.onMq);
   },
   unmounted() {
     document.removeEventListener('keydown', this.onKey);
+    this.mq.removeEventListener('change', this.onMq);
   },
   methods: {
     notBuilt, roleTint,
+    groupIcon(g) { return NAV_ICONS[g.icon] || NAV_ICONS.dot; },
+    hasActive(g) { return g.items.some(it => it.label === this.active); },
+    setCollapsed(v) {
+      this.collapsed = v;
+      try { localStorage.setItem(COLLAPSED_KEY, v ? '1' : '0'); } catch (_) {}
+    },
+    toggleSidebar() { this.setCollapsed(!this.collapsed); },
     // Director: one group open at a time (the current page's). Everyone else: every group open unless they folded it.
-    isOpen(g, i) { return this.me.role === 'director' ? this.openGroup === i : !this.folded.includes(g.label); },
+    // In the icon rail the item lists are hidden by CSS, so folding state is kept and comes back on expand.
+    isOpen(g, i) {
+      return this.me.role === 'director' ? this.openGroup === i : !this.folded.includes(g.label);
+    },
+    // Open a group (used when a department icon is clicked in the rail).
+    reveal(g, i) {
+      if (this.me.role === 'director') { this.openGroup = i; return; }
+      if (!this.folded.includes(g.label)) return;
+      this.folded = this.folded.filter(l => l !== g.label);
+      try { localStorage.setItem(FOLDED_KEY, JSON.stringify(this.folded)); } catch (_) {}
+    },
     toggle(g, i) {
+      // Clicking a department icon in the rail expands the sidebar with that department open.
+      if (this.rail) { this.setCollapsed(false); this.reveal(g, i); return; }
       if (this.me.role === 'director') { this.openGroup = this.openGroup === i ? -1 : i; return; }
       this.folded = this.folded.includes(g.label) ? this.folded.filter(l => l !== g.label) : [...this.folded, g.label];
       try { localStorage.setItem(FOLDED_KEY, JSON.stringify(this.folded)); } catch (_) {}
@@ -85,3 +135,59 @@ export default {
   }
 };
 </script>
+
+<style>
+.app { --sidebar-w: 240px; --nav-ease: cubic-bezier(.4, 0, .2, 1); }
+
+/* Department header: icon + label + chevron. */
+.nav-group-btn { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; transition: gap .25s var(--nav-ease), padding .25s var(--nav-ease), background .2s ease; }
+.nav-group-btn .chev { margin-left: auto; }
+.grp-icon { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
+.grp-label { overflow: hidden; max-width: 180px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
+
+/* Sidebar toggle: styled like a nav item, desktop only. */
+.sidebar-toggle {
+  display: none; align-items: center; gap: 10px;
+  width: calc(100% - 16px); margin: 6px 8px 10px; padding: 8px 10px; flex-shrink: 0;
+  background: none; border: 0; border-radius: 8px;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+  opacity: .75; transition: opacity .2s ease, background .2s ease, gap .25s var(--nav-ease);
+}
+.sidebar-toggle:hover { opacity: 1; background: rgba(128, 128, 128, .12); }
+.toggle-icon { flex-shrink: 0; }
+.toggle-label { white-space: nowrap; overflow: hidden; max-width: 160px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
+.collapse-arrow { transition: transform .25s var(--nav-ease); transform-origin: 12px 12px; }
+
+@media (min-width: 901px) { /* keep equal to DESKTOP_QUERY in the script, and to where your menu-btn hides */
+  .app.collapsed { --sidebar-w: 68px; }
+  .sidebar-toggle { display: flex; }
+  .app.collapsed .sidebar-toggle { justify-content: center; gap: 0; }
+  .app.collapsed .toggle-label { max-width: 0; opacity: 0; }
+  .app.collapsed .collapse-arrow { transform: rotate(180deg); }
+
+  /* Column layout: brand on top, nav scrolls in the middle, toggle pinned at the bottom. */
+  .sidebar { width: var(--sidebar-w); overflow-x: hidden; transition: width .25s var(--nav-ease); display: flex; flex-direction: column; }
+  .sidebar > .brand { flex-shrink: 0; }
+  .sidebar > nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+  .sidebar-toggle { margin-top: auto; border-top: 1px solid rgba(128, 128, 128, .2); border-radius: 0; width: 100%; margin-left: 0; margin-right: 0; padding: 12px 18px; }
+  .app.collapsed .sidebar-toggle { padding-left: 0; padding-right: 0; }
+
+  .brand-text { white-space: nowrap; overflow: hidden; max-width: 200px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
+  .app.collapsed .brand-text { max-width: 0; opacity: 0; }
+  .app.collapsed .brand { justify-content: center; gap: 0; }
+
+  /* Icon rail: only the Dashboard icon and one icon per department. Item lists are hidden. */
+  .app.collapsed .nav-group { display: none; }
+  .app.collapsed .nav-group-btn { justify-content: center; gap: 0; padding-left: 0; padding-right: 0; }
+  .app.collapsed .grp-label { max-width: 0; opacity: 0; }
+  .app.collapsed .nav-group-btn .chev { display: none; }
+  .app.collapsed .grp-icon { opacity: .8; }
+  .app.collapsed .nav-group-btn:hover .grp-icon,
+  .app.collapsed .nav-group-btn.has-active .grp-icon { opacity: 1; }
+  .app.collapsed .nav-group-btn.has-active { background: rgba(128, 128, 128, .15); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .brand-text, .nav-group-btn, .grp-label, .collapse-arrow, .toggle-label, .sidebar-toggle { transition: none; }
+}
+</style>
