@@ -24,9 +24,9 @@
         </template>
       </nav>
 
-      <button class="sidebar-toggle" type="button" :aria-expanded="String(!rail)" :aria-label="rail ? 'Expand sidebar' : 'Collapse sidebar'" :title="rail ? 'Expand sidebar' : null" @click="toggleSidebar">
+      <button class="sidebar-toggle" type="button" :aria-expanded="wide ? String(!rail) : null" :aria-label="!wide ? 'Close menu' : rail ? 'Expand sidebar' : 'Collapse sidebar'" :title="wide && rail ? 'Expand sidebar' : null" @click="toggleSidebar">
         <svg class="toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path class="collapse-arrow" d="m16 15-3-3 3-3"/></svg>
-        <span class="toggle-label">Collapse</span>
+        <span class="toggle-label">{{ wide ? 'Collapse' : 'Close menu' }}</span>
       </button>
     </aside>
     <div class="main">
@@ -65,8 +65,9 @@ function readFolded() { try { return JSON.parse(localStorage.getItem(FOLDED_KEY)
 const COLLAPSED_KEY = 'wb.navCollapsed';
 function readCollapsed() { try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch (_) { return false; } }
 
-// The icon rail only exists on desktop. Keep this equal to the breakpoint in the <style> block below.
-const DESKTOP_QUERY = '(min-width: 901px)';
+// The icon rail only exists on desktop. Keep this equal to the breakpoint in the <style> block below,
+// and one pixel above the 860px where app.css turns the sidebar into a drawer.
+const DESKTOP_QUERY = '(min-width: 861px)';
 
 export default {
   components: { NavItem, CommandPalette, Avatar },
@@ -112,7 +113,11 @@ export default {
       this.collapsed = v;
       try { localStorage.setItem(COLLAPSED_KEY, v ? '1' : '0'); } catch (_) {}
     },
-    toggleSidebar() { this.setCollapsed(!this.collapsed); },
+    // Desktop: collapse or expand the icon rail. Phone: the sidebar is a drawer, so the same button closes it.
+    toggleSidebar() {
+      if (!this.wide) { this.menuOpen = false; return; }
+      this.setCollapsed(!this.collapsed);
+    },
     // Director: one group open at a time (the current page's). Everyone else: every group open unless they folded it.
     // In the icon rail the item lists are hidden by CSS, so folding state is kept and comes back on expand.
     isOpen(g, i) {
@@ -145,9 +150,9 @@ export default {
 .grp-icon { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
 .grp-label { overflow: hidden; max-width: 180px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
 
-/* Sidebar toggle: styled like a nav item, desktop only. */
+/* Sidebar toggle: styled like a nav item, shown on every screen size (on a phone it closes the drawer). */
 .sidebar-toggle {
-  display: none; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px;
   width: calc(100% - 16px); margin: 6px 8px 10px; padding: 8px 10px; flex-shrink: 0;
   background: none; border: 0; border-radius: 8px;
   color: inherit; font: inherit; text-align: left; cursor: pointer;
@@ -158,18 +163,25 @@ export default {
 .toggle-label { white-space: nowrap; overflow: hidden; max-width: 160px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
 .collapse-arrow { transition: transform .25s var(--nav-ease); transform-origin: 12px 12px; }
 
-@media (min-width: 901px) { /* keep equal to DESKTOP_QUERY in the script, and to where your menu-btn hides */
+/* Column layout on every screen size: brand on top, nav scrolls in the middle, toggle pinned at the bottom. */
+.sidebar { display: flex; flex-direction: column; }
+.sidebar > .brand { flex-shrink: 0; }
+.sidebar > nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.sidebar-toggle { margin-top: auto; border-top: 1px solid rgba(128, 128, 128, .2); border-radius: 0; width: 100%; margin-left: 0; margin-right: 0; padding: 12px 18px; }
+
+/* Phone drawer: dvh so the pinned button is not hidden under the browser's address bar; keep clear of the home bar. */
+@media (max-width: 860px) {
+  .app .sidebar { height: 100vh; height: 100dvh; }
+  .app .sidebar-toggle { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+}
+
+@media (min-width: 861px) { /* keep equal to DESKTOP_QUERY in the script, and one above the drawer breakpoint (860px) in app.css */
   .app.collapsed { --sidebar-w: 68px; }
-  .sidebar-toggle { display: flex; }
   .app.collapsed .sidebar-toggle { justify-content: center; gap: 0; }
   .app.collapsed .toggle-label { max-width: 0; opacity: 0; }
   .app.collapsed .collapse-arrow { transform: rotate(180deg); }
 
-  /* Column layout: brand on top, nav scrolls in the middle, toggle pinned at the bottom. */
-  .sidebar { width: var(--sidebar-w); overflow-x: hidden; transition: width .25s var(--nav-ease); display: flex; flex-direction: column; }
-  .sidebar > .brand { flex-shrink: 0; }
-  .sidebar > nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-  .sidebar-toggle { margin-top: auto; border-top: 1px solid rgba(128, 128, 128, .2); border-radius: 0; width: 100%; margin-left: 0; margin-right: 0; padding: 12px 18px; }
+  .sidebar { width: var(--sidebar-w); overflow-x: hidden; transition: width .25s var(--nav-ease); }
   .app.collapsed .sidebar-toggle { padding-left: 0; padding-right: 0; }
 
   .brand-text { white-space: nowrap; overflow: hidden; max-width: 200px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
