@@ -22,6 +22,11 @@ export const NAV = {
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
 
+    PORTFOLIO,
+    G('Finance', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Reimbursements', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
+      P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
+    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
+
     PLAYBOOK,
     HR_STAFF,
     MY_ACCOUNT
@@ -30,6 +35,9 @@ export const NAV = {
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
 
     PORTFOLIO_EDIT,
+
+    PORTFOLIO,
+
     G('Finance', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Reimbursements', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard')]),
