@@ -177,9 +177,9 @@
             <RouterLink class="btn" to="/Finance/upload#daily">Download daily export</RouterLink>
           </div>
           <div class="actions" v-show="view === 'director'">
-            <button class="btn btn-primary" @click="soon('Add property')">Add property</button>
+            <RouterLink class="btn btn-primary" to="/Portfolio/properties?add=1">Add property</RouterLink>
             <RouterLink class="btn" to="/Settings/staff?add=1">Invite staff</RouterLink>
-            <button class="btn" @click="soon('Audit log')">Open Audit log</button>
+            <RouterLink class="btn" to="/Settings/AuditLog">Open Audit log</RouterLink>
           </div>
         </section>
       </div>
