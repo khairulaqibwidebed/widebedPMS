@@ -90,7 +90,7 @@
                 <td class="num">{{ r.line }}</td>
                 <template v-for="c in previewCols" :key="c.key"><td>{{ show(r, c.key) }}</td></template>
                 <td>
-                  <span class="pill" :class="{ ok: 'green', skip: 'amber', error: 'red' }[r.status]">{{ r.status === 'ok' ? (r.ownerId || r.id || 'New') : { skip: 'Skipped', error: 'Problem' }[r.status] }}</span>
+                  <span class="pill" :class="{ ok: 'green', skip: 'amber', error: 'red' }[r.status]">{{ r.status === 'ok' ? (kind === 'owners' ? (r.newOwner ? 'New owner' : 'Existing owner') : 'New') : { skip: 'Skipped', error: 'Problem' }[r.status] }}</span>
                   <div class="help" v-show="r.note">{{ r.note }}</div>
                 </td>
               </tr>
@@ -325,7 +325,8 @@ export default {
       // Read from each owner's private part.
       const privs = await Promise.all(snap.docs.map(d => getDoc(doc(db, 'owners', d.id, 'private', 'main')).catch(() => null)));
       const ics = new Map(), emails = new Map(), names = new Map();   // key -> { id, where }
-      privs.forEach((p, i) => { const v = p?.data?.() || {}, o = { id: snap.docs[i].id, where: 'in the PMS' };
+      const nameOf = {};   // owner id -> name, for the notes (owner codes are never shown)
+      privs.forEach((p, i) => { const v = p?.data?.() || {}, o = { id: snap.docs[i].id, where: 'in the PMS' }; nameOf[o.id] = v.fullName || '';
         if (v.ic) ics.set(icKey(v.ic), o); if (v.email) emails.set(v.email.toLowerCase(), o); if (v.fullName) names.set(norm(v.fullName), o); });
       // Units already under this property (a new property has none)
       const pid = this.propertyId && this.propertyId !== '__new' ? this.propertyId : '';
@@ -348,18 +349,17 @@ export default {
         // Owner: reuse when the IC or email is known, else a new code
         const known = (ic && ics.get(ic)) || (data.email && emails.get(data.email)) || (!ic && !data.email && names.get(norm(data.fullName))) || null;
         const notes = [];
-        if (known) { row.ownerId = known.id; notes.push(known.where === 'in the PMS' ? `Owner already in the PMS (${known.id}).` : `Same owner as row ${known.where}.`); }
+        if (known) { row.ownerId = known.id; notes.push(known.where === 'in the PMS' ? `Owner already in the PMS${nameOf[known.id] ? ` (${nameOf[known.id]})` : ''}.` : `Same owner as row ${known.where}.`); }
         else {
-          row.ownerId = `OWN-${String(++n).padStart(3, '0')}`; row.newOwner = true;
+          row.ownerId = `OWN-${String(++n).padStart(3, '0')}`; row.newOwner = true; nameOf[row.ownerId] = data.fullName;
           const o = { id: row.ownerId, where: line }; if (ic) ics.set(ic, o); if (data.email) emails.set(data.email, o); names.set(norm(data.fullName), o);
-          notes.push('New owner.');
         }
         // Unit: existing one under this property, or a new unit
         const u = units.get(norm(data.unit));
         if (u) {
           row.unitId = u.id;
-          if (u.ownerId === row.ownerId) return Object.assign(row, { status: 'skip', note: `${u.unitCode} is already linked to ${row.ownerId}.` });
-          notes.push(u.ownerId ? `${u.unitCode}: owner changes from ${u.ownerId}.` : `${u.unitCode}: linked to this owner.`);
+          if (u.ownerId === row.ownerId) return Object.assign(row, { status: 'skip', note: `${u.unitCode} is already linked to this owner.` });
+          notes.push(u.ownerId ? `${u.unitCode}: owner changes from ${nameOf[u.ownerId] || 'another owner'}.` : `${u.unitCode}: linked to this owner.`);
         } else { row.newUnit = true; notes.push(`New unit ${data.unit}.`); }
         row.note = notes.join(' ');
         return row;

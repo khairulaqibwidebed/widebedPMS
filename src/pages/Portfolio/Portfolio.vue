@@ -101,23 +101,22 @@
       <section class="card">
         <div class="card-head"><h2>{{ `Owners · ${shownOwners().length}` }}</h2>
           <div class="pills"><button class="pill-btn" :class="{ on: !showInactive }" @click="showInactive = false">Active</button><button class="pill-btn" :class="{ on: showInactive }" @click="showInactive = true">Deactivated</button></div></div>
-        <p class="card-intro" v-if="viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Finance and Directors. This list shows each owner's code and units.</p>
-        <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Finance and Directors can see the full details; this list shows a code and the last 4 digits.
+        <p class="card-intro" v-if="viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Finance and Directors. This list shows each owner's units only.</p>
+        <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Finance and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.
           Owner details can later come from the Google Sheet staff already keep (cached copy plus Sync now).</p>
-        <div class="toolbar"><input class="input" type="search" placeholder="Search owner code or unit" v-model="ownerSearch" aria-label="Search owner"></div>
+        <div class="toolbar"><input class="input" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"></div>
         <div class="table-wrap">
           <table class="table">
-            <thead v-if="viewOnly"><tr><th>Owner</th><th>Units</th><th>Status</th></tr></thead>
+            <thead v-if="viewOnly"><tr><th>Units</th><th>Status</th></tr></thead>
             <thead v-else><tr><th>Owner</th><th>Units</th><th>Arrangement</th><th>Paid to</th><th class="num">Carried forward (RM)</th><th></th></tr></thead>
             <tbody>
               <template v-for="own in shownOwners()" :key="own.id">
                 <tr v-if="viewOnly">
-                  <td class="strong">{{ own.code || own.id }}</td>
                   <td>{{ ownerUnits(own.id).map(x => propertyId === 'all' ? `${x.unitCode} · ${propertyNameOf(x.propertyId)}` : x.unitCode).join(', ') || '—' }}</td>
                   <td><span class="pill" :class="own.active === false ? 'grey' : 'green'">{{ own.active === false ? 'Deactivated' : 'Active' }}</span></td>
                 </tr>
                 <tr class="clickable" @click="openOwner(own)" v-else>
-                  <td class="strong">{{ own.code || own.id }}</td>
+                  <td class="strong">{{ ownerName(own.id) || 'No name saved' }}</td>
                   <td>{{ ownerUnits(own.id).map(x => x.unitCode).join(', ') || '—' }}</td>
                   <td>{{ [...new Set(ownerUnits(own.id).map(x => arrLabel(x.terms?.arrangement)))].join(', ') || '—' }}</td>
                   <td>{{ own.bankLast4 ? `Bank transfer ···${own.bankLast4}` : '—' }}</td>
@@ -125,7 +124,7 @@
                   <td class="num"><button class="navlink" @click.stop="openOwner(own)">View</button></td>
                 </tr>
               </template>
-              <tr v-show="!loading && !shownOwners().length"><td :colspan="viewOnly ? 3 : 6" class="muted">{{ viewOnly ? 'No owners here.' : 'No owners here yet. Add one, then link their units on the Units tab.' }}</td></tr>
+              <tr v-show="!loading && !shownOwners().length"><td :colspan="viewOnly ? 2 : 6" class="muted">{{ viewOnly ? 'No owners here.' : 'No owners here yet. Add one, then link their units on the Units tab.' }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -483,7 +482,7 @@
       <div>
         <div class="drawer-back" @click="ownerOpen = false"></div>
         <aside class="drawer wide" role="dialog" aria-label="Owner" v-esc="() => { ownerOpen = false }">
-          <div class="drawer-head"><h2>{{ o.isNew ? 'Add owner' : `${o.code}${o.fullName ? ' · ' + o.fullName : ''}` }}</h2><button class="icon-btn" @click="ownerOpen = false" aria-label="Close">×</button></div>
+          <div class="drawer-head"><h2>{{ o.isNew ? 'Add owner' : (o.fullName || 'Owner') }}</h2><button class="icon-btn" @click="ownerOpen = false" aria-label="Close">×</button></div>
           <form class="drawer-body" id="ownerForm" @submit.prevent="saveOwner()">
             <div class="notice error" v-show="o.error">{{ o.error }}</div>
             <p class="help from-listing" v-if="o.fromListing">{{ `Filled in from new owner listing ${o.fromListing.listingId}. Check the details, then Add owner.` }}</p>
@@ -697,7 +696,7 @@ export default {
         const portfolio = { ...(snap.exists() ? snap.data().portfolio || {} : {}), [key]: id };
         const d = new Date(), at = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
         await updateDoc(ref, { portfolio, updatedAt: serverTimestamp(), updatedByUid: me.user.uid, updatedByName: me.name,
-          history: arrayUnion({ at, by: me.name, text: `Created in Portfolio: ${what} ${id}.` }) });
+          history: arrayUnion({ at, by: me.name, text: what === 'owner' ? 'Created in Portfolio: owner.' : `Created in Portfolio: ${what} ${id}.` }) });
         return ` Noted on ${h.listingId}.`;
       } catch (e) { return ` Not noted on ${h.listingId}: ${friendlyError(e, 'update the listing')}`; }
     },
@@ -734,7 +733,7 @@ export default {
         // Names live in private/main (PDPA); older owners kept the name on the main record.
         const privs = view ? [] : await Promise.all(owners.map(x => getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null)));
         owners.forEach((x, i) => { x.private = privs[i]?.exists?.() ? privs[i].data() : {}; });
-        this.owners = owners.sort((a, b) => (a.code || a.id).localeCompare(b.code || b.id));
+        this.owners = owners.sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id));   // by name; codes are for the system only
         this.allUnits = sets.flatMap(s => s.units);
         this.monthDocs = Object.fromEntries(this.properties.map((p, i) => [p.id, mdocs[i]?.exists() ? mdocs[i].data() : { status: 'open' }]));
         this.bfLines = bfSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.auto && e.kind === 'broughtForward' && !e.deleted);
@@ -812,7 +811,8 @@ export default {
 
     // ---- owners ----
     ownerName(id) { const x = this.owners.find(y => y.id === id); return x ? (x.private?.fullName || x.name || '') : ''; },
-    ownerLabel(id) { const x = this.owners.find(y => y.id === id); if (!x) return ''; const n = this.ownerName(id); return `${x.code || x.id}${n ? ' · ' + n : ''}`; },
+    // Owner codes (OWN-001) are for the system only; screens show the name. Roles that can't read names (PDPA) see "Owner linked".
+    ownerLabel(id) { const x = this.owners.find(y => y.id === id); if (!x) return ''; return this.ownerName(id) || (this.viewOnly ? 'Owner linked' : 'No name saved'); },
     ownerUnits(id) { return this.allUnits.filter(x => x.ownerId === id); },
     carried(id) { const ids = this.ownerUnits(id).map(x => x.id); return -this.bfLines.filter(e => ids.includes(e.unitId)).reduce((s, e) => s + (Number(e.amount) || 0), 0); },
     shownOwners() {
@@ -865,7 +865,7 @@ export default {
         await b.commit();
         const noted = o.isNew ? await this.noteOnListing(o.fromListing, 'ownerId', id, 'owner') : '';
         this.ownerOpen = false;
-        this.okMsg = `${id} saved.${noted}`;
+        this.okMsg = `${priv.fullName || 'Owner'} saved.${noted}`;
         await this.go();
       } catch (e) { o.error = friendlyError(e, 'save the owner'); }
       this.busy = false;
@@ -879,7 +879,7 @@ export default {
         b.set(doc(db, 'owners', o.id), { active: false, deactivatedReason: o.deactivateReason.trim(), deactivatedAt: serverTimestamp(), deactivatedBy: me.user.uid }, { merge: true });
         audit(b, me, { action: 'owner.deactivate', entity: `owners/${o.id}`, changes: [{ field: 'active', old: true, new: false }], reason: o.deactivateReason.trim() });
         await b.commit();
-        this.ownerOpen = false; this.okMsg = `${o.code} deactivated. Nothing was deleted.`;
+        this.ownerOpen = false; this.okMsg = `${o.fullName || 'Owner'} deactivated. Nothing was deleted.`;
         await this.go();
       } catch (e) { o.error = friendlyError(e, 'deactivate the owner'); }
       this.busy = false;
@@ -893,7 +893,7 @@ export default {
         b.set(doc(db, 'owners', o.id), { active: true, deactivatedReason: null }, { merge: true });
         audit(b, me, { action: 'owner.reactivate', entity: `owners/${o.id}`, changes: [{ field: 'active', old: false, new: true }], reason: o.reason.trim() });
         await b.commit();
-        this.ownerOpen = false; this.okMsg = `${o.code} is active again.`;
+        this.ownerOpen = false; this.okMsg = `${o.fullName || 'Owner'} is active again.`;
         await this.go();
       } catch (e) { o.error = friendlyError(e, 'turn the owner back on'); }
       this.busy = false;

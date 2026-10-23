@@ -336,7 +336,7 @@
               </template>
               <p class="help" v-else>Operations creates these from this listing (the property, unit and owner in Portfolio).</p>
               <div class="kv" v-if="l.portfolio && (l.portfolio.propertyId || l.portfolio.unitId || l.portfolio.ownerId)"><span>In Portfolio</span>
-                <span>{{ [l.portfolio.propertyId && `property ${l.portfolio.propertyId}`, l.portfolio.unitId && `unit ${l.portfolio.unitId}`, l.portfolio.ownerId && `owner ${l.portfolio.ownerId}`].filter(Boolean).join(' · ') }}</span></div>
+                <span>{{ [l.portfolio.propertyId && `property ${l.portfolio.propertyId}`, l.portfolio.unitId && `unit ${l.portfolio.unitId}`, l.portfolio.ownerId && 'owner added'].filter(Boolean).join(' · ') }}</span></div>
               <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn" @click="save()" :disabled="busy">Save</button></div>
             </section>
 
