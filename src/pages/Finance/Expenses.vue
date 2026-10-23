@@ -152,6 +152,7 @@ import { loadProperties, loadUnits, loadExpenses, monthDoc, completedUnitIds, au
 import { markDirty } from '@/lib/summary-data.js';
 import { rm, amt, dmy, ddmm, monthName, shortMonth, monthOffset, dayOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
 const me = useSession();
 
@@ -167,7 +168,7 @@ export default {
     return {
       KINDS, TYPES, rm, amt, dmy, ddmm, monthName,
       properties: [], units: [], expenses: [],
-      propertyId: params.get('property') || '', month: params.get('month') || monthOffset(-1),
+      propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       completed: false, doneUnits: [], loading: true, error: '', okMsg: '',
       search: '', filter: 'all',
@@ -175,6 +176,8 @@ export default {
       panel: {}, panelOpen: false
     };
   },
+  // Remember the property for the next page (see lib/last-property.js)
+  watch: { propertyId(v) { rememberProperty(v); } },
   async mounted() {
     try {
       this.properties = await loadProperties();

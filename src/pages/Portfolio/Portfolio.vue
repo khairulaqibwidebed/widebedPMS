@@ -557,6 +557,7 @@ import { propertyMonth, markFrom, canWriteSummaries } from '@/lib/summary-data.j
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { amt, monthName, monthOffset, stamp, pct, dmy } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
 
 const me = useSession();
@@ -600,7 +601,7 @@ export default {
       // Owners, Properties and Bookings share this page; the route picks the section.
       top: this.$route.meta.section || 'properties',
       ptab: params.get('ptab') || 'units',
-      properties: [], propertyId: params.get('property') || 'all', asOf: params.get('month') || monthOffset(0),
+      properties: [], propertyId: params.get('property') || lastProperty(true) || 'all', asOf: params.get('month') || monthOffset(0),
       months: Array.from({ length: 25 }, (_, i) => monthOffset(1 - i)),
       allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [],
       offlineBookings: [], bookingsLoading: false,
@@ -621,6 +622,8 @@ export default {
       history.replaceState({ ...history.state, okMsg: undefined }, '');
     }
   },
+  // Remember the property for the next page (see lib/last-property.js)
+  watch: { propertyId(v) { rememberProperty(v); } },
   async mounted() {
     if (!this.months.includes(this.asOf)) this.months.push(this.asOf);
     if (!this.PTABS.some(t => t.key === this.ptab)) this.ptab = 'units';
@@ -917,7 +920,8 @@ export default {
     async saveUnit() {
       const u = this.u; u.error = '';
       const code = u.unitCode.trim().replace(/\s+/g, ' ');
-      if (!/^\S+ \S+/.test(code)) return u.error = 'Type the unit code like DM 0719.';
+      // Any code with a number in it: "DM 0719", "CS B-07-13", or no prefix like "C-01-06" (183 Ampang, Langkawi, NOVO)
+      if (!/\d/.test(code)) return u.error = 'Type the unit code like DM 0719 or C-01-06.';
       const id = u.id || unitIdOf(this.propertyId, code);
       if (u.isNew && this.units.some(x => x.id === id)) return u.error = 'That unit already exists.';
       if (u.arrangement === 'fixedRent' && !(Number(u.fixedRentAmount) > 0)) return u.error = 'Enter the fixed rent amount.';

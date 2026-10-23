@@ -142,6 +142,7 @@ import { byUnit } from '@/lib/engine.js';
 import { loadProperties, friendlyError, download, loadXlsxLib } from '@/lib/finance-data.js';
 import { rm, amt, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
 const me = useSession();
 
@@ -161,13 +162,15 @@ export default {
   data() {
     return {
       TYPE, FILTERS, HEAD, rm, amt, monthName, shortName,
-      properties: [], propertyId: params.get('property') || '', month: params.get('month') || monthOffset(-1),
+      properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       docs: [], picked: [], search: '', filter: 'all',
       viewing: null, preview: null, dl: { open: false, done: false, pct: 0, count: 0, file: '', url: '' },
       loading: true, busy: false, error: ''
     };
   },
+  // Remember the property for the next page (see lib/last-property.js)
+  watch: { propertyId(v) { rememberProperty(v); } },
   async mounted() {
     try {
       this.properties = await loadProperties();

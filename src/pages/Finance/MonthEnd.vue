@@ -290,6 +290,7 @@ import { draftRecord, monthEndFromSummaries, ALL_MONTHS } from '@/lib/summaries.
 import { propertyMonth, readUnit, markDirty, markFrom, canWriteSummaries } from '@/lib/summary-data.js';
 import { rm, amt, pct, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
 const me = useSession();
 
@@ -311,7 +312,7 @@ export default {
     return {
       STATUS, ARRANGEMENTS, SHORT, rm, amt, pct, dmy, monthName, nextMonth,
       role: me.role,
-      properties: [], propertyId: params.get('property') || '', month: params.get('month') || monthOffset(-1),
+      properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       prop: null, ums: [], unitFull: {}, rateVersions: null, payHistory: {},
       rows: [], checklist: [], summary: { income: 0, fixed: 0, share: 0, balToPay: 0, carried: 0 },
@@ -324,6 +325,8 @@ export default {
       settingsOpen: false, set: {}, confirming: false, reopening: false, overrideReason: ''
     };
   },
+  // Remember the property for the next page (see lib/last-property.js)
+  watch: { propertyId(v) { rememberProperty(v); } },
   async mounted() {
     try {
       this.properties = await loadProperties();

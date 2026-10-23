@@ -172,6 +172,7 @@ import { ALL_MONTHS } from '@/lib/summaries.js';
 import { loadProperties, loadUnits, loadSetup, latestVersion, monthDoc, completedUnitIds, audit, friendlyError, download, toCSV, loadXlsxLib } from '@/lib/finance-data.js';
 import { monthName, monthOffset, stamp, dayOffset, amt } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
 const me = useSession();
 
@@ -198,7 +199,7 @@ export default {
   data() {
     return {
       monthName, shortName, stamp, amt,
-      properties: [], propertyId: params.get('property') || '', month: params.get('month') || monthOffset(-1),
+      properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       dragging: false, working: false, saving: false, error: '', suggestMonth: '',
       stage: 0, percent: 0, stages: [], fileName: '', fileSize: '', fileKind: '', lastFile: null,
@@ -206,6 +207,8 @@ export default {
       exportDate: dayOffset(-1), exportNote: ''
     };
   },
+  // Remember the property for the next page (see lib/last-property.js)
+  watch: { propertyId(v) { rememberProperty(v); } },
   async mounted() {
     try {
       this.properties = await loadProperties();

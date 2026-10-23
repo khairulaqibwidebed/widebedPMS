@@ -192,6 +192,7 @@ import { notBuilt } from '@/lib/toast.js';
 import { loadProperties, loadMonth, loadTeamActivity, loadOpenIssues } from '@/lib/dashboard-data.js';
 import { rm, signed, monthName, shortMonth, ddmm, monthOffset, when, stamp } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { ROLE_LABEL } from '@/lib/firebase.js';
 
 // The other roles' dashboards (RoleDashboard.vue), reached with ?as=role.
@@ -206,17 +207,20 @@ export default {
       view: me.role === 'director' && this.$route.query.as === 'finance' ? 'finance' : me.role,   // Director can "View as" Finance (or another role)
       month: monthOffset(-1),             // month-end work is for last month
       months: Array.from({ length: 12 }, (_, i) => monthOffset(-i)),
-      propertyId: 'all',
+      propertyId: lastProperty(true) || 'all',
       properties: [],
       data: null, team: [], issues: null, issuesError: '', loading: true, error: '',
       rm, signed, monthName, shortMonth, ddmm, when, stamp, ROLE_LABEL, OTHER_VIEWS,
       soon: notBuilt
     };
   },
+  // Remember the property for the next page (see lib/last-property.js)
+  watch: { propertyId(v) { rememberProperty(v); } },
   async mounted() {
     try {
       this.properties = await loadProperties();
       if (me.role === 'finance' && this.properties.length === 1) this.propertyId = this.properties[0].id;
+      if (this.propertyId !== 'all' && !this.properties.some(p => p.id === this.propertyId)) this.propertyId = 'all';
     } catch (e) { this.fail(e); }
     await this.load();
   },

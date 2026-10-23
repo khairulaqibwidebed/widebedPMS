@@ -111,6 +111,7 @@ import { loadProperties, loadSetup, loadBookings, loadExpenses, friendlyError, d
 import { amt, dmy, dayOffset } from '@/lib/format.js';
 import { propertyReport, unitReport, monthsToLoad, monthPieces } from '@/lib/reports.js';
 import { useSession } from '@/stores/session.js';
+import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
 const me = useSession();
 
@@ -134,7 +135,7 @@ export default {
   data() {
     return {
       ARR, QUICK, amt, me,
-      properties: [], propertyId: params.get('property') || '', units: [], unitId: '', rateVersions: [],
+      properties: [], propertyId: params.get('property') || lastProperty(), units: [], unitId: '', rateVersions: [],
       kind: params.get('kind') === 'unit' ? 'unit' : 'property',
       from: params.get('from') || quickRange('lastMonth')[0], to: params.get('to') || quickRange('lastMonth')[1],
       cache: { bookings: {}, expenses: {} },
@@ -144,6 +145,8 @@ export default {
   computed: {
     quickOn() { return QUICK.find(q => { const [a, b] = quickRange(q.key); return a === this.from && b === this.to; })?.key || ''; }
   },
+  // Remember the property for the next page (see lib/last-property.js)
+  watch: { propertyId(v) { rememberProperty(v); } },
   async mounted() {
     try {
       this.properties = await loadProperties();

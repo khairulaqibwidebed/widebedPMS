@@ -20,6 +20,7 @@
           <label for="buProp">Save units under</label>
           <select class="select" id="buProp" v-model="propertyId" :disabled="saving" @change="recheck()">
             <option value="" disabled>Choose a property</option>
+            <option value="__all">All properties (one sheet or file each)</option>
             <template v-for="p in properties" :key="p.id"><option :value="p.id">{{ `${p.name} (${p.code || p.id})` }}</option></template>
             <option value="__new">New property…</option>
           </select>
@@ -28,14 +29,39 @@
           <div class="field"><label for="buName">Property name</label><input class="input" id="buName" v-model="newProp.name" :disabled="saving" placeholder="e.g. D'Majestic Place"></div>
           <div class="field code"><label for="buCode">Short code</label><input class="input" id="buCode" v-model="newProp.code" :disabled="saving" placeholder="e.g. DM" @change="recheck()"></div>
         </template>
-        <div class="field" v-show="sheets.length > 1">
+        <div class="field" v-show="sheets.length > 1 && !allMode">
           <label for="buSheet">Sheet</label>
           <select class="select" id="buSheet" v-model="sheet" :disabled="saving" @change="recheck()">
             <template v-for="n in sheets" :key="n"><option :value="n">{{ n }}</option></template>
           </select>
         </div>
       </div>
-      <p class="help" style="margin:8px 0 0">Each row saves its unit under this property and links it to the owner. An owner already in the PMS (same IC, else email, else name when the row has neither) is reused, never added twice.</p>
+      <p class="help" style="margin:8px 0 0">{{ allMode
+        ? 'Choose every property\'s file at once (or the whole Owner List workbook). Each file or sheet is matched to the property with the same code or name; check the matches below the preview.'
+        : 'Each row saves its unit under this property and links it to the owner.' }} An owner already in the PMS (same IC, else email, else name when the row has neither) is reused, never added twice.</p>
+
+      <!-- All properties: which property each sheet (or CSV file) goes to -->
+      <div class="table-wrap sheet-map" v-show="allMode && sheets.length">
+        <table class="table">
+          <thead><tr><th>File or sheet</th><th>Save under</th><th>New property name</th><th>Code</th></tr></thead>
+          <tbody>
+            <template v-for="n in sheets" :key="n">
+              <tr v-if="sheetMap[n]">
+                <td>{{ n }}</td>
+                <td>
+                  <select class="select" v-model="sheetMap[n].pid" :disabled="saving" :aria-label="`Property for ${n}`" @change="recheck()">
+                    <option value="__skip">Leave out</option>
+                    <option value="__new">New property…</option>
+                    <template v-for="p in properties" :key="p.id"><option :value="p.id">{{ `${p.name} (${p.code || p.id})` }}</option></template>
+                  </select>
+                </td>
+                <td><input class="input" v-show="sheetMap[n].pid === '__new'" v-model="sheetMap[n].name" :disabled="saving" :aria-label="`New property name for ${n}`"></td>
+                <td><input class="input code-in" v-show="sheetMap[n].pid === '__new'" v-model="sheetMap[n].code" :disabled="saving" :aria-label="`Code for ${n}`"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <div class="notice error" v-show="error">{{ error }}</div>
@@ -43,12 +69,12 @@
 
     <!-- Drop zone -->
     <label class="dropzone" :class="{ over: dragging }" v-show="!rows.length && !loading"
-           @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dragging = false; pick($event.dataTransfer.files[0])">
+           @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dragging = false; pick($event.dataTransfer.files)">
       <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l7 7h-4.5v6h-5v-6H5z"/></svg>
-      <b>{{ `Drag the ${kind === 'properties' ? 'properties' : 'unit owners'} file here, or` }}</b>
-      <span class="btn">Choose file</span>
-      <small>{{ kind === 'properties' ? '.xlsx or .csv · one property per row' : '.xlsx or .csv · one unit per row · Finance\'s Owner List works as it is (pick the sheet after)' }}</small>
-      <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="pick($event.target.files[0]); $event.target.value = ''">
+      <b>{{ allMode ? 'Drag all the property files here, or' : `Drag the ${kind === 'properties' ? 'properties' : 'unit owners'} file here, or` }}</b>
+      <span class="btn">{{ allMode ? 'Choose files' : 'Choose file' }}</span>
+      <small>{{ kind === 'properties' ? '.xlsx or .csv · one property per row' : allMode ? '.xlsx or .csv · select several files at once (Ctrl+A in the folder) · one property per file or sheet' : '.xlsx or .csv · one unit per row · Finance\'s Owner List works as it is (pick the sheet after)' }}</small>
+      <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" :multiple="allMode" hidden @change="pick($event.target.files); $event.target.value = ''">
     </label>
 
     <section class="card" v-show="loading"><p class="muted" style="margin:0">Reading the file…</p></section>
@@ -57,13 +83,13 @@
     <section class="card" v-show="rows.length">
       <div class="card-head">
         <h2>{{ `Preview · ${fileName}` }}</h2>
-        <button type="button" class="link" :disabled="saving" @click="clear()">Choose another file</button>
+        <button type="button" class="link" :disabled="saving" @click="clear()">{{ allMode ? 'Choose other files' : 'Choose another file' }}</button>
       </div>
 
       <div class="counts">
         <span class="pill green">{{ `${count('ok')} ready` }}</span>
         <span class="pill amber" v-show="count('skip')">{{ `${count('skip')} already in the PMS` }}</span>
-        <span class="pill blue" v-show="kind === 'owners' && rows.length">{{ `${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'} · ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'}` }}</span>
+        <span class="pill blue" v-show="kind === 'owners' && rows.length">{{ `${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'} · ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'} · ${newFees} ${newFees === 1 ? 'fee' : 'fees'} to set up` }}</span>
         <span class="pill red" v-show="count('error')">{{ `${count('error')} with problems` }}</span>
       </div>
 
@@ -111,7 +137,7 @@
 import { markRaw } from 'vue';
 import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
-import { DEFAULT_OTA, unitIdOf } from '@/lib/engine.js';
+import { ARRANGEMENTS, DEFAULT_OTA, unitIdOf } from '@/lib/engine.js';
 import { markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { audit, friendlyError, loadXlsxLib, loadProperties } from '@/lib/finance-data.js';
@@ -166,8 +192,42 @@ function mapOwnerRow(row) {
     fullName,
     email:    firstEmail(ownerCell(col(row, 'Email Address 1'))),
     phone:    ownerCell(col(row, 'Contact No 1')),
-    ic:       ownerCell(col(row, 'IC / Passport No', 'BRN'))          // BRN = company registration no. (183 Ampang sheet)
+    ic:       ownerCell(col(row, 'IC / Passport No', 'BRN')),         // BRN = company registration no. (183 Ampang sheet)
+    // Fee columns, read by feeTerms below. Saved only for units that have no fee set up yet.
+    feeText:  col(row, 'Service Fees%', 'Percentage %'),              // "40", "20%", "25%"; "45%/20%/10%" = tiered, left out
+    utilText: col(row, 'Utilities %', 'Utilities Sharing'),           // "20%" or "25" = utility fee; "1WSS"/"Owner" = no %
+    remark:   col(row, 'Remark', 'Remarks')                           // "Fixed Rental - RM 1,300" = fixed rent
   };
+}
+
+// The Owner List's fee columns -> the unit's arrangement (same settings as Portfolio's Edit unit panel).
+//   Remark "Fixed Rental - RM 1,300"   -> Fixed rent RM 1,300
+//   Percentage 40                      -> Profit share 40% (20% service + 20% utilities)
+//   Percentage 20 / 25%, no utility %  -> Profit share 20% (at that service fee)
+//   Service fee + a utility % column   -> Profit share 40% at those two rates (e.g. 25% + 20%)
+//   "20 Change to 40 start on Jan 24"  -> the new rate (40)
+//   Tiered "45%/20%/10%" or blank      -> left out; set it on Portfolio
+// Returns { terms, label } or { terms: null, label: why not }.
+function feeTerms(d) {
+  const fixed = /fixed\s*rental?\s*-?\s*RM\s*([\d,]+(?:\.\d+)?)/i.exec(d.remark || '');
+  if (fixed) {
+    const amount = Number(fixed[1].replace(/,/g, ''));
+    return { terms: { arrangement: 'fixedRent', fixedRentAmount: amount, serviceFeePct: null, utilityFeePct: null, sstOnFeePct: null }, label: `Fixed rent RM ${amount.toLocaleString('en-MY')}` };
+  }
+  const t = String(d.feeText || '').trim();
+  if (!t) return { terms: null, label: 'No fee in file' };
+  if (/\d\s*%?\s*\/\s*\d/.test(t)) return { terms: null, label: `Tiered fee (${t}), set on Portfolio` };
+  const changed = /change\s*to\s*(\d+(?:\.\d+)?)/i.exec(t);
+  const fee = Number(changed ? changed[1] : (/(\d+(?:\.\d+)?)/.exec(t) || [])[1]);
+  if (!(fee > 0 && fee < 100)) return { terms: null, label: `Fee "${t}" not understood, set on Portfolio` };
+  const um = /^\s*(\d+(?:\.\d+)?)\s*%*\s*$/.exec(d.utilText || '');
+  let service = fee / 100, utility = um ? Number(um[1]) / 100 : 0;
+  if (!um && fee === 40) { service = 0.2; utility = 0.2; }
+  const arrangement = utility > 0 ? 'profitShare40' : 'profitShare20', def = ARRANGEMENTS[arrangement];
+  const own = (v, k) => (Math.abs(v - def[k]) < 1e-9 ? null : v);   // null = the arrangement's normal rate
+  const p = v => `${Math.round(v * 1000) / 10}%`;
+  return { terms: { arrangement, fixedRentAmount: null, serviceFeePct: own(service, 'serviceFeePct'), utilityFeePct: own(utility, 'utilityFeePct'), sstOnFeePct: null },
+    label: utility > 0 ? `${p(service)} + ${p(utility)} utilities` : `${p(service)} service fee` };
 }
 
 // Finance's sheet sometimes has two owners in one cell, one per line, marked "(old owner)" / "(new owner)".
@@ -197,26 +257,41 @@ function col(row, ...names) {
 }
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '');   // same as Portfolio, so ids match
 const icKey = s => String(s || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
-const ROWS_PER_BATCH = 60;   // up to 7 writes per unit-owner row (owner, private, unit, summary mark, 2 audits) stays under Firestore's 500 per batch
+const ROWS_PER_BATCH = 50;   // up to 8 writes per unit-owner row (owner, private, unit, fee, summary mark, 2 audits) stays under Firestore's 500 per batch
 
 const COLS = {
   properties: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }],
-  owners: [{ key: 'unit', label: 'Unit' }, { key: 'fullName', label: 'Full name' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }]
+  owners: [{ key: 'unit', label: 'Unit' }, { key: 'fullName', label: 'Full name' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'feeLabel', label: 'Fee' }]
 };
 
 export default {
   data() {
     return { kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
-      properties: [], propertyId: '', newProp: { name: '', code: '' }, sheets: [], sheet: '', parsed: markRaw({}) };
+      properties: [], propertyId: '', newProp: { name: '', code: '' }, sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {} };
   },
   computed: {
     previewCols() { return COLS[this.kind]; },
+    // Unit owners for every property at once: each sheet (or CSV file) goes to its own property
+    allMode() { return this.kind === 'owners' && this.propertyId === '__all'; },
     newOwners() { return this.rows.filter(r => r.status === 'ok' && r.newOwner).length; },
     newUnits() { return this.rows.filter(r => r.status === 'ok' && r.newUnit).length; },
+    newFees() { return this.rows.filter(r => r.status === 'ok' && r.terms).length; },
     // Why saving is not possible yet (unit owners need a property)
     blocker() {
       if (this.kind !== 'owners' || !this.rows.length) return '';
       if (!this.propertyId) return 'Choose the property these units belong to.';
+      if (this.allMode) {
+        const used = this.sheets.map(n => [n, this.sheetMap[n]]).filter(([, m]) => m && m.pid !== '__skip');
+        if (!used.length) return 'Every file is left out. Choose a property for at least one.';
+        const fresh = used.filter(([, m]) => m.pid === '__new');
+        for (const [n, m] of fresh) {
+          if (!m.name.trim() || !m.code.trim()) return `Enter a name and short code for the new property from ${n}.`;
+          if (this.properties.some(p => p.id === slug(m.name.trim()) || (p.code || '').toUpperCase() === m.code.trim().toUpperCase())) return `A property named or coded like ${m.name.trim()} already exists. Choose it from the list for ${n}.`;
+        }
+        const keys = fresh.flatMap(([, m]) => [slug(m.name.trim()), 'code:' + m.code.trim().toUpperCase()]);
+        if (new Set(keys).size < keys.length) return 'Two new properties have the same name or code.';
+        return '';
+      }
       if (this.propertyId === '__new') {
         const name = this.newProp.name.trim(), code = this.newProp.code.trim().toUpperCase();
         if (!name || !code) return 'Enter the new property\'s name and short code.';
@@ -230,25 +305,36 @@ export default {
   },
   methods: {
     setKind(k) { if (k !== this.kind) { this.kind = k; this.clear(); this.done = ''; } },
-    clear() { Object.assign(this, { rows: [], columns: [], fileName: '', error: '', sheetsNote: '', sheets: [], sheet: '', parsed: markRaw({}) }); },
+    clear() { Object.assign(this, { rows: [], columns: [], fileName: '', error: '', sheetsNote: '', sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {} }); },
     count(s) { return this.rows.filter(r => r.status === s).length; },
     show(r, key) { return r.data[key] || '—'; },
 
     // 1. Read the file and build the preview
-    async pick(file) {
-      if (!file || this.loading || this.saving) return;
+    // files: a FileList or array. Several files only in "All properties" mode; otherwise the first is read.
+    async pick(files) {
+      let list = [...(files || [])];
+      if (!list.length || this.loading || this.saving) return;
+      if (!this.allMode) list = list.slice(0, 1);
       this.clear(); this.done = '';
-      if (!/\.(csv|xlsx)$/i.test(file.name)) { this.error = 'Choose an .xlsx or .csv file.'; return; }
-      this.loading = true; this.fileName = file.name;
+      if (list.some(f => !/\.(csv|xlsx)$/i.test(f.name))) { this.error = 'Choose .xlsx or .csv files only.'; return; }
+      this.loading = true; this.fileName = list.length > 1 ? `${list.length} files` : list[0].name;
       try {
         const X = await loadXlsxLib();
-        const wb = /\.csv$/i.test(file.name) ? X.read(await file.text(), { type: 'string', raw: true }) : X.read(await file.arrayBuffer(), { type: 'array' });
         // Every sheet with the header row is read (the Owner List has one sheet per property); others are left out.
+        // A CSV is one sheet, named from the file: "(LATEST) Owner List 2022 - 2026.xlsx - DM.csv" -> "DM".
         const { headerHas, stopAt } = FILE_LAYOUT[this.kind];
         const hasCell = (r, text) => r.some(c => norm(c) === norm(text));
         const lines = [], used = [], unused = [], cols = new Set();
-        for (const sheet of wb.SheetNames) {
-          const grid = X.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, defval: '', raw: false, blankrows: true });
+        const sheetsIn = [];
+        for (const file of list) {
+          const csv = /\.csv$/i.test(file.name);
+          const wb = csv ? X.read(await file.text(), { type: 'string', raw: true }) : X.read(await file.arrayBuffer(), { type: 'array' });
+          const base = file.name.replace(/\.(csv|xlsx)$/i, '').split(' - ').pop().trim() || file.name;
+          for (const s of wb.SheetNames) sheetsIn.push({ ws: wb.Sheets[s], label: csv || list.length === 1 ? (csv ? base : s) : `${base} · ${s}` });
+        }
+        for (const { ws, label: sheet } of sheetsIn) {
+          if (this.parsed[sheet]) { unused.push(`${sheet} (same name twice)`); continue; }
+          const grid = X.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, blankrows: true });
           const h = headerHas ? grid.findIndex(r => hasCell(r, headerHas)) : (grid.length ? 0 : -1);
           if (h < 0) { unused.push(sheet); continue; }
           used.push(sheet);
@@ -275,13 +361,17 @@ export default {
         this.sheetsNote = many || unused.length ? `Read ${used.length} ${used.length === 1 ? 'sheet' : 'sheets'}: ${used.join(', ')}.` + (unused.length ? ` Left out (no "${headerHas}" column): ${unused.join(', ')}.` : '') : '';
         if (!lines.length) throw new Error('The file has no rows under the header row.');
         if (this.kind === 'properties') this.rows = await this.checkProperties(lines);
-        else {
+        else if (this.allMode) {
+          this.sheets = used; this.sheet = used[0]; this.matchSheets();
+          this.sheetsNote = `Read ${used.length} ${used.length === 1 ? 'file or sheet' : 'files or sheets'}.` + (unused.length ? ` Left out (no "${headerHas}" column): ${unused.join(', ')}.` : '');
+          this.rows = await this.checkOwners(this.groups());
+        } else {
           // Unit owners: one sheet = one property. Start on the sheet named like the property's code, else the first.
           this.sheets = used;
           const code = this.propCode().toLowerCase();
           this.sheet = used.find(n => n.toLowerCase() === code) || used[0];
           this.sheetsNote = used.length > 1 ? `This file has ${used.length} sheets. Pick the one for this property above.` + (unused.length ? ` Left out: ${unused.join(', ')}.` : '') : '';
-          this.rows = await this.checkOwners(this.parsed[this.sheet] || []);
+          this.rows = await this.checkOwners(this.groups());
         }
       } catch (e) { this.error = e.message && !e.code ? e.message : friendlyError(e, 'read the file'); this.rows = []; }
       this.loading = false;
@@ -312,12 +402,36 @@ export default {
     async recheck() {
       if (this.kind !== 'owners' || !this.sheet || this.loading) return;
       this.loading = true; this.error = '';
-      try { this.rows = await this.checkOwners(this.parsed[this.sheet] || []); }
+      try { if (this.allMode) this.matchSheets(); this.rows = await this.checkOwners(this.groups()); }
       catch (e) { this.error = friendlyError(e, 'check the file'); this.rows = []; }
       this.loading = false;
     },
 
-    async checkOwners(lines) {
+    // "All properties": match each sheet to the property whose code or name is the sheet's name (e.g. DM, FLEXUS),
+    // else to a new property named after the sheet. Choices already made on the page are kept.
+    matchSheets() {
+      const map = { ...this.sheetMap };
+      for (const n of this.sheets) {
+        if (map[n]) continue;
+        const k = norm(n), byCode = this.properties.filter(p => norm(p.code) === k), byName = this.properties.filter(p => norm(p.name) === k),
+          inName = this.properties.filter(p => k.length >= 3 && norm(p.name).includes(k));
+        const hit = byCode.length === 1 ? byCode[0] : byName.length === 1 ? byName[0] : inName.length === 1 ? inName[0] : null;
+        map[n] = hit ? { pid: hit.id, name: '', code: '' } : { pid: '__new', name: n.trim(), code: n.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) };
+      }
+      this.sheetMap = map;
+    },
+    // Property id a sheet's units are saved under ('' = a new property not created yet)
+    pidFor(sheet) {
+      if (!this.allMode) return this.propertyId && this.propertyId !== '__new' ? this.propertyId : '';
+      const m = this.sheetMap[sheet];
+      return m && m.pid !== '__new' && m.pid !== '__skip' ? m.pid : '';
+    },
+    groups() {
+      if (!this.allMode) return [{ sheet: this.sheet, pid: this.pidFor(this.sheet), lines: this.parsed[this.sheet] || [] }];
+      return this.sheets.filter(n => this.sheetMap[n] && this.sheetMap[n].pid !== '__skip').map(n => ({ sheet: n, pid: this.pidFor(n), lines: this.parsed[n] || [] }));
+    },
+
+    async checkOwners(groups) {
       const snap = await getDocs(collection(db, 'owners'));
       // New owner codes continue from the highest existing OWN-nnn
       let n = Math.max(0, ...snap.docs.map(d => Number(String(d.data().code || d.id).replace(/\D/g, '')) || 0));
@@ -328,18 +442,26 @@ export default {
       const nameOf = {};   // owner id -> name, for the notes (owner codes are never shown)
       privs.forEach((p, i) => { const v = p?.data?.() || {}, o = { id: snap.docs[i].id, where: 'in the PMS' }; nameOf[o.id] = v.fullName || '';
         if (v.ic) ics.set(icKey(v.ic), o); if (v.email) emails.set(v.email.toLowerCase(), o); if (v.fullName) names.set(norm(v.fullName), o); });
-      // Units already under this property (a new property has none)
-      const pid = this.propertyId && this.propertyId !== '__new' ? this.propertyId : '';
-      const units = new Map();
-      if (pid) (await getDocs(query(collection(db, 'units'), where('propertyId', '==', pid)))).docs.forEach(d => {
-        const u = { id: d.id, ...d.data() };
-        for (const c of [u.unitCode, u.ezeeRoomMatch, ...(u.aliases || [])]) if (c) units.set(norm(c), u);
-      });
-      const seenUnits = new Map();
-      return lines.map(({ r, line }) => ({ line, data: mapOwnerRow(r) })).filter(x => x.data).map(({ data, line }) => {
+      // Units already under each property (a new property has none)
+      const unitsOf = {};
+      for (const pid of new Set(groups.map(g => g.pid).filter(Boolean))) {
+        const units = unitsOf[pid] = new Map();
+        const docs = (await getDocs(query(collection(db, 'units'), where('propertyId', '==', pid)))).docs;
+        // Whether each unit already has a fee set up (then the file's fee is left alone)
+        const termSnaps = await Promise.all(docs.map(d => getDocs(collection(db, 'units', d.id, 'terms')).catch(() => null)));
+        docs.forEach((d, i) => {
+          const u = { id: d.id, ...d.data(), hasTerms: !!termSnaps[i]?.size };
+          for (const c of [u.unitCode, u.ezeeRoomMatch, ...(u.aliases || [])]) if (c) units.set(norm(c), u);
+        });
+      }
+      return groups.flatMap(({ sheet, pid, lines }) => { const units = unitsOf[pid] || new Map(), seenUnits = new Map();
+      // Row label: "DM 13" when several files or sheets are saved together
+      return lines.map(({ r, line }) => ({ line: groups.length > 1 ? `${sheet} ${line}` : line, data: mapOwnerRow(r) })).filter(x => x.data).map(({ data, line }) => {
         data.email = data.email.toLowerCase();
         const ic = icKey(data.ic);
-        const row = { line, data, status: 'ok', note: '', ownerId: '', newOwner: false, unitId: '', newUnit: false };
+        const row = { line, sheet, data, status: 'ok', note: '', ownerId: '', newOwner: false, unitId: '', newUnit: false, linkOwner: true, terms: null };
+        const fee = feeTerms(data);
+        data.feeLabel = fee.label;
         const fail = note => Object.assign(row, { status: 'error', note });
         if (!data.unit) return fail('No unit in this row.');
         if (!data.fullName) return fail('Needs the owner\'s full name.');
@@ -358,12 +480,16 @@ export default {
         const u = units.get(norm(data.unit));
         if (u) {
           row.unitId = u.id;
-          if (u.ownerId === row.ownerId) return Object.assign(row, { status: 'skip', note: `${u.unitCode} is already linked to this owner.` });
-          notes.push(u.ownerId ? `${u.unitCode}: owner changes from ${nameOf[u.ownerId] || 'another owner'}.` : `${u.unitCode}: linked to this owner.`);
-        } else { row.newUnit = true; notes.push(`New unit ${data.unit}.`); }
+          row.terms = u.hasTerms ? null : fee.terms;
+          if (u.hasTerms && fee.terms) data.feeLabel = 'Already set up';
+          if (u.ownerId === row.ownerId) {
+            if (!row.terms) return Object.assign(row, { status: 'skip', note: `${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.` });
+            row.linkOwner = false; notes.length = 0; notes.push(`${u.unitCode}: owner already linked, fee added.`);
+          } else notes.push(u.ownerId ? `${u.unitCode}: owner changes from ${nameOf[u.ownerId] || 'another owner'}.` : `${u.unitCode}: linked to this owner.`);
+        } else { row.newUnit = true; row.terms = fee.terms; notes.push(`New unit ${data.unit}.`); }
         row.note = notes.join(' ');
         return row;
-      });
+      }); });
     },
 
     // 2. Save the ready rows
@@ -381,9 +507,12 @@ export default {
           this.savedSoFar = Math.min(i + ROWS_PER_BATCH, ready.length);
         }
         if (this.kind === 'properties') this.done = `Saved ${ready.length} ${ready.length === 1 ? 'property' : 'properties'} from ${this.fileName}. Add their units on Portfolio, or upload their eZee report.`;
-        else {
+        else if (this.allMode) {
+          const n = new Set(ready.map(r => r.sheet)).size;
+          this.done = `Saved ${ready.length} ${ready.length === 1 ? 'unit' : 'units'} under ${n} ${n === 1 ? 'property' : 'properties'} (${this.newUnits} new units, ${this.newOwners} new owners, ${this.newFees} fees). Units the file had no clear fee for still need theirs set on Portfolio.`;
+        } else {
           const p = this.properties.find(x => x.id === this.propertyId);
-          this.done = `Saved ${ready.length} ${ready.length === 1 ? 'unit' : 'units'} under ${p?.name || 'the property'} (${this.newUnits} new units, ${this.newOwners} new owners). Set each unit's arrangement and fees on Portfolio.`;
+          this.done = `Saved ${ready.length} ${ready.length === 1 ? 'unit' : 'units'} under ${p?.name || 'the property'} (${this.newUnits} new units, ${this.newOwners} new owners, ${this.newFees} fees). Units the file had no clear fee for still need theirs set on Portfolio.`;
         }
         this.clear();
       } catch (e) {
@@ -405,6 +534,7 @@ export default {
     },
     // A new property is created once, before the units (same fields and starting OTA settings as Portfolio)
     async ensureProperty() {
+      if (this.allMode) return this.ensureSheetProperties();
       if (this.propertyId !== '__new') return;
       const name = this.newProp.name.trim(), code = this.newProp.code.trim().toUpperCase(), id = slug(name);
       const b = writeBatch(db);
@@ -416,8 +546,25 @@ export default {
       this.properties = await loadProperties();
       this.propertyId = id; this.newProp = { name: '', code: '' };
     },
+    // "All properties": create every new property once, then point its sheet at it
+    async ensureSheetProperties() {
+      const fresh = this.sheets.filter(n => this.sheetMap[n]?.pid === '__new' && this.rows.some(r => r.sheet === n && r.status === 'ok'));
+      if (!fresh.length) return;
+      const b = writeBatch(db), made = {};
+      for (const n of fresh) {
+        const m = this.sheetMap[n], name = m.name.trim(), code = m.code.trim().toUpperCase(), id = slug(name);
+        b.set(doc(db, 'properties', id), { name, code, info: { address: '', city: '', state: '', ezeeAccount: '', ezeeName: '' }, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+        b.set(doc(db, 'properties', id, 'rateVersions', '2000-01_default'), { effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
+          reason: 'Default OTA settings', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+        audit(b, me, { action: 'property.create', entity: `properties/${id}`, propertyId: id, reason: `Bulk upload (${n})` });
+        made[n] = id;
+      }
+      await b.commit();
+      this.properties = await loadProperties();
+      for (const [n, id] of Object.entries(made)) this.sheetMap[n] = { pid: id, name: '', code: '' };
+    },
     writeUnitOwner(b, r, made) {
-      const d = r.data, pid = this.propertyId, why = `Bulk upload (${this.fileName})`;
+      const d = r.data, pid = this.allMode ? this.pidFor(r.sheet) : this.propertyId, why = `Bulk upload (${this.allMode ? r.sheet : this.fileName})`;
       if (r.newOwner && !made.has(r.ownerId)) {
         made.add(r.ownerId);
         b.set(doc(db, 'owners', r.ownerId), { code: r.ownerId, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
@@ -428,10 +575,15 @@ export default {
       const unitId = r.unitId || unitIdOf(pid, d.unit);
       if (r.newUnit) b.set(doc(db, 'units', unitId), { propertyId: pid, unitCode: d.unit, ezeeRoomMatch: d.unit, aliases: [], ownerId: r.ownerId, active: true,
         createdAt: serverTimestamp(), createdBy: me.user.uid });
-      else b.set(doc(db, 'units', unitId), { ownerId: r.ownerId, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
-      markFrom(b, pid, ALL_MONTHS, unitId);   // the unit's month summaries are worked out again (new unit or new owner)
-      audit(b, me, { action: r.newUnit ? 'unit.create' : 'unit.update', entity: `units/${unitId}`, propertyId: pid,
-        changes: [{ field: 'ownerId', old: null, new: r.ownerId }], reason: why });
+      else if (r.linkOwner) b.set(doc(db, 'units', unitId), { ownerId: r.ownerId, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+      // Fee from the Owner List, for a unit with none yet. 2000-01 = applies to every month until a later version is added on Portfolio.
+      if (r.terms) b.set(doc(db, 'units', unitId, 'terms', `2000-01_${Date.now()}`), { ...r.terms, otaOverrides: null, effectiveFrom: '2000-01',
+        reason: why, createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+      markFrom(b, pid, ALL_MONTHS, unitId);   // the unit's month summaries are worked out again (new unit, new owner or fee)
+      const changes = [];
+      if (r.linkOwner) changes.push({ field: 'ownerId', old: null, new: r.ownerId });
+      if (r.terms) changes.push({ field: 'arrangement', old: null, new: r.terms.arrangement });
+      audit(b, me, { action: r.newUnit ? 'unit.create' : 'unit.update', entity: `units/${unitId}`, propertyId: pid, changes, reason: why });
     }
   }
 };
@@ -443,6 +595,9 @@ export default {
     .prop-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
     .prop-row .field { margin: 0; min-width: 0; flex: 1 1 220px; }
     .prop-row .field.code { flex: 0 1 120px; }
+    .sheet-map { margin-top: 12px; }
+    .sheet-map .select, .sheet-map .input { min-width: 160px; }
+    .sheet-map .code-in { min-width: 110px; width: 120px; }
     .counts { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
     .cols { margin-bottom: 12px; font-size: 13px; }
     .sheets { margin: 0 0 8px; }
