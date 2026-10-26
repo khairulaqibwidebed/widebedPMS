@@ -37,8 +37,13 @@
           <div class="user-id"><Avatar :uid="me.user?.uid" :name="me.name" :role="me.role" :size="30" /><span class="user-name">{{ me.name }}</span>
             <span class="role-badge role-tint" :style="roleTint(me.role)">{{ ROLE_LABEL[me.role] || me.role }}</span></div>
         </div>
-        <!-- Notifications: icon only for now (system on Khairul's to-do list). Log out is on Profile & Appearance. -->
-        <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="notBuilt('Notifications')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
+        <!-- Notifications: icon only for now (system on Khairul's to-do list). Log out is on Profile & Appearance.
+        <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="notBuilt('Notifications')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button> -->
+        <!-- Neo's Notification -->
+        <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="$router.push('/notifications')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span v-if="unreadCount > 0" class="notification-dot" :title="`${unreadCount} unread notifications`"></span>
+        </button>
       </header>
       <RouterView :key="$route.fullPath" />
     </div>
@@ -81,7 +86,12 @@ export default {
     groups() { return NAV[this.me.role] || []; },
     active() { return this.$route.meta.label; },
     // Collapsed AND on desktop. On mobile the sidebar is always the full drawer.
-    rail() { return this.collapsed && this.wide; }
+    rail() { return this.collapsed && this.wide; },
+    // Neo's Notification: return a mock unread count (e.g., 2) so it doesn't crash
+    unreadCount() { 
+      return 2; 
+    }
+    
   },
   watch: {
     // Only the current page's group is open. On an ungrouped page (Dashboard) the first group opens.
@@ -168,6 +178,10 @@ export default {
 .sidebar > .brand { flex-shrink: 0; }
 .sidebar > nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .sidebar-toggle { margin-top: auto; border-top: 1px solid rgba(128, 128, 128, .2); border-radius: 0; width: 100%; margin-left: 0; margin-right: 0; padding: 12px 18px; }
+
+/* Neo's Notification: */
+.bell-btn {position: relative;}
+.notification-dot {position: absolute;top: 8px;right: 8px;width: 8px;height: 8px;background-color: #e53935;border-radius: 50%;border: 2px solid #fff;}
 
 /* Phone drawer: dvh so the pinned button is not hidden under the browser's address bar; keep clear of the home bar. */
 @media (max-width: 860px) {
