@@ -1,8 +1,13 @@
 <template>
-  <div class="notifications-page">
-    <div class="page-header">
-      <h1>Notifications</h1>
-      <button class="btn secondary" @click="markAllAsRead">Mark all as read</button>
+  <main class="content">
+    <div class="page-head">
+      <div>
+        <h1>Notifications</h1>
+        <div class="sub">System alerts, tickets, and updates</div>
+      </div>
+      <div class="head-tools">
+        <button class="btn secondary" @click="markAllAsRead">Mark all as read</button>
+      </div>
     </div>
 
     <!-- Filter Tabs -->
@@ -45,7 +50,7 @@
         <p>No notifications found.</p>
       </div>
     </div>
-  </div>
+  </main>
 </template>
 
 <script>

@@ -152,7 +152,55 @@ export default {
 </script>
 
 <style>
-.app { --sidebar-w: 240px; --nav-ease: cubic-bezier(.4, 0, .2, 1); }
+/* .app { --sidebar-w: 240px; --nav-ease: cubic-bezier(.4, 0, .2, 1); } */
+.app {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  overflow-x: hidden;
+  --sidebar-w: 240px;
+  --topbar-h: 60px;
+  --nav-ease: cubic-bezier(.4, 0, .2, 1);
+}
+/* Main content area sits next to the sidebar and scrolls independently */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* Prevents flex children from pushing wider than screen */
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+}
+/* Fixed/sticky topbar height */
+.topbar {
+  height: var(--topbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  background: #fff;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+/* Global content container for all views */
+main.content {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px; /* Adjust maximum content width */
+  margin: 0 auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+/* Ensure flex grids inside dashboards scale down on smaller screens */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
 
 /* Department header: icon + label + chevron. */
 .nav-group-btn { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; transition: gap .25s var(--nav-ease), padding .25s var(--nav-ease), background .2s ease; }
