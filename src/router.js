@@ -5,7 +5,6 @@ import { signOut } from 'firebase/auth';
 import { auth, ALLOWED_ROLES } from './lib/firebase.js';
 import { homeFor } from './nav.js';
 import { useSession } from './stores/session.js';
-import Notifications from '@/pages/Notifications.vue'
 
 const FD = ['director', 'finance'], D = ['director'], DH = ['director', 'hr'];
 // Issues, the Playbook and the staff HR pages: every role.
@@ -65,8 +64,7 @@ const routes = [
   { path: '/Reports/reports.html', redirect: '/Reports' },
   { path: '/:p(.*)\\.html', redirect: to => ({ path: '/' + to.params.p, query: to.query }) },
   { path: '/:p(.*)*', redirect: '/home' },
-  { path: '/home', redirect: () => homeFor(useSession().role) },
-  { path: '/Notifications', name: 'Notifications', component: Notifications}
+  { path: '/home', redirect: () => homeFor(useSession().role) }
 ];
 
 export const router = createRouter({ history: createWebHistory(), routes, scrollBehavior: () => ({ top: 0 }) });

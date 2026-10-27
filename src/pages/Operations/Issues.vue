@@ -200,7 +200,7 @@ import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
-import { createNotificationForUser } from '@/services/notificationService'
+import { notifyRole, notifyUser } from '@/services/notificationService.js';
 
 const me = useSession();
 const myRole = ROLE_LABEL[me.role] || me.role;          // 'Finance', 'Director'
@@ -214,6 +214,9 @@ const TAGS = ['IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Mark
 const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' } };
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];
+// Each tag is answered by one sign-in role ('Admin' has no sign-in role yet, so Directors cover it).
+// Directors are always notified: they see every ticket.
+const TAG_ROLE = { IT: 'it', Admin: 'director', HR: 'hr', Finance: 'finance', Operations: 'operations', Procurement: 'procurement', Marketing: 'marketing' };
 const LIST_LIMIT = 500;
 // Links must point at the company Google Drive (Drive, Docs, Sheets, Slides).
 const DRIVE_HOSTS = ['drive.google.com', 'docs.google.com'];
@@ -356,6 +359,8 @@ export default {
           return id;
         });
         this.raise = null; this.okMsg = `${id} raised and tagged ${tags.join(', ')}.`;
+        this.notify({ id, tags, raisedRole: myRole, raisedByUid: me.user.uid },
+          { title: `New issue ${id}`, message: `${myLabel} raised "${r.title.trim()}", tagged ${tags.join(', ')}.` });
         await this.loadList();
       } catch (e) {
         console.error('Failed to raise issue:', {
@@ -384,6 +389,7 @@ export default {
         audit(b, me, { action: 'issue.comment', entity: `issues/${t.id}`, propertyId: t.propertyId || null, changes: links.length ? [{ field: 'links', old: null, new: links.length }] : [] });
         await b.commit();
         t.replyCount = (t.replyCount || 0) + 1; t.linkCount = (t.linkCount || 0) + links.length; t.lastBy = myLabel; t.audit.push(h);
+        this.notify(t, { title: `New comment on ${t.id}`, message: `${myLabel} commented on "${t.title}".` });
         this.draft = this.newDraft();
         await this.loadReplies();
       } catch (e) { d.error = friendlyError(e, 'post the comment'); }
@@ -403,6 +409,7 @@ export default {
       try {
         await this.change({ status: 'progress' }, [`marked it in progress`], 'issue.progress', [{ field: 'status', old: t.status, new: 'progress' }]);
         t.status = 'progress';
+        this.notify(t, { title: `${t.id} is in progress`, message: `${myLabel} marked "${t.title}" in progress.` });
       } catch (e) { this.error = friendlyError(e, 'update the ticket'); }
       this.busy = false;
     },
@@ -419,6 +426,7 @@ export default {
         await this.change({ tags }, [...added.map(g => `added tag ${g}${why}`), ...removed.map(g => `removed tag ${g}${why}`)],
           'issue.tags', [{ field: 'tags', old: t.tags.join(', '), new: tags.join(', ') }], e.reason.trim());
         t.tags = tags; this.tagEdit = null;
+        if (added.length) this.notify(t, { title: `${t.id} tagged to ${added.join(', ')}`, message: `${myLabel} tagged "${t.title}" to ${added.join(', ')}. Reason: ${e.reason.trim()}`, tags: added, includeRaiser: false });
         if (!this.canSee(t)) { this.okMsg = `${t.id} is no longer tagged to ${myRole}, so it has left your list.`; this.back(); }
       } catch (err) { e.error = friendlyError(err, 'save the tags'); }
       this.busy = false;
@@ -449,6 +457,7 @@ export default {
         })
 
         this.confirmDone = false
+        this.notify(t, { title: `${t.id} completed`, message: `${myLabel} marked "${t.title}" completed.` })
       } catch (e) {
         this.doneError = friendlyError(e, 'complete the ticket')
       }
@@ -456,30 +465,18 @@ export default {
       this.busy = false
     },
 
-    async notifyUsers(recipientUids, title, message, link) {
-      const currentUid = me.user?.uid
-
-      const uniqueUids = [
-        ...new Set(
-          (recipientUids || []).filter(
-            uid => uid && uid !== currentUid
-          )
-        ),
-      ]
-
-      if (!uniqueUids.length) return
-
-      await Promise.all(
-        uniqueUids.map(recipientUid =>
-          createNotificationForUser({
-            recipientUid,
-            title,
-            message,
-            type: 'issue',
-            link,
-          })
-        )
-      )
+    // Notifications are best effort: a failed one is logged and never blocks or undoes the ticket action.
+    // Roles get one shared notification each (read state is per person); the person who raised the ticket
+    // gets their own, unless they already receive the role one. You never see notifications you caused.
+    async notify(t, { title, message, tags = t.tags, includeRaiser = true }) {
+      const link = `/Operations/issues?id=${t.id}`;
+      const roles = [...new Set(['director', ...tags.map(g => TAG_ROLE[g]).filter(Boolean)])];
+      const raiserRole = t.raisedRole === 'Director' ? 'director' : TAG_ROLE[t.raisedRole];
+      const base = { title, message, type: 'issue', refId: t.id, link };
+      const jobs = roles.map(recipientRole => notifyRole({ ...base, recipientRole }));
+      if (includeRaiser && t.raisedByUid && t.raisedByUid !== me.user.uid && !roles.includes(raiserRole))
+        jobs.push(notifyUser({ ...base, recipientUid: t.raisedByUid }));
+      (await Promise.allSettled(jobs)).forEach(r => { if (r.status === 'rejected') console.error('Notification failed:', r.reason); });
     },
   },
 }
