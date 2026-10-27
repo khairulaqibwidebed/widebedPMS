@@ -26,7 +26,7 @@ async function readAll() {
 </script>
 
 <template>
-  <section class="notif-page">
+  <main class="content">
     <div class="notif-head">
       <div>
         <h1>Notifications</h1>
@@ -55,7 +55,7 @@ async function readAll() {
         </button>
       </li>
     </ul>
-  </section>
+  </main>
 </template>
 
 <style scoped>
