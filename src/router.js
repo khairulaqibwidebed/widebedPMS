@@ -53,7 +53,8 @@ const routes = [
   ...[['attendance', 'Attendance SOP'], ['advance', 'Advance SOP'], ['allowance', 'Allowance SOP']].map(([sop, label]) =>
     page(`/HR/${sop}-sop`, () => import('./pages/HR/SopPage.vue'), label, ALL, { sop })),
   page('/HR/claim-socso', () => import('./pages/HR/SopPage.vue'), 'Claim SOCSO', ALL, { sop: 'socso' }),
-  page('/HR/staff-complaints', () => import('./pages/HR/StaffComplaints.vue'), 'Staff Complaints', DH),
+  // Staff complaints: HR only. Directors see only the Director complaints page.
+  page('/HR/staff-complaints', () => import('./pages/HR/StaffComplaints.vue'), 'Staff Complaints', ['hr']),
   page('/HR/director-complaints', () => import('./pages/HR/DirectorComplaints.vue'), 'Director Complaints', DH),
   page('/HR/raise-complaint', () => import('./pages/HR/RaiseComplaint.vue'), 'Raise a Complaint', ALL),
   page('/Notifications', () => import('./pages/Notifications.vue'), 'Notifications', ALL),
