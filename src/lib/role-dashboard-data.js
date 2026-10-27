@@ -94,9 +94,9 @@ export async function loadIT(uid) {
   return {
     tickets: tickets.sort((a, b) => ms(a.createdAt) - ms(b.createdAt)),   // oldest first
     activeCount: on.length, offCount: off.length,
-    signIns: on.filter(u => u.lastLoginAt).sort((a, b) => ms(b.lastLoginAt) - ms(a.lastLoginAt)).slice(0, 5),
-    joiners: on.filter(u => u.createdAt).sort((a, b) => ms(b.createdAt) - ms(a.createdAt)).slice(0, 3),
-    turnedOff: off.sort((a, b) => ms(b.updatedAt) - ms(a.updatedAt)).slice(0, 3),
+    signIns: on.filter(u => u.lastLoginAt).sort((a, b) => ms(b.lastLoginAt) - ms(a.lastLoginAt)),
+    joiners: on.filter(u => u.createdAt).sort((a, b) => ms(b.createdAt) - ms(a.createdAt)),
+    turnedOff: off.sort((a, b) => ms(b.updatedAt) - ms(a.updatedAt)),
     uploads,
     changesThisWeek: audits.filter(a => ms(a.at) >= since).length,
     changesCapped: audits.length === 50 && audits.every(a => ms(a.at) >= since),

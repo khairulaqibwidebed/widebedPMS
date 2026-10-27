@@ -104,26 +104,17 @@
           </section>
           <section class="card" ref="staff">
             <div class="card-head"><h2>Staff accounts</h2></div>
-            <div class="sub-h">Last sign-ins</div>
-            <div class="rows">
-              <Capped :items="d.signIns" v-slot="{ capRows }">
-              <template v-for="u in capRows" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ when(u.lastLoginAt) }}</span></div></template>
-              </Capped>
-              <div class="empty" v-show="!d.signIns.length">No sign-ins recorded yet.</div>
+            <!-- One list at a time (pills), 5 a page -->
+            <div class="pills brand staff-tabs">
+              <template v-for="t in STAFF_TABS" :key="t.key">
+                <button class="pill-btn" type="button" :class="staffTab === t.key && 'on'" @click="staffTab = t.key">{{ t.label + ' · ' + d[t.key].length }}</button>
+              </template>
             </div>
-            <div class="sub-h">Newest joiners</div>
             <div class="rows">
-              <Capped :items="d.joiners" v-slot="{ capRows }">
-              <template v-for="u in capRows" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ 'Added ' + day(u.createdAt) }}</span></div></template>
-              </Capped>
-              <div class="empty" v-show="!d.joiners.length">No accounts added in the PMS yet.</div>
-            </div>
-            <div class="sub-h">Recently turned off</div>
-            <div class="rows">
-              <Capped :items="d.turnedOff" v-slot="{ capRows }">
-              <template v-for="u in capRows" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ u.updatedAt ? 'Off since ' + day(u.updatedAt) : 'Turned off' }}</span></div></template>
-              </Capped>
-              <div class="empty" v-show="!d.turnedOff.length">No accounts are turned off.</div>
+              <Paged :items="d[staffTab]" :size="5" :key="staffTab" v-slot="{ pageRows }">
+              <template v-for="u in pageRows" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ staffWhen(u) }}</span></div></template>
+              </Paged>
+              <div class="empty" v-show="!d[staffTab].length">{{ STAFF_TABS.find(t => t.key === staffTab).empty }}</div>
             </div>
             <div class="note">Directors and HR manage accounts on Staff accounts.</div>
           </section>
@@ -313,6 +304,10 @@ const SUBTITLE = {
 // Offline inquiry statuses, as on the Offline inquiries page.
 const INQUIRY = [['new', 'New', 'blue'], ['interested', 'Interested (Pending payment)', 'green'], ['considering', 'Considering', 'amber'],
   ['uninterested', 'Uninterested', 'grey'], ['booked', 'Paid · Booked', 'green']];
+// Staff accounts card on the IT dashboard
+const STAFF_TABS = [{ key: 'signIns', label: 'Last sign-ins', empty: 'No sign-ins recorded yet.' },
+  { key: 'joiners', label: 'Newest joiners', empty: 'No accounts added in the PMS yet.' },
+  { key: 'turnedOff', label: 'Turned off', empty: 'No accounts are turned off.' }];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dateOf = t => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
 const ms = t => dateOf(t)?.getTime() || 0;
@@ -321,7 +316,7 @@ export default {
   props: { role: { type: String, required: true } },
   data() {
     return {
-      ROLE_LABEL, SUBTITLE, VIEW_AS, LINKS, COMPLAINT,
+      ROLE_LABEL, SUBTITLE, VIEW_AS, LINKS, COMPLAINT, STAFF_TABS, staffTab: 'signIns',
       isDirector: me.role === 'director',
       view: this.role, pick: this.role,   // pick: the View as select; the page reloads for it
       d: null, tickets: [], pf: { properties: [], unitCount: 0 }, listings: null,
@@ -396,6 +391,11 @@ export default {
     },
     day(t) { const d = dateOf(t); return d ? `${d.getDate()} ${MON[d.getMonth()]}` : ''; },
     time(t) { const d = dateOf(t); return d ? d.toLocaleTimeString('en-MY', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''; },
+    staffWhen(u) {
+      if (this.staffTab === 'signIns') return when(u.lastLoginAt);
+      if (this.staffTab === 'joiners') return 'Added ' + this.day(u.createdAt);
+      return u.updatedAt ? 'Off since ' + this.day(u.updatedAt) : 'Turned off';
+    },
     who(u) { return `${u.displayName || u.email || 'Staff member'}${u.role ? ' · ' + (ROLE_LABEL[u.role] || u.role) : ''}`; },
     uploadRows(u) {
       const [n, what] = u.kind === 'financeStatement' ? [u.counts?.units ?? 0, 'unit'] : [u.counts?.rows ?? u.counts?.bookings ?? 0, 'row'];
@@ -418,6 +418,8 @@ export default {
     .rows { grid-template-columns: minmax(0, 1fr); }
     .row > .cell { flex: 1 1 auto; min-width: 0; max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .row .r { flex: none; display: flex; align-items: center; gap: 6px; }
+    .staff-tabs { margin-bottom: 8px; }
+    .staff-tabs .pill-btn { height: 28px; font-size: 12px; padding: 0 10px; }
     .sub-h { color: var(--text-2); font-size: 12px; font-weight: 600; margin-top: 8px; }
     .sub-h:first-of-type { margin-top: 0; }
 </style>
