@@ -101,6 +101,7 @@
         <p class="help">{{ columns.join(' · ') || 'None' }}</p>
       </details>
 
+      <Paged :items="rows" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table">
           <thead>
@@ -111,7 +112,7 @@
             </tr>
           </thead>
           <tbody>
-            <template v-for="r in rows" :key="r.line">
+            <template v-for="r in pageRows" :key="r.line">
               <tr :class="{ dim: r.status !== 'ok' }">
                 <td class="num">{{ r.line }}</td>
                 <template v-for="c in previewCols" :key="c.key"><td>{{ show(r, c.key) }}</td></template>
@@ -124,6 +125,7 @@
           </tbody>
         </table>
       </div>
+      </Paged>
 
       <div class="actions">
         <span class="help">{{ blocker || (count('ok') ? `Only the ${count('ok')} ready ${count('ok') === 1 ? 'row is' : 'rows are'} saved. Skipped rows and rows with problems are left out.` : 'Nothing to save.') }}</span>

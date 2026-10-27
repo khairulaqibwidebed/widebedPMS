@@ -37,11 +37,12 @@
           </template>
         </div>
       </div>
+      <Paged :items="shown()" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table">
           <thead><tr><th>Date</th><th>Unit</th><th>Type</th><th>Description</th><th>Added by</th><th class="num">Amount (RM)</th><th></th></tr></thead>
           <tbody>
-            <template v-for="e in shown()" :key="e.id">
+            <template v-for="e in pageRows" :key="e.id">
               <tr :class="{ bf: e.kind === 'broughtForward' }">
                 <td>{{ ddmm(e.date) }}</td>
                 <td>{{ unitCode(e.unitId) }}</td>
@@ -64,6 +65,7 @@
           </tfoot>
         </table>
       </div>
+      </Paged>
       <p class="card-foot" style="display:block">Brought forward is added by the PMS when a unit's statement is completed with a negative balance, so nobody types it and it can't be edited here. For fixed-rent units, expense lines make up the Deduction and reimbursements make up Reimburse on Month-end payout.</p>
     </section>
 

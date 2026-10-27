@@ -1,5 +1,5 @@
 <template>
-  <main class="content">
+  <main class="content soft-page">
     <div class="page-head">
       <div>
         <h1>Onboarding for new staff and interns</h1>

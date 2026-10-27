@@ -65,12 +65,13 @@
       </div>
       <section class="card">
         <h2 class="t">{{ viewOnly ? 'Properties' : `Properties · ${monthName(asOf)}` }}</h2>
+        <Paged :items="shownProperties()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
             <thead v-if="viewOnly"><tr><th>Property</th><th>Short code</th><th class="num">Units</th><th>City · State</th><th></th></tr></thead>
             <thead v-else><tr><th>Property</th><th class="num">Units</th><th>Arrangement mix</th><th>{{ `${monthOnly(asOf)} statements` }}</th><th>Status</th><th>Needs attention</th><th></th></tr></thead>
             <tbody>
-              <template v-for="p in shownProperties()" :key="p.id">
+              <template v-for="p in pageRows" :key="p.id">
                 <tr class="clickable" @click="openPropertyPage(p.id)" v-if="viewOnly">
                   <td class="strong">{{ p.name }}</td>
                   <td>{{ p.code || '—' }}</td>
@@ -92,6 +93,7 @@
             </tbody>
           </table>
         </div>
+        </Paged>
         <div class="card-foot"><span>{{ `Click a property to open its tabs (${PTABS.map(t => t.label).join(', ')}).` }}</span></div>
       </section>
     </div>
@@ -105,12 +107,13 @@
         <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Finance and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.
           Owner details can later come from the Google Sheet staff already keep (cached copy plus Sync now).</p>
         <div class="toolbar"><input class="input" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"></div>
+        <Paged :items="shownOwners()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
             <thead v-if="viewOnly"><tr><th>Units</th><th>Status</th></tr></thead>
             <thead v-else><tr><th>Owner</th><th>Units</th><th>Arrangement</th><th>Paid to</th><th class="num">Carried forward (RM)</th><th></th></tr></thead>
             <tbody>
-              <template v-for="own in shownOwners()" :key="own.id">
+              <template v-for="own in pageRows" :key="own.id">
                 <tr v-if="viewOnly">
                   <td>{{ ownerUnits(own.id).map(x => propertyId === 'all' ? `${x.unitCode} · ${propertyNameOf(x.propertyId)}` : x.unitCode).join(', ') || '—' }}</td>
                   <td><span class="pill" :class="own.active === false ? 'grey' : 'green'">{{ own.active === false ? 'Deactivated' : 'Active' }}</span></td>
@@ -128,6 +131,7 @@
             </tbody>
           </table>
         </div>
+        </Paged>
         <div class="card-foot"><span>{{ `Showing ${shownOwners().length} of ${owners.length} owners` }}</span><button class="btn" @click="openOwnerForm(null)" v-if="canAdd">+ Add owner</button></div>
       </section>
     </div>
@@ -150,11 +154,12 @@
         <div class="toolbar">
           <input class="input" type="search" placeholder="Search booking no., unit or tenant ID" v-model="bookingSearch" aria-label="Search booking">
         </div>
+        <Paged :items="shownBookings()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
             <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="!viewOnly">Amount (RM)</th><th>eZee no.</th><th v-if="canOpenInquiry"></th></tr></thead>
             <tbody>
-              <template v-for="bkRow in shownBookings()" :key="bkRow.id">
+              <template v-for="bkRow in pageRows" :key="bkRow.id">
                 <tr>
                   <td class="strong nw">{{ bkRow.id }}</td>
                   <td class="nw">{{ propertyId === 'all' && bkRow.propertyName ? `${bkRow.propertyName} · ${bkRow.unitCode}` : bkRow.unitCode }}</td>
@@ -171,6 +176,7 @@
             </tbody>
           </table>
         </div>
+        </Paged>
         <div class="card-foot" v-if="!viewOnly"><span>Invoice and receipt PDFs are made from a booking, approved by Finance, saved to the company Google Drive and listed on Finance › Invoices & Receipts. Nothing is sent automatically.</span></div>
       </section>
     </div>
@@ -221,12 +227,13 @@
             </template>
           </div>
         </div>
+        <Paged :items="shown()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
             <thead v-if="viewOnly"><tr><th>Unit</th><th>Owner</th><th>Type</th><th class="num">Bedrooms</th><th class="num">Bathrooms</th><th class="num">Size (sq ft)</th></tr></thead>
             <thead v-else><tr><th>Unit</th><th>Arrangement</th><th>Fixed rent</th><th class="num">Monthly amount (RM)</th><th>Effective from</th><th>Last changed</th><th></th></tr></thead>
             <tbody>
-              <template v-for="row in shown()" :key="row.id">
+              <template v-for="row in pageRows" :key="row.id">
                 <tr v-if="viewOnly">
                   <td class="strong">{{ row.unitCode }}</td>
                   <td>{{ ownerLabel(row.ownerId) || '—' }}</td>
@@ -252,24 +259,28 @@
             </tbody>
           </table>
         </div>
+        </Paged>
         <div class="card-foot"><span>{{ viewOnly ? `Showing ${shown().length} of ${units.length} units` : `Showing ${shown().length} of ${units.length} units · ${units.filter(x => x.terms?.arrangement === 'fixedRent').length} on fixed rent · RM ${amt(fixedTotal())} a month` }}</span></div>
       </section>
 
       <section class="card" style="margin-top:20px" v-if="!viewOnly">
         <h2 class="t">Audit log · unit settings</h2>
         <p class="card-intro">Every change is recorded with who, when, old and new value, effective month and reason. Saving asks for the reason. Entries can't be edited or deleted.</p>
+        <Paged :items="audits.filter(x => /^unit/.test(x.action || ''))" v-slot="{ pageRows }">
         <div class="table-wrap">
-          <table class="table">
+          <table class="table audit-tbl hover-rows">
+            <colgroup><col style="width:170px"><col style="width:130px"><col style="width:110px"><col><col style="width:120px"><col style="width:22%"></colgroup>
             <thead><tr><th>When</th><th>Who</th><th>Unit</th><th>Change</th><th>Effective from</th><th>Reason</th></tr></thead>
             <tbody>
-              <template v-for="a in audits.filter(x => /^unit/.test(x.action || '')).slice(0, 12)" :key="a.id">
+              <template v-for="a in pageRows" :key="a.id">
                 <tr><td class="nw">{{ stamp(a.at) }}</td><td class="nw">{{ a.userName || '' }}</td><td class="nw">{{ unitCodeOfEntity(a.entity) }}</td>
-                  <td>{{ changeText(a) }}</td><td>{{ a.month ? shortName(a.month) : '—' }}</td><td>{{ a.reason || '—' }}</td></tr>
+                  <td><div class="chg" v-for="(c, i) in changeList(a)" :key="i">{{ c }}</div></td><td>{{ a.month ? shortName(a.month) : '—' }}</td><td>{{ a.reason || '—' }}</td></tr>
               </template>
               <tr v-show="!audits.filter(x => /^unit/.test(x.action || '')).length"><td colspan="6" class="muted">No unit changes recorded yet.</td></tr>
             </tbody>
           </table>
         </div>
+        </Paged>
       </section>
     </div>
 
@@ -343,18 +354,21 @@
       <section class="card">
         <h2 class="t">Audit log</h2>
         <p class="card-intro">Every change to this property: who, when, old and new value, start month and reason. Entries can't be edited or deleted.</p>
+        <Paged :items="audits" v-slot="{ pageRows }">
         <div class="table-wrap">
-          <table class="table">
+          <table class="table audit-tbl hover-rows">
+            <colgroup><col style="width:170px"><col style="width:130px"><col style="width:150px"><col><col style="width:100px"><col style="width:22%"></colgroup>
             <thead><tr><th>When</th><th>Who</th><th>What</th><th>Change</th><th>Month</th><th>Reason</th></tr></thead>
             <tbody>
-              <template v-for="a in audits" :key="a.id">
+              <template v-for="a in pageRows" :key="a.id">
                 <tr><td class="nw">{{ stamp(a.at) }}</td><td class="nw">{{ a.userName || '' }}</td><td class="nw">{{ actionText(a) }}</td>
-                  <td>{{ changeText(a) }}</td><td>{{ a.month ? shortName(a.month) : '—' }}</td><td>{{ a.reason || '—' }}</td></tr>
+                  <td><div class="chg" v-for="(c, i) in changeList(a)" :key="i">{{ c }}</div></td><td>{{ a.month ? shortName(a.month) : '—' }}</td><td>{{ a.reason || '—' }}</td></tr>
               </template>
               <tr v-show="!audits.length"><td colspan="6" class="muted">Nothing recorded yet.</td></tr>
             </tbody>
           </table>
         </div>
+        </Paged>
       </section>
     </div>
 
@@ -802,10 +816,15 @@ export default {
       return now?.arrangement === 'fixedRent' ? `RM ${amt(now.fixedRentAmount)} until ${this.shortName(prevMonth(f.effectiveFrom))} · then ${from}` : `Changes to ${from}`;
     },
     unitCodeOfEntity(e) { const id = (e || '').split('/')[1]; return this.allUnits.find(x => x.id === id)?.unitCode || '—'; },
-    changeText(a) {
+    // One line per changed field. Personal fields are logged as "(changed)" only, so they read "Bank name updated".
+    changeList(a) {
       const v = x => (x == null || x === '' ? '—' : Array.isArray(x) ? (x.join(', ') || '—') : ARRANGEMENTS[x]?.label || String(x));
-      const names = { ownerId: 'Owner', aliases: 'eZee names', active: 'Active', arrangement: 'Arrangement', units: 'Units', status: 'Status' };
-      return (a.changes || []).map(c => `${names[c.field] || c.field}: ${v(c.old)} → ${v(c.new)}`).join('; ') || '—';
+      const names = { ownerId: 'Owner', aliases: 'eZee names', active: 'Active', arrangement: 'Arrangement', units: 'Units', status: 'Status',
+        fullName: 'Full name', dob: 'Date of birth', bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account',
+        ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID' };
+      const nice = f => names[f] || f.replace(/([A-Z])/g, ' $1').replace(/^./, m => m.toUpperCase());
+      const out = (a.changes || []).map(c => c.new === '(changed)' ? `${nice(c.field)} updated` : `${nice(c.field)}: ${v(c.old)} → ${v(c.new)}`);
+      return out.length ? out : ['—'];
     },
     actionText(a) {
       return ({ 'unit.create': 'Unit added', 'unit.update': 'Unit changed', 'unitTerms.starter': 'Starter settings', 'rates.create': 'Fees & rates', 'property.create': 'Property added',
@@ -1123,4 +1142,7 @@ export default {
     .history-list .row { font-size: 12px; }
     .from-listing { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text-2); }
     @media (max-width: 720px) { .grid-3, .info-grid { grid-template-columns: 1fr; } }
+.audit-tbl { table-layout: fixed; width: 100%; }
+.audit-tbl td { vertical-align: top; overflow-wrap: anywhere; }
+.audit-tbl .chg + .chg { margin-top: 2px; }
 </style>

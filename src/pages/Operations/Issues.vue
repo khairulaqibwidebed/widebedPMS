@@ -34,11 +34,12 @@
           </select>
         </div>
 
+        <Paged :items="shown()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
             <thead><tr><th>Ticket no.</th><th>Title</th><th>Unit</th><th>Tags</th><th>Raised by</th><th>Raised on</th><th>Status</th><th class="cnt" title="Comments">💬</th><th class="cnt" title="Drive links">🔗</th></tr></thead>
             <tbody>
-              <template v-for="t in shown()" :key="t.id">
+              <template v-for="t in pageRows" :key="t.id">
                 <tr class="clickable" @click="open(t.id)">
                   <td class="nw">{{ t.id }}</td>
                   <td class="t-title">{{ t.title }}</td>
@@ -55,6 +56,7 @@
             </tbody>
           </table>
         </div>
+        </Paged>
         <p class="help" style="margin-top:12px">Completed tickets are locked: no new comments or tag changes. They stay searchable under Completed.
           <span>{{ `You can see ${visible().length} ticket${visible().length === 1 ? '' : 's'}.` }}</span>
           Files stay in the company Google Drive; tickets keep only the links.</p>

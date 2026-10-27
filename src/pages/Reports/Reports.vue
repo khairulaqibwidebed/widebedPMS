@@ -56,6 +56,7 @@
         <div>Downloaded by<b>{{ me.name }}</b></div>
       </div>
 
+      <Paged :items="(report ? report.rows : [])" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table">
           <thead><tr>
@@ -65,7 +66,7 @@
             <th class="num">Expenses</th><th class="num">SST %</th><th class="num">SST (RM)</th><th class="num">Nett Total for Owner</th>
           </tr></thead>
           <tbody>
-            <template v-for="(row, i) in (report ? report.rows : [])" :key="i">
+            <template v-for="(row, i) in pageRows" :key="i">
               <tr>
                 <td class="unitcell"><b>{{ kind === 'property' ? row.unitCode : row.label }}</b>
                   <small>{{ kind === 'property' ? row.arrangements.map(a => ARR[a] || 'Not set up').join(', ') : (ARR[row.arrangement] || 'Not set up') }}</small>
@@ -95,6 +96,7 @@
           </tbody>
         </table>
       </div>
+      </Paged>
       <div class="card-foot" style="display:block">
         <p style="margin:0 0 4px">How the dates are worked out: bookings count by their check-out date; fees use the unit's settings for each booking's month; expenses and reimbursements count by their own date (Expenses shows the net, reimbursements as plus); fixed rent is shared by days (for example 15-28 Feb = 14 of 28 days).</p>
         <p style="margin:0">Figures are not rounded to RM 0.05 like a payout, so a full-month report can differ from the completed statement by a few sen. Gross Rental is the owner's share of each booking after OTA commission and the 8% SST (the same base the fees are worked out on). SST is the SST on Widebed's fee (long-term tenants); to be revisited.</p>

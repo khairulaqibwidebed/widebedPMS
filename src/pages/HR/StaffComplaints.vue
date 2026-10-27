@@ -1,5 +1,5 @@
 <template>
-  <main class="content">
+  <main class="content soft-page">
     <div class="page-head">
       <div><h1>Staff complaints</h1><div class="sub">Complaints sent to HR by staff</div></div>
       <div class="head-tools"><span class="chip">View only</span></div>
@@ -9,11 +9,12 @@
       <button class="pill-btn" v-for="f in filters" :key="f[0]" :class="{ on: filter === f[0] }" @click="filter = f[0]">{{ f[1] }}</button>
     </div>
     <div class="loading-bar" v-show="loading"></div>
+    <Paged :items="shown()" v-slot="{ pageRows }">
     <div class="table-wrap">
       <table class="table">
         <thead><tr><th>Ref</th><th>Date</th><th>From</th><th>Subject</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          <tr class="clickable" v-for="c in shown()" :key="c.id" @click="sel = c">
+          <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="sel = c">
             <td>{{ c.ref }}</td><td>{{ c.date }}</td>
             <td><span class="anon" v-show="c.anonymous">Anonymous</span><span v-show="!c.anonymous">{{ c.fromName }}</span></td>
             <td>{{ c.subject }}</td>
@@ -24,6 +25,7 @@
         </tbody>
       </table>
     </div>
+    </Paged>
     <p class="help" style="margin-top:12px">Complaints sent anonymously show "Anonymous" and HR cannot see who sent them. HR can read complaints but cannot change or delete them. Directors see this page view-only.</p>
 
     <template v-if="sel">

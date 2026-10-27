@@ -20,11 +20,12 @@
           </template>
         </div>
         <section class="card">
+          <Paged :items="shown()" v-slot="{ pageRows }">
           <div class="table-wrap">
             <table class="table">
               <thead><tr><th>Inquiry</th><th>Name</th><th>Looking for</th><th>Source</th><th>Assigned to</th><th>Status</th><th>Updated</th><th></th></tr></thead>
               <tbody>
-                <template v-for="ld in shown()" :key="ld.id">
+                <template v-for="ld in pageRows" :key="ld.id">
                   <tr>
                     <td>{{ ld.id }}</td>
                     <td>
@@ -53,6 +54,7 @@
               </tbody>
             </table>
           </div>
+          </Paged>
         </section>
         <p class="page-note">Names and contact details are shown only to the staff member who logged the inquiry, the assigned staff member, Finance and the Directors.</p>
       </div>

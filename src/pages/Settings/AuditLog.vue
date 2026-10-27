@@ -21,11 +21,12 @@
 
     <section class="card">
       <div class="card-head"><h2>{{ `Changes · newest first` }}</h2><span class="help">{{ `${shown().length} of ${entries.length} loaded` }}</span></div>
+      <Paged :items="shown()" v-slot="{ pageRows }">
       <div class="table-wrap">
-        <table class="table">
+        <table class="table hover-rows">
           <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Record</th><th>Changes</th><th>Reason</th></tr></thead>
           <tbody>
-            <template v-for="e in shown()" :key="e.id">
+            <template v-for="e in pageRows" :key="e.id">
               <tr>
                 <td class="when">{{ stamp(e.at) }}</td>
                 <td class="who"><span>{{ e.userName || 'Unknown' }}</span><small>{{ ROLE_LABEL[e.role] || '' }}</small></td>
@@ -47,6 +48,7 @@
           </tbody>
         </table>
       </div>
+      </Paged>
       <div class="card-foot">
         <span>Entries can't be edited or deleted. Personal details (IC, bank, phone, email, address) are never shown here, only that they changed.</span>
         <button class="btn" v-show="more" @click="loadMore()" :disabled="loading">Load more</button>

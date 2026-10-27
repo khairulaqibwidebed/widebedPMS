@@ -46,12 +46,13 @@
 
     <section class="card" v-show="rows.length">
       <div class="card-head"><h2>{{ `Statements · ${monthName(month)} · ${rows.length} units` }}</h2></div>
+    <Paged :items="shown()" v-slot="{ pageRows }">
     <div class="table-wrap">
       <table class="table">
         <thead><tr><th>Unit</th><th>Arrangement</th><th class="num">Bookings</th><th class="num">Income</th>
           <th class="num">Fees & expenses</th><th class="num">Payout</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          <template v-for="r in shown()" :key="r.unitId">
+          <template v-for="r in pageRows" :key="r.unitId">
             <tr class="clickable" @click="open(r)">
               <td><b>{{ r.unitCode }}</b></td>
               <td>{{ r.arrangementLabel }}</td>
@@ -67,19 +68,21 @@
         <tfoot><tr><td colspan="3">Total</td><td class="num">{{ amt(summary.income) }}</td><td></td><td class="num">{{ amt(rows.reduce((s, r) => s + r.totals.payout, 0)) }}</td><td></td><td></td></tr></tfoot>
       </table>
     </div>
+    </Paged>
     </section>
     <div class="empty card" style="margin-top:16px" v-show="!loading && propertyId && !rows.length">No bookings or fixed-rent units for this month. Upload the eZee report for it first.</div>
     <div class="grid-2" style="margin-top:24px" v-show="!loading && propertyId">
       <section class="card">
         <div class="card-head"><h2>Before you can complete</h2></div>
         <div class="rows">
-          <template v-for="(c, i) in checklist.slice(0, 12)" :key="i">
+          <Paged :items="checklist" :size="5" v-slot="{ pageRows }">
+          <template v-for="(c, i) in pageRows" :key="c.text + i">
             <div class="row"><span>{{ c.text }}</span>
               <button class="btn" v-show="!!c.label" @click="c.action()">{{ c.label }}</button></div>
           </template>
+          </Paged>
           <div class="empty" v-show="!checklist.length && !completed">All clear. Open each unit's statement, then Approve & complete it.</div>
           <div class="empty" v-show="completed">Month completed. Statements are read-only.</div>
-          <div class="note" v-show="checklist.length > 12">{{ `+ ${checklist.length - 12} more` }}</div>
         </div>
         <template v-if="starterAvailable()">
           <div class="confirm-box">

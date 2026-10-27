@@ -91,22 +91,25 @@
               <section class="card">
                 <div class="card-head"><h2>Needs attention</h2></div>
                 <div class="rows">
-                  <template v-for="(a, i) in data.attention.slice(0, 8)" :key="i">
+                  <Capped :items="data.attention" v-slot="{ capRows }">
+                  <template v-for="(a, i) in capRows" :key="i">
                     <div class="row"><span>{{ a.text }}</span><span class="r">{{ a.tag }}</span></div>
                   </template>
+                  </Capped>
                   <div class="empty" v-show="!data.attentionCount">Nothing needs attention for this month.</div>
-                  <div class="note" v-show="data.attentionCount > 8">{{ `+ ${data.attentionCount - 8} more on Month-end payout` }}</div>
                 </div>
               </section>
               <section class="card">
                 <div class="card-head"><h2>Expenses added this month</h2><RouterLink :to="`/Finance/expenses?property=${propertyId === 'all' ? '' : propertyId}&month=${month}`" class="link">Expenses ›</RouterLink></div>
                 <div class="rows">
-                  <template v-for="e in data.recentExpenses" :key="e.id">
+                  <Capped :items="data.recentExpenses" v-slot="{ capRows }">
+                  <template v-for="e in capRows" :key="e.id">
                     <div class="row">
                       <span>{{ `${ddmm(e.date)} · ${e.unitCode} · ${e.description || e.type}` }}</span>
                       <span class="r" :class="e.signedAmount < 0 ? '' : 'pos'">{{ signed(e.signedAmount) }}</span>
                     </div>
                   </template>
+                  </Capped>
                   <div class="empty" v-show="!data.recentExpenses.length">No expenses added for this month yet.</div>
                 </div>
               </section>
@@ -121,9 +124,11 @@
               <section class="card">
                 <div class="card-head"><h2>Waiting on Director</h2></div>
                 <div class="rows">
-                  <template v-for="(a, i) in directorItems()" :key="i">
+                  <Capped :items="directorItems()" v-slot="{ capRows }">
+                  <template v-for="(a, i) in capRows" :key="i">
                     <div class="row"><span>{{ a.text }}</span><RouterLink class="btn" to="/Portfolio/properties">Set up</RouterLink></div>
                   </template>
+                  </Capped>
                   <div class="empty" v-show="!directorItems().length">Nothing is waiting on you.</div>
                 </div>
               </section>
@@ -146,9 +151,11 @@
                   <template v-for="r in issues.byTag" :key="r.tag">
                     <div class="row"><span>{{ r.tag }}</span><span class="pill amber">{{ r.count }}</span></div>
                   </template>
-                  <template v-for="t in issues.recent" :key="t.id">
+                  <Capped :items="issues.recent" v-slot="{ capRows }">
+                  <template v-for="t in capRows" :key="t.id">
                     <div class="row"><RouterLink class="link" :to="`/Operations/issues?id=${t.id}`">{{ `${t.id} · ${t.title}` }}</RouterLink><span class="r">{{ t.status === 'progress' ? 'In progress' : 'Open' }}</span></div>
                   </template>
+                  </Capped>
                   <div class="empty" v-show="!issues.total">No open tickets.</div>
                   <div class="note" v-show="issues.total > issues.recent.length">{{ `Newest ${issues.recent.length} of ${issues.total} open tickets. A ticket tagged to two roles counts once for each.` }}</div>
                 </div>
@@ -157,9 +164,11 @@
               <section class="card">
                 <div class="card-head"><h2>Team activity</h2><RouterLink to="/Settings/staff" class="link">Staff accounts ›</RouterLink></div>
                 <div class="rows">
-                  <template v-for="u in team" :key="u.id">
+                  <Capped :items="team" v-slot="{ capRows }">
+                  <template v-for="u in capRows" :key="u.id">
                     <div class="row"><span>{{ u.displayName || u.email }}</span><span class="r">{{ when(u.lastLoginAt) }}</span></div>
                   </template>
+                  </Capped>
                   <div class="empty" v-show="!team.length">No sign-ins recorded yet.</div>
                 </div>
               </section>

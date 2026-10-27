@@ -60,6 +60,7 @@
         <span class="help">{{ dl.done ? `${dl.file} · PDF files come later: for now this is one read-only page holding every document. Open it and print to PDF if needed.` : 'Keep this page open.' }}</span>
       </div>
 
+      <Paged :items="shown()" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table docs-table">
           <thead><tr>
@@ -67,7 +68,7 @@
             <th>Document no.</th><th>Type</th><th>Unit</th><th>Period</th><th>Completed on</th><th class="num">Amount (RM)</th><th>Status</th><th></th>
           </tr></thead>
           <tbody>
-            <template v-for="d in shown()" :key="d.id">
+            <template v-for="d in pageRows" :key="d.id">
               <tr :class="{ picked: picked.includes(d.id) }">
                 <td><input type="checkbox" :aria-label="`Tick ${d.no}`" :checked="picked.includes(d.id)" @change="toggle(d.id)"></td>
                 <td><b>{{ d.no }}</b></td>
@@ -84,6 +85,7 @@
           </tbody>
         </table>
       </div>
+      </Paged>
       <div class="card-foot">
         <span>{{ `Showing ${shown().length} of ${docs.length} documents · tick documents to download or export only those; with nothing ticked the buttons use the whole list` }}</span>
         <div class="head-tools">

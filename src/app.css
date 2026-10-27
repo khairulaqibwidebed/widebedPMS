@@ -83,10 +83,8 @@ button { font: inherit; cursor: pointer; }
 .sidebar .brand { padding: 0 12px 24px; }
 .nav-item { display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 8px;
   color: var(--text-2); font-weight: 500; margin-bottom: 4px; }
-.nav-item::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #9AA0AB; flex: none; }
 .nav-item:hover { background: var(--bg); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.nav-item.active::before { background: var(--brand); }
 .nav-group-btn { display: flex; justify-content: space-between; align-items: center; width: 100%;
   border: 0; background: none; padding: 16px 12px 8px; color: var(--muted); font-size: 11px;
   font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
@@ -109,7 +107,7 @@ button { font: inherit; cursor: pointer; }
 .role-badge { background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700;
   letter-spacing: .04em; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; }
 
-.content { padding: 32px 40px 48px; max-width: 1192px; width: 100%; }
+.content { padding: 32px 40px 48px; max-width: 1760px; width: 100%; margin: 0 auto; box-sizing: border-box; }   /* sizing set in AppShell.vue */
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
 .page-head h1 { font-size: 28px; margin: 0; letter-spacing: -.01em; }
 .page-head .sub { color: var(--muted); margin-top: 4px; font-size: 14px; }
@@ -193,7 +191,9 @@ button { font: inherit; cursor: pointer; }
 .toolbar .input { max-width: 280px; height: 36px; }
 .pills { display: flex; gap: 6px; flex-wrap: wrap; }
 .pill-btn { height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: 13px; font-weight: 500; }
-.pill-btn.on { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 600; }
+.pill-btn { cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.pill-btn:hover:not(.on) { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); color: var(--accent); background: var(--accent-soft); }
+.pill-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }   /* filters follow the colour theme */
 .pills.brand .pill-btn.on { background: var(--accent); border-color: var(--accent); }
 .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -312,7 +312,8 @@ button.link { background: none; border: 0; padding: 0; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--chip); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
 .seg button { border: 0; background: none; height: 32px; border-radius: 7px; font-size: 13px; font-weight: 500; color: var(--text-2); }
-.seg button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.seg button.on { background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.seg button:not(.on):hover { color: var(--accent); }
 .side-grid { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 20px; align-items: start; }
 .kv { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; font-size: 13px; }
 .kv span:first-child { color: var(--text-2); }
@@ -324,22 +325,34 @@ button.link { background: none; border: 0; padding: 0; }
 .k3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .user-menu { position: relative; }
 .user-id { display: flex; align-items: center; gap: 10px; padding: 4px 6px; color: var(--text); }
+button.user-id { font: inherit; background: none; border-radius: 10px; cursor: pointer; border: 1px solid transparent; transition: background .15s, border-color .15s; }
+button.user-id:hover, button.user-id.open { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.um-chev { color: var(--muted); transition: transform .2s; }
+.user-id.open .um-chev { transform: rotate(180deg); color: var(--accent); }
+/* Account menu under the name in the top bar */
+.um-pop { position: absolute; right: 0; top: calc(100% + 8px); width: 260px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.14); padding: 6px; z-index: 50; }
+.um-head { display: flex; align-items: center; gap: 10px; padding: 10px 10px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.um-who { display: grid; min-width: 0; }
+.um-who b { font-size: 14px; }
+.um-who span { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.um-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: none;
+  color: var(--text); font: inherit; font-size: 14px; text-align: left; text-decoration: none; cursor: pointer; }
+.um-item:hover { background: var(--accent-soft); color: var(--accent); }
+.um-item.danger { color: var(--danger); margin-top: 2px; }
+.um-item.danger:hover { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
 @media (max-width: 1000px) { .side-grid { grid-template-columns: minmax(0,1fr); } .k3 { grid-template-columns: minmax(0,1fr); } }
 
 /* ---------- Appearance: colour theme per account (Settings > Appearance) ---------- */
-:root[data-brand="teal"] { --brand: #2BA197; --accent: #1C7C74; --accent-soft: #E1F3F1; }
 :root[data-brand="blue"] { --brand: #4C7FE0; --accent: #2F5FBF; --accent-soft: #E6EEFB; }
-:root[data-brand="grey"] { --brand: #6B7280; --accent: #4B5260; --accent-soft: #ECEEF1; }
 :root[data-mode="dark"] { --bg: #12161C; --surface: #1A2029; --border: #2C3440; --line: #242B35; --text: #E8EAED; --text-2: #B8BEC8;
   --muted: #8A919C; --head: #202733; --hover: #202733; --chip: #2A3240; --navy: #6E9BCB; --navy-soft: #1F2C3B;
   --accent-soft: #3A2620; --green-soft: #17311F; --amber-soft: #34290F; --red-soft: #3A2620; --blue-soft: #18283C; color-scheme: dark;
   --green: #5CC48C; --amber: #E2A84A; --red: #F08A70; --blue: #7FAFE6; }
 :root[data-mode="dark"] body, :root[data-mode="dark"] .app { background: var(--bg); }
 :root[data-mode="dark"] .toast { color: #0F141A; }
-:root[data-mode="dark"][data-brand="teal"] { --accent-soft: #15302D; }
 :root[data-mode="dark"][data-brand="blue"] { --accent-soft: #1A2740; }
-:root[data-mode="dark"][data-brand="grey"] { --accent-soft: #2A3038; --accent: #9AA1AD; }
-:root[data-mode="dark"] .btn-navy, :root[data-mode="dark"] .pill-btn.on, :root[data-mode="dark"] .selbar { color: #0F141A; }
+:root[data-mode="dark"] .btn-navy, :root[data-mode="dark"] .selbar { color: #0F141A; }
 
 /* Upload progress follows Figma 17:304: navy bar and current step, green done ticks */
 .progress > div { background: var(--navy); }
@@ -348,3 +361,63 @@ button.link { background: none; border: 0; padding: 0; }
 .stage.now .stage-dot { border-color: var(--navy); }
 .stage.now .stage-dot::after { background: var(--navy); }
 .dropzone .dz-icon { fill: var(--navy); }
+
+/* ---------- Fillout form lists (Booking forms, Procurement forms, Offline payments) ---------- */
+/* Grey card so the page isn't all white; each form is a tile that lights up in the theme colour on hover. The whole tile opens the form. */
+.form-card { background: color-mix(in srgb, var(--text) 5%, var(--surface)); }
+.form-list { display: grid; gap: 10px; }
+.form-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); text-decoration: none;
+  transition: background .15s, border-color .15s, box-shadow .15s; }
+.form-row > div { min-width: 0; }
+.form-row b { display: block; font-size: 14px; font-weight: 600; transition: color .15s; }
+.form-row > div > span { color: var(--muted); font-size: 12px; }
+.form-row:hover, .form-row:focus-visible { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: inset 4px 0 0 var(--accent); outline: none; }
+.form-row:hover b, .form-row:focus-visible b { color: var(--accent); }
+.open-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 34px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent); background: var(--surface);
+  font-size: 13px; font-weight: 600; white-space: nowrap; transition: background .15s, color .15s, border-color .15s; }
+.open-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.form-row:hover .open-btn, .form-row:focus-visible .open-btn { background: var(--accent); border-color: var(--accent); color: #fff; }
+.form-row:hover .open-btn svg { transform: translate(2px, -2px); }
+@media (max-width: 520px) { .form-row { flex-direction: column; align-items: flex-start; } }
+
+/* ---------- Table rows that light up in the theme colour on hover (Staff accounts, Audit logs) ---------- */
+.table.hover-rows tbody tr td { transition: background .15s, box-shadow .15s; }
+.table.hover-rows tbody tr:hover td { background: var(--accent-soft); }
+.table.hover-rows tbody tr:hover td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.table.hover-rows tbody tr:hover .name-btn { color: var(--accent); }
+/* Light grey body so a long list isn't all white */
+.soft-wrap tbody td { background: color-mix(in srgb, var(--text) 3%, var(--surface)); }
+
+/* Small rounded action buttons in table rows: theme colour, red for turn off, green for turn back on */
+.act-pill { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600;
+  white-space: nowrap; cursor: pointer; background: var(--surface); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  transition: background .15s, color .15s, border-color .15s; }
+.act-pill:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.act-pill.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.act-pill.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+.act-pill.good { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, var(--border)); }
+.act-pill.good:hover { background: var(--green); border-color: var(--green); color: #fff; }
+
+/* ---------- Pager under long tables (components/Paged.vue, 10 rows a page) ---------- */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.pager-info { color: var(--muted); font-size: 12px; }
+.pager-btns { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pg { min-width: 32px; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: inherit; font-size: 13px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.pg:hover:not(:disabled):not(.on) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.pg.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; cursor: default; }
+.pg:disabled { opacity: .45; cursor: not-allowed; }
+.pg-gap { color: var(--muted); padding: 0 4px; }
+
+/* "… N more" under a dashboard panel list (components/Capped.vue) */
+.cap-more { display: block; margin: 8px 0 0; padding: 4px 0; border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cap-more:hover { text-decoration: underline; }
+
+/* ---------- HR and Playbook pages: white cards with a theme-colour top edge, so long reading pages aren't all white ---------- */
+.soft-page .card { border-top: 3px solid var(--accent); }
+.soft-page .card h2 { color: var(--text); }
+.soft-page .card .card-head h2, .soft-page .card > h2, .soft-page .card.brief h2 { display: flex; align-items: center; gap: 8px; }
+.soft-page .card .card-head h2::before, .soft-page .card > h2::before, .soft-page .card.brief h2::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.soft-page .table-wrap, .soft-page .input, .soft-page .select, .soft-page textarea { background: var(--surface); }
