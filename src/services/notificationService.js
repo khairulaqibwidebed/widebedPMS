@@ -66,7 +66,9 @@ export function subscribeToNotifications(role, callback, onError = console.error
   }
 }
 
-async function send({ recipientUid = null, recipientRole = null, title, message = "", type = "general", link = "/Notifications", refId = null }) {
+// anonymous: true writes the notification WITHOUT the sender's uid or name (createdByUid: null, createdByName: "").
+// Use it only where the sender must stay hidden (anonymous complaints). The Firestore rules must allow it.
+async function send({ recipientUid = null, recipientRole = null, title, message = "", type = "general", link = "/Notifications", refId = null, anonymous = false }) {
   const user = auth.currentUser
   if (!user) throw new Error("You must sign in first.")
   if (!!recipientUid === !!recipientRole) throw new Error("Choose one recipient: a person or a role.")
@@ -82,8 +84,8 @@ async function send({ recipientUid = null, recipientRole = null, title, message 
     refId,
     readBy: [],
     starredBy: [],
-    createdByUid: user.uid,
-    createdByName: user.displayName || "",
+    createdByUid: anonymous ? null : user.uid,
+    createdByName: anonymous ? "" : user.displayName || "",
     createdAt: serverTimestamp(),
   })
 }
