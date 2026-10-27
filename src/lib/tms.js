@@ -8,7 +8,7 @@
 import { auth } from './firebase.js';
 
 // Set VITE_TMS_URL in .env.local to try a TMS preview or a local copy; the live TMS is the fallback.
-export const TMS_URL = (import.meta.env.VITE_TMS_URL || 'https://wb-task-management-system.vercel.app').replace(/\/$/, '');
+export const TMS_URL = (import.meta.env.VITE_TMS_URL || 'https://widebed-tms.vercel.app').replace(/\/$/, '');
 
 // One message. Throws with the TMS's own reason (e.g. "Only Directors create tasks") when it refuses.
 export async function sendToTasks(action, body = {}) {
@@ -49,11 +49,14 @@ export const inbox = async (departmentId) => (await sendToTasks('inbox', { data:
 // Refused (409) when the task is linked to another record already.
 export const link = (taskId, pmsLink) => sendToTasks('link', { taskId, data: { pmsLink } });
 
-// One message per save: a note of what changed, the whole checklist as [{ title, done }], and completed when given.
-// Resolves { status, completed }.
-export function syncTask(taskId, { note = '', checklist = [], completed } = {}) {
+// One message per save: a note of what changed, the whole checklist as [{ title, done }], completed when given, and
+// started (moves a task still before DOING into DOING). Resolves { status, completed }.
+// departmentId hands the task to that department ('marketing', 'operation', ...).
+export function syncTask(taskId, { note = '', checklist = [], completed, started, departmentId } = {}) {
   const data = { subtasks: checklist.slice(0, 50).map(c => ({ title: String(c.title).slice(0, 200), done: !!c.done })) };
   if (note) data.text = note.slice(0, 2000);
   if (typeof completed === 'boolean') data.completed = completed;
+  if (started) data.started = true;
+  if (departmentId) data.departmentId = departmentId;
   return updateTask(taskId, data);
 }

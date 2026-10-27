@@ -128,33 +128,38 @@
           <button class="btn" v-if="canEdit" @click="sendNow()" :disabled="busy">Send now</button>
         </div>
 
-        <nav class="nol-steps" aria-label="Stages">
-          <template v-for="(s, i) in STAGES" :key="s.key">
-            <button type="button" class="step" :class="{ on: tab === i, done: stageDone(d, i), now: currentIdx(d) === i && !stageDone(d, i) }" @click="tab = i">
-              <span class="stage-dot"></span><span><b>{{ `${i + 1}. ${s.short}` }}</b><small>{{ stageNote(d, i) }}</small></span>
-            </button>
-          </template>
-        </nav>
-
         <div class="notice error" v-show="formError">{{ formError }}</div>
         <div class="side-grid">
           <div class="form-card">
+            <nav class="nol-steps" aria-label="Stages">
+              <template v-for="(s, i) in STAGES" :key="s.key">
+                <button type="button" class="step" :class="{ on: tab === i, done: stageDone(d, i), now: currentIdx(d) === i && !stageDone(d, i) }" @click="tab = i">
+                  <span class="stage-dot"></span><span><b>{{ `${i + 1}. ${s.short}` }}</b><small>{{ stageNote(d, i) }}</small></span>
+                </button>
+              </template>
+            </nav>
 
             <!-- 1. Service agreement -->
             <section class="card" v-if="tab === 0" aria-label="Service Agreement Signed">
               <div class="card-head"><h2>1. Service Agreement Signed</h2><span class="pill" :class="stageDone(d, 0) ? (d.agreement.signed ? 'green' : 'amber') : 'grey'">{{ d.agreement.signed ? 'Signed' : d.agreement.skipped ? 'Skipped for now' : 'Not yet' }}</span></div>
               <template v-if="canEdit">
-                <div class="sign-row">
-                  <label class="tick"><input type="checkbox" v-model="d.agreement.signed" aria-label="Signed"> Signed</label>
-                  <div class="field" style="margin:0"><label for="agDate">Date signed</label><input class="input" id="agDate" type="date" v-model="d.agreement.date" :disabled="!d.agreement.signed"></div>
+                <div class="ag-opts" role="group" aria-label="Service agreement">
+                  <button type="button" class="ag-opt" :class="{ sel: d.agreement.signed }" :aria-pressed="d.agreement.signed" @click="d.agreement.signed = !d.agreement.signed">
+                    <span class="ag-radio"></span><span><b>Signed</b><small>The owner has signed the service agreement.</small></span>
+                  </button>
+                  <button type="button" class="ag-opt" :class="{ sel: d.agreement.skipped && !d.agreement.signed, amber: true }" :aria-pressed="d.agreement.skipped && !d.agreement.signed"
+                    @click="if (d.agreement.signed || !d.agreement.skipped) { d.agreement.signed = false; d.agreement.skipped = true } else { d.agreement.skipped = false; d.agreement.skipNote = '' }">
+                    <span class="ag-radio"></span><span><b>Skip for now</b><small>Start renovation first; record the signing later.</small></span>
+                  </button>
                 </div>
-                <p class="help" v-if="d.agreement.signed && saved.agreement.skipped && !saved.agreement.signed">{{ `It will be recorded as signed during ${STAGES[currentIdx(saved)].label}.` }}</p>
-                <template v-if="!d.agreement.signed">
-                  <button class="btn" v-if="!d.agreement.skipped" @click="d.agreement.skipped = true">Skip for now</button>
-                  <div class="field" v-else><label for="agNote">Why is it skipped for now? (required)</label>
-                    <textarea class="input" id="agNote" v-model="d.agreement.skipNote" placeholder="e.g. Owner signs when back from overseas; renovation can start"></textarea>
-                    <button class="editlink" style="justify-self:start" @click="d.agreement.skipped = false; d.agreement.skipNote = ''">Don't skip</button></div>
-                </template>
+                <div class="ag-more" v-if="d.agreement.signed">
+                  <div class="field" style="margin:0;max-width:220px"><label for="agDate">Date signed</label><input class="input" id="agDate" type="date" v-model="d.agreement.date"></div>
+                  <p class="help" style="margin:8px 0 0" v-if="saved.agreement.skipped && !saved.agreement.signed">{{ `It will be recorded as signed during ${STAGES[currentIdx(saved)].label}.` }}</p>
+                </div>
+                <div class="ag-more amber" v-else-if="d.agreement.skipped">
+                  <div class="field" style="margin:0"><label for="agNote">Why is it skipped for now? (required)</label>
+                    <textarea class="input" id="agNote" v-model="d.agreement.skipNote" placeholder="e.g. Owner signs when back from overseas; renovation can start"></textarea></div>
+                </div>
               </template>
               <template v-else>
                 <div class="kv"><span>Signed</span><span>{{ d.agreement.signed ? `Yes, ${full(d.agreement.date)}` : 'No' }}</span></div>
@@ -228,7 +233,7 @@
                     <span class="pill" :class="subDone(d, f.key) ? 'green' : 'grey'">{{ subDone(d, f.key) ? 'Completed' : `${d.furniture[f.key].filter(x => x.done).length} of ${d.furniture[f.key].length} ticked` }}</span></div>
                   <div class="table-wrap" v-show="d.furniture[f.key].length">
                     <table class="table lines">
-                      <thead><tr><th style="width:44px">Added</th><th>Item</th><th class="num">RM</th><th v-if="canEdit"></th></tr></thead>
+                      <thead><tr><th style="width:72px"><label class="th-all" v-if="canEdit" title="Tick or untick every line"><input type="checkbox" :checked="d.furniture[f.key].every(x => x.done)" :indeterminate.prop="d.furniture[f.key].some(x => x.done) && !d.furniture[f.key].every(x => x.done)" @change="d.furniture[f.key].forEach(x => { x.done = $event.target.checked })" :aria-label="`Tick all ${f.label}`"> All</label><template v-else>Added</template></th><th>Item</th><th class="num">RM</th><th v-if="canEdit"></th></tr></thead>
                       <tbody>
                         <template v-for="it in d.furniture[f.key]" :key="it.id">
                           <tr>
@@ -270,7 +275,7 @@
               <div class="field" v-if="canEdit && !d.payment.confirmed" style="max-width:240px"><label for="payAmt">Final amount (RM)</label><input class="input" id="payAmt" v-model="d.payment.amount" inputmode="decimal" placeholder="0.00"></div>
               <div class="kv" v-else><span>Final amount</span><span>{{ d.payment.amount === '' ? '—' : rm(d.payment.amount) }}</span></div>
               <div class="kv" v-if="d.payment.confirmed"><span>Confirmed</span><span>{{ `${d.payment.confirmedByName}, ${stamp(d.payment.confirmedAt)}` }}</span></div>
-              <p class="help">Marketing can start only once the payment is confirmed.</p>
+              <p class="help">Payment confirmed sends the Marketing team a notification about this listing.</p>
               <div class="actions" v-if="canEdit">
                 <span class="muted" v-show="dirty">Unsaved changes</span>
                 <button class="btn" @click="save()" :disabled="busy">Save</button>
@@ -280,9 +285,11 @@
 
             <!-- 5. Marketing -->
             <section class="card" v-if="tab === 4" aria-label="Marketing">
-              <div class="card-head"><h2>5. Marketing</h2><span class="pill" :class="d.marketing.taskId ? 'green' : 'grey'">{{ d.marketing.taskId ? 'Sent to Marketing' : 'Not sent' }}</span></div>
-              <div class="notice warn" v-if="!d.payment.confirmed && !d.marketing.taskId">Marketing starts once the final payment is confirmed (stage 4).</div>
-              <template v-if="!d.marketing.taskId && canEdit">
+              <div class="card-head"><h2>5. Marketing</h2><span class="pill" :class="d.marketing.taskId || d.marketing.notifiedAt ? 'green' : 'grey'">{{ d.marketing.taskId ? 'Sent to Marketing' : d.marketing.notifiedAt ? 'Marketing notified' : 'Not notified' }}</span></div>
+              <div class="notice warn" v-if="!d.payment.confirmed && !d.marketing.taskId">Marketing is notified once the final payment is confirmed (stage 4).</div>
+              <div class="kv" v-if="d.marketing.notifiedAt"><span>Notified</span><span>{{ `By ${d.marketing.notifiedByName}, ${stamp(d.marketing.notifiedAt)}` }}</span></div>
+              <template v-if="!d.marketing.taskId && canEdit && !d.live.live">
+                <label class="tick mk-all"><input type="checkbox" :checked="d.marketing.items.every(m => m.on)" :indeterminate.prop="d.marketing.items.some(m => m.on) && !d.marketing.items.every(m => m.on)" @change="d.marketing.items.forEach(m => { m.on = $event.target.checked })"> Select all</label>
                 <div class="mk-items">
                   <template v-for="(m, i) in d.marketing.items" :key="i">
                     <label class="tick"><input type="checkbox" v-model="m.on"> {{ m.title }}</label>
@@ -301,12 +308,12 @@
                 <div class="kv mk-progress"><span>Marketing task</span><span>{{ mkTask ? `${mkTask.subtasksDone} of ${mkTask.subtasksTotal} done · ${mkTask.completed ? 'Completed' : mkTask.status || 'Open'}` : (tasksError ? 'Could not read the task system' : 'Checking…') }}</span></div>
                 <button class="btn" @click="loadTasks()" :disabled="tasksLoading">{{ tasksLoading ? 'Checking…' : 'Refresh' }}</button>
               </template>
-              <div class="actions" v-if="canEdit && !d.marketing.taskId">
+              <div class="actions" v-if="canEdit && !d.live.live">
                 <span class="muted" v-show="dirty">Unsaved changes</span>
                 <button class="btn" @click="save()" :disabled="busy">Save</button>
-                <button class="btn btn-primary" v-if="isDirector" @click="sendMarketing()" :disabled="busy || !d.payment.confirmed">Send to Marketing</button>
-                <span class="help" v-else>A Director sends the Marketing task: the task system currently only lets Directors create tasks.</span>
+                <button class="btn btn-primary" @click="goLive()" :disabled="busy || !d.payment.confirmed" :title="d.payment.confirmed ? '' : 'Confirm the payment first (stage 4)'">Go Live</button>
               </div>
+              <p class="help" v-if="d.live.live">{{ `Live since ${stamp(d.live.at)}. Handover to Operations is in stage 6.` }}</p>
             </section>
 
             <!-- 6. Live -->
@@ -317,7 +324,7 @@
                 <div class="kv" v-if="d.live.overrideReason"><span>Before Marketing was done</span><span>{{ d.live.overrideReason }}</span></div>
               </template>
               <template v-else-if="canEdit">
-                <div class="notice warn" v-if="!stageDone(d, 4)">The Marketing task has not been sent yet. To go live anyway, give the reason.</div>
+                <div class="notice warn" v-if="!stageDone(d, 4)">Marketing has not been notified yet (the payment is not confirmed). To go live anyway, give the reason.</div>
                 <div class="notice warn" v-else-if="mkTask && !mkTask.completed">{{ `The Marketing task is not completed yet (${mkTask.subtasksDone} of ${mkTask.subtasksTotal} done).` }}</div>
                 <div class="field" v-if="!stageDone(d, 4)"><label for="liveWhy">Reason to go live before Marketing</label><input class="input" id="liveWhy" v-model="liveReason" placeholder="e.g. Owner asked to open bookings now"></div>
                 <button class="btn btn-primary" @click="markLive()" :disabled="busy">Mark as Live</button>
@@ -342,31 +349,19 @@
               <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn" @click="save()" :disabled="busy">Save</button></div>
             </section>
 
-            <section class="card">
-              <div class="card-head"><h2>History</h2></div>
-              <div class="hist">
-                <template v-for="(h, i) in l.history.slice().reverse()" :key="i">
-                  <div><small>{{ `${stamp(h.at)} · ${h.by}` }}</small><span>{{ h.text }}</span></div>
-                </template>
-                <p class="muted" v-show="!l.history.length">Nothing yet.</p>
-              </div>
-            </section>
-          </div>
-
-          <div class="form-card">
-            <section class="card" aria-label="Listing details">
-              <div class="card-head"><h2>Details</h2></div>
-              <template v-if="canEdit">
+            <section class="card" aria-label="Listing details" v-if="tab === 0">
+              <div class="card-head"><h2>Details</h2><span class="muted" v-show="dirty">Unsaved changes</span></div>
+              <div class="d-grid" v-if="canEdit">
                 <div class="field"><label for="dProp">Property</label><input class="input" id="dProp" v-model="d.property" placeholder="e.g. Sample Residence"></div>
                 <div class="field"><label for="dUnit">Unit</label><input class="input" id="dUnit" v-model="d.unit" placeholder="e.g. A-12-03"></div>
                 <div class="field"><label for="dOwner">Owner name</label><input class="input" id="dOwner" v-model="d.ownerName" placeholder="e.g. Owner A"></div>
+                <div class="field"><label for="dDue">Due date</label><input class="input" id="dDue" type="date" v-model="d.dueDate"></div>
                 <div class="field"><label for="dPhone">Owner phone</label><input class="input" id="dPhone" v-model="c.ownerPhone" inputmode="tel"></div>
                 <div class="field"><label for="dEmail">Owner email</label><input class="input" id="dEmail" type="email" v-model="c.ownerEmail"></div>
-                <div class="field"><label for="dDue">Due date</label><input class="input" id="dDue" type="date" v-model="d.dueDate"></div>
-                <div class="field"><label for="dDesc">Description</label><textarea class="input" id="dDesc" v-model="d.description"></textarea></div>
-                <div class="actions"><button class="btn" @click="save()" :disabled="busy">Save</button></div>
-              </template>
-              <template v-else>
+                <div class="field span2"><label for="dDesc">Description</label><textarea class="input" id="dDesc" v-model="d.description"></textarea></div>
+                <div class="actions span2"><button class="btn btn-primary" @click="save()" :disabled="busy">Save details</button></div>
+              </div>
+              <div class="d-grid" v-else>
                 <div class="kv"><span>Property</span><span>{{ d.property || '—' }}</span></div>
                 <div class="kv"><span>Unit</span><span>{{ d.unit || '—' }}</span></div>
                 <div class="kv"><span>Owner</span><span>{{ d.ownerName || '—' }}</span></div>
@@ -375,8 +370,20 @@
                   <div class="kv"><span>Owner email</span><span>{{ c.ownerEmail || '—' }}</span></div>
                 </template>
                 <div class="kv"><span>Due</span><span>{{ full(d.dueDate) || '—' }}</span></div>
-                <p class="pre" v-if="d.description">{{ d.description }}</p>
-              </template>
+                <p class="pre span2" v-if="d.description">{{ d.description }}</p>
+              </div>
+            </section>
+          </div>
+
+          <div class="form-card">
+            <section class="card" aria-label="History">
+              <div class="card-head"><h2>History</h2></div>
+              <div class="hist timeline">
+                <template v-for="(h, i) in l.history.slice().reverse()" :key="i">
+                  <div><small>{{ `${stamp(h.at)} · ${h.by}` }}</small><span>{{ h.text }}</span></div>
+                </template>
+                <p class="muted" v-show="!l.history.length">Nothing yet.</p>
+              </div>
             </section>
             <section class="card" aria-label="Task system">
               <div class="card-head"><h2>Task system</h2><button class="editlink" @click="loadTasks()" :disabled="tasksLoading" v-if="l.tmsTaskId || d.marketing.taskId">Refresh</button></div>
@@ -387,7 +394,35 @@
               <p class="muted" v-else>Started here, not from a task.</p>
               <div class="kv" v-if="d.marketing.taskId"><span>Marketing task</span><span>{{ mkTask ? `${mkTask.completed ? 'Completed' : mkTask.status || 'Open'} · ${mkTask.subtasksDone} of ${mkTask.subtasksTotal}` : tasksError ? 'Could not read' : '…' }}</span></div>
               <p class="help" v-show="tasksError">{{ tasksError }}</p>
+              <button type="button" class="btn view-details" @click="showDetails = true">View details</button>
             </section>
+          </div>
+        </div>
+        <div class="modal-back" v-if="showDetails" @click.self="showDetails = false" v-esc="() => { showDetails = false }">
+          <div class="modal details-modal" role="dialog" aria-label="Listing details">
+            <div class="notice error" v-show="formError">{{ formError }}</div>
+                <div class="card-head"><h2>Details</h2><span class="muted" v-show="dirty">Unsaved changes</span></div>
+                <div class="d-grid" v-if="canEdit">
+                  <div class="field"><label for="mdProp">Property</label><input class="input" id="mdProp" v-model="d.property" placeholder="e.g. Sample Residence"></div>
+                  <div class="field"><label for="mdUnit">Unit</label><input class="input" id="mdUnit" v-model="d.unit" placeholder="e.g. A-12-03"></div>
+                  <div class="field"><label for="mdOwner">Owner name</label><input class="input" id="mdOwner" v-model="d.ownerName" placeholder="e.g. Owner A"></div>
+                  <div class="field"><label for="mdDue">Due date</label><input class="input" id="mdDue" type="date" v-model="d.dueDate"></div>
+                  <div class="field"><label for="mdPhone">Owner phone</label><input class="input" id="mdPhone" v-model="c.ownerPhone" inputmode="tel"></div>
+                  <div class="field"><label for="mdEmail">Owner email</label><input class="input" id="mdEmail" type="email" v-model="c.ownerEmail"></div>
+                  <div class="field span2"><label for="mdDesc">Description</label><textarea class="input" id="mdDesc" v-model="d.description"></textarea></div>
+                                </div>
+                <div class="d-grid" v-else>
+                  <div class="kv"><span>Property</span><span>{{ d.property || '—' }}</span></div>
+                  <div class="kv"><span>Unit</span><span>{{ d.unit || '—' }}</span></div>
+                  <div class="kv"><span>Owner</span><span>{{ d.ownerName || '—' }}</span></div>
+                  <template v-if="canSeeContact">
+                    <div class="kv"><span>Owner phone</span><span>{{ c.ownerPhone || '—' }}</span></div>
+                    <div class="kv"><span>Owner email</span><span>{{ c.ownerEmail || '—' }}</span></div>
+                  </template>
+                  <div class="kv"><span>Due</span><span>{{ full(d.dueDate) || '—' }}</span></div>
+                  <p class="pre span2" v-if="d.description">{{ d.description }}</p>
+                </div>
+            <div class="modal-foot"><button type="button" class="btn" @click="showDetails = false">Close</button><button type="button" class="btn btn-primary" v-if="canEdit" :disabled="busy" @click="save().then(ok => { if (ok !== false) showDetails = false })">Save details</button></div>
           </div>
         </div>
       </div>
@@ -407,7 +442,8 @@ import { collection, doc, getDoc, getDocs, query, orderBy, limit, writeBatch, up
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
-import { inbox, link, syncTask, createTask, listTasksFor } from '@/lib/tms.js';
+import { inbox, link, syncTask, listTasksFor } from '@/lib/tms.js';
+import { notifyRole } from '@/services/notificationService';
 import { toast } from '@/lib/toast.js';
 import { handOff } from '@/lib/handoff.js';
 
@@ -471,7 +507,7 @@ function blank() {
     renovation: { items: RENO_DEFAULT.map(([group, title]) => ({ id: lineId(), group, title, status: 'notStarted', cost: '' })), links: [], internalNotes: '', ownerNotes: '' },
     furniture: { big: [], electrical: [], essential: [] },
     payment: { quotationUrl: '', invoiceUrl: '', proofUrl: '', amount: '', confirmed: false, confirmedByUid: null, confirmedByName: '', confirmedAt: '' },
-    marketing: { items: MK_DEFAULT.map(title => ({ title, on: false })), taskId: null, sentAt: '', sentByName: '' },
+    marketing: { items: MK_DEFAULT.map(title => ({ title, on: false })), taskId: null, sentAt: '', sentByName: '', notifiedAt: '', notifiedByName: '' },
     live: { live: false, at: '', byName: '', overrideReason: '', opsGroup: false }
   };
 }
@@ -486,13 +522,16 @@ function withDefaults(data) {
 
 const subDoneOf = (l, k) => l.furniture[k].length > 0 && l.furniture[k].every(x => x.done);
 // Each stage counts as done when: 1 signed or skipped for now, 2 every renovation line Done, 3 every furniture line in all
-// three sub-stages ticked, 4 payment confirmed, 5 the Marketing task sent, 6 Live.
+// three sub-stages ticked, 4 payment confirmed, 5 Marketing notified (on payment confirmed) or an older Marketing task sent, 6 Live.
+// The TMS department that holds the listing's task: Procurement, then Marketing once the payment is confirmed, then
+// Operations once it is Live.
+const deptOf = l => l.live.live ? 'operation' : l.payment.confirmed ? 'marketing' : 'procurement';
 function stageDoneOf(l, i) {
   if (i === 0) return l.agreement.signed || (l.agreement.skipped && !!l.agreement.skipNote.trim());
   if (i === 1) return l.renovation.items.length > 0 && l.renovation.items.every(x => x.status === 'done');
   if (i === 2) return FURN.every(f => subDoneOf(l, f.key));
   if (i === 3) return l.payment.confirmed;
-  if (i === 4) return !!l.marketing.taskId;
+  if (i === 4) return !!(l.marketing.taskId || l.marketing.notifiedAt);
   return l.live.live;
 }
 const currentIdxOf = l => { if (l.live.live) return 5; const i = STAGES.findIndex((s, k) => !stageDoneOf(l, k)); return i < 0 ? 5 : i; };
@@ -504,7 +543,7 @@ function checklistOf(l) {
     ...l.renovation.items.filter(x => x.title.trim()).map(x => ({ title: `Renovation: ${x.title.trim()}`, done: x.status === 'done' })),
     ...FURN.map(f => ({ title: `Furniture: ${f.label}`, done: subDoneOf(l, f.key) })),
     { title: 'Final quotation & payment confirmed', done: l.payment.confirmed },
-    { title: 'Marketing task sent', done: !!l.marketing.taskId },
+    { title: 'Marketing notified', done: !!(l.marketing.taskId || l.marketing.notifiedAt) },
     { title: 'Live', done: l.live.live }
   ];
 }
@@ -555,6 +594,7 @@ function summarize(a, b, contactChanged) {
   for (const [k, label] of PAY_LINKS) if ((a.payment[k] || '') !== (b.payment[k] || '')) out.push(`${label} link ${b.payment[k] ? (a.payment[k] ? 'changed' : 'added') : 'removed'}.`);
   if (money(a.payment.amount) !== money(b.payment.amount)) out.push(`Final amount ${rmText(b.payment.amount)}.`);
   if (b.payment.confirmed && !a.payment.confirmed) out.push(`Payment confirmed by ${b.payment.confirmedByName}.`);
+  if (b.marketing.notifiedAt && !a.marketing.notifiedAt) out.push('Marketing team notified.');
 
   const mk = x => x.marketing.items.filter(m => m.on).map(m => m.title).join(', ');
   const t0 = a.marketing.items.map(m => m.title), t1 = b.marketing.items.map(m => m.title);
@@ -580,7 +620,7 @@ export default {
       tasks: [], inboxLoading: false, inboxError: '',
       l: null, saved: null, d: null, c: { ownerPhone: '', ownerEmail: '' }, c0: { ownerPhone: '', ownerEmail: '' },
       tab: 0, linkAdd: { label: '', url: '' }, pasteOpen: '', pasteText: '', mkAdd: '', liveReason: '',
-      linked: [], tasksLoading: false, tasksError: '',
+      linked: [], tasksLoading: false, tasksError: '', showDetails: false,
       form: {}, formError: '', okMsg: '', error: '', loading: true, busy: false
     };
   },
@@ -786,7 +826,8 @@ export default {
       let next, linked = s.linked !== false;
       try {
         if (!linked) { await link(l.tmsTaskId, { type: LINK_TYPE, id: l.id }); linked = true; }
-        await syncTask(l.tmsTaskId, { note: s.pendingNote || '', checklist: checklistOf(l), completed: completed ?? (l.live.live ? true : undefined) });
+        await syncTask(l.tmsTaskId, { note: s.pendingNote || '', checklist: checklistOf(l), completed: completed ?? (l.live.live ? true : undefined),
+          started: stageDoneOf(l, 0), departmentId: deptOf(l) });
         next = { linked: true, pending: false, pendingNote: '', error: '', at: nowIso() };
         this.okMsg = `${l.id} saved and sent to the task system.`;
       } catch (e) {
@@ -816,31 +857,41 @@ export default {
     async confirmPayment() {
       if (!(money(this.d.payment.amount) > 0)) { this.formError = 'Add the final amount before confirming the payment.'; return; }
       const keep = clone(this.d.payment);
-      Object.assign(this.d.payment, { confirmed: true, confirmedByUid: me.user.uid, confirmedByName: me.name, confirmedAt: nowIso() });
-      if (!(await this.save())) this.d.payment = keep;
-    },
-    // Directors only (the TMS lets Directors create tasks): a separate Marketing task with the chosen items as its checklist.
-    async sendMarketing() {
-      const d = this.d, l = this.l;
-      if (!d.payment.confirmed) { this.formError = 'Confirm the final payment first (stage 4).'; return; }
-      const items = d.marketing.items.filter(m => m.on).map(m => m.title);
-      if (!items.length) { this.formError = 'Tick at least one marketing item.'; return; }
-      const err = this.validate(d);
-      if (err) { this.formError = err; return; }
-      this.busy = true; this.formError = '';
-      let taskId;
+      const keepMk = clone(this.d.marketing), at = nowIso();
+      Object.assign(this.d.payment, { confirmed: true, confirmedByUid: me.user.uid, confirmedByName: me.name, confirmedAt: at });
+      Object.assign(this.d.marketing, { notifiedAt: at, notifiedByName: me.name });
+      if (!(await this.save())) { this.d.payment = keep; this.d.marketing = keepMk; return; }
+      // The Marketing team's bell: one role notification, opened straight to this listing.
+      const l = this.l, items = this.d.marketing.items.filter(m => m.on).map(m => m.title);
       try {
-        taskId = await createTask({ title: `Marketing: ${this.placeOf(d)} (${l.id})`, details: `New owner listing ${l.id}${d.ownerName ? ', owner ' + d.ownerName : ''}. Sent from the PMS by ${me.name}.`,
-          assigneeUids: [], departmentId: 'marketing', priority: 'medium', subtasks: items, pmsLink: { type: LINK_TYPE, id: l.id }, dueDate: d.dueDate || undefined });
-      } catch (e) { this.formError = `Could not send to Marketing: ${e.message} Nothing was changed.`; this.busy = false; return; }
-      this.busy = false;
-      Object.assign(d.marketing, { taskId, sentAt: nowIso(), sentByName: me.name });
-      if (await this.save()) { this.okMsg = `${l.id}: Marketing task sent.`; this.loadTasks(); }
+        await notifyRole({ recipientRole: 'marketing', type: 'listing', refId: l.id, link: `/Procurement/new-owner-listings?id=${l.id}`,
+          title: `New listing for Marketing: ${l.id}`,
+          message: `Payment confirmed for ${this.placeOf(this.d)}.` + (items.length ? ` Marketing: ${items.join(', ')}.` : '') });
+        this.okMsg = `${l.id}: payment confirmed and the Marketing team notified.`;
+      } catch (e) {
+        console.error('Notification failed:', e);
+        this.okMsg = `${l.id}: payment confirmed. The Marketing notification could not be sent: ${e.message}`;
+      }
+    },
+    async goLive() {
+      await this.markLive();
+      if (!this.d.live.live) return;
+      this.tab = 5;
+      // Operations takes over (property, unit and owner in Portfolio, the Ops WhatsApp group): one role notification.
+      const l = this.l;
+      try {
+        await notifyRole({ recipientRole: 'operations', type: 'listing', refId: l.id, link: `/Procurement/new-owner-listings?id=${l.id}`,
+          title: `Listing is Live: ${l.id}`, message: `${this.placeOf(this.d)} is Live. Please take over the handover (Portfolio and the Ops WhatsApp group).` });
+        this.okMsg += ' Operations notified.';
+      } catch (e) {
+        console.error('Notification failed:', e);
+        this.okMsg += ` The Operations notification could not be sent: ${e.message}`;
+      }
     },
     async markLive() {
       const d = this.d;
       const reason = this.liveReason.trim();
-      if (!stageDoneOf(d, 4) && !reason) { this.formError = 'Give the reason to go live before the Marketing task is sent.'; return; }
+      if (!stageDoneOf(d, 4) && !reason) { this.formError = 'Give the reason to go live before Marketing is notified.'; return; }
       const keep = clone(d.live);
       Object.assign(d.live, { live: true, at: nowIso(), byName: me.name, overrideReason: stageDoneOf(d, 4) ? '' : reason });
       if (!(await this.save({ completed: true }))) { d.live = keep; return; }
@@ -963,6 +1014,35 @@ export default {
     .hist div { font-size: 13px; border-left: 2px solid var(--line); padding-left: 10px; overflow-wrap: anywhere; }
     .hist small { display: block; color: var(--muted); font-size: 11px; }
     textarea.input { height: 80px; padding: 10px 12px; }
+    .ag-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .ag-opt { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; transition: border-color .15s, background .15s; }
+    .ag-opt:hover { border-color: var(--accent); }
+    .ag-opt b { display: block; font-size: 14px; font-weight: 600; }
+    .ag-opt small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .ag-radio { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface); }
+    .ag-opt.sel { border-color: var(--green); background: var(--green-soft); }
+    .ag-opt.sel .ag-radio { border-color: var(--green); background: radial-gradient(var(--green) 0 4px, var(--surface) 5px); }
+    .ag-opt.amber.sel { border-color: var(--amber, #d97706); background: var(--amber-soft, #fef3c7); }
+    .ag-opt.amber.sel .ag-radio { border-color: var(--amber, #d97706); background: radial-gradient(var(--amber, #d97706) 0 4px, var(--surface) 5px); }
+    .ag-more { margin-top: 12px; padding: 14px 16px; border-radius: 12px; background: color-mix(in srgb, var(--text) 4%, var(--surface)); }
+    @media (max-width: 600px) { .ag-opts { grid-template-columns: minmax(0, 1fr); } }
+    .view-details { width: 100%; margin-top: 14px; }
+    .th-all { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 500; }
+    .th-all input { width: 16px; height: 16px; accent-color: var(--accent); }
+    .mk-all { font-weight: 600; margin-bottom: 10px; }
+    .details-modal { max-width: 680px; }
+    .details-modal .card-head { margin-bottom: 12px; }
+    .d-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 4px 16px; }
+    .d-grid .span2 { grid-column: 1 / -1; }
+    .d-grid .kv { margin: 0; }
+    .d-grid .actions { margin-top: 4px; }
+    .form-card .nol-steps { margin-bottom: 0; }
+    .timeline { max-height: 520px; overflow-y: auto; padding-right: 4px; gap: 0; }
+    .timeline div { position: relative; border-left: 2px solid var(--border); padding: 0 0 14px 16px; margin-left: 5px; }
+    .timeline div:last-of-type { padding-bottom: 0; }
+    .timeline div::before { content: ''; position: absolute; left: -6px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
+    .timeline div:first-child::before { background: var(--accent); }
+    @media (max-width: 700px) { .d-grid { grid-template-columns: minmax(0,1fr); } }
     @media (max-width: 900px) { .nol-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 480px) { .nol-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>
