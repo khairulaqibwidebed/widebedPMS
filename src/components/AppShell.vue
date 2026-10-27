@@ -202,6 +202,12 @@ main.content {flex: 1;width: 100%;max-width: 1760px;margin: 0 auto;padding: clam
 /* Department header: icon + label + chevron. */
 .nav-group-btn { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; transition: gap .25s var(--nav-ease), padding .25s var(--nav-ease), background .2s ease; }
 .nav-group-btn .chev { margin-left: auto; }
+/* Pages inside a department get a short theme-colour line on their left, so they read as sub-items of the header */
+.nav-group .nav-item { position: relative; }
+.nav-group .nav-item::before { content: ""; position: absolute; left: 2px; top: 50%; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
+  background: var(--accent); opacity: .35; transition: opacity .15s, height .15s, margin-top .15s; }
+.nav-group .nav-item:hover::before { opacity: .7; }
+.nav-group .nav-item.active::before { opacity: 1; height: 22px; margin-top: -11px; }
 .grp-icon { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
 .grp-label { overflow: hidden; max-width: 180px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
 
