@@ -1,7 +1,8 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.9 (tidied), 22 Oct 2026: same behaviour as Draft 0.9, with helpers at the top,
-// one match block per collection and blocks grouped by area.
-// History: 0.9 New Owner Listings. 0.8 profile pictures (avatars). 0.7 month summaries (unitMonths, months.summary).
+// Widebed PMS Firestore rules. Draft 0.10, 27 Oct 2026: same behaviour as Draft 0.9, plus one change in
+// notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null).
+// History: 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
+// 0.7 month summaries (unitMonths, months.summary).
 // 0.6 every role signs in; Portfolio for Operations/Procurement/Marketing; direct bookings. 0.5 offline inquiries,
 // tenants, offline bookings, Issues, SOPs, complaints, Playbook, brand logos. 0.4 month-end completion is per unit.
 // 0.3 HR manages staff accounts and reads the audit log.
@@ -453,6 +454,8 @@ service cloud.firestore {
     // Notifications: one document per recipient target. recipientUid = one person; recipientRole = everyone in
     // that role (read state is per person in readBy). Both keys are always written, the unused one as null.
     // Anyone signed in with a role may send one, but only as themselves and only with an in-app link.
+    // ONE exception (Draft 0.10): an anonymous complaint alert has no sender (createdByUid null, createdByName ''),
+    // and may only go to HR with type 'complaint', so the sender of an anonymous complaint cannot be traced from it.
     // Stronger protection against spoofing needs a Cloud Function that sends them.
     match /notifications/{id} {
       function onlyMine(before, after) {
@@ -464,7 +467,14 @@ service cloud.firestore {
       allow create: if anyStaff()
         && request.resource.data.keys().hasOnly(['recipientUid', 'recipientRole', 'title', 'message', 'type', 'link', 'refId',
           'readBy', 'starredBy', 'createdByUid', 'createdByName', 'createdAt'])
-        && request.resource.data.createdByUid == request.auth.uid
+        && (
+          request.resource.data.createdByUid == request.auth.uid
+          // Anonymous complaint alert: no sender recorded, HR only, complaint type only
+          || (request.resource.data.createdByUid == null
+              && request.resource.data.createdByName == ''
+              && request.resource.data.recipientRole == 'hr'
+              && request.resource.data.type == 'complaint')
+        )
         && request.resource.data.readBy == []
         && request.resource.data.get('starredBy', []) == []
         && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200

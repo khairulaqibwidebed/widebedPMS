@@ -6,6 +6,7 @@
 import { db } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { audit } from '@/lib/finance-data.js';
+import { notifyRole } from '@/services/notificationService';
 
 export const today = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 export const STATUS = { new: ['New', 'amber'], review: ['In review', 'blue'], closed: ['Closed', 'green'] };
@@ -42,6 +43,7 @@ export async function loadMyComplaints(uid) {
 
 // me = useSession(). One transaction takes the next number from counters/{name} (so two people never get
 // the same ref) and writes the complaint, its private part and the audit entry. Returns the new ref.
+// A new STAFF complaint also puts one notification on the HR bell (role notification, HR only).
 export async function createComplaint(me, kind, { subject, details, files, anonymous = false }) {
   const k = KIND[kind];
   const named = kind === 'director' || !anonymous;
@@ -62,6 +64,24 @@ export async function createComplaint(me, kind, { subject, details, files, anony
       action: 'complaint.create', entity: `complaints/${c.id}`, propertyId: null, month: null, changes: [{ field: 'ref', old: null, new: ref }], reason: '' });
     return ref;
   });
+
+  // Tell HR (and only HR). The text never holds the subject, details or sender name. For an anonymous complaint the
+  // notification is written with no sender uid or name either (anonymous: true), so it cannot point back to the person.
+  // A failed notification must never undo the complaint, so the error is only logged.
+  if (kind === 'staff') {
+    try {
+      await notifyRole({
+        recipientRole: 'hr',
+        type: 'complaint',
+        refId: c.id,
+        link: '/HR/staff-complaints',
+        anonymous: !named,
+        title: `New complaint ${ref}`,
+        message: 'A new complaint was sent to HR. Open it to read the details.'
+      });
+    } catch (e) { console.error('Notification failed:', e); }
+  }
+
   if (!named) keepAnonReceipt({ id: c.id, ref, date: today(), subject, anonymous: true });
   return ref;
 }
