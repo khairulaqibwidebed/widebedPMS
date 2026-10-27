@@ -112,12 +112,25 @@ button { font: inherit; cursor: pointer; }
 .page-head h1 { font-size: 28px; margin: 0; letter-spacing: -.01em; }
 .page-head .sub { color: var(--muted); margin-top: 4px; font-size: 14px; }
 .head-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Dashboards: the title on its own line, then the last-upload chip and the filters under it on the right. */
+.dash-head { flex-direction: column; align-items: stretch; gap: 12px; }
+.dash-head .head-tools { flex-direction: column; align-items: flex-end; gap: 8px; }
+.dash-head .head-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .chip { background: var(--chip); color: var(--text-2); font-size: 12px; padding: 4px 10px; border-radius: 999px; }
 .select { height: 34px; border: 1px solid var(--border); border-radius: 8px; padding: 0 28px 0 10px;
   font: inherit; font-size: 13px; background: var(--surface); color: var(--text); }
 
 /* ---------- Cards ---------- */
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; margin-bottom: 24px; }
+/* A KPI card that opens its page (dashboards): theme-colour border and tint on hover. */
+.kpi-link { display: block; text-align: left; font: inherit; color: inherit; text-decoration: none; cursor: pointer; width: 100%;
+  transition: border-color .15s, background .15s, box-shadow .15s, transform .15s; }
+.kpi-link:hover, .kpi-link:focus-visible { border-color: var(--accent); background: var(--accent-soft);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 18%, transparent); transform: translateY(-1px); }
+.kpi-link:hover .label, .kpi-link:focus-visible .label { color: var(--accent); }
+/* The card whose filter is showing in the list below. */
+.kpi-link.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.kpi-link.on .label { color: var(--accent); }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; min-width: 0; }
 .kpi .label { color: var(--text-2); font-size: 12px; }
 .kpi .value { font-size: 28px; font-weight: 700; margin: 2px 0; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }

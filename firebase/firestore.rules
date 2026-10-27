@@ -27,6 +27,7 @@ service cloud.firestore {
     function isHR()       { return role() == 'hr'; }
     function isOps()      { return role() == 'operations'; }
     function isProc()     { return role() == 'procurement'; }
+    function isMkt()      { return role() == 'marketing'; }
     // Any active staff record with a role (every role, including IT).
     function anyStaff()   { return role() != null; }
     // Staff accounts: Director and HR. HR can't create, edit or promote anyone to Director.
@@ -35,7 +36,9 @@ service cloud.firestore {
     function hrOrDir()    { return isHR() || isDirector(); }
     function staff()      { return finOrDir() || isIT(); }
     function portfolioViewer() { return role() in ['operations', 'procurement', 'marketing']; }
-    function listingEditor()   { return isDirector() || isProc(); }
+    // Operations and Marketing may add properties, units and owners (create only, no terms or bank details).
+    function portfolioAdder() { return role() in ['operations', 'marketing']; }
+    function listingEditor()   { return isDirector() || isProc() || isMkt(); }   // Marketing too (Khairul 27 Oct)
 
     // ---- Paths and writes ----
     function docPath(col, id)    { return /databases/$(database)/documents/$(col)/$(id); }
@@ -184,23 +187,26 @@ service cloud.firestore {
 
     // ================= Setup data (Portfolio) =================
     // Finance/Directors write. Operations, Procurement and Marketing read the parents only (no terms, rates or
-    // owners' private data). Operations may also create properties, units and owners (create only, never edit).
+    // owners' private data). Operations and Marketing may also create properties, units and owners (create only, never edit).
     // Version documents are add-only: a change is a new document.
 
     match /properties/{propertyId} {
       allow read: if staff() || portfolioViewer();
       allow write: if finOrDir();
-      allow create: if isOps() && newKeysOnly(['name', 'code', 'info', 'active', 'createdAt', 'createdBy'])
+      allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.name is string && request.resource.data.code is string
         && (!('info' in request.resource.data) || request.resource.data.info.keys().hasOnly(['address', 'city', 'state', 'ezeeAccount', 'ezeeName']));
       // The batch that adds a unit notes it on its property (summaryMarks); the only change Operations may make.
-      allow update: if isOps() && changed().hasOnly(['summaryMarks']);
+      allow update: if portfolioAdder() && changed().hasOnly(['summaryMarks']);
+      // Marketing also edit the name and details (Khairul 27 Oct); never the short code or anything money.
+      allow update: if isMkt() && changed().hasOnly(['name', 'info', 'updatedAt', 'updatedBy', 'summaryMarks'])
+        && request.resource.data.info.keys().hasOnly(['address', 'city', 'state', 'ezeeAccount', 'ezeeName']);
       match /rateVersions/{v} {
         allow read: if staff();
         allow create: if finOrDir() && request.resource.data.reason is string;
         // Operations: only the default OTA rates, only in the batch that creates the property.
-        allow create: if isOps() && v == '2000-01_default' && createdNow('properties', propertyId)
+        allow create: if portfolioAdder() && v == '2000-01_default' && createdNow('properties', propertyId)
           && request.resource.data.effectiveFrom == '2000-01' && request.resource.data.createdBy == request.auth.uid
           && newKeysOnly(['effectiveFrom', 'ota', 'earlyCheckInToOwner', 'tourismTaxPerNight', 'reason', 'createdBy', 'createdByName', 'createdAt']);
         allow update, delete: if false;
@@ -211,10 +217,13 @@ service cloud.firestore {
       allow read: if staff() || portfolioViewer();
       allow write: if finOrDir();
       // Operations: no terms (arrangement, fixed rent, fees).
-      allow create: if isOps() && newKeysOnly(['propertyId', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
+      allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
           'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && exists(docPath('properties', request.resource.data.propertyId))
+        && request.resource.data.info.keys().hasOnly(['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb']);
+      // Marketing edit unit details and eZee names; not the owner link, status or terms.
+      allow update: if isMkt() && changed().hasOnly(['aliases', 'info', 'updatedAt', 'updatedBy'])
         && request.resource.data.info.keys().hasOnly(['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb']);
       match /terms/{v} {
         allow read: if staff();
@@ -231,14 +240,20 @@ service cloud.firestore {
     match /owners/{ownerId} {
       allow read: if staff() || portfolioViewer();
       allow write: if finOrDir();
-      allow create: if isOps() && newKeysOnly(['code', 'active', 'bankLast4', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+      allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.get('bankLast4', null) == null
         && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isMkt() && changed().hasOnly(['updatedAt', 'updatedBy']);
       // Operations write name and contact details once, in the batch that creates the owner, and never read them back.
       match /private/{docId} {
-        allow create: if isOps() && docId == 'main' && createdNow('owners', ownerId)
+        allow create: if portfolioAdder() && docId == 'main' && createdNow('owners', ownerId)
           && newKeysOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'updatedAt', 'updatedBy'])
           && request.resource.data.updatedBy == request.auth.uid;
+        // Marketing read and edit names and contact details (Khairul 27 Oct). Bank fields share this document: the
+        // page hides them and Marketing can't change them.
+        allow read: if isMkt() && docId == 'main';
+        allow update: if isMkt() && docId == 'main' && request.resource.data.updatedBy == request.auth.uid
+          && changed().hasOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'updatedAt', 'updatedBy']);
       }
     }
 
@@ -544,8 +559,8 @@ service cloud.firestore {
 
     // ================= Procurement: New Owner Listings =================
 
-    // newOwnerListings/{NL-0001}: one new unit from service agreement to Live. Director and Procurement create and edit;
-    // Finance, Operations and Marketing read. Owner phone and email in private/main (Director and Procurement edit, Operations reads).
+    // newOwnerListings/{NL-0001}: one new unit from service agreement to Live. Director, Procurement and Marketing create and edit;
+    // Finance and Operations read. Owner phone and email in private/main (Director and Procurement edit, Operations reads).
     match /newOwnerListings/{id} {
       allow read: if role() in ['director', 'finance', 'operations', 'procurement', 'marketing'];
       allow create: if listingEditor() && id.matches('NL-[0-9]{4,}')

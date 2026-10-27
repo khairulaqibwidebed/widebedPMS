@@ -2,13 +2,13 @@
   <main class="content">
     <div class="loading-bar" v-show="loading"></div>
 
-    <div class="page-head">
+    <div class="page-head dash-head">
       <div>
         <h1>{{ view === 'director' ? 'Director dashboard' : 'Finance dashboard' }}</h1>
         <div class="sub">{{ subtitle() }}</div>
       </div>
       <div class="head-tools">
-        <span class="chip" v-show="data">{{ data && data.lastUpload ? 'Last eZee upload: ' + stamp(data.lastUpload) : 'No eZee upload yet' }}</span>
+        <div class="head-row">
         <select class="select" v-model="propertyId" @change="load()" aria-label="Property">
           <option value="all">All properties</option>
           <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
@@ -21,6 +21,7 @@
           <option value="finance">View as: Finance</option>
           <template v-for="r in OTHER_VIEWS" :key="r"><option :value="r">{{ `View as: ${ROLE_LABEL[r]}` }}</option></template>
         </select>
+        </div>
       </div>
     </div>
 
@@ -30,35 +31,35 @@
       <div>
         <!-- KPI cards -->
         <section class="kpis">
-          <div class="card kpi">
+          <RouterLink class="card kpi kpi-link" to="/Reports" title="Open Reports">
             <div class="label">Rental income</div>
             <div class="value">{{ rm(data.rentalIncome) }}</div>
             <div class="hint">{{ `From eZee, checked out in ${shortMonth(month)}` }}</div>
-          </div>
-          <div class="card kpi">
+          </RouterLink>
+          <RouterLink class="card kpi kpi-link" :to="`/Finance/month-end?property=${propertyId === 'all' ? '' : propertyId}&month=${month}`" title="Open Month-end payout">
             <div class="label">Owner payouts</div>
             <div class="value">{{ data.statementsDone ? rm(data.balToPay) : '—' }}</div>
             <div class="hint">{{ data.statementsDone ? 'To pay, from completed statements' : 'Shown once statements are completed' }}</div>
-          </div>
+          </RouterLink>
           <template v-if="view === 'finance'">
-            <div class="card kpi">
+            <RouterLink class="card kpi kpi-link" :to="`/Finance/month-end?property=${propertyId === 'all' ? '' : propertyId}&month=${month}`" title="Open Month-end payout">
               <div class="label">Statements completed</div>
               <div class="value">{{ `${data.statementsDone} of ${data.unitCount}` }}</div>
               <div class="hint">{{ data.statementsDone < data.unitCount ? 'Approve & complete not done yet' : 'All done' }}</div>
-            </div>
+            </RouterLink>
           </template>
           <template v-if="view === 'director'">
-            <div class="card kpi">
+            <RouterLink class="card kpi kpi-link" to="/Operations/issues" title="Open Issues">
               <div class="label">Open tickets</div>
               <div class="value">{{ issues ? issues.total : '—' }}</div>
               <div class="hint">{{ issues ? (issues.total ? `${issues.notStarted} not started yet` : 'Nothing open on Issues') : (issuesError || 'Loading…') }}</div>
-            </div>
+            </RouterLink>
           </template>
-          <div class="card kpi">
+          <button type="button" class="card kpi kpi-link" @click="jump('attn')" title="Show the list below">
             <div class="label">{{ view === 'director' ? 'Waiting on Director' : 'Needs attention' }}</div>
             <div class="value" :class="attentionCount() ? 'alert' : ''">{{ attentionCount() }}</div>
             <div class="hint">{{ view === 'director' ? 'Approvals only a Director can give' : 'Ctrip amounts, negatives, set-up' }}</div>
-          </div>
+          </button>
         </section>
 
         <!-- FINANCE -->
@@ -86,9 +87,18 @@
                   <div class="row"><span>Completed</span><span class="pill green">{{ data.byStatus.completed }}</span></div>
                 </div>
               </section>
+              <section class="card">
+                <div class="card-head"><h2>Quick actions</h2></div>
+                <div class="actions">
+                  <RouterLink class="btn btn-primary" to="/Finance/upload">Upload eZee report</RouterLink>
+                  <RouterLink class="btn" :to="`/Finance/expenses?month=${month}&add=1`">Add expense</RouterLink>
+                  <RouterLink class="btn" :to="`/Finance/month-end?month=${month}`">Open Month-end payout</RouterLink>
+                  <RouterLink class="btn" to="/Finance/upload#daily">Download daily export</RouterLink>
+                </div>
+              </section>
             </div>
             <div class="stack">
-              <section class="card">
+              <section class="card" ref="attn">
                 <div class="card-head"><h2>Needs attention</h2></div>
                 <div class="rows">
                   <Capped :items="data.attention" v-slot="{ capRows }">
@@ -121,7 +131,7 @@
         <template v-if="view === 'director'">
           <div class="grid-2">
             <div class="stack">
-              <section class="card">
+              <section class="card" ref="attn">
                 <div class="card-head"><h2>Waiting on Director</h2></div>
                 <div class="rows">
                   <Capped :items="directorItems()" v-slot="{ capRows }">
@@ -142,6 +152,14 @@
                   </template>
                 </div>
                 <div class="note">Read-only here. Finance completes the month.</div>
+              </section>
+              <section class="card">
+                <div class="card-head"><h2>Quick actions</h2></div>
+                <div class="actions">
+                  <RouterLink class="btn btn-primary" to="/Portfolio/properties?add=1">Add property</RouterLink>
+                  <RouterLink class="btn" to="/Settings/staff?add=1">Invite staff</RouterLink>
+                  <RouterLink class="btn" to="/Settings/AuditLog">Open Audit log</RouterLink>
+                </div>
               </section>
             </div>
             <div class="stack">
@@ -176,21 +194,6 @@
           </div>
         </template>
 
-        <!-- Quick actions -->
-        <section class="card quick">
-          <div class="card-head"><h2>Quick actions</h2></div>
-          <div class="actions" v-show="view === 'finance'">
-            <RouterLink class="btn btn-primary" to="/Finance/upload">Upload eZee report</RouterLink>
-            <RouterLink class="btn" :to="`/Finance/expenses?month=${month}&add=1`">Add expense</RouterLink>
-            <RouterLink class="btn" :to="`/Finance/month-end?month=${month}`">Open Month-end payout</RouterLink>
-            <RouterLink class="btn" to="/Finance/upload#daily">Download daily export</RouterLink>
-          </div>
-          <div class="actions" v-show="view === 'director'">
-            <RouterLink class="btn btn-primary" to="/Portfolio/properties?add=1">Add property</RouterLink>
-            <RouterLink class="btn" to="/Settings/staff?add=1">Invite staff</RouterLink>
-            <RouterLink class="btn" to="/Settings/AuditLog">Open Audit log</RouterLink>
-          </div>
-        </section>
       </div>
     </template>
   </main>
@@ -234,6 +237,7 @@ export default {
     await this.load();
   },
   methods: {
+    jump(name) { this.$refs[name]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
     // Director and Finance switch in place; another role's dashboard is a different page (?as=role).
     viewAs() {
       if (OTHER_VIEWS.includes(this.view) || this.$route.query.as) this.$router.replace({ path: '/Dashboard', query: this.view === 'director' ? {} : { as: this.view } });

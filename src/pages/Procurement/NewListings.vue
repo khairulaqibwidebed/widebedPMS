@@ -16,13 +16,13 @@
         </div>
 
         <section class="kpis">
-          <div class="card kpi"><div class="label">In progress</div><div class="value">{{ count('progress') }}</div><div class="hint">Not live yet</div></div>
-          <div class="card kpi"><div class="label">Live</div><div class="value">{{ count('live') }}</div><div class="hint">Handed over to Operations</div></div>
-          <div class="card kpi"><div class="label">Agreement not signed</div><div class="value" :class="{ alert: count('unsigned') }">{{ count('unsigned') }}</div><div class="hint">Skipped for now</div></div>
-          <div class="card kpi"><div class="label">Not sent to task system</div><div class="value" :class="{ alert: count('unsent') }">{{ count('unsent') }}</div><div class="hint">Open the listing and Send now</div></div>
+          <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'progress' }" @click="kpiGo('progress')"><div class="label">In progress</div><div class="value">{{ count('progress') }}</div><div class="hint">Not live yet</div></button>
+          <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'live' }" @click="kpiGo('live')"><div class="label">Live</div><div class="value">{{ count('live') }}</div><div class="hint">Handed over to Operations</div></button>
+          <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'unsigned' }" @click="kpiGo('unsigned')"><div class="label">Agreement not signed</div><div class="value" :class="{ alert: count('unsigned') }">{{ count('unsigned') }}</div><div class="hint">Skipped for now</div></button>
+          <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'unsent' }" @click="kpiGo('unsent')"><div class="label">Not sent to task system</div><div class="value" :class="{ alert: count('unsent') }">{{ count('unsent') }}</div><div class="hint">Open the listing and Send now</div></button>
         </section>
 
-        <section class="card inbox" v-if="canEdit" aria-label="From task system">
+        <section class="card inbox" v-if="hasInbox" aria-label="From task system">
           <div class="card-head">
             <h2>{{ `From task system${inboxShown().length ? ' · ' + inboxShown().length : ''}` }}</h2>
             <button class="btn" @click="loadInbox()" :disabled="inboxLoading">{{ inboxLoading ? 'Checking…' : 'Refresh' }}</button>
@@ -44,7 +44,7 @@
           </div>
         </section>
 
-        <div class="toolbar nol-tools">
+        <div class="toolbar nol-tools" ref="list">
           <input class="input" type="search" placeholder="Search NL no., property, unit or owner" v-model="search" aria-label="Search listings">
           <div class="pills brand">
             <template v-for="f in FILTERS" :key="f.key">
@@ -133,7 +133,7 @@
           <div class="form-card">
             <nav class="nol-steps" aria-label="Stages">
               <template v-for="(s, i) in STAGES" :key="s.key">
-                <button type="button" class="step" :class="{ on: tab === i, done: stageDone(d, i), now: currentIdx(d) === i && !stageDone(d, i) }" @click="tab = i">
+                <button type="button" class="step" :class="{ on: tab === i, done: stageDone(d, i), part: stagePart(d, i), now: currentIdx(d) === i && !stageDone(d, i) }" @click="tab = i">
                   <span class="stage-dot"></span><span><b>{{ `${i + 1}. ${s.short}` }}</b><small>{{ stageNote(d, i) }}</small></span>
                 </button>
               </template>
@@ -300,13 +300,16 @@
               <div class="notice warn" v-if="!d.payment.confirmed && !d.marketing.taskId">Marketing is notified once the final payment is confirmed (stage 4).</div>
               <div class="kv" v-if="d.marketing.notifiedAt"><span>Notified</span><span>{{ `By ${d.marketing.notifiedByName}, ${stamp(d.marketing.notifiedAt)}` }}</span></div>
               <template v-if="!d.marketing.taskId && canEdit && !d.live.live">
-                <label class="tick mk-all"><input type="checkbox" :checked="d.marketing.items.every(m => m.on)" :indeterminate.prop="d.marketing.items.some(m => m.on) && !d.marketing.items.every(m => m.on)" @change="d.marketing.items.forEach(m => { m.on = $event.target.checked })"> Select all</label>
-                <div class="mk-items">
+                <div class="mk-head">
+                  <span class="mk-count">{{ `Marketing checklist · ${d.marketing.items.filter(m => m.on).length} of ${d.marketing.items.length} done` }}</span>
+                  <label class="tick mk-all"><input type="checkbox" :checked="d.marketing.items.every(m => m.on)" :indeterminate.prop="d.marketing.items.some(m => m.on) && !d.marketing.items.every(m => m.on)" @change="d.marketing.items.forEach(m => { m.on = $event.target.checked })"> Select all</label>
+                </div>
+                <div class="mk-grid">
                   <template v-for="(m, i) in d.marketing.items" :key="i">
-                    <label class="tick"><input type="checkbox" v-model="m.on"> {{ m.title }}</label>
+                    <label class="mk-tile" :class="{ on: m.on }"><input type="checkbox" v-model="m.on"><span>{{ m.title }}</span><button type="button" class="mk-x" @click.prevent="d.marketing.items.splice(i, 1)" :aria-label="`Remove ${m.title}`" title="Remove">×</button></label>
                   </template>
                 </div>
-                <div class="link-add"><input class="input" v-model="mkAdd" placeholder="e.g. Listing photos shoot" aria-label="New marketing item" @keyup.enter="addMk()"><button class="btn" @click="addMk()">Add line</button></div>
+                <div class="mk-add"><input class="input" v-model="mkAdd" placeholder="Add another item, e.g. Listing photos shoot" aria-label="New marketing item" @keyup.enter="addMk()"><button class="btn" @click="addMk()" :disabled="!mkAdd.trim()">+ Add</button></div>
               </template>
               <template v-else>
                 <div class="mk-items">
@@ -322,7 +325,7 @@
               <div class="actions" v-if="canEdit && !d.live.live">
                 <span class="muted" v-show="dirty">Unsaved changes</span>
                 <button class="btn" @click="save()" :disabled="busy">Save</button>
-                <button class="btn btn-primary" @click="goLive()" :disabled="busy || !d.payment.confirmed" :title="d.payment.confirmed ? '' : 'Confirm the payment first (stage 4)'">Go Live</button>
+                <button class="btn btn-primary" @click="goLive()" :disabled="busy || !stageDone(d, 4)" :title="!d.payment.confirmed ? 'Confirm the payment first (stage 4)' : stageDone(d, 4) ? '' : 'Tick every marketing item first'">Go Live</button>
               </div>
               <p class="help" v-if="d.live.live">{{ `Live since ${stamp(d.live.at)}. Handover to Operations is in stage 6.` }}</p>
             </section>
@@ -335,10 +338,9 @@
                 <div class="kv" v-if="d.live.overrideReason"><span>Before Marketing was done</span><span>{{ d.live.overrideReason }}</span></div>
               </template>
               <template v-else-if="canEdit">
-                <div class="notice warn" v-if="!stageDone(d, 4)">Marketing has not been notified yet (the payment is not confirmed). To go live anyway, give the reason.</div>
+                <div class="notice warn" v-if="!stageDone(d, 4)">{{ d.payment.confirmed ? `Finish the marketing checklist first (${d.marketing.items.filter(m => m.on).length} of ${d.marketing.items.length} done, stage 5).` : 'The payment is not confirmed yet (stage 4), so Marketing has not started.' }}</div>
                 <div class="notice warn" v-else-if="mkTask && !mkTask.completed">{{ `The Marketing task is not completed yet (${mkTask.subtasksDone} of ${mkTask.subtasksTotal} done).` }}</div>
-                <div class="field" v-if="!stageDone(d, 4)"><label for="liveWhy">Reason to go live before Marketing</label><input class="input" id="liveWhy" v-model="liveReason" placeholder="e.g. Owner asked to open bookings now"></div>
-                <button class="btn btn-primary" @click="markLive()" :disabled="busy">Mark as Live</button>
+                <button class="btn btn-primary" @click="markLive()" :disabled="busy || !stageDone(d, 4)">Mark as Live</button>
               </template>
               <p class="muted" v-else>Not live yet.</p>
 
@@ -387,15 +389,6 @@
           </div>
 
           <div class="form-card">
-            <section class="card" aria-label="History">
-              <div class="card-head"><h2>History</h2></div>
-              <div class="hist timeline">
-                <template v-for="(h, i) in l.history.slice().reverse()" :key="i">
-                  <div><small>{{ `${stamp(h.at)} · ${h.by}` }}</small><span>{{ h.text }}</span></div>
-                </template>
-                <p class="muted" v-show="!l.history.length">Nothing yet.</p>
-              </div>
-            </section>
             <section class="card" aria-label="Task system">
               <div class="card-head"><h2>Task system</h2><button class="editlink" @click="loadTasks()" :disabled="tasksLoading" v-if="l.tmsTaskId || d.marketing.taskId">Refresh</button></div>
               <template v-if="l.tmsTaskId">
@@ -406,6 +399,15 @@
               <div class="kv" v-if="d.marketing.taskId"><span>Marketing task</span><span>{{ mkTask ? `${mkTask.completed ? 'Completed' : mkTask.status || 'Open'} · ${mkTask.subtasksDone} of ${mkTask.subtasksTotal}` : tasksError ? 'Could not read' : '…' }}</span></div>
               <p class="help" v-show="tasksError">{{ tasksError }}</p>
               <button type="button" class="btn view-details" @click="showDetails = true">View details</button>
+            </section>
+            <section class="card" aria-label="History">
+              <div class="card-head"><h2>History</h2></div>
+              <div class="hist timeline">
+                <template v-for="(h, i) in l.history.slice().reverse()" :key="i">
+                  <div><small>{{ `${stamp(h.at)} · ${h.by}` }}</small><span>{{ h.text }}</span></div>
+                </template>
+                <p class="muted" v-show="!l.history.length">Nothing yet.</p>
+              </div>
             </section>
           </div>
         </div>
@@ -460,12 +462,12 @@ import { handOff } from '@/lib/handoff.js';
 
 const me = useSession();
 // Who edits (the rules say the same). Finance, Operations and Marketing view only.
-const EDITORS = ['director', 'procurement'];
+const EDITORS = ['director', 'procurement', 'marketing'];   // Marketing too (Khairul 27 Oct)
 // Who may create properties, units and owners in Portfolio (the rules: Directors and Finance, and Operations create-only).
 // Procurement may not, so it sees a note instead of the Create buttons.
-const PORTFOLIO_ADDERS = ['director', 'finance', 'operations'];
+const PORTFOLIO_ADDERS = ['director', 'finance', 'operations', 'marketing'];
 // Who sees the owner's phone and email (the rules: editors, and Operations read-only).
-const CONTACT_READERS = ['director', 'procurement', 'operations'];
+const CONTACT_READERS = ['director', 'procurement', 'marketing', 'operations'];
 const LINK_TYPE = 'newOwnerListing';
 const LIST_LIMIT = 300;
 const FEE_PCT = 20;   // Procurement fee on renovation item costs
@@ -492,7 +494,7 @@ const FURN = [
 ];
 const PAY_LINKS = [['quotationUrl', 'Quotation PDF'], ['invoiceUrl', 'Owner invoice'], ['proofUrl', 'Payment proof']];
 const MK_DEFAULT = ['Logo & Branding', 'Website', 'IG', 'FB', 'TikTok', 'Google Business', 'Flyer', 'Social media content'];
-const FILTERS = [{ key: 'all', label: 'All' }, { key: 'progress', label: 'In progress' }, { key: 'live', label: 'Live' }, { key: 'unsent', label: 'Not sent' }];
+const FILTERS = [{ key: 'all', label: 'All' }, { key: 'progress', label: 'In progress' }, { key: 'live', label: 'Live' }, { key: 'unsigned', label: 'Agreement not signed' }, { key: 'unsent', label: 'Not sent' }];
 const DETAILS = [['property', 'property'], ['unit', 'unit'], ['ownerName', 'owner name'], ['title', 'title'], ['description', 'description'], ['dueDate', 'due date']];
 const SECTIONS = ['agreement', 'renovation', 'furniture', 'payment', 'marketing', 'live'];
 
@@ -535,7 +537,7 @@ const subDoneOf = (l, k) => l.furniture[k].length > 0 && l.furniture[k].every(x 
 // Furniture groups that have lines; an empty group (e.g. no electrical items for this unit) is not counted.
 const furnUsed = l => FURN.filter(f => l.furniture[f.key].length > 0);
 // Each stage counts as done when: 1 signed or skipped for now, 2 every renovation line Done, 3 every furniture line ticked in
-// each sub-stage that has lines (empty ones are not needed), 4 payment confirmed, 5 Marketing notified (on payment confirmed) or an older Marketing task sent, 6 Live.
+// each sub-stage that has lines (empty ones are not needed), 4 payment confirmed, 5 Marketing notified and every checklist line ticked (or an older Marketing task sent), 6 Live.
 // The TMS department that holds the listing's task: Procurement, then Marketing once the payment is confirmed, then
 // Operations once it is Live.
 const deptOf = l => l.live.live ? 'operation' : l.payment.confirmed ? 'marketing' : 'procurement';
@@ -544,8 +546,20 @@ function stageDoneOf(l, i) {
   if (i === 1) return l.renovation.items.length > 0 && l.renovation.items.every(x => x.status === 'done');
   if (i === 2) return furnUsed(l).length > 0 && furnUsed(l).every(f => subDoneOf(l, f.key));
   if (i === 3) return l.payment.confirmed;
-  if (i === 4) return !!(l.marketing.taskId || l.marketing.notifiedAt);
+  if (i === 4) return !!l.marketing.taskId || (!!l.marketing.notifiedAt && mkDoneOf(l));
   return l.live.live;
+}
+// Marketing checklist: every line ticked (Khairul 27 Oct: no Go Live before it is 100%).
+const mkDoneOf = l => l.marketing.items.length > 0 && l.marketing.items.every(m => m.on);
+// Started but not finished (yellow dash on the stage strip, Khairul 27 Oct): some work in the stage, not all of it.
+function stagePartOf(l, i) {
+  if (stageDoneOf(l, i)) return false;
+  if (i === 0) return l.agreement.skipped;   // skipped, the reason not written yet
+  if (i === 1) return l.renovation.items.some(x => x.status !== 'notStarted');
+  if (i === 2) return FURN.some(f => l.furniture[f.key].some(x => x.done));
+  if (i === 3) return PAY_LINKS.some(([k]) => !!l.payment[k]) || money(l.payment.amount) > 0;
+  if (i === 4) return !!l.marketing.notifiedAt || l.marketing.items.some(m => m.on);
+  return false;
 }
 const currentIdxOf = l => { if (l.live.live) return 5; const i = STAGES.findIndex((s, k) => !stageDoneOf(l, k)); return i < 0 ? 5 : i; };
 
@@ -612,6 +626,7 @@ function summarize(a, b, contactChanged) {
   const mk = x => x.marketing.items.filter(m => m.on).map(m => m.title).join(', ');
   const t0 = a.marketing.items.map(m => m.title), t1 = b.marketing.items.map(m => m.title);
   for (const t of t1) if (!t0.includes(t)) out.push(`Marketing: added ${t}.`);
+  for (const t of t0) if (!t1.includes(t)) out.push(`Marketing: removed ${t}.`);
   if (mk(a) !== mk(b)) out.push(`Marketing items: ${mk(b) || 'none'}.`);
   if (b.marketing.taskId && !a.marketing.taskId) out.push(`Sent to Marketing as a task (${b.marketing.items.filter(m => m.on).length} items).`);
 
@@ -627,7 +642,7 @@ export default {
   data() {
     return {
       STAGES, RSTATUS, FURN, PAY_LINKS, FILTERS, FEE_PCT,
-      canEdit: EDITORS.includes(me.role), isDirector: me.role === 'director',
+      canEdit: EDITORS.includes(me.role), hasInbox: ['director', 'procurement'].includes(me.role), isDirector: me.role === 'director',
       canAddPortfolio: PORTFOLIO_ADDERS.includes(me.role), canSeeContact: CONTACT_READERS.includes(me.role),
       view: 'list', listings: [], search: '', filter: 'all',
       tasks: [], inboxLoading: false, inboxError: '',
@@ -654,7 +669,7 @@ export default {
         else this.loadTasks();
       } else {
         await this.loadList();
-        if (this.canEdit) this.loadInbox();
+        if (this.hasInbox) this.loadInbox();
       }
     } catch (e) { this.error = friendlyError(e, 'load the new owner listings'); }
     this.loading = false;
@@ -665,6 +680,8 @@ export default {
     procTask() { const id = this.l?.tmsTaskId; return id ? this.linked.find(t => t.id === id) || null : null; }
   },
   methods: {
+    // Summary cards: set the list's filter (if any) and scroll to it.
+    kpiGo(key, ref = 'list') { if (key) this.filter = key; this.$nextTick(() => this.$refs[ref]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); },
     go(view, id = null) {
       const query = view === 'new' ? { new: '1' } : view === 'listing' ? { id } : {};
       this.$router.push({ query, state: { okMsg: this.okMsg } });
@@ -729,6 +746,7 @@ export default {
     placeOf(l) { return [l.property, l.unit].filter(Boolean).join(' · ') || l.title || 'Property not set'; },
     tmsState(l) { return !l.tmsTaskId ? ['Not linked', 'grey'] : l.tmsSync?.pending ? ['Not sent', 'amber'] : ['Linked', 'green']; },
     stageDone(l, i) { return stageDoneOf(l, i); },
+    stagePart(l, i) { return stagePartOf(l, i); },
     // Property dropdown: the Portfolio's properties, or "New property" with a typed name for one not added yet.
     propChoice(o, key) {
       const v = (o.property || '').trim();
@@ -749,7 +767,7 @@ export default {
       if (i === 1) return `${l.renovation.items.filter(x => x.status === 'done').length}/${l.renovation.items.length} done`;
       if (i === 2) return furnUsed(l).length ? `${furnUsed(l).filter(f => subDoneOf(l, f.key)).length}/${furnUsed(l).length} completed` : 'No items yet';
       if (i === 3) return l.payment.confirmed ? 'Confirmed' : 'Waiting';
-      if (i === 4) return l.marketing.taskId ? 'Sent' : 'Not sent';
+      if (i === 4) return l.marketing.taskId ? 'Sent' : !l.marketing.notifiedAt ? 'Waiting' : `${l.marketing.items.filter(m => m.on).length}/${l.marketing.items.length} done`;
       return l.live.live ? 'Live' : 'Not yet';
     },
     renoGroups() { return [...RENO_GROUPS, ...new Set(this.d.renovation.items.map(x => x.group).filter(g => !RENO_GROUPS.includes(g)))]; },
@@ -923,7 +941,7 @@ export default {
     async markLive() {
       const d = this.d;
       const reason = this.liveReason.trim();
-      if (!stageDoneOf(d, 4) && !reason) { this.formError = 'Give the reason to go live before Marketing is notified.'; return; }
+      if (!stageDoneOf(d, 4)) { this.formError = 'Finish the marketing checklist (every item ticked) before going Live.'; return; }
       const keep = clone(d.live);
       Object.assign(d.live, { live: true, at: nowIso(), byName: me.name, overrideReason: stageDoneOf(d, 4) ? '' : reason });
       if (!(await this.save({ completed: true }))) { d.live = keep; return; }
@@ -1003,6 +1021,8 @@ export default {
     .step.done .stage-dot { background: var(--green); border-color: var(--green); }
     .step.done .stage-dot::after { content: '✓'; color: #fff; font-size: 11px; font-weight: 700; }
     .step.now .stage-dot { border-color: var(--accent); }
+    .step.part .stage-dot { background: var(--amber); border-color: var(--amber); display: grid; place-items: center; }
+    .step.part .stage-dot::after { content: '–'; color: #fff; font-size: 13px; font-weight: 700; line-height: 1; }
     .step.on { border-color: var(--accent); background: var(--accent-soft); }
     .unsent { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
     .sign-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
@@ -1067,7 +1087,20 @@ export default {
     .field > .select { width: 100%; height: 40px; font-weight: 400; font-size: 14px; padding-left: 12px; background-position: calc(100% - 17px) 18px, calc(100% - 13px) 18px; }
     .th-all { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 500; }
     .th-all input { width: 16px; height: 16px; accent-color: var(--accent); }
-    .mk-all { font-weight: 600; margin-bottom: 10px; }
+    .mk-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 14px 0 10px; }
+    .mk-count { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+    .mk-all { font-weight: 600; margin: 0; }
+    .mk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+    .mk-tile { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+      font-size: 13px; cursor: pointer; background: var(--surface); transition: border-color .15s, background .15s; }
+    .mk-tile:hover { border-color: var(--accent); }
+    .mk-tile.on { border-color: var(--green); background: var(--green-soft); font-weight: 600; }
+    .mk-tile input { width: 16px; height: 16px; flex: none; accent-color: var(--green); }
+    .mk-tile span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .mk-x { flex: none; width: 22px; height: 22px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+    .mk-x:hover { background: var(--red-soft); color: var(--red); }
+    .mk-add { display: flex; gap: 8px; margin: 12px 0 4px; }
+    .mk-add .input { flex: 1; min-width: 0; }
     .details-modal { max-width: 680px; }
     .details-modal .card-head { margin-bottom: 12px; }
     .d-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 4px 16px; align-items: start; }

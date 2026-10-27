@@ -21,14 +21,14 @@
     <div class="notice warn" v-show="!loading && !properties.length">No properties yet. Upload an eZee report first; it creates the property and its units.</div>
 
     <section class="kpis">
-      <div class="card kpi"><div class="label">Owner statements</div><div class="value">{{ count('statement') }}</div>
-        <div class="hint">{{ count('statement') ? `${shortName(month)} · completed` : `None completed for ${shortName(month)} yet` }}</div></div>
-      <div class="card kpi"><div class="label">Tenant invoices</div><div class="value">{{ count('invoice') }}</div><div class="hint">None yet. Rent invoices come with leases</div></div>
-      <div class="card kpi"><div class="label">Receipts</div><div class="value">{{ count('receipt') }}</div><div class="hint">None yet. Rent receipts come with leases</div></div>
-      <div class="card kpi"><div class="label">Paid to owners</div><div class="value">{{ rm(paidToOwners()) }}</div><div class="hint">{{ `${shortName(month)} total` }}</div></div>
+      <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'statement' }" @click="kpiGo('statement')"><div class="label">Owner statements</div><div class="value">{{ count('statement') }}</div>
+        <div class="hint">{{ count('statement') ? `${shortName(month)} · completed` : `None completed for ${shortName(month)} yet` }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'invoice' }" @click="kpiGo('invoice')"><div class="label">Tenant invoices</div><div class="value">{{ count('invoice') }}</div><div class="hint">None yet. Rent invoices come with leases</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'receipt' }" @click="kpiGo('receipt')"><div class="label">Receipts</div><div class="value">{{ count('receipt') }}</div><div class="hint">None yet. Rent receipts come with leases</div></button>
+      <button type="button" class="card kpi kpi-link" @click="kpiGo('statement')"><div class="label">Paid to owners</div><div class="value">{{ rm(paidToOwners()) }}</div><div class="hint">{{ `${shortName(month)} total` }}</div></button>
     </section>
 
-    <div class="toolbar">
+    <div class="toolbar" ref="list">
       <input class="input" type="search" placeholder="Search document no. or unit…" v-model="search" aria-label="Search">
       <div class="pills">
         <template v-for="f in FILTERS" :key="f.key">
@@ -182,6 +182,8 @@ export default {
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
   },
   methods: {
+    // Summary cards: set the list's filter (if any) and scroll to it.
+    kpiGo(key, ref = 'list') { if (key) this.filter = key; this.$nextTick(() => this.$refs[ref]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); },
     property() { return this.properties.find(p => p.id === this.propertyId) || {}; },
     code() { return (this.property().code || this.property().name || 'WB').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4) || 'WB'; },
 

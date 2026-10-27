@@ -29,13 +29,13 @@
 
     <div v-show="!selOpen">
     <section class="kpis" v-show="rows.length">
-      <div class="card kpi"><div class="label">Total rental income</div><div class="value">{{ rm(summary.income) }}</div><div class="hint">{{ `${bookingCount()} bookings · ${rows.length} units` }}</div></div>
-      <div class="card kpi"><div class="label">Bal to pay owners</div><div class="value">{{ rm(summary.balToPay) }}</div><div class="hint">{{ `Fixed ${amt(summary.fixed)} · Profit sharing ${amt(summary.share)}` }}</div></div>
-      <div class="card kpi"><div class="label">Carried forward</div><div class="value" :class="summary.carried ? 'alert' : ''">{{ rm(summary.carried) }}</div><div class="hint">{{ `Negative balances go to ${monthName(nextMonth(month))}` }}</div></div>
-      <div class="card kpi"><div class="label">Needs attention</div><div class="value" :class="checklist.length ? 'alert' : ''">{{ checklist.length }}</div><div class="hint">Must be zero to complete</div></div>
+      <button type="button" class="card kpi kpi-link" @click="kpiGo('all')"><div class="label">Total rental income</div><div class="value">{{ rm(summary.income) }}</div><div class="hint">{{ `${bookingCount()} bookings · ${rows.length} units` }}</div></button>
+      <button type="button" class="card kpi kpi-link" @click="kpiGo('all')"><div class="label">Bal to pay owners</div><div class="value">{{ rm(summary.balToPay) }}</div><div class="hint">{{ `Fixed ${amt(summary.fixed)} · Profit sharing ${amt(summary.share)}` }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'negative' }" @click="kpiGo('negative')"><div class="label">Carried forward</div><div class="value" :class="summary.carried ? 'alert' : ''">{{ rm(summary.carried) }}</div><div class="hint">{{ `Negative balances go to ${monthName(nextMonth(month))}` }}</div></button>
+      <button type="button" class="card kpi kpi-link" @click="kpiGo(null, 'checks')"><div class="label">Needs attention</div><div class="value" :class="checklist.length ? 'alert' : ''">{{ checklist.length }}</div><div class="hint">Must be zero to complete</div></button>
     </section>
 
-    <div class="toolbar" v-show="rows.length">
+    <div class="toolbar" v-show="rows.length" ref="list">
       <input class="input" type="search" placeholder="Search unit" v-model="search" aria-label="Search unit">
       <div class="pills">
         <template v-for="f in filters" :key="f.key">
@@ -72,7 +72,7 @@
     </section>
     <div class="empty card" style="margin-top:16px" v-show="!loading && propertyId && !rows.length">No bookings or fixed-rent units for this month. Upload the eZee report for it first.</div>
     <div class="grid-2" style="margin-top:24px" v-show="!loading && propertyId">
-      <section class="card">
+      <section class="card" ref="checks">
         <div class="card-head"><h2>Before you can complete</h2>
           <button class="btn btn-sm starter-btn" v-if="starterAvailable()" @click="starterAsk = !starterAsk" :aria-expanded="starterAsk"
             title="Fill in the D'Majestic units that aren't set up">⚡ Starter settings</button></div>
@@ -341,6 +341,8 @@ export default {
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
   },
   methods: {
+    // Summary cards: set the list's filter (if any) and scroll to it.
+    kpiGo(key, ref = 'list') { if (key) this.filter = key; this.$nextTick(() => this.$refs[ref]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); },
     propertyName() { return this.properties.find(p => p.id === this.propertyId)?.name || ''; },
     property() { return this.properties.find(p => p.id === this.propertyId) || {}; },
 

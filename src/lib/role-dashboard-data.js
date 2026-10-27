@@ -154,9 +154,11 @@ export async function loadHR() {
   };
 }
 
-// ---- Marketing: New owner listings is still sample data kept in this browser (same key as the page) ----
-const LISTINGS_KEY = 'wb.listings', SAMPLE_COUNT = 4;   // the page shows its 4 sample listings until one is saved
-export function sampleListings() {
-  try { const v = JSON.parse(localStorage.getItem(LISTINGS_KEY)); if (Array.isArray(v)) return { count: v.length, notLive: v.filter(x => x.stage < 6).length }; } catch {}
-  return { count: SAMPLE_COUNT, notLive: SAMPLE_COUNT };
+// ---- Procurement and Marketing: New owner listings (newOwnerListings). Marketing's work starts once the payment
+// is confirmed, so "for Marketing" = paid and not live yet.
+export async function loadListingCounts() {
+  const list = rows(await getDocs(collection(db, 'newOwnerListings')));
+  const notLive = list.filter(x => x.status !== 'live');
+  return { count: list.length, notLive: notLive.length, forMarketing: notLive.filter(x => x.payment?.confirmed).length,
+    unsigned: notLive.filter(x => !x.agreement?.signed && x.agreement?.skipped).length };
 }

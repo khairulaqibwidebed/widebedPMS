@@ -16,12 +16,12 @@
         </div>
 
         <div class="kpis k3">
-          <div class="card kpi"><div class="label">Open</div><div class="value">{{ count('open') }}</div><div class="hint">{{ needReply() + ' need a reply from your role' }}</div></div>
-          <div class="card kpi"><div class="label">In progress</div><div class="value">{{ count('progress') }}</div><div class="hint">Being worked on by a tagged team</div></div>
-          <div class="card kpi"><div class="label">Completed this month</div><div class="value">{{ completedThisMonth() }}</div><div class="hint">Locked and archived</div></div>
+          <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'open' }" @click="kpiGo('open')"><div class="label">Open</div><div class="value">{{ count('open') }}</div><div class="hint">{{ needReply() + ' need a reply from your role' }}</div></button>
+          <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'progress' }" @click="kpiGo('progress')"><div class="label">In progress</div><div class="value">{{ count('progress') }}</div><div class="hint">Being worked on by a tagged team</div></button>
+          <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'done' }" @click="kpiGo('done')"><div class="label">Completed this month</div><div class="value">{{ completedThisMonth() }}</div><div class="hint">Locked and archived</div></button>
         </div>
 
-        <div class="iss-tools">
+        <div class="iss-tools" ref="list">
           <input class="input" type="search" placeholder="Search ticket no., title or unit" v-model="search" aria-label="Search tickets">
           <div class="pills brand">
             <template v-for="f in FILTERS" :key="f.key">
@@ -276,6 +276,8 @@ export default {
     this.loading = false;
   },
   methods: {
+    // Summary cards: set the list's filter (if any) and scroll to it.
+    kpiGo(key, ref = 'list') { if (key) this.filter = key; this.$nextTick(() => this.$refs[ref]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); },
     roleTint,
     newDraft() { return { text: '', links: [], adding: false, linkName: '', linkUrl: '', error: '' }; },
     async route() {

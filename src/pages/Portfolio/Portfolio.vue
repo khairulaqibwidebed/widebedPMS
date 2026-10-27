@@ -36,7 +36,7 @@
           <template v-for="m in months" :key="m"><option :value="m" :selected="m === asOf">{{ shortName(m) }}</option></template>
         </select>
         <button class="btn btn-primary" v-show="ptab === 'units'" @click="openUnit(null)" v-if="canAdd">+ Add unit</button>
-        <button class="btn" v-show="ptab === 'overview'" @click="openProperty(property())" v-if="!viewOnly">Edit property</button>
+        <button class="btn" v-show="ptab === 'overview'" @click="openProperty(property())" v-if="!viewOnly || canEdit">Edit property</button>
       </div>
     </div>
 
@@ -50,20 +50,20 @@
     <!-- ========== PROPERTIES LIST ========== -->
     <div v-show="top === 'properties' && !onProperty()">
       <section class="kpis">
-        <div class="card kpi"><div class="label">Properties</div><div class="value">{{ properties.length }}</div><div class="hint">Widebed manages</div></div>
-        <div class="card kpi"><div class="label">Units</div><div class="value">{{ allUnits.length }}</div><div class="hint">Across all properties</div></div>
+        <button type="button" class="card kpi kpi-link" :class="{ on: !propAttn }" @click="propAttn = false; kpiGo('propList')"><div class="label">Properties</div><div class="value">{{ properties.length }}</div><div class="hint">Widebed manages</div></button>
+        <button type="button" class="card kpi kpi-link" @click="propAttn = false; kpiGo('propList')"><div class="label">Units</div><div class="value">{{ allUnits.length }}</div><div class="hint">Across all properties</div></button>
         <template v-if="!viewOnly">
-        <div class="card kpi"><div class="label">{{ `${monthOnly(asOf)} statements` }}</div>
+        <RouterLink class="card kpi kpi-link" :to="`/Finance/month-end?month=${asOf}`" title="Open Month-end payout"><div class="label">{{ `${monthOnly(asOf)} statements` }}</div>
           <div class="value small">{{ `${completedUnits()} of ${allUnits.length} completed` }}</div>
-          <div class="hint">{{ `${properties.filter(p => !isDone(p.id)).length} ${properties.filter(p => !isDone(p.id)).length === 1 ? 'property' : 'properties'} still open` }}</div></div>
-        <div class="card kpi"><div class="label">Needs attention</div><div class="value" :class="{ alert: allUnits.filter(x => !x.terms).length }">{{ allUnits.filter(x => !x.terms).length }}</div><div class="hint">Units not set up yet</div></div>
+          <div class="hint">{{ `${properties.filter(p => !isDone(p.id)).length} ${properties.filter(p => !isDone(p.id)).length === 1 ? 'property' : 'properties'} still open` }}</div></RouterLink>
+        <button type="button" class="card kpi kpi-link" :class="{ on: propAttn }" @click="propAttn = !propAttn; kpiGo('propList')" title="Show only properties with units not set up"><div class="label">Needs attention</div><div class="value" :class="{ alert: allUnits.filter(x => !x.terms).length }">{{ allUnits.filter(x => !x.terms).length }}</div><div class="hint">{{ propAttn ? 'Showing these properties · click to show all' : 'Units not set up yet' }}</div></button>
         </template>
       </section>
       <div class="pf-bar">
         <input class="input" type="search" placeholder="Search property..." v-model="propSearch" aria-label="Search property">
         <button class="btn btn-primary" @click="openProperty(null)" v-if="canAdd">+ Add property</button>
       </div>
-      <section class="card">
+      <section class="card" ref="propList">
         <h2 class="t">{{ viewOnly ? 'Properties' : `Properties · ${monthName(asOf)}` }}</h2>
         <Paged :items="shownProperties()" v-slot="{ pageRows }">
         <div class="table-wrap">
@@ -103,18 +103,20 @@
       <section class="card">
         <div class="card-head"><h2>{{ `Owners · ${shownOwners().length}` }}</h2>
           <div class="pills"><button class="pill-btn" :class="{ on: !showInactive }" @click="showInactive = false">Active</button><button class="pill-btn" :class="{ on: showInactive }" @click="showInactive = true">Deactivated</button></div></div>
-        <p class="card-intro" v-if="viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Finance and Directors. This list shows each owner's units only.</p>
+        <p class="card-intro" v-if="canEdit">Owner names and contact details are personal data (PDPA): Finance, Directors and Marketing see them. Click an owner to edit. Bank details stay with Finance.</p>
+        <p class="card-intro" v-else-if="viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Finance and Directors. This list shows each owner's units only.</p>
         <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Finance and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.
           Owner details can later come from the Google Sheet staff already keep (cached copy plus Sync now).</p>
         <div class="toolbar"><input class="input" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"></div>
         <Paged :items="shownOwners()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
-            <thead v-if="viewOnly"><tr><th>Units</th><th>Status</th></tr></thead>
+            <thead v-if="viewOnly"><tr><th v-if="canEdit">Owner</th><th>Units</th><th>Status</th></tr></thead>
             <thead v-else><tr><th>Owner</th><th>Units</th><th>Arrangement</th><th>Paid to</th><th class="num">Carried forward (RM)</th><th></th></tr></thead>
             <tbody>
               <template v-for="own in pageRows" :key="own.id">
-                <tr v-if="viewOnly">
+                <tr v-if="viewOnly" :class="{ clickable: canEdit }" @click="canEdit && openOwnerForm(own)">
+                  <td class="strong" v-if="canEdit">{{ ownerName(own.id) || 'No name saved' }}</td>
                   <td>{{ ownerUnits(own.id).map(x => propertyId === 'all' ? `${x.unitCode} · ${propertyNameOf(x.propertyId)}` : x.unitCode).join(', ') || '—' }}</td>
                   <td><span class="pill" :class="own.active === false ? 'grey' : 'green'">{{ own.active === false ? 'Deactivated' : 'Active' }}</span></td>
                 </tr>
@@ -127,7 +129,7 @@
                   <td class="num"><button class="navlink" @click.stop="openOwner(own)">View</button></td>
                 </tr>
               </template>
-              <tr v-show="!loading && !shownOwners().length"><td :colspan="viewOnly ? 2 : 6" class="muted">{{ viewOnly ? 'No owners here.' : 'No owners here yet. Add one, then link their units on the Units tab.' }}</td></tr>
+              <tr v-show="!loading && !shownOwners().length"><td :colspan="viewOnly ? (canEdit ? 3 : 2) : 6" class="muted">{{ viewOnly ? 'No owners here.' : 'No owners here yet. Add one, then link their units on the Units tab.' }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -139,10 +141,10 @@
     <!-- ========== BOOKINGS (offline, read-only) ========== -->
     <div v-show="top === 'bookings' && !onProperty()">
       <section class="kpis">
-        <div class="card kpi"><div class="label">Offline bookings</div><div class="value">{{ offlineBookings.length }}</div><div class="hint">Made from Offline inquiries</div></div>
-        <div class="card kpi"><div class="label">Long-term tenants</div><div class="value">{{ offlineBookings.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></div>
-        <div class="card kpi"><div class="label">Short stays</div><div class="value">{{ offlineBookings.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></div>
-        <div class="card kpi"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: offlineBookings.filter(x => !x.ezeeReservationNo).length }">{{ offlineBookings.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></div>
+        <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; kpiGo('bookList')"><div class="label">Offline bookings</div><div class="value">{{ offlineBookings.length }}</div><div class="hint">Made from Offline inquiries</div></button>
+        <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; kpiGo('bookList')"><div class="label">Long-term tenants</div><div class="value">{{ offlineBookings.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></button>
+        <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; kpiGo('bookList')"><div class="label">Short stays</div><div class="value">{{ offlineBookings.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></button>
+        <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; kpiGo('bookList')"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: offlineBookings.filter(x => !x.ezeeReservationNo).length }">{{ offlineBookings.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></button>
       </section>
       <section class="card">
         <div class="card-head"><h2>Offline bookings</h2>
@@ -151,7 +153,7 @@
             <RouterLink class="btn btn-primary" v-if="canBook" to="/Operations/offline-inquiries?newBooking=1">+ New booking</RouterLink>
           </div></div>
         <p class="card-intro">Stays not booked through eZee, e.g. long-term tenants. They are made from Offline inquiries with Create booking, or with + New booking for a stay with no inquiry; this list is read-only. Each one is keyed into eZee to block the room; month-end pays the owner from the eZee booking, so these are never counted twice.</p>
-        <div class="toolbar">
+        <div class="toolbar" ref="bookList">
           <input class="input" type="search" placeholder="Search booking no., unit or tenant ID" v-model="bookingSearch" aria-label="Search booking">
         </div>
         <Paged :items="shownBookings()" v-slot="{ pageRows }">
@@ -184,16 +186,16 @@
     <!-- ========== PROPERTY: OVERVIEW ========== -->
     <div v-show="onProperty() && ptab === 'overview'">
       <section class="kpis">
-        <div class="card kpi"><div class="label">Units</div><div class="value">{{ units.length }}</div><div class="hint">{{ viewOnly ? typeText(units) || 'None yet' : mixText(units) || 'None yet' }}</div></div>
-        <div class="card kpi" v-if="viewOnly"><div class="label">Owners</div><div class="value">{{ new Set(units.map(x => x.ownerId).filter(Boolean)).size }}</div><div class="hint">Linked to these units</div></div>
+        <button type="button" class="card kpi kpi-link" @click="filter = 'all'; setPtab('units')"><div class="label">Units</div><div class="value">{{ units.length }}</div><div class="hint">{{ viewOnly ? typeText(units) || 'None yet' : mixText(units) || 'None yet' }}</div></button>
+        <button type="button" class="card kpi kpi-link" v-if="viewOnly" @click="setPtab('owners')"><div class="label">Owners</div><div class="value">{{ new Set(units.map(x => x.ownerId).filter(Boolean)).size }}</div><div class="hint">Linked to these units</div></button>
         <template v-else>
-        <div class="card kpi"><div class="label">Fixed rent a month</div><div class="value small">{{ `RM ${amt(fixedTotal())}` }}</div><div class="hint">{{ `${units.filter(x => x.terms?.arrangement === 'fixedRent').length} fixed-rent units` }}</div></div>
-        <div class="card kpi"><div class="label">{{ `${monthOnly(asOf)} statements` }}</div><div class="value small">{{ isDone(propertyId) ? 'Completed' : 'Open' }}</div><div class="hint">Month-end payout</div></div>
-        <div class="card kpi"><div class="label">Needs attention</div><div class="value" :class="{ alert: units.filter(x => !x.terms).length }">{{ units.filter(x => !x.terms).length }}</div><div class="hint">Units not set up</div></div>
+        <button type="button" class="card kpi kpi-link" @click="filter = 'fixed'; setPtab('units')"><div class="label">Fixed rent a month</div><div class="value small">{{ `RM ${amt(fixedTotal())}` }}</div><div class="hint">{{ `${units.filter(x => x.terms?.arrangement === 'fixedRent').length} fixed-rent units` }}</div></button>
+        <RouterLink class="card kpi kpi-link" :to="`/Finance/month-end?property=${propertyId}&month=${asOf}`" title="Open Month-end payout"><div class="label">{{ `${monthOnly(asOf)} statements` }}</div><div class="value small">{{ isDone(propertyId) ? 'Completed' : 'Open' }}</div><div class="hint">Month-end payout</div></RouterLink>
+        <button type="button" class="card kpi kpi-link" @click="filter = 'none'; setPtab('units')"><div class="label">Needs attention</div><div class="value" :class="{ alert: units.filter(x => !x.terms).length }">{{ units.filter(x => !x.terms).length }}</div><div class="hint">Units not set up</div></button>
         </template>
       </section>
       <section class="card">
-        <div class="card-head"><h2>Property details</h2><button class="editlink" @click="openProperty(property())" v-if="!viewOnly">Edit ›</button></div>
+        <div class="card-head"><h2>Property details</h2><button class="editlink" @click="openProperty(property())" v-if="!viewOnly || canEdit">Edit ›</button></div>
         <div class="info-grid">
           <div>
             <div class="kv"><span>Property name</span><span>{{ property().name }}</span></div>
@@ -234,7 +236,7 @@
             <thead v-else><tr><th>Unit</th><th>Arrangement</th><th>Fixed rent</th><th class="num">Monthly amount (RM)</th><th>Effective from</th><th>Last changed</th><th></th></tr></thead>
             <tbody>
               <template v-for="row in pageRows" :key="row.id">
-                <tr v-if="viewOnly">
+                <tr v-if="viewOnly" :class="{ clickable: canEdit }" @click="canEdit && openUnit(row)">
                   <td class="strong">{{ row.unitCode }}</td>
                   <td>{{ ownerLabel(row.ownerId) || '—' }}</td>
                   <td>{{ row.info?.type || '—' }}</td>
@@ -373,7 +375,7 @@
     </div>
 
     <!-- ========== Drawer: Edit / Add unit ========== -->
-    <template v-if="unitOpen && (!viewOnly || (canAdd && u.isNew))">
+    <template v-if="unitOpen && (!viewOnly || canEdit || (canAdd && u.isNew))">
       <div>
         <div class="drawer-back" @click="unitOpen = false"></div>
         <aside class="drawer" role="dialog" aria-label="Edit unit" v-esc="() => { unitOpen = false }">
@@ -387,11 +389,11 @@
             <div class="field"><label for="uAlias">Other eZee names for this unit</label>
               <input class="input" id="uAlias" v-model="u.aliases" placeholder="e.g. DM 1509-2"><span class="help">Comma between names. Bookings under these names count for this unit on the next upload.</span></div>
             <div class="field"><label for="uOwner">Owner</label>
-              <select class="input" id="uOwner" v-model="u.ownerId">
+              <select class="input" id="uOwner" v-model="u.ownerId" :disabled="viewOnly && !u.isNew">
                 <option value="">No owner linked</option>
                 <template v-for="own in owners.filter(x => x.active !== false || x.id === u.ownerId)" :key="own.id"><option :value="own.id" :selected="own.id === u.ownerId">{{ ownerLabel(own.id) }}</option></template>
               </select>
-              <span class="help">Not in the list? Add them on the Owners tab first.</span></div>
+              <span class="help">{{ viewOnly && !u.isNew ? 'A change of owner is made by Finance or a Director.' : 'Not in the list? Add them on the Owners tab first.' }}</span></div>
             <div class="form-sec">Unit details</div>
             <div class="field"><label for="uType">Unit type</label>
               <select class="input" id="uType" v-model="u.info.type"><option value="">Choose</option>
@@ -456,7 +458,7 @@
     </template>
 
     <!-- ========== Drawer: Add / edit property ========== -->
-    <template v-if="propOpen && (!viewOnly || (canAdd && !np.id))">
+    <template v-if="propOpen && (!viewOnly || canEdit || (canAdd && !np.id))">
       <div>
         <div class="drawer-back" @click="propOpen = false"></div>
         <aside class="drawer wide" role="dialog" aria-label="Property" v-esc="() => { propOpen = false }">
@@ -492,7 +494,7 @@
     </template>
 
     <!-- ========== Drawer: Owner (view / edit / add) ========== -->
-    <template v-if="ownerOpen && (!viewOnly || (canAdd && o.isNew))">
+    <template v-if="ownerOpen && (!viewOnly || canEdit || (canAdd && o.isNew))">
       <div>
         <div class="drawer-back" @click="ownerOpen = false"></div>
         <aside class="drawer wide" role="dialog" aria-label="Owner" v-esc="() => { ownerOpen = false }">
@@ -501,7 +503,7 @@
             <div class="notice error" v-show="o.error">{{ o.error }}</div>
             <p class="help from-listing" v-if="o.fromListing">{{ `Filled in from new owner listing ${o.fromListing.listingId}. Check the details, then Add owner.` }}</p>
             <div class="notice warn" v-show="o.active === false">{{ `Deactivated${o.deactivatedReason ? ': ' + o.deactivatedReason : ''}. Their history stays; they can't be linked to new units.` }}</div>
-            <template v-if="!o.isNew">
+            <template v-if="!o.isNew && !viewOnly">
               <div>
                 <div class="summary-grid">
                   <div><b>{{ ownerUnits(o.id).length }}</b><span>Units</span></div>
@@ -520,7 +522,7 @@
                 </div>
               </div>
             </template>
-            <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ viewOnly ? '· private: once saved, only Finance and Directors see them' : '· private, Finance and Directors only' }}</span></div>
+            <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ canEdit ? '· private, Finance, Directors and Marketing only' : viewOnly ? '· private: once saved, only Finance and Directors see them' : '· private, Finance and Directors only' }}</span></div>
             <div class="grid-fields">
               <div class="field"><label for="oName">Full name</label><input class="input" id="oName" v-model="o.fullName" placeholder="e.g. Owner A"></div>
               <div class="field"><label for="oIc">IC / passport</label><input class="input" id="oIc" v-model="o.ic"></div>
@@ -542,7 +544,7 @@
             </template>
             <p class="help" v-else>Bank details are added by Finance or a Director.</p>
             <div class="field" v-show="!o.isNew"><label for="oWhy">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
-            <template v-if="!o.isNew && o.active !== false">
+            <template v-if="!o.isNew && o.active !== false && !viewOnly">
               <div class="confirm-box" v-show="o.deactivating">
                 <div class="field" style="margin-bottom:10px"><label for="oDeact">Why deactivate this owner?</label><input class="input" id="oDeact" v-model="o.deactivateReason" placeholder="e.g. Sold the unit"></div>
                 <button type="button" class="btn btn-primary" @click="deactivateOwner()" :disabled="busy">Deactivate owner</button> <button type="button" class="btn" @click="o.deactivating = false">Keep active</button>
@@ -550,8 +552,8 @@
             </template>
           </form>
           <div class="drawer-foot">
-            <button class="btn" style="margin-right:auto" v-show="!o.isNew && o.active !== false && !o.deactivating" @click="o.deactivating = true">Deactivate</button>
-            <button class="btn" v-show="!o.isNew && o.active === false" @click="reactivateOwner()" :disabled="busy">Turn back on</button>
+            <button class="btn" style="margin-right:auto" v-show="!viewOnly && !o.isNew && o.active !== false && !o.deactivating" @click="o.deactivating = true">Deactivate</button>
+            <button class="btn" v-show="!viewOnly && !o.isNew && o.active === false" @click="reactivateOwner()" :disabled="busy">Turn back on</button>
             <button class="btn" @click="ownerOpen = false">Cancel</button>
             <button class="btn btn-primary" type="submit" form="ownerForm" :disabled="busy">{{ o.isNew ? 'Add owner' : 'Save owner' }}</button>
           </div>
@@ -597,7 +599,7 @@ const VIEWERS = ['operations', 'procurement', 'marketing'];
 const ALL_PTABS = [{ key: 'overview', label: 'Overview' }, { key: 'units', label: 'Units' }, { key: 'owners', label: 'Owners' },
   { key: 'rates', label: 'Fees & rates' }, { key: 'ota', label: 'OTA commissions' }, { key: 'audit', label: 'Audit log' }];
 // Operations may also add properties, units and owners (Khairul 21 Oct): no fees, rent or bank details, and no editing.
-const ADDERS = ['director', 'finance', 'operations'];
+const ADDERS = ['director', 'finance', 'operations', 'marketing'];
 const BANK = ['bankName', 'accountHolder', 'bankAccount'];
 const UNIT_TYPES = ['Studio', '1 bedroom', '2 bedrooms', '3 bedrooms', 'Dual key', 'Penthouse', 'Other'];
 
@@ -610,6 +612,9 @@ export default {
       viewOnly: VIEWERS.includes(me.role),
       canOpenInquiry: ['director', 'finance', 'operations'].includes(me.role),   // who may open Offline inquiries
       canAdd: ADDERS.includes(me.role),    // + Add property / unit / owner
+      // Marketing also open and edit properties, units and owners (Khairul 27 Oct): details and contact only, no money,
+      // owner link, status or bank details.
+      canEdit: me.role === 'marketing',
       canBook: ['director', 'finance', 'operations'].includes(me.role),   // + New booking (direct, no inquiry)
       PTABS: VIEWERS.includes(me.role) ? ALL_PTABS.slice(0, 3) : ALL_PTABS,
       // Owners, Properties and Bookings share this page; the route picks the section.
@@ -619,7 +624,7 @@ export default {
       months: Array.from({ length: 25 }, (_, i) => monthOffset(1 - i)),
       allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [],
       offlineBookings: [], bookingsLoading: false,
-      search: '', filter: 'all', propSearch: '', ownerSearch: '', showInactive: false, bookingSearch: '',
+      search: '', filter: 'all', propSearch: '', ownerSearch: '', showInactive: false, bookingSearch: '', bookingKind: 'all', propAttn: false,
       filters: [{ key: 'all', label: 'All' }, { key: 'none', label: 'Not set up' }, { key: 'share', label: 'Profit share' }, { key: 'fixed', label: 'Fixed rent' }, { key: 'long', label: 'Long-term' }],
       loading: true, busy: false, error: '', okMsg: '',
       unitOpen: false, u: { history: [] }, propOpen: false, np: { info: {} },
@@ -748,7 +753,7 @@ export default {
         ]);
         const owners = ownerSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         // Names live in private/main (PDPA); older owners kept the name on the main record.
-        const privs = view ? [] : await Promise.all(owners.map(x => getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null)));
+        const privs = view && !this.canEdit ? [] : await Promise.all(owners.map(x => getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null)));
         owners.forEach((x, i) => { x.private = privs[i]?.exists?.() ? privs[i].data() : {}; });
         this.owners = owners.sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id));   // by name; codes are for the system only
         this.allUnits = sets.flatMap(s => s.units);
@@ -796,7 +801,13 @@ export default {
       const none = list.filter(x => !x.terms).length;
       return none ? `${none} to set up` : '—';
     },
-    shownProperties() { const q = this.propSearch.trim().toLowerCase(); return this.properties.filter(p => !q || p.name.toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q)); },
+    shownProperties() {
+      const q = this.propSearch.trim().toLowerCase();
+      const attn = this.propAttn ? new Set(this.allUnits.filter(x => !x.terms).map(x => x.propertyId)) : null;
+      return this.properties.filter(p => (!q || p.name.toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q)) && (!attn || attn.has(p.id)));
+    },
+    // Summary cards: scroll to the list they filter.
+    kpiGo(ref) { this.$nextTick(() => this.$refs[ref]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); },
     fixedTotal() { return this.units.filter(x => x.terms?.arrangement === 'fixedRent').reduce((s, x) => s + (Number(x.terms.fixedRentAmount) || 0), 0); },
     match(x, key) {
       const a = x.terms?.arrangement;
@@ -877,7 +888,9 @@ export default {
       this.busy = true;
       try {
         const b = writeBatch(db);
-        const main = { code: id, active: o.active, bankLast4: digits ? digits.slice(-4) : null, updatedAt: serverTimestamp(), updatedBy: me.user.uid };
+        // Marketing editing an owner leave the code, status and bank digits as they are.
+        const main = this.viewOnly && !o.isNew ? { updatedAt: serverTimestamp(), updatedBy: me.user.uid }
+          : { code: id, active: o.active, bankLast4: digits ? digits.slice(-4) : null, updatedAt: serverTimestamp(), updatedBy: me.user.uid };
         if (o.isNew) Object.assign(main, { createdAt: serverTimestamp(), createdBy: me.user.uid });
         b.set(doc(db, 'owners', id), main, { merge: true });
         b.set(doc(db, 'owners', id, 'private', 'main'), { ...priv, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
@@ -970,7 +983,8 @@ export default {
         const unitData = { propertyId: this.propertyId, unitCode: code, ezeeRoomMatch: code, aliases, ownerId, info, active: u.active,
           updatedAt: serverTimestamp(), updatedBy: me.user.uid };
         if (u.isNew) unitData.createdAt = serverTimestamp(), unitData.createdBy = me.user.uid;
-        b.set(doc(db, 'units', id), unitData, { merge: true });
+        // Marketing editing a unit change its details and eZee names only.
+        b.set(doc(db, 'units', id), this.viewOnly && !u.isNew ? { aliases, info, updatedAt: serverTimestamp(), updatedBy: me.user.uid } : unitData, { merge: true });
         markFrom(b, this.propertyId, ALL_MONTHS, id);   // this unit's month summaries are worked out again (owner, status, settings)
         if (termsChanged) b.set(doc(db, 'units', id, 'terms', `${u.effectiveFrom}_${Date.now()}`), { ...terms, otaOverrides: null, effectiveFrom: u.effectiveFrom,
           reason: u.reason.trim(), createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
@@ -1116,7 +1130,9 @@ export default {
     },
     shownBookings() {
       const q = this.bookingSearch.trim().toLowerCase();
-      return this.offlineBookings.filter(x => !q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo].some(v => (v || '').toLowerCase().includes(q)));
+      const k = this.bookingKind;
+      return this.offlineBookings.filter(x => (k === 'all' || (k === 'long' && x.longTerm) || (k === 'short' && !x.longTerm) || (k === 'noEzee' && !x.ezeeReservationNo))
+        && (!q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo].some(v => (v || '').toLowerCase().includes(q))));
     }
   }
 };

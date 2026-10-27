@@ -2,16 +2,17 @@
   <main class="content">
     <div class="loading-bar" v-show="loading"></div>
 
-    <div class="page-head">
+    <div class="page-head dash-head">
       <div>
         <h1>{{ `${ROLE_LABEL[view]} dashboard` }}</h1>
         <div class="sub">{{ SUBTITLE[view] }}</div>
       </div>
       <div class="head-tools">
-        <span class="chip" v-if="view === 'operations' && d">{{ d.lastUpload ? 'Last eZee upload: ' + stamp(d.lastUpload.uploadedAt) : 'No eZee upload yet' }}</span>
-        <select class="select" v-if="isDirector" v-model="pick" @change="viewAs()" aria-label="View as">
+        <div class="head-row" v-if="isDirector">
+        <select class="select" v-model="pick" @change="viewAs()" aria-label="View as">
           <template v-for="r in VIEW_AS" :key="r"><option :value="r" :selected="r === pick">{{ `View as: ${ROLE_LABEL[r]}` }}</option></template>
         </select>
+        </div>
       </div>
     </div>
 
@@ -61,6 +62,12 @@
               </template>
               </Capped>
               <div class="empty" v-show="!d.leases.length">No long-term lease ends in the next 30 days.</div>
+            </div>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2>Quick actions</h2></div>
+            <div class="actions">
+              <template v-for="(a, i) in quickFor(view)" :key="a.label"><RouterLink class="btn" :class="{ 'btn-primary': i === 0 }" :to="a.to">{{ a.label }}</RouterLink></template>
             </div>
           </section>
         </div>
@@ -150,6 +157,12 @@
               <div class="empty" v-show="!d.audits.length">No changes by IT recorded yet.</div>
             </div>
           </section>
+          <section class="card">
+            <div class="card-head"><h2>Quick actions</h2></div>
+            <div class="actions">
+              <template v-for="(a, i) in quickFor(view)" :key="a.label"><RouterLink class="btn" :class="{ 'btn-primary': i === 0 }" :to="a.to">{{ a.label }}</RouterLink></template>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -210,6 +223,16 @@
           </section>
         </div>
       </div>
+      <section class="card quick" v-if="view === 'hr'">
+        <div class="card-head"><h2>Quick actions</h2></div>
+        <div class="qa-grid">
+          <RouterLink v-for="(a, i) in quickFor(view)" :key="a.label" class="qa-tile" :class="{ main: i === 0 }" :to="a.to">
+            <span class="qa-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="a.icon" /></svg></span>
+            <span class="qa-txt"><b>{{ a.label }}</b><small>{{ a.desc }}</small></span>
+            <span class="qa-go">&rsaquo;</span>
+          </RouterLink>
+        </div>
+      </section>
 
       <!-- PROCUREMENT and MARKETING -->
       <div class="grid-2" v-if="view === 'procurement' || view === 'marketing'">
@@ -223,6 +246,12 @@
               </template>
               </Capped>
               <div class="empty" v-show="!tickets.length">{{ `No open tickets tagged ${ROLE_LABEL[view]} or raised by you.` }}</div>
+            </div>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2>Quick actions</h2></div>
+            <div class="actions">
+              <template v-for="(a, i) in quickFor(view)" :key="a.label"><RouterLink class="btn" :class="{ 'btn-primary': i === 0 }" :to="a.to">{{ a.label }}</RouterLink></template>
             </div>
           </section>
         </div>
@@ -251,30 +280,6 @@
         </div>
       </div>
 
-      <!-- Quick actions -->
-      <section class="card quick">
-        <div class="card-head"><h2>Quick actions</h2></div>
-        <div class="actions" v-if="view === 'operations'">
-          <RouterLink class="btn btn-primary" to="/Operations/issues">Raise a ticket</RouterLink>
-          <RouterLink class="btn" to="/Operations/offline-inquiries?newBooking=1">+ New booking</RouterLink>
-          <RouterLink class="btn" to="/Portfolio/properties">Open Portfolio</RouterLink>
-        </div>
-        <div class="actions" v-if="view === 'it'">
-          <RouterLink class="btn btn-primary" to="/Operations/issues">Open Issues</RouterLink>
-          <RouterLink class="btn" to="/Operations/issues">Raise a ticket</RouterLink>
-        </div>
-        <div class="actions" v-if="view === 'hr'">
-          <RouterLink class="btn btn-primary" to="/HR/staff-complaints">Open staff complaints</RouterLink>
-          <RouterLink class="btn" to="/HR/director-complaints">Send complaint to Directors</RouterLink>
-          <RouterLink class="btn" to="/Settings/staff">Open Staff accounts</RouterLink>
-          <RouterLink class="btn" to="/HR/attendance-sop">Edit an SOP</RouterLink>
-        </div>
-        <div class="actions" v-if="view === 'procurement' || view === 'marketing'">
-          <RouterLink class="btn btn-primary" to="/Operations/issues">Raise a ticket</RouterLink>
-          <RouterLink class="btn" to="/Portfolio/properties">Open Portfolio</RouterLink>
-          <RouterLink class="btn" v-if="view === 'marketing'" to="/Procurement/new-owner-listings">Open New owner listings</RouterLink>
-        </div>
-      </section>
     </template>
   </main>
 </template>
@@ -284,7 +289,7 @@
 // Shown on /Dashboard by DashboardHome.vue; a Director sees one with "View as" (?as=role).
 // Reads only what the role's rules allow (lib/role-dashboard-data.js); no amounts or guest names on the Operations one.
 import { ROLE_LABEL } from '@/lib/firebase.js';
-import { loadMyTickets, loadPortfolioCounts, loadOps, loadIT, loadHR, sampleListings } from '@/lib/role-dashboard-data.js';
+import { loadMyTickets, loadPortfolioCounts, loadOps, loadIT, loadHR, loadListingCounts } from '@/lib/role-dashboard-data.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { when, stamp, dmy, dayOffset } from '@/lib/format.js';
 import { toast } from '@/lib/toast.js';
@@ -312,6 +317,22 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const dateOf = t => (t?.toDate ? t.toDate() : t ? new Date(t) : null);
 const ms = t => dateOf(t)?.getTime() || 0;
 
+// Quick actions per role dashboard; the first is the main button. Shown at the bottom of the left column (IT: right; HR: full width under both).
+const QUICK = {
+  operations: [{ label: 'Raise a ticket', to: '/Operations/issues' }, { label: '+ New booking', to: '/Operations/offline-inquiries?newBooking=1' }, { label: 'Open Portfolio', to: '/Portfolio/properties' }],
+  it: [{ label: 'Open Issues', to: '/Operations/issues' }, { label: 'Raise a ticket', to: '/Operations/issues' }],
+  hr: [{ label: 'Open staff complaints', to: '/HR/staff-complaints', desc: 'Review and reply to what staff raised',
+      icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+    { label: 'Send complaint to Directors', to: '/HR/director-complaints', desc: 'Pass a case up, HR only',
+      icon: 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z' },
+    { label: 'Open Staff accounts', to: '/Settings/staff', desc: 'Add logins, roles and access',
+      icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
+    { label: 'Edit an SOP', to: '/HR/attendance-sop', desc: 'Attendance, advance, allowance, SOCSO',
+      icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z' }],
+  procurement: [{ label: 'Raise a ticket', to: '/Operations/issues' }, { label: 'Open Portfolio', to: '/Portfolio/properties' }],
+  marketing: [{ label: 'Raise a ticket', to: '/Operations/issues' }, { label: 'Open Portfolio', to: '/Portfolio/properties' }, { label: 'Open New owner listings', to: '/Procurement/new-owner-listings' }]
+};
+
 export default {
   props: { role: { type: String, required: true } },
   data() {
@@ -332,13 +353,14 @@ export default {
       else if (this.view === 'hr') this.d = await loadHR();
       else {
         [this.tickets, this.pf] = await Promise.all([loadMyTickets(this.view, uid), loadPortfolioCounts()]);
-        if (this.view === 'marketing') this.listings = sampleListings();
+        this.listings = await loadListingCounts();
       }
       this.ready = true;
     } catch (e) { this.error = friendlyError(e, 'load the dashboard'); }
     this.loading = false;
   },
   methods: {
+    quickFor(v) { return QUICK[v] || []; },
     // Director "View as": the address carries the view, so Back works and the page reloads its data.
     viewAs() { this.$router.replace({ path: '/Dashboard', query: this.pick === 'director' ? {} : { as: this.pick } }); },
     jump(name) { const el = this.$refs[name]; (el?.$el || el)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
@@ -374,8 +396,10 @@ export default {
         { label: 'Properties', value: this.pf.properties.length, to: '/Portfolio/properties', hint: 'Active in Portfolio' },
         { label: 'Units', value: this.pf.unitCount, to: '/Portfolio/properties', hint: 'Across all properties' }
       ];
-      if (this.view === 'marketing') list.push({ label: 'New owner listings', value: this.listings.count, sample: true, to: '/Procurement/new-owner-listings',
-        hint: `${this.listings.notLive} not live yet · kept in this browser` });
+      if (this.view === 'procurement') list.push({ label: 'New owner listings', value: this.listings.notLive, to: '/Procurement/new-owner-listings',
+        hint: `Not live yet · ${this.listings.unsigned} agreement not signed · ${this.listings.count - this.listings.notLive} live` });
+      if (this.view === 'marketing') list.push({ label: 'Listings for Marketing', value: this.listings.forMarketing, alert: this.listings.forMarketing > 0,
+        to: '/Procurement/new-owner-listings', hint: `Payment confirmed, not live yet · ${this.listings.notLive} of ${this.listings.count} not live` });
       return list;
     },
     newestTickets() { return [...this.tickets].sort((a, b) => ms(b.createdAt) - ms(a.createdAt)); },
@@ -413,8 +437,6 @@ export default {
 </script>
 
 <style scoped>
-    .kpi-link { display: block; text-align: left; font: inherit; color: inherit; cursor: pointer; width: 100%; }
-    .kpi-link:hover { border-color: var(--accent); }
     .rows { grid-template-columns: minmax(0, 1fr); }
     .row > .cell { flex: 1 1 auto; min-width: 0; max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .row .r { flex: none; display: flex; align-items: center; gap: 6px; }
@@ -422,4 +444,18 @@ export default {
     .staff-tabs .pill-btn { height: 28px; font-size: 12px; padding: 0 10px; }
     .sub-h { color: var(--text-2); font-size: 12px; font-weight: 600; margin-top: 8px; }
     .sub-h:first-of-type { margin-top: 0; }
+    .qa-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .qa-tile { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); color: var(--text); text-decoration: none; transition: border-color .15s, background .15s; }
+    .qa-tile:hover, .qa-tile:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
+    .qa-ic { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+    .qa-tile.main .qa-ic { background: var(--accent); color: #fff; }
+    .qa-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .qa-txt b { font-size: 13px; font-weight: 600; }
+    .qa-txt small { font-size: 12px; color: var(--text-2); }
+    .qa-tile:hover .qa-txt b { color: var(--accent); }
+    .qa-go { flex: none; font-size: 20px; color: var(--muted); }
+    .qa-tile:hover .qa-go { color: var(--accent); }
+    @media (max-width: 1100px) { .qa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 600px) { .qa-grid { grid-template-columns: minmax(0, 1fr); } }
 </style>
