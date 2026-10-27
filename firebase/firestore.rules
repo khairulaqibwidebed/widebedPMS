@@ -1,6 +1,8 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.10, 27 Oct 2026: same behaviour as Draft 0.9, plus one change in
-// notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null).
+// Widebed PMS Firestore rules. Draft 0.10, 27 Oct 2026: same behaviour as Draft 0.9, plus two changes:
+// (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
+// (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
+// 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
 // History: 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
 // 0.7 month summaries (unitMonths, months.summary).
 // 0.6 every role signs in; Portfolio for Operations/Procurement/Marketing; direct bookings. 0.5 offline inquiries,
@@ -537,7 +539,8 @@ service cloud.firestore {
     // date, createdAt and status/read (plus fromId on a named staff complaint); the text is in private/main.
     // An anonymous staff complaint has no fromId or fromName anywhere.
     match /complaints/{id} {
-      allow read: if hrOrDir();
+      // HR reads everything. Directors read only Director complaints (never staff complaints).
+      allow read: if isHR() || (isDirector() && resource.data.kind == 'director');
       // The sender of a named complaint follows it under My complaints.
       allow read: if signedIn() && resource.data.kind == 'staff' && resource.data.get('fromId', null) == request.auth.uid;
       // An anonymous sender's browser keeps the (random) id and reads only the status.
@@ -555,7 +558,7 @@ service cloud.firestore {
         && request.resource.data.read == true && request.resource.data.readBy == request.auth.uid;
       allow delete: if false;
       match /private/{docId} {
-        allow read: if hrOrDir();
+        allow read: if isHR() || (isDirector() && complaintNow(id).kind == 'director');
         allow read: if signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid;
         // Written once, in the same transaction as the parent. Anonymous: no fromName.
         allow create: if docId == 'main' && anyStaff()

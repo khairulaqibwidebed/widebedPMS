@@ -21,6 +21,8 @@
       <span class="help">{{ completed ? `${monthName(month)} is completed. Statements are read-only.` : (checklist.length ? `${checklist.length} item${checklist.length === 1 ? '' : 's'} to fix before those units can be completed. Draft statements recalculate by themselves.` : 'All clear. Open each unit\'s statement to review it, then Approve & complete it.') }}</span>
       <RouterLink class="btn" :to="{ path: '/Finance/upload', query: { property: propertyId, month } }" v-show="!completed">Upload eZee report</RouterLink>
       <button class="btn" @click="downloadXlsx()" :disabled="!rows.length || busy">Download xlsx</button>
+      <button class="btn" v-show="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="downloadFixedRent()" :disabled="busy">Fixed rent summary</button>
+      <button class="btn" v-show="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="downloadFixedRent('pdf')" :disabled="busy">Fixed rent PDF</button>
     </div>
 
     <div class="notice error" v-show="error">{{ error }}</div>
@@ -119,7 +121,8 @@
           <div class="head-tools">
             <span class="pill" :class="STATUS[sel.status][1]">{{ STATUS[sel.status][0] }}</span>
             <button class="btn" v-show="sel.status !== 'completed'" @click="openSettings(unitById(sel.unitId))">Unit settings</button>
-            <button class="btn" @click="toast('Statement PDFs come with the PDF step. Download xlsx has the same figures.')">Download PDF</button>
+            <button class="btn" @click="downloadStatement()" :disabled="busy">Download xlsx</button>
+            <button class="btn" @click="downloadStatement('pdf')" :disabled="busy">Download PDF</button>
           </div>
         </div>
         <div class="notice warn" v-show="sel.lines.some(l => l.estimated)">{{ `${sel.lines.filter(l => l.estimated).length} Trip.com booking${sel.lines.filter(l => l.estimated).length === 1 ? ' is' : 's are'} estimated at 15%. Type the amount Trip.com paid on the booking line to finish this statement.` }}</div>
@@ -134,14 +137,14 @@
                 <tbody>
                   <template v-for="l in sel.lines" :key="l.reservationNo">
                     <tr :class="{ est: l.estimated }">
-                      <td><span>{{ l.reservationNo }}</span><div class="tag-est" v-show="l.note">{{ l.note }}</div></td>
+                      <td><span>{{ l.reservationNo }}</span><div class="tag-est" v-show="l.note && !l.estimated" :title="l.note">{{ l.note }}</div></td>
                       <td>{{ l.source }}</td>
                       <td>{{ dmy(l.arrival) }}</td><td>{{ dmy(l.departure) }}</td>
                       <td class="num">{{ l.nights }}</td>
                       <td class="num">
                         <template v-if="l.otaKey === 'ctrip' && sel.status !== 'completed' && !l.final">
-                          <span><input class="input inline-input" type="number" step="0.01" :placeholder="l.estimated ? 'Type amount' : amt(l.guestPaid)" v-model="ctripInput[l.reservationNo]" aria-label="Trip.com amount">
-                            <button class="btn" style="height:32px;margin-left:4px" @click="saveCtrip(l)" :disabled="busy">Save</button></span>
+                          <span class="ctrip-in"><input class="input" type="number" step="0.01" :placeholder="l.estimated ? 'RM amount' : amt(l.guestPaid)" v-model="ctripInput[l.reservationNo]" aria-label="Trip.com amount" @keyup.enter="saveCtrip(l)">
+                            <button class="btn" @click="saveCtrip(l)" :disabled="busy || !ctripInput[l.reservationNo]">Save</button></span>
                         </template>
                         <span v-show="!(l.otaKey === 'ctrip' && sel.status !== 'completed' && !l.final)">{{ amt(l.guestPaid) }}</span>
                       </td>
@@ -294,6 +297,8 @@ import { propertyMonth, readUnit, markDirty, markFrom, canWriteSummaries } from 
 import { rm, amt, pct, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
+import { buildStatementXlsx, buildFixedRentXlsx, loadStatementTemplate, FIXED_RENT_TEMPLATE_URL } from '@/lib/statement-xlsx.js';
+import { buildStatementPdf, buildFixedRentPdf, loadPdfKit } from '@/lib/statement-pdf.js';
 
 const me = useSession();
 
@@ -425,6 +430,54 @@ export default {
     },
     // ---- Monthly payout summary (like the strip at the bottom of Finance's unit sheets) ----
     yearMonths() { const y = this.month.slice(0, 4); return SHORT.map((_, i) => `${y}-${String(i + 1).padStart(2, '0')}`); },
+    // Finance's FIXED RENT sheet for the property: every fixed-rent unit, its deductions, reimbursements and remark.
+    // kind: 'xlsx' or 'pdf' (lib/statement-pdf.js: Finance's PDF of the same sheet)
+    async downloadFixedRent(kind = 'xlsx') {
+      this.busy = true;
+      try {
+        const pdf = kind === 'pdf';
+        const [X, tpl, rows] = await Promise.all([pdf ? loadPdfKit() : loadXlsxLib(), pdf ? null : loadStatementTemplate(FIXED_RENT_TEMPLATE_URL), this.fullRows()]);
+        const units = rows.filter(r => r.fixed).map(r => ({
+          unitCode: r.unitCode, rent: r.totals.totalReceivable,
+          deductions: r.expenseLines.filter(e => e.amount < 0).map(e => -e.amount),
+          reimburse: r.expenseLines.filter(e => e.amount > 0).map(e => e.amount),
+          remark: r.expenseLines.map(e => e.description).filter(Boolean).join(' + ')
+        }));
+        const f = { propertyName: this.property().name || this.propertyName(), month: this.month, units };
+        const bytes = pdf ? await buildFixedRentPdf(X.lib, X.fontkit, X.fonts, f) : buildFixedRentXlsx(X, tpl, f);
+        const [y, m] = this.month.split('-');
+        download(`${this.property().code || this.propertyId} ${SHORT[+m - 1]}${y.slice(2)} Fixed Rent Summary${this.completed ? '' : ' (draft)'}.${kind}`,
+          new Blob([bytes], { type: pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      } catch (e) { this.error = e.code ? friendlyError(e, 'make the fixed rent summary') : e.message; }
+      this.busy = false;
+    },
+    // The unit's statement as Finance's xlsx (lib/statement-xlsx.js: their "D 0719" sheet, only names and numbers change).
+    async downloadStatement(kind = 'xlsx') {
+      const s = this.sel;
+      if (s.fixed) { await this.downloadFixedRent(kind); return; }   // Finance's fixed-rent statement is one sheet for the property
+      this.busy = true;
+      try {
+        const pdf = kind === 'pdf';
+        const [X, tpl, nb] = await Promise.all([pdf ? loadPdfKit() : loadXlsxLib(), pdf ? null : loadStatementTemplate(),
+          getDocs(query(collection(db, 'bookings'), where('unitId', '==', s.unitId), where('departureMonth', '==', nextMonth(this.month)))).catch(() => ({ docs: [] }))]);
+        // Next booking: the unit's first stay that checks out next month (eZee upload for that month needed)
+        const next = nb.docs.map(d => d.data()).filter(b => b.propertyId === this.propertyId && b.status !== 'cancelled' && b.arrival)
+          .sort((a, b) => a.arrival.localeCompare(b.arrival))[0] || null;
+        const payouts = {};
+        for (const m of this.yearMonths()) { const p = this.payoutFor(s, m); if (p) payouts[m] = p.value; }
+        const data = {
+          unitCode: s.unitCode, month: this.month, rates: s.rates, payout: s.totals.payout, payouts,
+          lines: s.lines.map(l => ({ source: l.source, arrival: l.arrival, departure: l.departure, nights: l.nights, amount: l.pto })),
+          expenses: s.expenseLines.map(e => ({ description: e.description, amount: e.amount })),
+          nextBooking: next && { arrival: next.arrival, departure: next.departure }
+        };
+        const bytes = pdf ? await buildStatementPdf(X.lib, X.fontkit, X.fonts, data) : buildStatementXlsx(X, tpl, data);
+        const [y, m] = this.month.split('-');
+        download(`${s.unitCode} ${SHORT[+m - 1]}${y.slice(2)} Rental Income Statement${s.status === 'completed' ? '' : ' (draft)'}.${kind}`,
+          new Blob([bytes], { type: pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      } catch (e) { this.error = e.code ? friendlyError(e, 'make the statement') : e.message; }
+      this.busy = false;
+    },
     payoutFor(r, m) {
       if (m === this.month) return { value: r.totals.payout, label: r.status === 'completed' ? SOURCE.pms : 'This month (draft)', draft: r.status !== 'completed' };
       const h = this.payHistory[`${r.unitId}_${m}`];
@@ -715,9 +768,16 @@ export default {
     .me-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -8px 0 20px; }
     .me-actions .help { margin-right: auto; }
     .stmt-grid { grid-template-columns: minmax(0,1fr) 300px; }
-    .stmt-page .table th, .stmt-page .table td { padding: 10px 9px; }
+    .stmt-page .table th, .stmt-page .table td { padding: 10px 9px; white-space: nowrap; }
+    .stmt-page .table .tag-est { white-space: normal; max-width: 200px; }
+    /* Trip.com amount: one compact box with its Save button (Khairul 27 Oct: the table was squashed) */
+    .ctrip-in { display: inline-flex; align-items: center; gap: 8px; }
+    .ctrip-in .input { width: 104px; height: 32px; padding: 0 8px; text-align: center; appearance: textfield; -moz-appearance: textfield; }
+    .ctrip-in .input::-webkit-inner-spin-button, .ctrip-in .input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .ctrip-in .btn { height: 32px; padding: 0 12px; font-size: 12px; }
     .stmt-label .navlink { text-transform: none; letter-spacing: 0; font-size: 12px; }
-    @media (max-width: 1300px) { .stmt-grid { grid-template-columns: minmax(0,1fr); } }
+    /* Summary goes under the bookings until the table has room beside it */
+    @media (max-width: 1600px) { .stmt-grid { grid-template-columns: minmax(0,1fr); } }
     .table tr.est td { background: color-mix(in srgb, var(--amber-soft) 60%, var(--surface)); }
     .stmt-label { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 14px 0 4px; }
     @media (max-width: 1000px) { .stmt-grid { grid-template-columns: minmax(0,1fr); } }

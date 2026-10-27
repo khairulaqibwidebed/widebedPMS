@@ -16,11 +16,6 @@
         <select class="select" v-model="month" @change="load()" aria-label="Month">
           <template v-for="m in months" :key="m"><option :value="m" :selected="m === month">{{ monthName(m) }}</option></template>
         </select>
-        <select class="select" v-show="role === 'director'" v-model="view" @change="viewAs()" aria-label="View as">
-          <option value="director">View as: Director</option>
-          <option value="finance">View as: Finance</option>
-          <template v-for="r in OTHER_VIEWS" :key="r"><option :value="r">{{ `View as: ${ROLE_LABEL[r]}` }}</option></template>
-        </select>
         </div>
       </div>
     </div>
@@ -207,9 +202,6 @@ import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { ROLE_LABEL } from '@/lib/firebase.js';
 
-// The other roles' dashboards (RoleDashboard.vue), reached with ?as=role.
-const OTHER_VIEWS = ['it', 'hr', 'operations', 'procurement', 'marketing'];
-
 const me = useSession();
 
 export default {
@@ -222,7 +214,7 @@ export default {
       propertyId: lastProperty(true) || 'all',
       properties: [],
       data: null, team: [], issues: null, issuesError: '', loading: true, error: '',
-      rm, signed, monthName, shortMonth, ddmm, when, stamp, ROLE_LABEL, OTHER_VIEWS,
+      rm, signed, monthName, shortMonth, ddmm, when, stamp, ROLE_LABEL,
       soon: notBuilt
     };
   },
@@ -239,10 +231,6 @@ export default {
   methods: {
     jump(name) { this.$refs[name]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
     // Director and Finance switch in place; another role's dashboard is a different page (?as=role).
-    viewAs() {
-      if (OTHER_VIEWS.includes(this.view) || this.$route.query.as) this.$router.replace({ path: '/Dashboard', query: this.view === 'director' ? {} : { as: this.view } });
-      else this.load();
-    },
     async load() {
       this.loading = true; this.error = '';
       try {
