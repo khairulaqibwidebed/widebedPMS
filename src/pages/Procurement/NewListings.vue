@@ -96,8 +96,8 @@
         <div class="notice error" v-show="formError">{{ formError }}</div>
         <section class="card form-card" style="max-width:760px">
           <div class="grid-fields">
-            <div class="field"><label for="nProp">Property</label><input class="input" id="nProp" v-model="form.property" placeholder="e.g. Sample Residence"></div>
-            <div class="field"><label for="nUnit">Unit</label><input class="input" id="nUnit" v-model="form.unit" placeholder="e.g. A-12-03"></div>
+            <div class="field"><label for="nProp">Property</label><select class="select" id="nProp" :value="propChoice(form, 'n')" @change="pickProp(form, 'n', $event.target.value)"><option value="">Choose a property…</option><template v-for="p in properties" :key="p.id"><option :value="p.name">{{ p.name }}</option></template><option value="__new">New property (not in Portfolio yet)…</option></select><input class="input prop-new" v-if="propChoice(form, 'n') === '__new'" v-model="form.property" placeholder="Name of the new property" aria-label="New property name"></div>
+            <div class="field"><label for="nUnit">Unit</label><input class="input" id="nUnit" v-model="form.unit" placeholder="e.g. DM 12-03"></div>
             <div class="field"><label for="nOwner">Owner name</label><input class="input" id="nOwner" v-model="form.ownerName" placeholder="e.g. Owner A"></div>
             <div class="field"><label for="nDue">Due date (optional)</label><input class="input" id="nDue" type="date" v-model="form.dueDate"></div>
             <div class="field"><label for="nPhone">Owner phone (optional)</label><input class="input" id="nPhone" v-model="form.ownerPhone" inputmode="tel" placeholder="e.g. 012-345 6789"></div>
@@ -226,11 +226,11 @@
 
             <!-- 3. Furniture -->
             <section class="card" v-if="tab === 2" aria-label="Furniture">
-              <div class="card-head"><h2>3. Furniture</h2><span class="muted">{{ `Total ${rm(furnTotal(d))}` }}</span></div>
+              <div class="card-head"><h2>3. Furniture</h2><span class="muted">{{ furnUsed(d).length ? `${furnUsed(d).filter(f => subDone(d, f.key)).length} of ${furnUsed(d).length} completed` : 'No items yet' }}</span></div>
               <template v-for="f in FURN" :key="f.key">
                 <div class="sub-stage" :data-sub="f.key">
                   <div class="card-head" style="margin-bottom:8px"><h3>{{ f.label }}</h3>
-                    <span class="pill" :class="subDone(d, f.key) ? 'green' : 'grey'">{{ subDone(d, f.key) ? 'Completed' : `${d.furniture[f.key].filter(x => x.done).length} of ${d.furniture[f.key].length} ticked` }}</span></div>
+                    <span class="pill" :class="subDone(d, f.key) ? 'green' : 'grey'">{{ subDone(d, f.key) ? 'Completed' : d.furniture[f.key].length ? `${d.furniture[f.key].filter(x => x.done).length} of ${d.furniture[f.key].length} ticked` : 'Not needed' }}</span></div>
                   <div class="table-wrap" v-show="d.furniture[f.key].length">
                     <table class="table lines">
                       <thead><tr><th style="width:72px"><label class="th-all" v-if="canEdit" title="Tick or untick every line"><input type="checkbox" :checked="d.furniture[f.key].every(x => x.done)" :indeterminate.prop="d.furniture[f.key].some(x => x.done) && !d.furniture[f.key].every(x => x.done)" @change="d.furniture[f.key].forEach(x => { x.done = $event.target.checked })" :aria-label="`Tick all ${f.label}`"> All</label><template v-else>Added</template></th><th>Item</th><th class="num">RM</th><th v-if="canEdit"></th></tr></thead>
@@ -262,6 +262,10 @@
                   </div>
                 </div>
               </template>
+              <div class="totals">
+                <template v-for="f in FURN" :key="f.key"><div class="kv"><span>{{ f.label }}</span><span>{{ rm(sum(d.furniture[f.key])) }}</span></div></template>
+                <div class="kv total"><span>Total</span><span>{{ rm(furnTotal(d)) }}</span></div>
+              </div>
               <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn btn-primary" @click="save()" :disabled="busy">Save</button></div>
             </section>
 
@@ -272,7 +276,14 @@
                 <div class="field" v-if="canEdit"><label :for="'pay_' + k[0]">{{ `${k[1]} (Google Drive link)` }}</label><input class="input" :id="'pay_' + k[0]" v-model="d.payment[k[0]]" placeholder="https://drive.google.com/…"></div>
                 <div class="kv" v-else><span>{{ k[1] }}</span><span><a v-if="d.payment[k[0]]" :href="d.payment[k[0]]" target="_blank" rel="noopener">Open</a><template v-else>—</template></span></div>
               </template>
-              <div class="field" v-if="canEdit && !d.payment.confirmed" style="max-width:240px"><label for="payAmt">Final amount (RM)</label><input class="input" id="payAmt" v-model="d.payment.amount" inputmode="decimal" placeholder="0.00"></div>
+              <div class="totals quote">
+                <div class="kv"><span>{{ `Renovation (incl. ${FEE_PCT}% procurement fee)` }}</span><span>{{ rm(renoCost(d) + renoFee(d)) }}</span></div>
+                <div class="kv"><span>Furniture</span><span>{{ rm(furnTotal(d)) }}</span></div>
+                <div class="kv total"><span>Quotation total</span><span>{{ rm(quoteTotal(d)) }}</span></div>
+              </div>
+              <div class="field" v-if="canEdit && !d.payment.confirmed" style="max-width:320px"><label for="payAmt">Final amount (RM)</label>
+                <div class="amt-row"><input class="input" id="payAmt" v-model="d.payment.amount" inputmode="decimal" :placeholder="quoteTotal(d).toFixed(2)">
+                  <button type="button" class="editlink" v-show="money(d.payment.amount) !== quoteTotal(d)" @click="d.payment.amount = quoteTotal(d).toFixed(2)">Use total</button></div></div>
               <div class="kv" v-else><span>Final amount</span><span>{{ d.payment.amount === '' ? '—' : rm(d.payment.amount) }}</span></div>
               <div class="kv" v-if="d.payment.confirmed"><span>Confirmed</span><span>{{ `${d.payment.confirmedByName}, ${stamp(d.payment.confirmedAt)}` }}</span></div>
               <p class="help">Payment confirmed sends the Marketing team a notification about this listing.</p>
@@ -352,8 +363,8 @@
             <section class="card" aria-label="Listing details" v-if="tab === 0">
               <div class="card-head"><h2>Details</h2><span class="muted" v-show="dirty">Unsaved changes</span></div>
               <div class="d-grid" v-if="canEdit">
-                <div class="field"><label for="dProp">Property</label><input class="input" id="dProp" v-model="d.property" placeholder="e.g. Sample Residence"></div>
-                <div class="field"><label for="dUnit">Unit</label><input class="input" id="dUnit" v-model="d.unit" placeholder="e.g. A-12-03"></div>
+                <div class="field"><label for="dProp">Property</label><select class="select" id="dProp" :value="propChoice(d, 'd')" @change="pickProp(d, 'd', $event.target.value)"><option value="">Choose a property…</option><template v-for="p in properties" :key="p.id"><option :value="p.name">{{ p.name }}</option></template><option value="__new">New property (not in Portfolio yet)…</option></select><input class="input prop-new" v-if="propChoice(d, 'd') === '__new'" v-model="d.property" placeholder="Name of the new property" aria-label="New property name"></div>
+                <div class="field"><label for="dUnit">Unit</label><input class="input" id="dUnit" v-model="d.unit" placeholder="e.g. DM 12-03"></div>
                 <div class="field"><label for="dOwner">Owner name</label><input class="input" id="dOwner" v-model="d.ownerName" placeholder="e.g. Owner A"></div>
                 <div class="field"><label for="dDue">Due date</label><input class="input" id="dDue" type="date" v-model="d.dueDate"></div>
                 <div class="field"><label for="dPhone">Owner phone</label><input class="input" id="dPhone" v-model="c.ownerPhone" inputmode="tel"></div>
@@ -403,8 +414,8 @@
             <div class="notice error" v-show="formError">{{ formError }}</div>
                 <div class="card-head"><h2>Details</h2><span class="muted" v-show="dirty">Unsaved changes</span></div>
                 <div class="d-grid" v-if="canEdit">
-                  <div class="field"><label for="mdProp">Property</label><input class="input" id="mdProp" v-model="d.property" placeholder="e.g. Sample Residence"></div>
-                  <div class="field"><label for="mdUnit">Unit</label><input class="input" id="mdUnit" v-model="d.unit" placeholder="e.g. A-12-03"></div>
+                  <div class="field"><label for="mdProp">Property</label><select class="select" id="mdProp" :value="propChoice(d, 'd')" @change="pickProp(d, 'd', $event.target.value)"><option value="">Choose a property…</option><template v-for="p in properties" :key="p.id"><option :value="p.name">{{ p.name }}</option></template><option value="__new">New property (not in Portfolio yet)…</option></select><input class="input prop-new" v-if="propChoice(d, 'd') === '__new'" v-model="d.property" placeholder="Name of the new property" aria-label="New property name"></div>
+                  <div class="field"><label for="mdUnit">Unit</label><input class="input" id="mdUnit" v-model="d.unit" placeholder="e.g. DM 12-03"></div>
                   <div class="field"><label for="mdOwner">Owner name</label><input class="input" id="mdOwner" v-model="d.ownerName" placeholder="e.g. Owner A"></div>
                   <div class="field"><label for="mdDue">Due date</label><input class="input" id="mdDue" type="date" v-model="d.dueDate"></div>
                   <div class="field"><label for="mdPhone">Owner phone</label><input class="input" id="mdPhone" v-model="c.ownerPhone" inputmode="tel"></div>
@@ -441,7 +452,7 @@
 import { collection, doc, getDoc, getDocs, query, orderBy, limit, writeBatch, updateDoc, runTransaction, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
-import { audit, friendlyError } from '@/lib/finance-data.js';
+import { audit, friendlyError, loadProperties } from '@/lib/finance-data.js';
 import { inbox, link, syncTask, listTasksFor } from '@/lib/tms.js';
 import { notifyRole } from '@/services/notificationService';
 import { toast } from '@/lib/toast.js';
@@ -521,15 +532,17 @@ function withDefaults(data) {
 }
 
 const subDoneOf = (l, k) => l.furniture[k].length > 0 && l.furniture[k].every(x => x.done);
-// Each stage counts as done when: 1 signed or skipped for now, 2 every renovation line Done, 3 every furniture line in all
-// three sub-stages ticked, 4 payment confirmed, 5 Marketing notified (on payment confirmed) or an older Marketing task sent, 6 Live.
+// Furniture groups that have lines; an empty group (e.g. no electrical items for this unit) is not counted.
+const furnUsed = l => FURN.filter(f => l.furniture[f.key].length > 0);
+// Each stage counts as done when: 1 signed or skipped for now, 2 every renovation line Done, 3 every furniture line ticked in
+// each sub-stage that has lines (empty ones are not needed), 4 payment confirmed, 5 Marketing notified (on payment confirmed) or an older Marketing task sent, 6 Live.
 // The TMS department that holds the listing's task: Procurement, then Marketing once the payment is confirmed, then
 // Operations once it is Live.
 const deptOf = l => l.live.live ? 'operation' : l.payment.confirmed ? 'marketing' : 'procurement';
 function stageDoneOf(l, i) {
   if (i === 0) return l.agreement.signed || (l.agreement.skipped && !!l.agreement.skipNote.trim());
   if (i === 1) return l.renovation.items.length > 0 && l.renovation.items.every(x => x.status === 'done');
-  if (i === 2) return FURN.every(f => subDoneOf(l, f.key));
+  if (i === 2) return furnUsed(l).length > 0 && furnUsed(l).every(f => subDoneOf(l, f.key));
   if (i === 3) return l.payment.confirmed;
   if (i === 4) return !!(l.marketing.taskId || l.marketing.notifiedAt);
   return l.live.live;
@@ -541,7 +554,7 @@ function checklistOf(l) {
   return [
     { title: 'Service agreement signed', done: l.agreement.signed },
     ...l.renovation.items.filter(x => x.title.trim()).map(x => ({ title: `Renovation: ${x.title.trim()}`, done: x.status === 'done' })),
-    ...FURN.map(f => ({ title: `Furniture: ${f.label}`, done: subDoneOf(l, f.key) })),
+    ...FURN.map(f => ({ title: `Furniture: ${f.label}`, done: subDoneOf(l, f.key) || (!l.furniture[f.key].length && stageDoneOf(l, 2)) })),
     { title: 'Final quotation & payment confirmed', done: l.payment.confirmed },
     { title: 'Marketing notified', done: !!(l.marketing.taskId || l.marketing.notifiedAt) },
     { title: 'Live', done: l.live.live }
@@ -620,7 +633,7 @@ export default {
       tasks: [], inboxLoading: false, inboxError: '',
       l: null, saved: null, d: null, c: { ownerPhone: '', ownerEmail: '' }, c0: { ownerPhone: '', ownerEmail: '' },
       tab: 0, linkAdd: { label: '', url: '' }, pasteOpen: '', pasteText: '', mkAdd: '', liveReason: '',
-      linked: [], tasksLoading: false, tasksError: '', showDetails: false,
+      linked: [], tasksLoading: false, tasksError: '', showDetails: false, properties: [], propNew: {},
       form: {}, formError: '', okMsg: '', error: '', loading: true, busy: false
     };
   },
@@ -628,6 +641,7 @@ export default {
   // a message for the next view travels in history.state.
   async mounted() {
     const q = this.$route.query;
+    loadProperties().then(list => { this.properties = list; }).catch(e => console.error('Could not load properties:', e));
     this.okMsg = history.state?.okMsg || '';
     try {
       if ('new' in q && this.canEdit) {
@@ -715,11 +729,25 @@ export default {
     placeOf(l) { return [l.property, l.unit].filter(Boolean).join(' · ') || l.title || 'Property not set'; },
     tmsState(l) { return !l.tmsTaskId ? ['Not linked', 'grey'] : l.tmsSync?.pending ? ['Not sent', 'amber'] : ['Linked', 'green']; },
     stageDone(l, i) { return stageDoneOf(l, i); },
+    // Property dropdown: the Portfolio's properties, or "New property" with a typed name for one not added yet.
+    propChoice(o, key) {
+      const v = (o.property || '').trim();
+      return this.propNew[key] || (v && !this.properties.some(p => p.name === v)) ? '__new' : v;
+    },
+    pickProp(o, key, value) {
+      const old = this.properties.find(p => p.name === o.property), pick = this.properties.find(p => p.name === value);
+      this.propNew[key] = value === '__new';
+      o.property = value === '__new' ? '' : value;
+      // Unit codes start with the property's short code (e.g. "DM 07-19"): fill it in when the unit is blank or
+      // still starts with the previous property's code.
+      const unit = (o.unit || '').trim(), oldCode = old?.code ? old.code + ' ' : null;
+      if (pick?.code && (!unit || (oldCode && (unit + ' ').startsWith(oldCode)))) o.unit = pick.code + ' ' + (oldCode && unit.startsWith(oldCode) ? unit.slice(oldCode.length) : '');
+    },
     currentIdx(l) { return currentIdxOf(l); },
     stageNote(l, i) {
       if (i === 0) return l.agreement.signed ? 'Signed' : l.agreement.skipped ? 'Skipped for now' : 'Not yet';
       if (i === 1) return `${l.renovation.items.filter(x => x.status === 'done').length}/${l.renovation.items.length} done`;
-      if (i === 2) return `${FURN.filter(f => subDoneOf(l, f.key)).length}/3 completed`;
+      if (i === 2) return furnUsed(l).length ? `${furnUsed(l).filter(f => subDoneOf(l, f.key)).length}/${furnUsed(l).length} completed` : 'No items yet';
       if (i === 3) return l.payment.confirmed ? 'Confirmed' : 'Waiting';
       if (i === 4) return l.marketing.taskId ? 'Sent' : 'Not sent';
       return l.live.live ? 'Live' : 'Not yet';
@@ -729,7 +757,11 @@ export default {
     renoFee(l) { return money(this.renoCost(l) * FEE_PCT / 100); },
     sum(lines) { return money(lines.reduce((t, x) => t + money(x.cost), 0)); },
     furnTotal(l) { return money(FURN.reduce((t, f) => t + this.sum(l.furniture[f.key]), 0)); },
+    // Final quotation: renovation (with the procurement fee) plus furniture.
+    quoteTotal(l) { return money(this.renoCost(l) + this.renoFee(l) + this.furnTotal(l)); },
+    money(v) { return money(v); },
     subDone(l, k) { return subDoneOf(l, k); },
+    furnUsed(l) { return furnUsed(l); },
     rm: rmText, tmsDate,
     short(iso) { if (!iso) return ''; const [, m, dd] = iso.slice(0, 10).split('-'); return `${+dd} ${MON[+m - 1]}`; },
     full(iso) { return iso ? `${this.short(iso)} ${iso.slice(0, 4)}` : ''; },
@@ -1027,12 +1059,18 @@ export default {
     .ag-more { margin-top: 12px; padding: 14px 16px; border-radius: 12px; background: color-mix(in srgb, var(--text) 4%, var(--surface)); }
     @media (max-width: 600px) { .ag-opts { grid-template-columns: minmax(0, 1fr); } }
     .view-details { width: 100%; margin-top: 14px; }
+    .prop-new { margin-top: 8px; }
+    .totals.quote { margin: 0 0 16px auto; max-width: 420px; }
+    .amt-row { display: flex; gap: 12px; align-items: center; }
+    .amt-row .editlink { white-space: nowrap; }
+    .grid-fields { align-items: start; }
+    .field > .select { width: 100%; height: 40px; font-weight: 400; font-size: 14px; padding-left: 12px; background-position: calc(100% - 17px) 18px, calc(100% - 13px) 18px; }
     .th-all { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 500; }
     .th-all input { width: 16px; height: 16px; accent-color: var(--accent); }
     .mk-all { font-weight: 600; margin-bottom: 10px; }
     .details-modal { max-width: 680px; }
     .details-modal .card-head { margin-bottom: 12px; }
-    .d-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 4px 16px; }
+    .d-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 4px 16px; align-items: start; }
     .d-grid .span2 { grid-column: 1 / -1; }
     .d-grid .kv { margin: 0; }
     .d-grid .actions { margin-top: 4px; }
