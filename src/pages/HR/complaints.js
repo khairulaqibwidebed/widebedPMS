@@ -65,22 +65,17 @@ export async function createComplaint(me, kind, { subject, details, files, anony
     return ref;
   });
 
-  // Tell HR (and only HR). The text never holds the subject, details or sender name. For an anonymous complaint the
-  // notification is written with no sender uid or name either (anonymous: true), so it cannot point back to the person.
+  // Staff complaint -> HR's bell. Director complaint (HR to the Directors) -> the Directors' bell.
+  // The text never holds the subject, details or sender name. For an anonymous complaint the notification is written
+  // with no sender uid or name either (anonymous: true), so it cannot point back to the person.
   // A failed notification must never undo the complaint, so the error is only logged.
-  if (kind === 'staff') {
-    try {
-      await notifyRole({
-        recipientRole: 'hr',
-        type: 'complaint',
-        refId: c.id,
-        link: '/HR/staff-complaints',
-        anonymous: !named,
-        title: `New complaint ${ref}`,
-        message: 'A new complaint was sent to HR. Open it to read the details.'
-      });
-    } catch (e) { console.error('Notification failed:', e); }
-  }
+  try {
+    await notifyRole(kind === 'staff'
+      ? { recipientRole: 'hr', type: 'complaint', refId: c.id, link: '/HR/staff-complaints', anonymous: !named,
+          title: `New complaint ${ref}`, message: 'A new complaint was sent to HR. Open it to read the details.' }
+      : { recipientRole: 'director', type: 'complaint', refId: c.id, link: '/HR/director-complaints', anonymous: false,
+          title: `New complaint to the Directors ${ref}`, message: 'HR sent a complaint to the Directors. Open it to read the details.' });
+  } catch (e) { console.error('Notification failed:', e.code || '', e.message || e); }
 
   if (!named) keepAnonReceipt({ id: c.id, ref, date: today(), subject, anonymous: true });
   return ref;

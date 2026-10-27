@@ -26,7 +26,7 @@
       </table>
     </div>
     </Paged>
-    <p class="help" style="margin-top:12px">Complaints sent anonymously show "Anonymous" and HR cannot see who sent them. HR can read complaints but cannot change or delete them. Directors see this page view-only.</p>
+    <p class="help" style="margin-top:12px">Complaints sent anonymously show "Anonymous" and HR cannot see who sent them. HR can read complaints but cannot change or delete them. Only HR sees this page.</p>
 
     <template v-if="sel">
       <div class="modal-back" @click.self="sel = null" v-esc="() => { sel = null }">
@@ -45,7 +45,7 @@
 </template>
 
 <script>
-// HR and Directors read staff complaints; nobody changes or deletes them. Anonymous ones carry no sender at all.
+// Only HR reads staff complaints; nobody changes or deletes them. Anonymous ones carry no sender at all.
 import { loadComplaints, STATUS } from './complaints.js';
 import { friendlyError } from '@/lib/finance-data.js';
 
