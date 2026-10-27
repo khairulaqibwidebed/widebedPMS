@@ -427,20 +427,25 @@ service cloud.firestore {
         && request.resource.data.status == 'open'
         && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
       // A comment (anyone who can see it): counters, last poster and the ticket's audit trail.
-      allow update: if anyStaff() && canSeeIssue(resource.data) && resource.data.status != 'done'
+      allow update: if anyStaff() && canSeeIssue(resource.data) && resource.data.status in ['open', 'progress']
         && changed().hasOnly(['replyCount', 'linkCount', 'lastBy', 'audit', 'updatedAt']);
       // In progress, tags and Mark completed: Directors and the tagged roles.
-      allow update: if anyStaff() && resource.data.status != 'done'
+      allow update: if anyStaff() && resource.data.status in ['open', 'progress']
         && (isDirector() || myIssueTag() in resource.data.tags)
         && changed().hasOnly(['status', 'tags', 'doneAt', 'doneBy', 'doneByUid', 'audit', 'updatedAt'])
         && request.resource.data.status in ['open', 'progress', 'done']
         && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+      // Delete ticket: Directors only, any status. Marked deleted with a reason, never removed; nothing changes it after.
+      allow update: if isDirector() && resource.data.status != 'deleted'
+        && changed().hasOnly(['status', 'deletedAt', 'deletedBy', 'deletedByUid', 'deleteReason', 'audit', 'updatedAt'])
+        && request.resource.data.status == 'deleted'
+        && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0;
       allow delete: if false;
       match /replies/{replyId} {
         allow read: if canSeeIssue(get(docPath('issues', id)).data);
         allow create: if anyStaff() && request.resource.data.byUid == request.auth.uid
           && canSeeIssue(get(docPath('issues', id)).data)
-          && get(docPath('issues', id)).data.status != 'done';
+          && get(docPath('issues', id)).data.status in ['open', 'progress'];
         allow update, delete: if false;
       }
     }

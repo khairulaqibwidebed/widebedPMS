@@ -44,7 +44,7 @@
                   <td class="nw">{{ t.id }}</td>
                   <td class="t-title">{{ t.title }}</td>
                   <td class="nw">{{ t.unit || '—' }}</td>
-                  <td class="nw"><template v-for="g in t.tags" :key="g"><span class="tag">{{ g }}</span></template></td>
+                  <td><div class="tag-wrap"><template v-for="g in t.tags" :key="g"><span class="tag">{{ g }}</span></template></div></td>
                   <td><span class="who"><Avatar :uid="t.raisedByUid" :name="t.raisedBy" :role="t.raisedRole" :size="20" />{{ t.raisedBy }}<span class="tag role-tint" :style="roleTint(t.raisedRole)" v-if="showRole(t.raisedBy, t.raisedRole)">{{ t.raisedRole }}</span></span></td>
                   <td class="nw">{{ day(t.raisedAt) }}</td>
                   <td class="nw"><span class="pill" :class="STATUS[t.status].cls">{{ STATUS[t.status].label }}</span></td>
@@ -75,6 +75,7 @@
             <button class="btn" @click="back()">← All tickets</button>
             <button class="btn" v-show="ticket.status === 'open' && canUpdate()" @click="setProgress()" :disabled="busy">Mark in progress</button>
             <button class="btn btn-primary" v-show="ticket.status !== 'done' && canUpdate()" @click="confirmDone = true; doneError = ''">Mark completed</button>
+            <button class="btn btn-danger" v-if="canDelete" @click="openDelete()">Delete ticket</button>
           </div>
         </div>
 
@@ -150,8 +151,15 @@
             <datalist id="unitOpts"><template v-for="un in units" :key="un.id"><option :value="un.unitCode"></option></template></datalist></div>
           <div class="field"><label for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
           <div class="field" style="margin-bottom:8px"><label>Tag the roles who should handle it</label>
-            <div class="checks"><template v-for="g in TAGS" :key="g"><label><input type="checkbox" :value="g" v-model="raise.tags"><span>{{ g }}</span></label></template></div>
-            <div class="help">Only tagged roles, you and Directors will see this ticket.</div></div>
+            <!-- Same chips + drop-down as Edit tags. Your own role is always tagged and has no × -->
+            <div class="tag-pick">
+              <template v-for="g in TAGS.filter(x => raise.tags.includes(x))" :key="g"><span class="tag-chip" :class="g === myRole && 'locked'" :title="g === myRole ? 'Your role is always tagged' : null">{{ g }}<button type="button" v-if="g !== myRole" @click="raise.tags = raise.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
+              <span class="help" v-show="!raise.tags.length">No roles tagged</span>
+            </div>
+            <select class="select" style="width:100%" aria-label="Add a role" v-show="raise.tags.length < TAGS.length" @change="if ($event.target.value) raise.tags.push($event.target.value); $event.target.value = ''">
+              <option value="">+ Add a role…</option>
+              <template v-for="g in TAGS.filter(x => !raise.tags.includes(x))" :key="g"><option :value="g">{{ g }}</option></template>
+            </select></div>
           <div class="field" style="margin-bottom:6px"><label for="rLinkName">Add Drive link (optional)</label>
             <div class="link-add" style="margin-top:0">
               <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
@@ -171,10 +179,32 @@
         <form class="modal" role="dialog" aria-label="Edit tags" @submit.prevent="saveTags()" style="max-width:460px">
           <h2>Edit tags</h2>
           <div class="notice error" v-show="tagEdit.error">{{ tagEdit.error }}</div>
-          <div class="checks" style="margin-bottom:14px"><template v-for="g in TAGS" :key="g"><label><input type="checkbox" :value="g" v-model="tagEdit.tags"><span>{{ g }}</span></label></template></div>
+          <!-- Tagged roles as chips (× removes one); the drop-down adds a role not yet tagged -->
+          <div class="field"><label for="tAdd">Tagged roles</label>
+            <div class="tag-pick">
+              <template v-for="g in TAGS.filter(x => tagEdit.tags.includes(x))" :key="g"><span class="tag-chip">{{ g }}<button type="button" @click="tagEdit.tags = tagEdit.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
+              <span class="help" v-show="!tagEdit.tags.length">No roles tagged</span>
+            </div>
+            <select class="select" id="tAdd" style="width:100%" v-show="tagEdit.tags.length < TAGS.length" @change="if ($event.target.value) tagEdit.tags.push($event.target.value); $event.target.value = ''">
+              <option value="">+ Add a role…</option>
+              <template v-for="g in TAGS.filter(x => !tagEdit.tags.includes(x))" :key="g"><option :value="g">{{ g }}</option></template>
+            </select></div>
           <div class="field"><label for="tWhy">Reason</label><input class="input" id="tWhy" v-model="tagEdit.reason" placeholder="e.g. Not an IT issue"></div>
           <div class="help">Removing your own role's tag may hide the ticket from your team.</div>
           <div class="modal-foot"><button type="button" class="btn" @click="tagEdit = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Save tags</button></div>
+        </form>
+      </template>
+    </div>
+
+    <!-- Delete ticket (Directors only). Nothing is hard-deleted: the ticket is marked deleted with a reason and leaves every list. -->
+    <div class="modal-back" v-show="del" @click.self="del = null" v-esc="() => { del = null }">
+      <template v-if="del">
+        <form class="modal" role="dialog" aria-label="Delete ticket" @submit.prevent="remove()" style="max-width:440px">
+          <h2>{{ 'Delete ' + ticket.id + '?' }}</h2>
+          <p class="help" style="font-size:13px">It disappears from every list and dashboard and can't be opened again. It stays in the Audit log with your reason.</p>
+          <div class="notice error" v-show="del.error">{{ del.error }}</div>
+          <div class="field"><label for="dWhy">Reason</label><input class="input" id="dWhy" ref="dWhy" v-model="del.reason" placeholder="e.g. Test ticket, raised twice"></div>
+          <div class="modal-foot"><button type="button" class="btn" @click="del = null">Cancel</button><button class="btn btn-danger" :disabled="busy">Delete ticket</button></div>
         </form>
       </template>
     </div>
@@ -212,13 +242,13 @@ const myLabel = me.name || (isDirector ? 'Director' : `${myRole} user`);
 // Every role raises, comments on and works its own tickets. IT included (Khairul 21 Oct), though IT is view-only elsewhere.
 const canWrite = !!me.role;
 
-const TAGS = ['IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
-const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' } };
+const TAGS = ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
+const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' }, deleted: { label: 'Deleted', cls: 'red' } };
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];
 // Each tag is answered by one sign-in role ('Admin' has no sign-in role yet, so Directors cover it).
 // Directors are always notified: they see every ticket.
-const TAG_ROLE = { IT: 'it', Admin: 'director', HR: 'hr', Finance: 'finance', Operations: 'operations', Procurement: 'procurement', Marketing: 'marketing' };
+const TAG_ROLE = { Director: 'director', IT: 'it', Admin: 'director', HR: 'hr', Finance: 'finance', Operations: 'operations', Procurement: 'procurement', Marketing: 'marketing' };
 const LIST_LIMIT = 500;
 // Links must point at the company Google Drive (Drive, Docs, Sheets, Slides).
 const DRIVE_HOSTS = ['drive.google.com', 'docs.google.com'];
@@ -234,7 +264,7 @@ export default {
   components: { Avatar },
   data() {
     return {
-      TAGS, STATUS, FILTERS, canRaise: canWrite,
+      TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
       tickets: [], ticket: null, replies: [], units: [], search: '', filter: 'all', unitFilter: '', okMsg: '', error: '', doneError: '',
       loading: true, busy: false, raise: null, tagEdit: null, confirmDone: false, draft: this.newDraft()
     };
@@ -254,7 +284,8 @@ export default {
         if (id) {
           const snap = await getDoc(doc(db, 'issues', id)).catch(e => { if (e.code === 'permission-denied') return null; throw e; });
           const t = snap?.exists() ? toTicket(id, snap.data()) : null;
-          this.ticket = t && this.canSee(t) ? t : null;
+          this.ticket = t && t.status !== 'deleted' && this.canSee(t) ? t : null;
+          if (t?.status === 'deleted') this.error = `${id} was deleted.`;
           if (this.ticket) await this.loadReplies();
         }
         if (!this.ticket) await this.loadList();
@@ -283,7 +314,7 @@ export default {
     // Visibility: tagged to my role, raised by me, or Director (sees all)
     raisedByMe(t) { return t.raisedByUid === me.user.uid; },
     canSee(t) { return isDirector || t.tags.includes(myRole) || this.raisedByMe(t); },
-    visible() { return this.tickets.filter(t => this.canSee(t)); },
+    visible() { return this.tickets.filter(t => t.status !== 'deleted' && this.canSee(t)); },
     canUpdate() { const t = this.ticket; return t && canWrite && t.status !== 'done' && (isDirector || t.tags.includes(myRole)); },
     canComment() { return canWrite; },
     count(s) { return this.visible().filter(t => t.status === s).length; },
@@ -329,7 +360,7 @@ export default {
     },
 
     openRaise() {
-      this.raise = { title: '', unit: '', body: '', tags: [], links: [], linkName: '', linkUrl: '', error: '' };
+      this.raise = { title: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
       this.$nextTick(() => this.$refs.rTitle?.focus());
       this.units4raise();
     },
@@ -337,10 +368,10 @@ export default {
       const r = this.raise;
       if (!r.title.trim()) return r.error = 'Give the ticket a title.';
       if (!r.body.trim()) return r.error = 'Describe what happened.';
-      if (!r.tags.length) return r.error = 'Tag at least one role to handle it.';
+      if (!r.tags.length && !TAGS.includes(myRole)) return r.error = 'Tag at least one role to handle it.';
       if (r.linkUrl.trim()) { this.addLink(r); if (r.error) return; }
       const code = r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
-      const tags = TAGS.filter(g => r.tags.includes(g));
+      const tags = TAGS.filter(g => r.tags.includes(g) || g === myRole);
       const h = this.entry(`raised the ticket, tagged ${tags.join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
       this.busy = true; r.error = '';
       try {
@@ -467,6 +498,24 @@ export default {
       this.busy = false
     },
 
+    openDelete() {
+      this.del = { reason: '', error: '' };
+      this.$nextTick(() => this.$refs.dWhy?.focus());
+    },
+    // Directors only (rules too). Marked deleted, never removed: it leaves every list and dashboard count.
+    async remove() {
+      const t = this.ticket, d = this.del, reason = d.reason.trim();
+      if (!reason) return d.error = 'Give a reason for deleting the ticket.';
+      this.busy = true; d.error = '';
+      try {
+        await this.change({ status: 'deleted', deletedAt: serverTimestamp(), deletedBy: myLabel, deletedByUid: me.user.uid, deleteReason: reason },
+          [`deleted the ticket · reason: "${reason}"`], 'issue.delete', [{ field: 'status', old: t.status, new: 'deleted' }], reason);
+        this.del = null; this.okMsg = `${t.id} deleted.`;
+        this.back();
+      } catch (e) { d.error = friendlyError(e, 'delete the ticket'); }
+      this.busy = false;
+    },
+
     // Notifications are best effort: a failed one is logged and never blocks or undoes the ticket action.
     // Roles get one shared notification each (read state is per person); the person who raised the ticket
     // gets their own, unless they already receive the role one. You never see notifications you caused.
@@ -488,10 +537,14 @@ export default {
     .kpis.k3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
     .iss-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
     .iss-tools .input { max-width: 224px; height: 34px; }
-    .table td.cnt, .table th.cnt { text-align: right; width: 56px; color: var(--text-2); }
+    .table td.cnt, .table th.cnt { text-align: center; width: 56px; color: var(--text-2); }
+    .table td.cnt:last-child, .table th.cnt:last-child { padding-right: 24px; }
     .t-title { font-weight: 500; min-width: 200px; }
     .table td.nw { white-space: nowrap; }
     .table td .tag { white-space: nowrap; }
+    .tag-wrap { display: flex; flex-wrap: wrap; gap: 4px; max-width: 230px; }
+    .tag-wrap .tag { margin: 0; }
+    .table td .who { white-space: nowrap; }
     .kv .tag { color: var(--accent); }   /* the old page's <template> kept the first tag from matching .kv span:first-child */
     .post { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 16px 14px; }
     .post.orig { border-color: var(--accent); }
@@ -516,6 +569,18 @@ export default {
     .checks { display: flex; gap: 16px; flex-wrap: wrap; margin: 6px 0 4px; font-size: 13px; }
     .checks label { display: inline-flex; align-items: center; gap: 6px; }
     .checks input { width: 16px; height: 16px; accent-color: var(--accent); }
+    /* Edit tags: the tagged roles sit in a box like an input, as theme-coloured chips */
+    .modal .tag-pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 44px; padding: 8px 10px; margin-bottom: 8px;
+      border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .modal .tag-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 12px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+      font-size: 12.5px; font-weight: 600; line-height: 1.2; }
+    .modal .tag-chip button { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
+      background: transparent; color: inherit; font-size: 14px; line-height: 1; cursor: pointer; transition: background .15s, color .15s; }
+    .modal .tag-chip button:hover { background: var(--accent); color: #fff; }
+    .modal .tag-chip.locked { padding-right: 12px; }
+    .checks input:disabled { opacity: 1; cursor: not-allowed; }
+    .checks label:has(input:disabled) { cursor: not-allowed; font-weight: 600; }
     .locked { background: var(--chip); border-radius: 10px; padding: 12px 14px; font-size: 12px; color: var(--text-2); }
     .side-note { color: var(--muted); font-size: 11px; margin-top: 10px; }
     .modal .field { margin-bottom: 12px; }

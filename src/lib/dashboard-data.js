@@ -78,7 +78,7 @@ export async function loadTeamActivity() {
 
 // Director only: open tickets on the Issues page. Counts cost one read each (per 1,000 tickets),
 // and only the 5 newest open tickets are read in full.
-export const ISSUE_TAGS = ['IT', 'Admin', 'HR', 'Finance', 'Operations'];
+export const ISSUE_TAGS = ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
 export async function loadOpenIssues() {
   const col = collection(db, 'issues');
   const open = where('status', 'in', ['open', 'progress']);
