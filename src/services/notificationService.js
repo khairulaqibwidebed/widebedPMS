@@ -1,5 +1,5 @@
 import {
-  addDoc, arrayUnion, collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
+  addDoc, arrayRemove, arrayUnion, collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { auth, db } from "@/lib/firebase"
@@ -39,7 +39,7 @@ export function subscribeToNotifications(role, callback, onError = console.error
       const publish = () => {
         const notifications = [...buckets.uid, ...buckets.role]
           .filter((n) => n.createdByUid !== user.uid)
-          .map((n) => ({ ...n, read: (n.readBy || []).includes(user.uid) }))
+          .map((n) => ({ ...n, read: (n.readBy || []).includes(user.uid), starred: (n.starredBy || []).includes(user.uid) }))
           .sort((a, b) => millis(b.createdAt) - millis(a.createdAt))
         callback({ notifications, unreadCount: notifications.filter((n) => !n.read).length })
       }
@@ -81,6 +81,7 @@ async function send({ recipientUid = null, recipientRole = null, title, message 
     link,
     refId,
     readBy: [],
+    starredBy: [],
     createdByUid: user.uid,
     createdByName: user.displayName || "",
     createdAt: serverTimestamp(),
@@ -99,6 +100,22 @@ export async function markNotificationAsRead(notificationId) {
   if (!user) throw new Error("You must sign in first.")
   if (!notificationId) throw new Error("Notification ID is required.")
   await updateDoc(doc(db, "notifications", notificationId), { readBy: arrayUnion(user.uid) })
+}
+
+/** Mark one notification as unread again for the current user only. */
+export async function markNotificationAsUnread(notificationId) {
+  const user = auth.currentUser
+  if (!user) throw new Error("You must sign in first.")
+  if (!notificationId) throw new Error("Notification ID is required.")
+  await updateDoc(doc(db, "notifications", notificationId), { readBy: arrayRemove(user.uid) })
+}
+
+/** Star or un-star a notification for the current user only. */
+export async function setNotificationStarred(notificationId, starred) {
+  const user = auth.currentUser
+  if (!user) throw new Error("You must sign in first.")
+  if (!notificationId) throw new Error("Notification ID is required.")
+  await updateDoc(doc(db, "notifications", notificationId), { starredBy: starred ? arrayUnion(user.uid) : arrayRemove(user.uid) })
 }
 
 /** Mark every unread notification in the list as read for the current user. */
