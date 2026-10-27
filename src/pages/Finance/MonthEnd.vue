@@ -73,7 +73,14 @@
     <div class="empty card" style="margin-top:16px" v-show="!loading && propertyId && !rows.length">No bookings or fixed-rent units for this month. Upload the eZee report for it first.</div>
     <div class="grid-2" style="margin-top:24px" v-show="!loading && propertyId">
       <section class="card">
-        <div class="card-head"><h2>Before you can complete</h2></div>
+        <div class="card-head"><h2>Before you can complete</h2>
+          <button class="btn btn-sm starter-btn" v-if="starterAvailable()" @click="starterAsk = !starterAsk" :aria-expanded="starterAsk"
+            title="Fill in the D'Majestic units that aren't set up">⚡ Starter settings</button></div>
+        <!-- Starter settings: a slim confirm strip instead of a big box -->
+        <div class="starter-strip" v-if="starterAvailable() && starterAsk">
+          <span>Set arrangement and fixed rent for the D'Majestic units that aren't set up (Finance's Sep 2026 set-up), from <b>{{ monthName(month) }}</b>. You can edit any unit afterwards.</span>
+          <span class="starter-acts"><button class="btn btn-sm" @click="starterAsk = false">Cancel</button><button class="btn btn-sm btn-primary" @click="loadStarter(); starterAsk = false" :disabled="busy">Load</button></span>
+        </div>
         <div class="rows">
           <Paged :items="checklist" :size="5" v-slot="{ pageRows }">
           <template v-for="(c, i) in pageRows" :key="c.text + i">
@@ -84,13 +91,6 @@
           <div class="empty" v-show="!checklist.length && !completed">All clear. Open each unit's statement, then Approve & complete it.</div>
           <div class="empty" v-show="completed">Month completed. Statements are read-only.</div>
         </div>
-        <template v-if="starterAvailable()">
-          <div class="confirm-box">
-            <b>Load starter settings?</b>
-            <p class="help" style="margin:4px 0 10px">Sets the arrangement and fixed rent for the D'Majestic units that aren't set up, copied from the Upload CSV test page (Finance's Sep 2026 set-up). Applies from <span>{{ monthName(month) }}</span>. You can edit any unit afterwards.</p>
-            <button class="btn" @click="loadStarter()" :disabled="busy">Load starter settings</button>
-          </div>
-        </template>
       </section>
 
       <section class="card">
@@ -313,6 +313,7 @@ export default {
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
+      starterAsk: false,
       STATUS, ARRANGEMENTS, SHORT, rm, amt, pct, dmy, monthName, nextMonth,
       role: me.role,
       properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
@@ -701,6 +702,12 @@ export default {
 </script>
 
 <style scoped>
+    .starter-btn { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+    .starter-btn:hover { background: var(--accent-soft); }
+    .starter-strip { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: -4px 0 10px; padding: 8px 10px 8px 12px;
+      border-radius: 10px; background: var(--accent-soft); font-size: 12px; color: var(--text-2); }
+    .starter-strip > span:first-child { flex: 1 1 240px; }
+    .starter-acts { display: inline-flex; gap: 6px; margin-left: auto; }
     .st-cell .pill + .pill { margin-left: 6px; }
     .actions .rows .row { padding: 6px 0; }
     .me-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -8px 0 20px; }

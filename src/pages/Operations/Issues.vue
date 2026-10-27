@@ -379,9 +379,9 @@ export default {
         const id = await runTransaction(db, async tx => {
           const cRef = doc(db, 'counters', 'issues');
           const c = await tx.get(cRef);
-          
           const n = c.exists() ? c.data().next || 1 : 1, id = 'IS-' + String(n).padStart(4, '0'), ref = doc(db, 'issues', id);
-          if ((await tx.get(ref)).exists()) throw Object.assign(new Error(`${id} already exists. Ask a Director to check counters/issues.`), { plain: true });
+          // No read of the new ticket here: the rules can't check who may see a ticket that doesn't exist yet, so
+          // that read is refused. Writing over an existing IS number is refused by the rules anyway.
           tx.set(cRef, { next: n + 1 });
 
           tx.set(ref, { title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
