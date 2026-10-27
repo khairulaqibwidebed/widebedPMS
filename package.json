@@ -18,5 +18,18 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.10",
     "vite": "^8.3.4"
-  }
+  },
+  "description": "The web app for the Widebed Property Management System. It replaces the Alpine.js prototype in `Build\\web`\r (kept as it is, for reference).",
+  "main": "vite.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khairulaqibwidebed/widebedPMS.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/khairulaqibwidebed/widebedPMS/issues"
+  },
+  "homepage": "https://github.com/khairulaqibwidebed/widebedPMS#readme"
 }

@@ -37,8 +37,14 @@
           <div class="user-id"><Avatar :uid="me.user?.uid" :name="me.name" :role="me.role" :size="30" /><span class="user-name">{{ me.name }}</span>
             <span class="role-badge role-tint" :style="roleTint(me.role)">{{ ROLE_LABEL[me.role] || me.role }}</span></div>
         </div>
-        <!-- Notifications: icon only for now (system on Khairul's to-do list). Log out is on Profile & Appearance. -->
-        <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="notBuilt('Notifications')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
+        <!-- Notifications: icon only for now (system on Khairul's to-do list). Log out is on Profile & Appearance.
+        <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="notBuilt('Notifications')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button> -->
+        <!-- Neo's Notification -->
+        <NotificationBell />
+        <!-- <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="$router.push('/notifications')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span v-if="unreadCount > 0" class="notification-dot" :title="`${unreadCount} unread notifications`"></span>
+        </button> -->
       </header>
       <RouterView :key="$route.fullPath" />
     </div>
@@ -56,6 +62,8 @@ import Avatar from './Avatar.vue';
 import { roleTint } from '../lib/avatars.js';
 import CommandPalette from './CommandPalette.vue';
 import { NAV_ICONS } from './NavIcons.js';
+// import { triggerPushNotification } from '../lib/push.js';
+import NotificationBell from '@/components/NotificationBell.vue'
 
 // Sidebar groups a person has folded, remembered in this browser.
 const FOLDED_KEY = 'wb.navFolded';
@@ -70,7 +78,7 @@ function readCollapsed() { try { return localStorage.getItem(COLLAPSED_KEY) === 
 const DESKTOP_QUERY = '(min-width: 861px)';
 
 export default {
-  components: { NavItem, CommandPalette, Avatar },
+  components: { NavItem, CommandPalette, Avatar, NotificationBell },
   data: () => ({
     ROLE_LABEL, menuOpen: false, paletteOpen: false, openGroup: -1,
     folded: readFolded(), collapsed: readCollapsed(),
@@ -81,7 +89,12 @@ export default {
     groups() { return NAV[this.me.role] || []; },
     active() { return this.$route.meta.label; },
     // Collapsed AND on desktop. On mobile the sidebar is always the full drawer.
-    rail() { return this.collapsed && this.wide; }
+    rail() { return this.collapsed && this.wide; },
+    // Neo's Notification: return a mock unread count (e.g., 2) so it doesn't crash
+    // unreadCount() { 
+    //   return 2; 
+    // }
+    
   },
   watch: {
     // Only the current page's group is open. On an ungrouped page (Dashboard) the first group opens.
@@ -100,6 +113,18 @@ export default {
     this.mq = window.matchMedia(DESKTOP_QUERY);
     this.onMq = e => { this.wide = e.matches; };
     this.mq.addEventListener('change', this.onMq);
+
+    // Neo's Notification: Request permission for push notifications if not already granted
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+    // setTimeout(() => {
+    //   triggerPushNotification(
+    //     'New Task Assigned',
+    //     'AC not cooling in Room 302 has been assigned to you.',
+    //     '/Operations/issues'
+    //   );
+    // }, 3000);
   },
   unmounted() {
     document.removeEventListener('keydown', this.onKey);
@@ -142,7 +167,16 @@ export default {
 </script>
 
 <style>
-.app { --sidebar-w: 240px; --nav-ease: cubic-bezier(.4, 0, .2, 1); }
+/* .app { --sidebar-w: 240px; --nav-ease: cubic-bezier(.4, 0, .2, 1); } */
+.app {display: flex;min-height: 100vh;min-height: 100dvh;width: 100%;overflow-x: hidden;--sidebar-w: 240px;--topbar-h: 60px;--nav-ease: cubic-bezier(.4, 0, .2, 1);}
+/* Main content area sits next to the sidebar and scrolls independently */
+.main {flex: 1;display: flex;flex-direction: column;min-width: 0; /* Prevents flex children from pushing wider than screen */height: 100vh;height: 100dvh;overflow-y: auto;}
+/* Fixed/sticky topbar height */
+.topbar {height: var(--topbar-h);flex-shrink: 0;display: flex;align-items: center;padding: 0 20px;background: #fff;border-bottom: 1px solid rgba(128, 128, 128, 0.2);position: sticky;top: 0;z-index: 10;}
+/* Global content container for all views */
+main.content {flex: 1;width: 100%;max-width: 1200px; /* Adjust maximum content width */margin: 0 auto;padding: 24px;box-sizing: border-box;}
+/* Ensure flex grids inside dashboards scale down on smaller screens */
+.grid-2 {display: grid;grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));gap: 20px;}
 
 /* Department header: icon + label + chevron. */
 .nav-group-btn { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; transition: gap .25s var(--nav-ease), padding .25s var(--nav-ease), background .2s ease; }
@@ -168,6 +202,10 @@ export default {
 .sidebar > .brand { flex-shrink: 0; }
 .sidebar > nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .sidebar-toggle { margin-top: auto; border-top: 1px solid rgba(128, 128, 128, .2); border-radius: 0; width: 100%; margin-left: 0; margin-right: 0; padding: 12px 18px; }
+
+/* Neo's Notification: */
+.bell-btn {position: relative;}
+.notification-dot {position: absolute;top: 8px;right: 8px;width: 8px;height: 8px;background-color: #e53935;border-radius: 50%;border: 2px solid #fff;}
 
 /* Phone drawer: dvh so the pinned button is not hidden under the browser's address bar; keep clear of the home bar. */
 @media (max-width: 860px) {

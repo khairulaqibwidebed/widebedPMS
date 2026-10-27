@@ -200,6 +200,7 @@ import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
+import { createNotificationForUser } from '@/services/notificationService'
 
 const me = useSession();
 const myRole = ROLE_LABEL[me.role] || me.role;          // 'Finance', 'Director'
@@ -342,9 +343,11 @@ export default {
         const id = await runTransaction(db, async tx => {
           const cRef = doc(db, 'counters', 'issues');
           const c = await tx.get(cRef);
+          
           const n = c.exists() ? c.data().next || 1 : 1, id = 'IS-' + String(n).padStart(4, '0'), ref = doc(db, 'issues', id);
           if ((await tx.get(ref)).exists()) throw Object.assign(new Error(`${id} already exists. Ask a Director to check counters/issues.`), { plain: true });
           tx.set(cRef, { next: n + 1 });
+
           tx.set(ref, { title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
             property: unit?.propertyName || '', propertyId: unit?.propertyId || null, tags, status: 'open',
             raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
@@ -354,7 +357,17 @@ export default {
         });
         this.raise = null; this.okMsg = `${id} raised and tagged ${tags.join(', ')}.`;
         await this.loadList();
-      } catch (e) { r.error = e.plain ? e.message : friendlyError(e, 'raise the ticket'); }
+      } catch (e) {
+        console.error('Failed to raise issue:', {
+          code: e.code,
+          message: e.message,
+          error: e
+        });
+
+        r.error = e.plain
+          ? e.message
+          : friendlyError(e, 'raise the ticket');
+      }
       this.busy = false;
     },
     async postComment() {
@@ -410,18 +423,66 @@ export default {
       } catch (err) { e.error = friendlyError(err, 'save the tags'); }
       this.busy = false;
     },
+
     async complete() {
-      const t = this.ticket; this.busy = true; this.doneError = '';
+      const t = this.ticket
+      this.busy = true
+      this.doneError = ''
+
       try {
-        await this.change({ status: 'done', doneAt: serverTimestamp(), doneBy: myLabel, doneByUid: me.user.uid }, [`marked the ticket completed`],
-          'issue.complete', [{ field: 'status', old: t.status, new: 'done' }]);
-        Object.assign(t, { status: 'done', doneAt: nowIso(), doneBy: myLabel });
-        this.confirmDone = false;
-      } catch (e) { this.doneError = friendlyError(e, 'complete the ticket'); }
-      this.busy = false;
-    }
-  }
-};
+        await this.change(
+          {
+            status: 'done',
+            doneAt: serverTimestamp(),
+            doneBy: myLabel,
+            doneByUid: me.user.uid,
+          },
+          ['marked the ticket completed'],
+          'issue.complete',
+          [{ field: 'status', old: t.status, new: 'done' }]
+        )
+
+        Object.assign(t, {
+          status: 'done',
+          doneAt: nowIso(),
+          doneBy: myLabel,
+        })
+
+        this.confirmDone = false
+      } catch (e) {
+        this.doneError = friendlyError(e, 'complete the ticket')
+      }
+
+      this.busy = false
+    },
+
+    async notifyUsers(recipientUids, title, message, link) {
+      const currentUid = me.user?.uid
+
+      const uniqueUids = [
+        ...new Set(
+          (recipientUids || []).filter(
+            uid => uid && uid !== currentUid
+          )
+        ),
+      ]
+
+      if (!uniqueUids.length) return
+
+      await Promise.all(
+        uniqueUids.map(recipientUid =>
+          createNotificationForUser({
+            recipientUid,
+            title,
+            message,
+            type: 'issue',
+            link,
+          })
+        )
+      )
+    },
+  },
+}
 </script>
 
 <style scoped>
