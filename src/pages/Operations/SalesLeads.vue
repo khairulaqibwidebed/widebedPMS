@@ -276,7 +276,7 @@
                 <div class="field"><label for="bUnit">Unit</label>
                   <select class="input" id="bUnit" v-model="bk.unitId" :disabled="!bk.propertyId">
                     <option value="">{{ bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }}</option>
-                    <template v-for="u in units" :key="u.id"><option :value="u.id">{{ u.unitCode }}</option></template>
+                    <template v-for="u in units" :key="u.id"><option :value="u.unitCode"></option></template>
                   </select></div>
                 <div class="field"><label for="bIn">Check-in</label><input class="input" id="bIn" type="date" v-model="bk.arrival"></div>
                 <div class="field"><label for="bOut">Check-out</label><input class="input" id="bOut" type="date" v-model="bk.departure"></div>
@@ -328,6 +328,8 @@ import { collection, collectionGroup, doc, getDoc, getDocs, query, where, orderB
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
+// Direct service connection matching Issues.vue
+import { notifyRole, notifyUser } from '@/services/notificationService.js';
 
 const me = useSession();
 
@@ -336,39 +338,28 @@ const STATUS = { new: ['New', 'blue'], interested: ['Interested (Pending payment
 const PICKABLE = ['interested', 'considering', 'uninterested'];   // Booked is set only by Create booking
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'new', label: 'New' }, { key: 'interested', label: 'Interested (Pending payment)' },
   { key: 'considering', label: 'Considering' }, { key: 'uninterested', label: 'Uninterested' }, { key: 'booked', label: 'Booked' }];
-// Who can assign an inquiry to an Operations member. Directors only for now (Khairul 21 Oct); add roles here to change it.
 const ASSIGNERS = ['director'];
-// Who logs inquiries. Directors only for now (Khairul 21 Oct); add roles here and in the rules to change it.
 const LOGGERS = ['director'];
-// Who sees every inquiry with its contact details and edits tenants (the rules say the same).
 const CONTACT_ALL = ['director', 'finance'];
-// Who sees the whole list (IT without names or contact details); Operations see the ones assigned to them.
 const SEE_ALL = ['director', 'finance', 'it'];
-// Who makes a booking without an inquiry (Portfolio > Bookings > + New booking, Khairul 21 Oct). The rules say the same.
 const DIRECT_BOOKERS = ['director', 'finance', 'operations'];
 const SOURCES = ['Walk-in', 'Phone call', 'WhatsApp', 'Referral', 'Agent', 'Other'];
-const LONG_TERM_NIGHTS = 30;   // 30+ days = long-term (business rule)
+const LONG_TERM_NIGHTS = 30;
 const LIST_LIMIT = 500;
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const localIso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
 const nowIso = () => localIso(new Date());
 const isoOf = t => (t?.toDate ? localIso(t.toDate()) : typeof t === 'string' ? t : '');
 const num = (prefix, n) => `${prefix}-${String(n).padStart(4, '0')}`;
-// Phone numbers compared as digits only, with a leading 0 read as Malaysia's 60, so 012-345 6789 and +60 12 345 6789 match.
 const phoneKey = p => { const n = String(p || '').replace(/\D/g, ''); return n.startsWith('0') ? '6' + n : n; };
-// Name search words: the start of each word from 2 letters (ERD v2), e.g. Chow Kia Wei -> ch, cho, chow, ki, kia, we, wei.
 const searchWords = name => [...new Set(String(name || '').toLowerCase().split(/\s+/).filter(Boolean)
   .flatMap(w => Array.from({ length: Math.max(0, w.length - 1) }, (_, i) => w.slice(0, i + 2))))];
 const toCents = v => Math.round((+v || 0) * 100) / 100;
 const emailOk = e => !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-// Shown as a plain message (not "Could not ...") when a save is refused for a reason the person can act on.
 const stop = msg => Object.assign(new Error(msg), { plain: true });
 const errText = (e, what) => (e.plain ? e.message : friendlyError(e, what));
-// The audit log names the personal fields that changed, never their values (IT reads the audit log).
 const piiChanges = fields => fields.map(f => ({ field: f, old: null, new: '(changed)' }));
 
-// A returning tenant: tenants/{id}/private/main with the same phoneKey. kind == 'tenant' keeps inquiries' own
-// private documents out, and lets the rules allow this search for Operations too.
 async function findTenant(phone) {
   const k = phoneKey(phone);
   if (k.length < 9) return null;
@@ -387,8 +378,6 @@ export default {
       direct: false, form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}, bk: {}, properties: [], units: []
     };
   },
-  // ?new=1 opens Log inquiry, ?id= opens an inquiry, ?id=&book=1 opens Create booking, ?newBooking=1 a booking without an inquiry. Moving between them changes the address,
-  // which remounts the page (Back/Forward included); a message for the list travels in history.state.
   async mounted() {
     const q = this.$route.query;
     if ('new' in q) await this.show('new');
@@ -399,7 +388,6 @@ export default {
     this.loading = false;
   },
   watch: {
-    // Log inquiry: look the phone number up once typing pauses.
     'form.phone'(v) {
       clearTimeout(this.phoneTimer);
       this.phoneTimer = setTimeout(async () => {
@@ -412,7 +400,6 @@ export default {
   computed: {
     canAssign() { return ASSIGNERS.includes(me.role); },
     canLog() { return LOGGERS.includes(me.role); },
-    // Once booked, the tenant record is the source of the customer's details.
     who() { const t = this.tenant, l = this.lead || {}; return t ? { name: t.name, phone: t.phone, email: t.email } : { name: l.contactName, phone: l.phone, email: l.email }; },
     nights() {
       const { arrival: a, departure: b } = this.bk;
@@ -422,6 +409,34 @@ export default {
     deposit() { return toCents(this.bk.monthlyRent) * 2; }
   },
   methods: {
+    // Everyone who should hear about a new inquiry or a status change
+    // (the roles must match NOTIFY_ROLES / the Firestore rules)
+    inquiryRoles() { return ['finance', 'director', 'operations']; },
+
+    // Shared notification helper structured cleanly like Issues.vue
+    async notify({ title, message, roles = [], uids = [], refId = null, link = '/Notifications', skipSelf = true }) {
+      const base = { title, message, link, type: 'inquiry', refId };
+      const jobs = [];
+
+      // Deduplicate roles and send
+      const targetRoles = [...new Set(roles)].filter(Boolean);
+      targetRoles.forEach(recipientRole => {
+        jobs.push(notifyRole({ ...base, recipientRole }));
+      });
+
+      // Deduplicate UIDs and prevent self-notifications when specified
+      const targetUids = [...new Set(uids)].filter(uid => uid && (!skipSelf || uid !== me.user.uid));
+      targetUids.forEach(recipientUid => {
+        jobs.push(notifyUser({ ...base, recipientUid }));
+      });
+
+      if (!jobs.length) return;
+      const results = await Promise.allSettled(jobs);
+      results.forEach(r => {
+        if (r.status === 'rejected') console.error('Notification failed:', r.reason);
+      });
+    },
+
     go(view, id = null) {
       const query = view === 'new' ? { new: '1' } : view === 'lead' ? { id } : view === 'book' ? { id, book: '1' } : {};
       this.$router.push({ query, state: { okMsg: this.okMsg } });
@@ -456,18 +471,15 @@ export default {
       return { id, ...d, assignedTo: d.assignedToName || '', loggedBy: d.loggedByName || '', created: isoOf(d.createdAt), updated: isoOf(d.updatedAt),
         history: d.history || [], contactName: '', phone: '', email: '' };
     },
-    // Rules are not filters: Operations ask only for the inquiries assigned to them.
     async loadList() {
       const col = collection(db, 'offlineInquiries');
       const snap = await getDocs(SEE_ALL.includes(me.role) ? query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT))
         : query(col, where('assignedToUid', '==', me.user.uid), limit(LIST_LIMIT)));
       const leads = snap.docs.map(d => this.toLead(d.id, d.data()));
-      // Names only for the rows this person may see (one small read each).
       const priv = await Promise.all(leads.map(ld => this.canSeeContact(ld) ? privateOf(doc(db, 'offlineInquiries', ld.id)).catch(() => ({})) : {}));
       leads.forEach((ld, i) => Object.assign(ld, priv[i]));
       this.leads = leads;
     },
-    // Operations members to assign to: active staff records with the operations role (Directors only).
     async loadStaff() {
       if (!this.canAssign || this.staff.length) return;
       const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'operations'), where('active', '==', true)));
@@ -481,7 +493,6 @@ export default {
       const ld = this.toLead(id, snap.data());
       const see = this.canSeeContact(ld);
       if (see) Object.assign(ld, await privateOf(ref));
-      // Tenant and booking: IT has no access to these, so the page simply shows less.
       const [t, b] = await Promise.all([
         ld.tenantId ? getDoc(doc(db, 'tenants', ld.tenantId)).catch(() => null) : null,
         ld.bookingId ? getDoc(doc(db, 'offlineBookings', ld.bookingId)).catch(() => null) : null
@@ -500,9 +511,7 @@ export default {
     full(iso) { return iso ? `${this.short(iso)} ${iso.slice(0, 4)}` : ''; },
     stamp(iso) { return iso ? `${this.short(iso)}, ${iso.slice(11, 16)}` : ''; },
     rm(v) { return 'RM ' + (+v || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
-    // Directors and Finance see every inquiry's contact details; otherwise only the person who logged it and the assignee.
     canSeeContact(ld) { return CONTACT_ALL.includes(me.role) || ld.loggedByUid === me.user.uid || ld.assignedToUid === me.user.uid; },
-    // A tenant's details are changed only by Directors and Finance (Operations add to them only through Create booking).
     canEdit(ld) { return this.canSeeContact(ld) && (!this.tenant || CONTACT_ALL.includes(me.role)); },
     canBook(ld) { return ld.status === 'interested' && !ld.bookingId && this.canSeeContact(ld); },
     entry(text) { return { at: nowIso(), by: me.name, text }; },
@@ -520,9 +529,20 @@ export default {
         Object.assign(ld, { assignedToUid: who.uid, assignedToName: who.name, assignedTo: who.name, updated: h.at });
         ld.history.push(h);
         this.okMsg = `${ld.id} assigned to ${who.name}.`;
+
+        // Direct notification to assignee (skipSelf set to false so self-assignment testing works)
+        this.notify({
+          uids: [who.uid],
+          skipSelf: false,
+          title: 'Inquiry assigned to you',
+          refId: ld.id,
+          message: `${ld.id} · ${ld.lookingFor} was assigned to you by ${me.name}.`,
+          link: `/Operations/offline-inquiries?id=${ld.id}`
+        });
       } catch (e) { this.error = friendlyError(e, 'assign the inquiry'); }
       this.busy = false;
     },
+
     async saveNew() {
       const f = this.form;
       if (!f.lookingFor.trim()) return this.formError = 'Say what they are looking for, e.g. Monthly rental, 2 bedrooms, Ampang.';
@@ -533,7 +553,7 @@ export default {
         const known = await findTenant(f.phone);
         const who = this.canAssign ? this.staff.find(s => s.uid === f.assignedTo) || null : null;
         const h = this.entry(`Logged the inquiry${who ? `, assigned to ${who.name}` : ''}${known ? `, linked to existing tenant ${known.id}` : ''}.${f.note.trim() ? ' ' + f.note.trim() : ''}`);
-        // One transaction: the next LD number (counters/offlineInquiries), the inquiry, its private part and the audit entry.
+        
         const id = await runTransaction(db, async tx => {
           const cRef = doc(db, 'counters', 'offlineInquiries');
           const c = await tx.get(cRef);
@@ -548,14 +568,42 @@ export default {
             changes: [{ field: 'status', old: null, new: f.status }, ...(who ? [{ field: 'assignedTo', old: null, new: who.name }] : [])] });
           return id;
         });
-        this.okMsg = `${id} logged${who ? ` and assigned to ${who.name}` : ''}.`; this.go('list');
+
+        const link = `/Operations/offline-inquiries?id=${id}`;
+
+        // Case A: Assigned to a staff member (skipSelf: false ensures local self-tests trigger notifications)
+        if (who) {
+          this.notify({
+            uids: [who.uid],
+            skipSelf: false,
+            title: 'Inquiry assigned to you',
+            refId: id,
+            message: `${id} · ${f.lookingFor.trim()} was assigned to you by ${me.name}.`,
+            link
+          });
+        }
+
+        // Case B: New inquiry — alert Finance, Directors and Operations
+        this.notify({
+          roles: this.inquiryRoles(),
+          title: `New inquiry ${id}`,
+          refId: id,
+          message: `${me.name} logged ${id} · ${f.lookingFor.trim()} (${STATUS[f.status][0]})${who ? `, assigned to ${who.name}` : ', unassigned'}.`,
+          link
+        });
+
+        this.okMsg = `${id} logged${who ? ` and assigned to ${who.name}` : ''}.`;
+        this.go('list');
       } catch (e) { this.formError = errText(e, 'save the inquiry'); }
       this.busy = false;
     },
+
     async saveUpdate() {
       const ld = this.lead, u = this.upd, parts = [];
       const who = this.staff.find(s => s.uid === u.assignedToUid) || null;
       const reassign = this.canAssign && (u.assignedToUid || '') !== (ld.assignedToUid || '');
+      const statusChanged = u.status !== ld.status;
+      const oldStatus = ld.status;
       if (reassign) parts.push(who ? `Assigned to ${who.name}.` : 'Unassigned.');
       if (u.status !== ld.status) parts.push(`Status: ${STATUS[u.status][0]}.`);
       if (u.note.trim()) parts.push(u.note.trim());
@@ -574,9 +622,31 @@ export default {
         Object.assign(ld, { status: u.status, updated: h.at, ...(reassign ? { assignedToUid: who?.uid || null, assignedToName: who?.name || null, assignedTo: who?.name || '' } : {}) });
         ld.history.push(h);
         this.formError = ''; this.upd.note = ''; this.okMsg = `${ld.id} updated.`;
+
+        const link = `/Operations/offline-inquiries?id=${ld.id}`;
+        if (reassign && who) {
+          this.notify({
+            uids: [who.uid],
+            skipSelf: false,
+            title: 'Inquiry assigned to you',
+            refId: ld.id,
+            message: `${ld.id} · ${ld.lookingFor} was assigned to you by ${me.name}.`,
+            link
+          });
+        }
+        if (statusChanged) {
+          this.notify({
+            roles: this.inquiryRoles(),
+            title: 'Inquiry status changed',
+            refId: ld.id,
+            message: `${ld.id} · ${ld.lookingFor}: ${me.name} changed the status from ${STATUS[oldStatus][0]} to ${STATUS[u.status][0]}.`,
+            link
+          });
+        }
       } catch (e) { this.formError = friendlyError(e, 'save the update'); }
       this.busy = false;
     },
+
     async saveEzee() {
       const no = this.ezeeAdd.trim(), b = this.booking, ld = this.lead;
       if (!no || !b) return;
@@ -631,7 +701,6 @@ export default {
       this.busy = false;
     },
 
-    // Create booking: fill from the inquiry, or from the existing tenant with the same phone number.
     bookBack() { if (this.direct) this.$router.push('/Portfolio/bookings'); else this.go('lead', this.lead.id); },
     async startBooking() {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
@@ -671,12 +740,10 @@ export default {
         const prop = this.properties.find(p => p.id === b.propertyId), unit = this.units.find(u => u.id === b.unitId);
         const details = { kind: 'tenant', name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(),
           icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name) };
-        // The tenant this booking goes to: the inquiry's own, or a returning one with the same phone number.
         const known = this.lead.tenantId ? this.tenant : await findTenant(b.phone);
         const bookingId = `offline_${ld.id}`, unitCode = unit?.unitCode || '';
         const lRef = doc(db, 'offlineInquiries', ld.id), bRef = doc(db, 'offlineBookings', bookingId), cRef = doc(db, 'counters', 'tenants');
-        // One transaction: tenant number, tenant + private, booking, inquiry (booked) and the audit entry.
-        // It refuses if offline_LD-xxxx already exists, so the same inquiry can't be booked twice.
+        
         const res = await runTransaction(db, async tx => {
           if ((await tx.get(bRef)).exists()) throw stop(`${ld.id} already has a booking.`);
           const ls = await tx.get(lRef);
@@ -708,13 +775,32 @@ export default {
             changes: [{ field: 'status', old: ld.status, new: 'booked' }, { field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
           return { isNew: !known };
         });
+
         this.okMsg = `${ld.id} booked. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`}`;
+
+        // Notify Finance and Directors to key the booking into eZee
+        this.notify({
+          roles: ['finance', 'director'],
+          title: 'New offline booking',
+          refId: bookingId,
+          message: `${ld.id} booked: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
+          link: `/Operations/offline-inquiries?id=${ld.id}`
+        });
+
+        // Status moved to Booked — Operations hears about it too (Finance/Director got the eZee note above)
+        this.notify({
+          roles: ['operations'],
+          title: 'Inquiry status changed',
+          refId: ld.id,
+          message: `${ld.id}: ${me.name} changed the status from ${STATUS[ld.status][0]} to ${STATUS.booked[0]}.`,
+          link: `/Operations/offline-inquiries?id=${ld.id}`
+        });
+
         this.go('lead', ld.id);
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
       this.busy = false;
     },
-    // + New booking from Portfolio: no inquiry. One transaction: booking number (counters/offlineBookings), tenant number if new,
-    // tenant + private, booking and the audit entry.
+
     async saveDirect() {
       const b = this.bk;
       this.busy = true; this.formError = '';
@@ -752,7 +838,17 @@ export default {
             changes: [{ field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
           return { isNew: !known, bookingId };
         });
+
         const okMsg = `${res.bookingId} saved. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`} Key it into eZee to block the room.`;
+
+        this.notify({
+          roles: ['finance', 'director'],
+          title: 'New offline booking',
+          refId: res.bookingId,
+          message: `${res.bookingId}: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
+          link: '/Portfolio/bookings'
+        });
+
         this.$router.push({ path: '/Portfolio/bookings', state: { okMsg } });
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
       this.busy = false;
