@@ -8,7 +8,7 @@
     </div>
 
     <section class="card">
-      <div class="card-head"><h2>Profile</h2><div class="head-btns"><button class="btn" @click="resetPw" :disabled="busy || !email">Reset password</button><button class="btn btn-danger" @click="logOut">Log out</button></div></div>
+      <div class="card-head"><h2>Profile</h2><div class="head-btns"><button class="btn" @click="resetPw" :disabled="busy || !email">Reset password</button></div></div>
       <div class="profile">
         <div class="pic">
           <Avatar :uid="uid" :name="me.name" :role="me.role" :size="96" />
@@ -29,7 +29,7 @@
 
     <section class="card">
       <div class="card-head"><h2>Colour theme</h2></div>
-      <p class="card-intro">Widebed orange is the default for everyone.</p>
+      <p class="card-intro">Widebed orange is the default for everyone. Pick Custom to choose your own colour.</p>
       <div class="theme-grid">
         <template v-for="th in themes" :key="th.key">
           <button class="choice" :class="{ on: t.brand === th.key }" @click="set({ brand: th.key })" :aria-pressed="t.brand === th.key">
@@ -37,7 +37,17 @@
             <span><b>{{ th.label }}</b><span class="tick" v-show="t.brand === th.key"> · In use</span><br><small>{{ th.note }}</small></span>
           </button>
         </template>
+        <div class="choice custom" :class="{ on: t.brand === 'custom' }" role="button" tabindex="0" :aria-pressed="t.brand === 'custom'"
+             @click="t.brand !== 'custom' && set({ brand: 'custom' })" @keydown.enter.self="set({ brand: 'custom' })">
+          <span class="swatch"><i :style="`background:${pal.brand}`"></i><i :style="`background:${pal.accent}`"></i><i :style="`background:${pal.soft}`"></i></span>
+          <span><b>Custom</b><span class="tick" v-show="t.brand === 'custom'"> · In use</span><br><small>Your own colour</small></span>
+          <span class="pick" @click.stop>
+            <input type="color" :value="t.custom" @input="live($event.target.value)" @change="pickColour($event.target.value)" aria-label="Pick your colour">
+            <input class="input hex" :value="hexDraft" @input="hexDraft = $event.target.value" @keydown.enter="typeHex" @blur="typeHex" maxlength="7" spellcheck="false" aria-label="Colour code">
+          </span>
+        </div>
       </div>
+      <p class="note" v-if="t.brand === 'custom' && pal.accent !== pal.brand" style="margin:10px 0 0">Buttons use a slightly darker shade ({{ pal.accent }}) so white text on them stays readable.</p>
     </section>
 
     <section class="card">
@@ -68,10 +78,10 @@
 </template>
 
 <script>
-import { readTheme, saveTheme, applyTheme } from '@/lib/theme.js';
+import { readTheme, saveTheme, applyTheme, customPalette, isHex } from '@/lib/theme.js';
 import { toast } from '@/lib/toast.js';
 import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth, ROLE_LABEL, logOut } from '@/lib/firebase.js';
+import { auth, ROLE_LABEL } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import Avatar from '@/components/Avatar.vue';
 import { avatarSrc, squareShrink, saveMyAvatar, removeMyAvatar, roleTint, MAX_OUT } from '@/lib/avatars.js';
@@ -87,12 +97,10 @@ export default {
     const me = useSession();
     return {
       me, uid: me.user?.uid || null, email: me.user?.email || '', busy: false, okMsg: '', error: '',
-      t: readTheme(),
+      t: readTheme(), hexDraft: readTheme().custom,
       themes: [
         { key: 'widebed', label: 'Widebed', note: 'Orange and white (default)', c: ['#F26D4D', '#C2452B', '#FDEBE6'] },
-        { key: 'teal', label: 'Teal', note: 'Calm green-blue', c: ['#2BA197', '#1C7C74', '#E1F3F1'] },
-        { key: 'blue', label: 'Blue', note: 'Classic office blue', c: ['#4C7FE0', '#2F5FBF', '#E6EEFB'] },
-        { key: 'grey', label: 'Neutral grey', note: 'Low colour', c: ['#6B7280', '#4B5260', '#ECEEF1'] }
+        { key: 'blue', label: 'Blue', note: 'Classic office blue', c: ['#4C7FE0', '#2F5FBF', '#E6EEFB'] }
       ],
       modes: [
         { key: 'light', label: 'Light', note: 'White pages' },
@@ -105,11 +113,12 @@ export default {
   mounted() { dark.addEventListener('change', follow); },
   unmounted() { dark.removeEventListener('change', follow); },
   computed: {
+    pal() { return customPalette(this.t.custom, this.t.mode === 'dark' || (this.t.mode === 'system' && dark.matches)); },
     hasPic() { return !!avatarSrc(this.uid); },
     roleLabel() { return ROLE_LABEL[this.me.role] || this.me.role || '-'; }
   },
   methods: {
-    roleTint, logOut,
+    roleTint,
     pick(e) {
       this.error = ''; this.okMsg = '';
       const f = e.target.files[0]; e.target.value = '';
@@ -141,7 +150,15 @@ export default {
       catch (_) { this.error = 'Could not send the reset email. Try again in a few minutes.'; }
       this.busy = false;
     },
-    set(patch) { this.t = { ...this.t, ...patch }; saveTheme(this.t); toast('Appearance saved'); }
+    set(patch) { this.t = { ...this.t, ...patch }; saveTheme(this.t); toast('Appearance saved'); },
+    // Dragging in the colour picker previews live; letting go saves it
+    live(hex) { this.t = { ...this.t, brand: 'custom', custom: hex.toUpperCase() }; this.hexDraft = this.t.custom; applyTheme(this.t); },
+    pickColour(hex) { this.hexDraft = hex.toUpperCase(); this.set({ brand: 'custom', custom: this.hexDraft }); },
+    typeHex() {
+      let h = (this.hexDraft || '').trim(); if (h && h[0] !== '#') h = '#' + h;
+      if (!isHex(h)) { this.hexDraft = this.t.custom; return; }
+      if (h.toUpperCase() !== this.t.custom || this.t.brand !== 'custom') this.pickColour(h);
+    }
   }
 };
 </script>
@@ -162,7 +179,11 @@ export default {
     .ok { color: var(--green, #1F8A4C); font-size: 13px; margin: 0; }
     .err { color: var(--red, #C0392B); font-size: 13px; margin: 0; }
     @media (max-width: 700px) { .profile { grid-template-columns: minmax(0, 1fr); } }
-    .theme-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+    .theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+    .choice.custom { cursor: pointer; }
+    .pick { display: flex; gap: 8px; align-items: center; }
+    .pick input[type=color] { width: 38px; height: 34px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; flex: none; }
+    .pick .hex { height: 34px; min-width: 0; flex: 1; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; text-transform: uppercase; }
     .mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
     .choice { border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface); padding: 14px; text-align: left; color: var(--text); display: grid; gap: 10px; }
     .choice:hover { border-color: var(--muted); }

@@ -1,5 +1,5 @@
 <template>
-  <main class="content" id="sop">
+  <main class="content soft-page" id="sop">
     <div class="page-head">
       <div><h1>{{ cfg.title }}</h1><div class="sub">{{ cfg.sub }}</div></div>
       <div class="head-tools">

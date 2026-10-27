@@ -129,11 +129,12 @@
     <!-- Previous uploads -->
     <section class="card" style="margin-top:20px">
       <div class="card-head"><h2>Previous uploads</h2></div>
+      <Paged :items="history" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table">
           <thead><tr><th>Uploaded</th><th>File</th><th>Month</th><th class="num">Bookings / units</th><th>By</th><th style="text-align:right">Result</th></tr></thead>
           <tbody>
-            <template v-for="h in history" :key="h.id">
+            <template v-for="h in pageRows" :key="h.id">
               <tr>
                 <td>{{ stamp(h.uploadedAt) }}</td>
                 <td><span>{{ h.fileName }}</span><div class="help">{{ h.kind === 'financeStatement' ? 'Finance statement (reference)' : 'eZee report' }}</div></td>
@@ -147,6 +148,7 @@
           </tbody>
         </table>
       </div>
+      </Paged>
     </section>
 
     <section class="card" id="daily" style="margin-top:20px">

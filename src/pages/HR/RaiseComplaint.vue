@@ -1,5 +1,5 @@
 <template>
-  <main class="content">
+  <main class="content soft-page">
     <div class="page-head"><div><h1>Raise a staff complaint</h1><div class="sub">Sent to HR</div></div></div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="notice error" v-show="loadErr">{{ loadErr }}</div>
@@ -28,17 +28,19 @@
     <section class="card" style="margin-top:20px">
       <div class="card-head"><h2>My complaints</h2></div>
       <div class="loading-bar" v-show="loading"></div>
+      <Paged :items="list" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table">
           <thead><tr><th>Ref</th><th>Date</th><th>Subject</th><th>Sent as</th><th>Status</th></tr></thead>
           <tbody>
-            <tr v-for="c in list" :key="c.id"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.subject }}</td>
+            <tr v-for="c in pageRows" :key="c.id"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.subject }}</td>
               <td>{{ c.anonymous ? 'Anonymous' : myName }}</td>
               <td><span class="pill" :class="(STATUS[c.status] || STATUS.new)[1]">{{ (STATUS[c.status] || STATUS.new)[0] }}</span></td></tr>
             <tr v-show="!loading && !list.length"><td colspan="5" class="muted">You haven't sent any complaints.</td></tr>
           </tbody>
         </table>
       </div>
+      </Paged>
     </section>
   </main>
 </template>

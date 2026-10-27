@@ -19,8 +19,8 @@
       </template>
     </div>
 
-    <div class="table-wrap">
-      <table class="table staff-table">
+    <div class="table-wrap soft-wrap">
+      <table class="table staff-table hover-rows">
         <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Active</th><th>Joined</th><th></th></tr></thead>
         <tbody>
           <template v-for="row in shown()" :key="row.id">
@@ -34,10 +34,10 @@
               <td class="row-acts">
                 <template v-if="row.id === myUid || locked(row)"><span class="muted">—</span></template>
                 <template v-if="row.id !== myUid && !locked(row) && row.active !== false">
-                  <span><button class="btn btn-sm" @click="openEdit(row)">Change role</button><button class="btn btn-sm" @click="openToggle(row)">Turn off</button></span>
+                  <span><button class="act-pill" @click="openEdit(row)">Change role</button><button class="act-pill danger" @click="openToggle(row)">Turn off</button></span>
                 </template>
                 <template v-if="row.id !== myUid && !locked(row) && row.active === false">
-                  <button class="btn btn-sm" @click="openToggle(row)">Turn back on</button>
+                  <button class="act-pill good" @click="openToggle(row)">Turn back on</button>
                 </template>
               </td>
             </tr>

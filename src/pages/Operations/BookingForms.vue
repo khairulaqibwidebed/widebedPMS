@@ -6,21 +6,19 @@
         <div class="sub">Operations forms in Fillout. Each button opens the form in a new tab; nothing is saved in the PMS.</div>
       </div>
     </div>
-    <section class="card">
+    <section class="card form-card">
       <div class="form-list">
-        <div class="form-row" v-for="f in LINKS" :key="f.name">
+        <a class="form-row" v-for="f in LINKS" :key="f.name" :href="f.url" target="_blank" rel="noopener" @click="open($event, f)">
           <div><b>{{ f.name }}</b><span>{{ f.about }}</span></div>
-          <a class="btn open-btn" :href="f.url" target="_blank" rel="noopener" @click="open($event, f)">Open ↗</a>
-        </div>
+          <span class="open-btn">Open form <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+        </a>
       </div>
     </section>
-    <p class="page-note">Fillout links are added during coding (placeholder: Internal Portal WB).</p>
+    <p class="page-note">Redirect Links to the Fill Out Forms!</p>
   </main>
 </template>
 
 <script>
-// Fillout links: Khairul pastes each real Fillout link here in place of '#'.
-// While a link is '#', its Open button says "Link not added yet".
 const LINKS = [
   { name: "Reservation Lodgment Form", about: "Log a verified customer check-in record.", url: 'https://script.google.com/a/macros/widebed.com/s/AKfycbzNXjXJVSjh3c0HX49qEq0rsUmjjZdpawB5hnl1P2HV8k3UWp7fI3CBhA0iEOphUO-L/exec' },
   { name: "Utility Lodgment Form", about: "Log utility invoices to an active property.", url: 'https://script.google.com/a/macros/widebed.com/s/AKfycbzNXjXJVSjh3c0HX49qEq0rsUmjjZdpawB5hnl1P2HV8k3UWp7fI3CBhA0iEOphUO-L/exec?page=utility' },
@@ -39,12 +37,6 @@ export default {
 </script>
 
 <style scoped>
-    .form-list { display: grid; }
-    .form-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
-    .form-row:first-child { border-top: 0; }
-    .form-row b { display: block; font-size: 14px; font-weight: 600; }
-    .form-row span { color: var(--muted); font-size: 12px; }
-    .form-row > div { min-width: 0; }
-    .open-btn { height: 34px; flex: none; }
+    /* Form rows: shared .form-list / .form-row styles in app.css */
     .page-note { color: var(--muted); font-size: 12px; margin-top: 14px; }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <main class="content">
+  <main class="content soft-page">
     <div class="page-head"><div><h1>Send a complaint to the Directors</h1><div class="sub">Only HR can use this form</div></div>
       </div>
     <div class="callout" style="margin-bottom:20px">HR sends these complaints and the Directors read them. HR has no login yet, so for now the form shows to Directors so it can be tried out; the inbox below is what Directors see.</div>
@@ -37,17 +37,19 @@
     <section class="card" style="margin-top:20px">
       <div class="card-head"><h2>Directors' inbox</h2><span class="help">{{ `${list.filter(c => !c.read).length} not read` }}</span></div>
       <div class="loading-bar" v-show="loading"></div>
+      <Paged :items="list" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table">
           <thead><tr><th>Ref</th><th>Date</th><th>From</th><th>Subject</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            <tr class="clickable" v-for="c in list" :key="c.id" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.fromName }}</td><td>{{ c.subject }}</td>
+            <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.fromName }}</td><td>{{ c.subject }}</td>
               <td><span class="pill" :class="c.read ? 'green' : 'amber'">{{ c.read ? 'Read' : 'New' }}</span></td>
               <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td></tr>
             <tr v-show="!loading && !list.length"><td colspan="6" class="muted">No complaints yet.</td></tr>
           </tbody>
         </table>
       </div>
+      </Paged>
     </section>
     <template v-if="sel">
       <div class="modal-back" @click.self="sel = null" v-esc="() => { sel = null }">

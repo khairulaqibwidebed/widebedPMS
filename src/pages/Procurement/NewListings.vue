@@ -53,11 +53,12 @@
           </div>
         </div>
         <section class="card">
+          <Paged :items="shown()" v-slot="{ pageRows }">
           <div class="table-wrap">
             <table class="table">
               <thead><tr><th>Listing</th><th>Property / unit</th><th>Owner</th><th>Current stage</th><th>Started</th><th>Status</th><th>Task system</th></tr></thead>
               <tbody>
-                <template v-for="l in shown()" :key="l.id">
+                <template v-for="l in pageRows" :key="l.id">
                   <tr class="clickable" @click="go('listing', l.id)">
                     <td><b>{{ l.id }}</b></td>
                     <td>{{ placeOf(l) }}</td>
@@ -72,6 +73,7 @@
               </tbody>
             </table>
           </div>
+          </Paged>
         </section>
         <p class="page-note">Owner phone numbers and emails are shown only to Procurement and the Directors. Photos and videos are kept in Google Drive; each listing holds the links.</p>
       </div>

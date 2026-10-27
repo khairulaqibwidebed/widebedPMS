@@ -33,9 +33,27 @@
       <header class="topbar">
         <button class="btn menu-btn" aria-label="Menu" @click="menuOpen = !menuOpen">☰</button>
         <button class="search-btn" @click="paletteOpen = true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5.5"/><path d="M11 11l4 4"/></svg> <span>Search</span><kbd>Ctrl K</kbd></button>
-        <div class="user-menu">
-          <div class="user-id"><Avatar :uid="me.user?.uid" :name="me.name" :role="me.role" :size="30" /><span class="user-name">{{ me.name }}</span>
-            <span class="role-badge role-tint" :style="roleTint(me.role)">{{ ROLE_LABEL[me.role] || me.role }}</span></div>
+        <div class="user-menu" v-click-outside="() => { userOpen = false }" v-esc="() => { userOpen = false }">
+          <button type="button" class="user-id" :class="{ open: userOpen }" @click="userOpen = !userOpen" aria-haspopup="menu" :aria-expanded="String(userOpen)">
+            <Avatar :uid="me.user?.uid" :name="me.name" :role="me.role" :size="30" /><span class="user-name">{{ me.name }}</span>
+            <span class="role-badge role-tint" :style="roleTint(me.role)">{{ ROLE_LABEL[me.role] || me.role }}</span>
+            <svg class="um-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <!-- Account menu: profile and log out, one click from any page -->
+          <div class="um-pop" role="menu" v-show="userOpen">
+            <div class="um-head">
+              <Avatar :uid="me.user?.uid" :name="me.name" :role="me.role" :size="40" />
+              <div class="um-who"><b>{{ me.name }}</b><span>{{ me.user?.email || '' }}</span></div>
+            </div>
+            <router-link class="um-item" role="menuitem" to="/Settings/appearance" @click="userOpen = false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+              Profile &amp; Appearance
+            </router-link>
+            <button type="button" class="um-item danger" role="menuitem" @click="logOut">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+              Log out
+            </button>
+          </div>
         </div>
         <!-- Notifications: icon only for now (system on Khairul's to-do list). Log out is on Profile & Appearance.
         <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="notBuilt('Notifications')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button> -->
@@ -54,7 +72,7 @@
 
 <script>
 import { NAV } from '../nav.js';
-import { ROLE_LABEL } from '../lib/firebase.js';
+import { ROLE_LABEL, logOut } from '../lib/firebase.js';
 import { notBuilt } from '../lib/toast.js';
 import { useSession } from '../stores/session.js';
 import NavItem from './NavItem.vue';
@@ -80,7 +98,7 @@ const DESKTOP_QUERY = '(min-width: 861px)';
 export default {
   components: { NavItem, CommandPalette, Avatar, NotificationBell },
   data: () => ({
-    ROLE_LABEL, menuOpen: false, paletteOpen: false, openGroup: -1,
+    ROLE_LABEL, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
     folded: readFolded(), collapsed: readCollapsed(),
     wide: window.matchMedia(DESKTOP_QUERY).matches
   }),
@@ -101,7 +119,7 @@ export default {
     $route: {
       immediate: true,
       handler() {
-        this.menuOpen = false;
+        this.menuOpen = false; this.userOpen = false;
         const i = this.groups.findIndex(g => g.label && g.items.some(it => it.label === this.active));
         this.openGroup = i >= 0 ? i : this.groups.findIndex(g => g.label);
       }
@@ -131,6 +149,7 @@ export default {
     this.mq.removeEventListener('change', this.onMq);
   },
   methods: {
+    logOut,
     notBuilt, roleTint,
     groupIcon(g) { return NAV_ICONS[g.icon] || NAV_ICONS.dot; },
     hasActive(g) { return g.items.some(it => it.label === this.active); },
@@ -174,7 +193,9 @@ export default {
 /* Fixed/sticky topbar height */
 .topbar {height: var(--topbar-h);flex-shrink: 0;display: flex;align-items: center;padding: 0 20px;background: #fff;border-bottom: 1px solid rgba(128, 128, 128, 0.2);position: sticky;top: 0;z-index: 10;}
 /* Global content container for all views */
-main.content {flex: 1;width: 100%;max-width: 1200px; /* Adjust maximum content width */margin: 0 auto;padding: 24px;box-sizing: border-box;}
+/* Fills the space beside the sidebar (open or collapsed) and stays centred; only very wide screens hit the cap.
+   Side padding grows with the screen so big monitors don't look cramped at the edges. */
+main.content {flex: 1;width: 100%;max-width: 1760px;margin: 0 auto;padding: clamp(20px, 2.2vw, 36px) clamp(16px, 3vw, 56px) 48px;box-sizing: border-box;}
 /* Ensure flex grids inside dashboards scale down on smaller screens */
 .grid-2 {display: grid;grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));gap: 20px;}
 

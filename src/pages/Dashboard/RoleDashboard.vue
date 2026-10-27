@@ -40,23 +40,26 @@
           <section class="card" ref="today">
             <div class="card-head"><h2>Today's arrivals and departures</h2><RouterLink class="link" to="/Portfolio/bookings">Offline bookings ›</RouterLink></div>
             <div class="rows">
-              <template v-for="m in d.moves.slice(0, 12)" :key="m.key">
+              <Capped :items="d.moves" v-slot="{ capRows }">
+              <template v-for="m in capRows" :key="m.key">
                 <div class="row">
                   <RouterLink class="cell link" :to="m.ezee ? propertyPage(m.propertyId) : bookingsPage(m.propertyId)">{{ m.unit }}</RouterLink>
                   <span class="r"><span class="pill" :class="m.dir === 'in' ? 'green' : 'blue'">{{ m.dir === 'in' ? 'In' : 'Out' }}</span>{{ ' ' + m.source }}</span>
                 </div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.moves.length">No check-ins or check-outs today.</div>
-              <div class="note" v-show="d.moves.length > 12">{{ `+ ${d.moves.length - 12} more today` }}</div>
               <div class="note">{{ `${dmy(d.today)}. eZee bookings as of the last upload, plus offline bookings. eZee rows open the property's units; offline rows open Bookings.` }}</div>
             </div>
           </section>
           <section class="card" ref="leases">
             <div class="card-head"><h2>Leases ending soon</h2><RouterLink class="link" to="/Portfolio/bookings">Bookings ›</RouterLink></div>
             <div class="rows">
-              <template v-for="l in d.leases" :key="l.id">
+              <Capped :items="d.leases" v-slot="{ capRows }">
+              <template v-for="l in capRows" :key="l.id">
                 <div class="row"><RouterLink class="cell link" :to="bookingsPage(l.propertyId)">{{ `${l.unit} · ${l.id.replace('offline_', '')}` }}</RouterLink><span class="r">{{ `Ends ${dmy(l.departure)} · ${daysTo(l.departure)}` }}</span></div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.leases.length">No long-term lease ends in the next 30 days.</div>
             </div>
           </section>
@@ -65,11 +68,12 @@
           <section class="card" ref="tickets">
             <div class="card-head"><h2>My tickets</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
             <div class="rows">
-              <template v-for="t in newestTickets().slice(0, 6)" :key="t.id">
+              <Capped :items="newestTickets()" v-slot="{ capRows }">
+              <template v-for="t in capRows" :key="t.id">
                 <div class="row"><RouterLink class="cell link" :to="`/Operations/issues?id=${t.id}`">{{ `${t.id} · ${t.title}` }}</RouterLink><span class="r">{{ statusOf(t) }}</span></div>
               </template>
+              </Capped>
               <div class="empty" v-show="!tickets.length">No open tickets tagged Operations or raised by you.</div>
-              <div class="note" v-show="tickets.length > 6">{{ `Newest 6 of ${tickets.length} open tickets` }}</div>
             </div>
           </section>
           <section class="card" ref="inquiries">
@@ -90,28 +94,35 @@
           <section class="card" ref="tickets">
             <div class="card-head"><h2>IT tickets</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
             <div class="rows">
-              <template v-for="t in d.tickets.slice(0, 8)" :key="t.id">
+              <Capped :items="d.tickets" v-slot="{ capRows }">
+              <template v-for="t in capRows" :key="t.id">
                 <div class="row"><RouterLink class="cell link" :to="`/Operations/issues?id=${t.id}`">{{ `${t.id} · ${t.title}` }}</RouterLink><span class="r">{{ `${statusOf(t)} · ${when(t.createdAt)}` }}</span></div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.tickets.length">No open tickets tagged IT.</div>
-              <div class="note" v-show="d.tickets.length > 8">{{ `Oldest 8 of ${d.tickets.length} open tickets` }}</div>
             </div>
           </section>
           <section class="card" ref="staff">
             <div class="card-head"><h2>Staff accounts</h2></div>
             <div class="sub-h">Last sign-ins</div>
             <div class="rows">
-              <template v-for="u in d.signIns" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ when(u.lastLoginAt) }}</span></div></template>
+              <Capped :items="d.signIns" v-slot="{ capRows }">
+              <template v-for="u in capRows" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ when(u.lastLoginAt) }}</span></div></template>
+              </Capped>
               <div class="empty" v-show="!d.signIns.length">No sign-ins recorded yet.</div>
             </div>
             <div class="sub-h">Newest joiners</div>
             <div class="rows">
-              <template v-for="u in d.joiners" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ 'Added ' + day(u.createdAt) }}</span></div></template>
+              <Capped :items="d.joiners" v-slot="{ capRows }">
+              <template v-for="u in capRows" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ 'Added ' + day(u.createdAt) }}</span></div></template>
+              </Capped>
               <div class="empty" v-show="!d.joiners.length">No accounts added in the PMS yet.</div>
             </div>
             <div class="sub-h">Recently turned off</div>
             <div class="rows">
-              <template v-for="u in d.turnedOff" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ u.updatedAt ? 'Off since ' + day(u.updatedAt) : 'Turned off' }}</span></div></template>
+              <Capped :items="d.turnedOff" v-slot="{ capRows }">
+              <template v-for="u in capRows" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ u.updatedAt ? 'Off since ' + day(u.updatedAt) : 'Turned off' }}</span></div></template>
+              </Capped>
               <div class="empty" v-show="!d.turnedOff.length">No accounts are turned off.</div>
             </div>
             <div class="note">Directors and HR manage accounts on Staff accounts.</div>
@@ -121,12 +132,14 @@
           <section class="card" ref="uploads">
             <div class="card-head"><h2>Upload history</h2></div>
             <div class="rows">
-              <template v-for="u in d.uploads" :key="u.id">
+              <Capped :items="d.uploads" v-slot="{ capRows }">
+              <template v-for="u in capRows" :key="u.id">
                 <div class="row">
                   <span class="cell">{{ `${stamp(u.uploadedAt)} · ${u.uploadedByName || 'Unknown'}` }}</span>
                   <span class="r">{{ uploadRows(u) + ' ' }}<span class="pill" :class="u.result === 'ok' ? 'green' : 'red'">{{ u.result === 'ok' ? 'Completed' : 'Refused' }}</span></span>
                 </div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.uploads.length">No eZee report uploaded yet.</div>
               <div class="note" v-show="d.uploads.length">Last 5 uploads. Finance uploads on Upload eZee report.</div>
             </div>
@@ -134,13 +147,15 @@
           <section class="card" ref="changes">
             <div class="card-head"><h2>Recent changes by IT</h2></div>
             <div class="rows">
-              <template v-for="a in d.audits" :key="a.id">
+              <Capped :items="d.audits" v-slot="{ capRows }">
+              <template v-for="a in capRows" :key="a.id">
                 <div class="row">
                   <RouterLink v-if="ticketOf(a)" class="cell link" :to="`/Operations/issues?id=${ticketOf(a)}`">{{ change(a) }}</RouterLink>
                   <span v-else class="cell">{{ change(a) }}</span>
                   <span class="r">{{ when(a.at) }}</span>
                 </div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.audits.length">No changes by IT recorded yet.</div>
             </div>
           </section>
@@ -153,24 +168,28 @@
           <section class="card" ref="complaints">
             <div class="card-head"><h2>Staff complaints</h2><RouterLink class="link" to="/HR/staff-complaints">View all ›</RouterLink></div>
             <div class="rows">
-              <template v-for="c in d.staffComplaints" :key="c.id">
+              <Capped :items="d.staffComplaints" v-slot="{ capRows }">
+              <template v-for="c in capRows" :key="c.id">
                 <div class="row">
                   <RouterLink class="cell link" to="/HR/staff-complaints">{{ `${c.ref} · ${c.subject || '(no subject)'}` }}</RouterLink>
                   <span class="r">{{ c.date + ' ' }}<span class="pill" :class="(COMPLAINT[c.status] || COMPLAINT.new)[1]">{{ (COMPLAINT[c.status] || COMPLAINT.new)[0] }}</span></span>
                 </div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.staffComplaints.length">No staff complaints yet.</div>
             </div>
           </section>
           <section class="card" ref="dir">
             <div class="card-head"><h2>Complaints sent to Directors</h2><RouterLink class="link" to="/HR/director-complaints">Director complaints ›</RouterLink></div>
             <div class="rows">
-              <template v-for="c in d.dirComplaints" :key="c.id">
+              <Capped :items="d.dirComplaints" v-slot="{ capRows }">
+              <template v-for="c in capRows" :key="c.id">
                 <div class="row">
                   <RouterLink class="cell link" to="/HR/director-complaints">{{ `${c.ref} · ${c.subject || '(no subject)'}` }}</RouterLink>
                   <span class="r">{{ c.date + ' ' }}<span class="pill" :class="c.read ? 'green' : 'amber'">{{ c.read ? 'Read' : 'Unread' }}</span></span>
                 </div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.dirComplaints.length">No complaints sent to the Directors yet.</div>
             </div>
           </section>
@@ -179,20 +198,23 @@
           <section class="card" ref="sops">
             <div class="card-head"><h2>Recent SOP edits</h2><RouterLink class="link" to="/HR/attendance-sop">SOPs ›</RouterLink></div>
             <div class="rows">
-              <template v-for="s in d.sopEdits" :key="s.key">
+              <Capped :items="d.sopEdits" v-slot="{ capRows }">
+              <template v-for="s in capRows" :key="s.key">
                 <div class="row"><RouterLink class="cell link" :to="s.to">{{ s.label }}</RouterLink><span class="r">{{ `${s.by || 'Unknown'} · ${day(s.at)}` }}</span></div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.sopEdits.length">No SOP has been edited yet. The starter text is showing.</div>
             </div>
           </section>
           <section class="card" ref="onboarding">
             <div class="card-head"><h2>Onboarding in progress</h2><RouterLink class="link" to="/Playbook/onboarding">Onboarding ›</RouterLink></div>
             <div class="rows">
-              <template v-for="n in d.onboarding.slice(0, 8)" :key="n.uid">
+              <Capped :items="d.onboarding" v-slot="{ capRows }">
+              <template v-for="n in capRows" :key="n.uid">
                 <div class="row"><RouterLink class="cell link" to="/Playbook/onboarding">{{ n.role ? `${n.name} · ${n.role}` : n.name }}</RouterLink><span class="r">{{ `${n.done} of ${d.total}` }}</span></div>
               </template>
+              </Capped>
               <div class="empty" v-show="!d.onboarding.length">No one is part-way through onboarding.</div>
-              <div class="note" v-show="d.onboarding.length > 8">{{ `+ ${d.onboarding.length - 8} more on Onboarding` }}</div>
             </div>
           </section>
         </div>
@@ -204,11 +226,12 @@
           <section class="card" ref="tickets">
             <div class="card-head"><h2>My tickets</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
             <div class="rows">
-              <template v-for="t in newestTickets().slice(0, 6)" :key="t.id">
+              <Capped :items="newestTickets()" v-slot="{ capRows }">
+              <template v-for="t in capRows" :key="t.id">
                 <div class="row"><RouterLink class="cell link" :to="`/Operations/issues?id=${t.id}`">{{ `${t.id} · ${t.title}` }}</RouterLink><span class="r">{{ statusOf(t) }}</span></div>
               </template>
+              </Capped>
               <div class="empty" v-show="!tickets.length">{{ `No open tickets tagged ${ROLE_LABEL[view]} or raised by you.` }}</div>
-              <div class="note" v-show="tickets.length > 6">{{ `Newest 6 of ${tickets.length} open tickets` }}</div>
             </div>
           </section>
         </div>
@@ -216,17 +239,21 @@
           <section class="card" v-if="view === 'procurement'">
             <div class="card-head"><h2>Forms</h2><RouterLink class="link" to="/Procurement/forms">Forms ›</RouterLink></div>
             <div class="rows">
-              <template v-for="f in LINKS" :key="f.name">
+              <Capped :items="LINKS" v-slot="{ capRows }">
+              <template v-for="f in capRows" :key="f.name">
                 <div class="row"><a class="cell link" :href="f.url" target="_blank" rel="noopener" @click="openForm($event, f)">{{ f.name }}</a><span class="r">Open ↗</span></div>
               </template>
+              </Capped>
             </div>
           </section>
           <section class="card" v-if="view === 'marketing'">
             <div class="card-head"><h2>Properties</h2><RouterLink class="link" to="/Portfolio/properties">Portfolio ›</RouterLink></div>
             <div class="rows">
-              <template v-for="p in pf.properties" :key="p.id">
+              <Capped :items="pf.properties" v-slot="{ capRows }">
+              <template v-for="p in capRows" :key="p.id">
                 <div class="row"><RouterLink class="cell link" :to="propertyPage(p.id)">{{ p.name }}</RouterLink><span class="r">{{ `${p.units} unit${p.units === 1 ? '' : 's'}` }}</span></div>
               </template>
+              </Capped>
               <div class="empty" v-show="!pf.properties.length">No properties in Portfolio yet.</div>
             </div>
           </section>
