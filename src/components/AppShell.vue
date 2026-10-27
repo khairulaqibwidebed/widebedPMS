@@ -40,10 +40,11 @@
         <!-- Notifications: icon only for now (system on Khairul's to-do list). Log out is on Profile & Appearance.
         <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="notBuilt('Notifications')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button> -->
         <!-- Neo's Notification -->
-        <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="$router.push('/notifications')">
+        <NotificationBell />
+        <!-- <button class="btn bell-btn" aria-label="Notifications" title="Notifications" @click="$router.push('/notifications')">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
           <span v-if="unreadCount > 0" class="notification-dot" :title="`${unreadCount} unread notifications`"></span>
-        </button>
+        </button> -->
       </header>
       <RouterView :key="$route.fullPath" />
     </div>
@@ -61,7 +62,8 @@ import Avatar from './Avatar.vue';
 import { roleTint } from '../lib/avatars.js';
 import CommandPalette from './CommandPalette.vue';
 import { NAV_ICONS } from './NavIcons.js';
-import { triggerPushNotification } from '../lib/push.js';
+// import { triggerPushNotification } from '../lib/push.js';
+import NotificationBell from '@/components/NotificationBell.vue'
 
 // Sidebar groups a person has folded, remembered in this browser.
 const FOLDED_KEY = 'wb.navFolded';
@@ -76,7 +78,7 @@ function readCollapsed() { try { return localStorage.getItem(COLLAPSED_KEY) === 
 const DESKTOP_QUERY = '(min-width: 861px)';
 
 export default {
-  components: { NavItem, CommandPalette, Avatar },
+  components: { NavItem, CommandPalette, Avatar, NotificationBell },
   data: () => ({
     ROLE_LABEL, menuOpen: false, paletteOpen: false, openGroup: -1,
     folded: readFolded(), collapsed: readCollapsed(),
@@ -89,9 +91,9 @@ export default {
     // Collapsed AND on desktop. On mobile the sidebar is always the full drawer.
     rail() { return this.collapsed && this.wide; },
     // Neo's Notification: return a mock unread count (e.g., 2) so it doesn't crash
-    unreadCount() { 
-      return 2; 
-    }
+    // unreadCount() { 
+    //   return 2; 
+    // }
     
   },
   watch: {
@@ -116,13 +118,13 @@ export default {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
-    setTimeout(() => {
-      triggerPushNotification(
-        'New Task Assigned',
-        'AC not cooling in Room 302 has been assigned to you.',
-        '/Operations/issues'
-      );
-    }, 3000);
+    // setTimeout(() => {
+    //   triggerPushNotification(
+    //     'New Task Assigned',
+    //     'AC not cooling in Room 302 has been assigned to you.',
+    //     '/Operations/issues'
+    //   );
+    // }, 3000);
   },
   unmounted() {
     document.removeEventListener('keydown', this.onKey);

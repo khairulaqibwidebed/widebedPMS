@@ -1,141 +1,303 @@
+
+<script setup>
+import { useRouter } from 'vue-router'
+
+import {
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+} from '@/services/notificationService'
+
+import {
+  useNotifications,
+} from '@/composables/useNotifications'
+
+const router = useRouter()
+
+const {
+  notifications,
+  unreadCount,
+  loading,
+  error,
+} = useNotifications()
+
+async function openNotification(notification) {
+  try {
+    if (!notification.read) {
+      await markNotificationAsRead(notification.id)
+    }
+
+    const link = notification.link
+
+    if (
+      typeof link === 'string' &&
+      link.startsWith('/') &&
+      !link.startsWith('//')
+    ) {
+      await router.push(link)
+    }
+  } catch (err) {
+    console.error(
+      'Unable to open notification:',
+      err
+    )
+  }
+}
+
+async function markAllRead() {
+  try {
+    await markAllNotificationsAsRead(
+      notifications.value
+    )
+  } catch (err) {
+    console.error(
+      'Unable to mark notifications as read:',
+      err
+    )
+  }
+}
+
+function formatDate(value) {
+  if (!value) return 'Just now'
+
+  const date =
+    typeof value.toDate === 'function'
+      ? value.toDate()
+      : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Just now'
+  }
+
+  return date.toLocaleString()
+}
+</script>
+
 <template>
-  <main class="content">
-    <div class="page-head">
+  <main class="notifications-page">
+    <header class="page-header">
       <div>
         <h1>Notifications</h1>
-        <div class="sub">System alerts, tickets, and updates</div>
+        <p>
+          You have {{ unreadCount }} unread
+          notification(s).
+        </p>
       </div>
-      <div class="head-tools">
-        <button class="btn secondary" @click="markAllAsRead">Mark all as read</button>
-      </div>
-    </div>
 
-    <!-- Filter Tabs -->
-    <div class="filter-tabs">
-      <button 
-        v-for="tab in tabs" 
-        :key="tab.id" 
-        :class="{ active: currentTab === tab.id }"
-        @click="currentTab = tab.id"
+      <button
+        v-if="unreadCount > 0"
+        type="button"
+        class="mark-all-button"
+        @click="markAllRead"
       >
-        {{ tab.label }}
+        Mark all as read
       </button>
+    </header>
+
+    <div v-if="loading" class="state-message">
+      Loading notifications...
     </div>
 
-    <!-- Notifications List -->
-    <div class="notifications-list">
-      <div 
-        v-for="item in filteredNotifications" 
-        :key="item.id" 
-        class="notification-card"
-        :class="{ unread: !item.read }"
-        @click="handleNotificationClick(item)"
+    <div
+      v-else-if="error"
+      class="state-message error-message"
+      role="alert"
+    >
+      {{ error }}
+    </div>
+
+    <div
+      v-else-if="notifications.length === 0"
+      class="empty-state"
+    >
+      <div class="empty-icon">🔔</div>
+      <h2>You're all caught up!</h2>
+      <p>You don't have any notifications yet.</p>
+    </div>
+
+    <ul v-else class="notification-list">
+      <li
+        v-for="item in notifications"
+        :key="item.id"
       >
-        <div class="notification-icon">
-          <span>{{ getTypeIcon(item.type) }}</span>
-        </div>
-        <div class="notification-content">
-          <div class="notification-title-row">
-            <h3>{{ item.title }}</h3>
-            <span class="time">{{ item.timestamp }}</span>
-          </div>
-          <p>{{ item.message }}</p>
-        </div>
-        <div class="notification-action">
-          <span class="chev">›</span>
-        </div>
-      </div>
+        <button
+          type="button"
+          class="notification-item"
+          :class="{ unread: !item.read }"
+          @click="openNotification(item)"
+        >
+          <span
+            class="status-dot"
+            :class="{ active: !item.read }"
+          />
 
-      <div v-if="filteredNotifications.length === 0" class="empty-state">
-        <p>No notifications found.</p>
-      </div>
-    </div>
+          <span class="notification-copy">
+            <strong>{{ item.title }}</strong>
+
+            <span class="notification-message">
+              {{ item.message }}
+            </span>
+
+            <small>
+              {{ formatDate(item.createdAt) }}
+            </small>
+          </span>
+
+          <span
+            v-if="!item.read"
+            class="unread-label"
+          >
+            New
+          </span>
+        </button>
+      </li>
+    </ul>
   </main>
 </template>
 
-<script>
-export default {
-  data() {
-    return {
-      currentTab: 'all',
-      tabs: [
-        { id: 'all', label: 'All' },
-        { id: 'unread', label: 'Unread' },
-        { id: 'maintenance', label: 'Maintenance' },
-        { id: 'frontdesk', label: 'Front Desk' },
-        { id: 'housekeeping', label: 'Housekeeping' }
-      ],
-      notifications: [
-        {
-          id: 1,
-          type: 'maintenance',
-          title: 'New Maintenance Ticket',
-          message: 'AC not cooling reported in Room 302 by Housekeeping.',
-          timestamp: '10 mins ago',
-          read: false,
-          link: '/Operations/issues'
-        },
-        {
-          id: 2,
-          type: 'frontdesk',
-          title: 'Booking Modified',
-          message: 'Guest John Doe extended stay.',
-          timestamp: '1 hour ago',
-          read: false,
-          link: '/Portfolio/bookings'
-        },
-        {
-          id: 3,
-          type: 'housekeeping',
-          title: 'Room Ready',
-          message: 'Room 104 cleaned and inspected.',
-          timestamp: '3 hours ago',
-          read: true,
-          link: '/Operations/issues'
-        }
-      ]
-    };
-  },
-  computed: {
-    filteredNotifications() {
-      if (this.currentTab === 'unread') return this.notifications.filter(n => !n.read);
-      if (this.currentTab !== 'all') return this.notifications.filter(n => n.type === this.currentTab);
-      return this.notifications;
-    }
-  },
-  methods: {
-    getTypeIcon(type) {
-      const icons = { maintenance: '🔧', frontdesk: '🛎️', housekeeping: '🧹' };
-      return icons[type] || '📌';
-    },
-    markAllAsRead() {
-      this.notifications.forEach(n => n.read = true);
-    },
-    handleNotificationClick(item) {
-      item.read = true;
-      if (item.link) {
-        this.$router.push(item.link);
-      }
-    }
-  }
-};
-</script>
-
 <style scoped>
-.notifications-page { padding: 24px; max-width: 900px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.filter-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid rgba(128,128,128,0.2); padding-bottom: 8px; }
-.filter-tabs button { background: none; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; color: inherit; }
-.filter-tabs button.active { background: rgba(128, 128, 128, 0.15); font-weight: 600; }
-.notifications-list { display: flex; flex-direction: column; gap: 10px; }
-.notification-card { display: flex; align-items: center; gap: 16px; padding: 14px 18px; background: #fff; border: 1px solid rgba(128,128,128,0.2); border-radius: 10px; cursor: pointer; transition: background 0.2s; }
-.notification-card:hover { background: rgba(128,128,128,0.04); }
-.notification-card.unread { border-left: 4px solid var(--primary, #0066cc); background: rgba(0, 102, 204, 0.02); }
-.notification-content { flex: 1; }
-.notification-title-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-.notification-title-row h3 { font-size: 15px; margin: 0; }
-.time { font-size: 12px; color: #666; }
-.notification-content p { margin: 0; font-size: 14px; color: #444; }
-.empty-state { text-align: center; padding: 40px; color: #666; }
-.chev { font-size: 18px; color: #888; }
+.notifications-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+  color: inherit;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.page-header h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.page-header p {
+  margin: 0;
+  opacity: 0.7;
+}
+
+.mark-all-button {
+  padding: 10px 14px;
+  border: none;
+  border-radius: 10px;
+  background: #234b38;
+  color: white;
+  cursor: pointer;
+}
+
+.mark-all-button:hover {
+  background: #183a29;
+}
+
+.notification-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid #e1e6e2;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.notification-item:hover {
+  background: rgba(100, 120, 100, 0.08);
+}
+
+.notification-item.unread {
+  border-color: #91b19a;
+  background: rgba(53, 112, 77, 0.08);
+}
+
+.status-dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  border-radius: 50%;
+}
+
+.status-dot.active {
+  background: #2e7d4f;
+}
+
+.notification-copy {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-copy strong {
+  font-size: 15px;
+}
+
+.notification-message {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.notification-copy small {
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.unread-label {
+  color: #2e7d4f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.state-message,
+.empty-state {
+  padding: 36px 20px;
+  text-align: center;
+  border: 1px dashed #cbd5cc;
+  border-radius: 14px;
+}
+
+.error-message {
+  color: #b42318;
+}
+
+.empty-icon {
+  font-size: 32px;
+}
+
+.empty-state h2 {
+  margin-bottom: 8px;
+}
+
+.empty-state p {
+  margin: 0;
+  opacity: 0.7;
+}
+
+@media (max-width: 600px) {
+  .notifications-page {
+    padding: 16px;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 </style>
