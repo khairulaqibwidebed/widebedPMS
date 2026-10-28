@@ -27,6 +27,7 @@ const routes = [
 
   page('/Finance/upload', () => import('./pages/Finance/Upload.vue'), 'Upload eZee Report'),
   page('/Finance/expenses', () => import('./pages/Finance/Expenses.vue'), 'Expenses & Reimbursements'),
+  page('/Finance/statement-approvals', () => import('./pages/Finance/StatementApprovals.vue'), 'Statement Approvals', D),
   page('/Finance/month-end', () => import('./pages/Finance/MonthEnd.vue'), 'Month-End Payout'),
   page('/Finance/invoices', () => import('./pages/Finance/Invoices.vue'), 'Invoices & Receipts'),
   page('/Finance/offline-payments', () => import('./pages/Finance/OfflinePayments.vue'), 'Offline Payments'),

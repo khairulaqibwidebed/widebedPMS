@@ -51,6 +51,7 @@ export function whoAmI() {
 // next Log out with one tab.
 export async function logOut() {
   await signOut(auth);
+  try { indexedDB.deleteDatabase('wb-cache'); } catch (e) { /* no browser storage */ }   // lib/cache.js copies
   try { await terminate(db); await clearIndexedDbPersistence(db); }
   catch (e) { console.warn('Could not clear the offline copy (another Widebed tab is open?):', e.code || e.message); }
   location.replace('/');

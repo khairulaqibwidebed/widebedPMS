@@ -1,5 +1,7 @@
-// Appearance (Settings > Appearance): colour theme and light/dark, per person. Kept in this browser for now;
-// moves to the user's account doc when the rules allow it. PDFs always use Widebed's own colours.
+// Appearance (Settings > Appearance): colour theme and light/dark, per person. Saved to the person's account
+// (userPrefs/{uid}) and mirrored in this browser so the page paints in the right colours at once. PDFs always use Widebed's own colours.
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from './firebase.js';
 export const DEFAULT_CUSTOM = '#7C5CD6';
 const CUSTOM_VARS = ['--brand', '--accent', '--accent-soft'];
 
@@ -49,4 +51,20 @@ export function saveTheme(t) {
     if (isHex(t.custom)) localStorage.setItem('wb.custom', t.custom);
   } catch {}
   applyTheme(t);
+  const uid = auth.currentUser?.uid;
+  if (uid) setDoc(doc(db, 'userPrefs', uid), { brand: t.brand, mode: t.mode, custom: isHex(t.custom) ? t.custom : DEFAULT_CUSTOM, updatedAt: serverTimestamp() }).catch(() => {});
+}
+
+// Once per browser tab session: pull the account's saved look so a new computer matches.
+export async function loadMyTheme(uid) {
+  try {
+    if (!uid || sessionStorage.getItem('wb.themeSynced') === uid) return;
+    const snap = await getDoc(doc(db, 'userPrefs', uid));
+    sessionStorage.setItem('wb.themeSynced', uid);
+    if (!snap.exists()) return;
+    const d = snap.data();
+    const t = { brand: BRANDS.includes(d.brand) ? d.brand : 'widebed', mode: ['light', 'dark', 'system'].includes(d.mode) ? d.mode : 'light', custom: isHex(d.custom) ? d.custom : DEFAULT_CUSTOM };
+    localStorage.setItem('wb.brand', t.brand); localStorage.setItem('wb.mode', t.mode); localStorage.setItem('wb.custom', t.custom);
+    applyTheme(t);
+  } catch {}
 }

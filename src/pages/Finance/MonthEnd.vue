@@ -58,8 +58,8 @@
               <td class="num">{{ amt(r.totals.totalReceivable) }}</td>
               <td class="num">{{ amt(r.fixed ? r.totals.reimburse - r.totals.deduction : -(r.totals.serviceFee + r.totals.utilityFee + r.totals.sstOnFee) + r.totals.totalExpenses) }}</td>
               <td class="num" :class="r.totals.payout < 0 ? 'neg-amt' : ''"><b>{{ amt(r.totals.payout) }}</b></td>
-              <td class="st-cell"><span class="pill" :class="r.status === 'completed' ? 'green' : 'grey'">{{ r.status === 'completed' ? 'Completed' : 'Open' }}</span><span class="pill" :class="STATUS[r.status][1]" v-if="r.status !== 'completed' && r.status !== 'draft'">{{ STATUS[r.status][0] }}</span></td>
-              <td class="num"><button class="editlink" @click.stop="open(r)">{{ r.status === 'completed' ? 'View' : 'Edit' }}</button></td>
+              <td class="st-cell"><span class="pill" :class="r.status === 'completed' ? 'green' : sentState(r) === 'submitted' ? 'blue' : sentState(r) === 'returned' ? 'amber' : 'grey'">{{ r.status === 'completed' ? 'Completed' : sentState(r) === 'submitted' ? 'Sent to Director' : sentState(r) === 'returned' ? 'Sent back' : 'Open' }}</span><span class="pill" :class="STATUS[r.status][1]" v-if="r.status !== 'completed' && r.status !== 'draft'">{{ STATUS[r.status][0] }}</span></td>
+              <td class="num"><button class="editlink" @click.stop="open(r)">{{ r.status === 'completed' || sentState(r) === 'submitted' ? 'View' : 'Edit' }}</button></td>
             </tr>
           </template>
         </tbody>
@@ -116,9 +116,9 @@
             <div class="sub">{{ sel.arrangementLabel + (sel.fixed ? ` · RM ${amt(sel.rates.fixedRentAmount)} a month` : ` · service ${pct(sel.rates.serviceFeePct)}, utility ${pct(sel.rates.utilityFeePct)}` + (sel.rates.sstOnFeePct ? `, SST on fee ${pct(sel.rates.sstOnFeePct)}` : '')) }}</div></div>
           <div class="head-tools">
             <span class="pill" :class="STATUS[sel.status][1]">{{ STATUS[sel.status][0] }}</span>
-            <button class="btn" v-show="sel.status !== 'completed'" @click="openSettings(unitById(sel.unitId))">Unit settings</button>
+            <button class="btn" v-show="!locked(sel)" @click="openSettings(unitById(sel.unitId))">Unit settings</button>
             <button class="btn" @click="downloadStatement()" :disabled="busy">Download xlsx</button>
-            <button class="btn" @click="downloadStatement('pdf')" :disabled="busy">Download PDF</button>
+            <button class="btn" @click="downloadStatement('pdf')" :disabled="busy || sel.status !== 'completed'" :title="sel.status !== 'completed' ? 'The owner PDF is available after the Director approves' : ''">Download PDF</button>
           </div>
         </div>
         <div class="notice warn" v-show="sel.lines.some(l => l.estimated)">{{ `${sel.lines.filter(l => l.estimated).length} Trip.com booking${sel.lines.filter(l => l.estimated).length === 1 ? ' is' : 's are'} estimated at 15%. Type the amount Trip.com paid on the booking line to finish this statement.` }}</div>
@@ -138,11 +138,11 @@
                       <td>{{ dmy(l.arrival) }}</td><td>{{ dmy(l.departure) }}</td>
                       <td class="num">{{ l.nights }}</td>
                       <td class="num">
-                        <template v-if="l.otaKey === 'ctrip' && sel.status !== 'completed' && !l.final">
+                        <template v-if="l.otaKey === 'ctrip' && !locked(sel) && !l.final">
                           <span class="ctrip-in"><input class="input" type="number" step="0.01" :placeholder="l.estimated ? 'RM amount' : amt(l.guestPaid)" v-model="ctripInput[l.reservationNo]" aria-label="Trip.com amount" @keyup.enter="saveCtrip(l)">
                             <button class="btn" @click="saveCtrip(l)" :disabled="busy || !ctripInput[l.reservationNo]">Save</button></span>
                         </template>
-                        <span v-show="!(l.otaKey === 'ctrip' && sel.status !== 'completed' && !l.final)">{{ amt(l.guestPaid) }}</span>
+                        <span v-show="!(l.otaKey === 'ctrip' && !locked(sel) && !l.final)">{{ amt(l.guestPaid) }}</span>
                       </td>
                       <td class="num muted">{{ l.platform == null ? '' : amt(-l.platform) }}</td>
                       <td class="num"><b>{{ amt(l.pto) }}</b></td>
@@ -184,24 +184,37 @@
               </template>
               <div class="row total" :class="{ 'neg-amt': sel.totals.payout < 0 }"><span>{{ sel.totals.payout < 0 ? 'Payout (negative, carried forward)' : 'Payout to owner' }}</span><span>{{ 'RM ' + amt(sel.totals.payout) }}</span></div>
             </div>
-            <p class="help" v-show="sel.status !== 'completed'" style="margin-top:14px">Add expenses on the <RouterLink class="link" :to="{ path: '/Finance/expenses', query: { property: propertyId, month, add: 1 } }">Expenses page</RouterLink>.</p>
+            <p class="help" v-show="!locked(sel)" style="margin-top:14px">Add expenses on the <RouterLink class="link" :to="{ path: '/Finance/expenses', query: { property: propertyId, month, add: 1 } }">Expenses page</RouterLink>.</p>
           <!-- Approve & complete is per unit (Khairul, Oct 2026) -->
           <div class="unit-done" v-if="sel.status === 'completed'">
             <p class="help" style="margin:14px 0 10px">{{ `Completed${sel.completedByName ? ' by ' + sel.completedByName : ''}${sel.revision > 1 ? ` · revision ${sel.revision}` : ''}. This statement is read-only.` }}</p>
             <button class="btn" v-show="role === 'director' && !reopening" @click="reopening = true" :disabled="busy">Reopen statement (Director)</button>
           </div>
+          <div class="unit-done" v-else-if="sentState(sel) === 'submitted'">
+            <div class="notice ok">{{ `Sent to the Director${approvals[sel.unitId].submittedByName ? ' by ' + approvals[sel.unitId].submittedByName : ''}. The numbers are frozen until they approve or send it back.` }}</div>
+            <button class="btn" v-show="!pulling" @click="pulling = true" :disabled="busy">Pull back</button>
+            <div class="confirm-box" v-show="pulling">
+              <b>{{ `Pull ${sel.unitCode} back?` }}</b>
+              <p class="help" style="margin:4px 0 10px">It becomes editable again. You can send it again when it is ready.</p>
+              <div class="field"><label for="pullWhy">Reason <span style="color:#d92d20">*required</span></label><input class="input" id="pullWhy" v-model="pullReason" placeholder="e.g. A booking was missing"></div>
+              <div class="actions"><button class="btn btn-primary" @click="pullBack()" :disabled="busy || !pullReason.trim()">Pull back</button><button class="btn" @click="pulling = false">Cancel</button></div>
+            </div>
+          </div>
           <div class="actions" style="margin-top:14px" v-else>
+            <div class="notice error" v-if="sentState(sel) === 'returned'">{{ `Sent back by ${approvals[sel.unitId].returnedByName || 'the Director'}: ${approvals[sel.unitId].returnReason}` }}</div>
             <div class="rows" style="width:100%" v-show="blockers(sel).length">
               <template v-for="(c, i) in blockers(sel)" :key="i"><div class="row"><span class="neg-amt">{{ c.text }}</span></div></template>
             </div>
-            <button class="btn btn-primary" v-show="!confirming" @click="askComplete()" :disabled="busy || blockers(sel).length > 0">Approve & complete</button>
+            <button class="btn btn-primary" v-show="!confirming" @click="askComplete()" :disabled="busy || blockers(sel).length > 0">{{ role === 'director' ? 'Approve & complete' : 'Send to Director' }}</button>
           </div>
-          <template v-if="confirming && sel.status !== 'completed'">
+          <template v-if="confirming && !locked(sel)">
             <div class="confirm-box" id="completeBox" ref="completeBox">
-              <b>{{ `Complete ${sel.unitCode} for ${monthName(month)}?` }}</b>
-              <p class="help" style="margin:4px 0 10px">{{ `The statement becomes read-only. Payout RM ${amt(sel.totals.payout)}.` + (sel.totals.payout < 0 ? ` The negative balance carries forward to ${monthName(nextMonth(month))}.` : '') }}</p>
-              <template v-if="reopened(sel)"><div class="field"><label>Reason for the new revision (Director Override)</label><input class="input" v-model="overrideReason"></div></template>
-              <div class="actions"><button class="btn btn-primary" @click="complete()" :disabled="busy">Yes, complete</button><button class="btn" @click="confirming = false">Cancel</button></div>
+              <b>{{ role === 'director' ? `Complete ${sel.unitCode} for ${monthName(month)}?` : `Send ${sel.unitCode} to the Director?` }}</b>
+              <p class="help" style="margin:4px 0 10px">{{ role === 'director'
+                ? `The statement becomes read-only. Payout RM ${amt(sel.totals.payout)}.` + (sel.totals.payout < 0 ? ` The negative balance carries forward to ${monthName(nextMonth(month))}.` : '')
+                : `The numbers freeze (payout RM ${amt(sel.totals.payout)}) until the Director approves it, sends it back, or you pull it back.` }}</p>
+              <template v-if="reopened(sel) && role === 'director'"><div class="field"><label>Reason for the new revision (Director Override)</label><input class="input" v-model="overrideReason"></div></template>
+              <div class="actions"><button class="btn btn-primary" @click="complete()" :disabled="busy">{{ role === 'director' ? 'Yes, complete' : 'Yes, send' }}</button><button class="btn" @click="confirming = false">Cancel</button></div>
             </div>
           </template>
           <template v-if="reopening && sel.status === 'completed'">
@@ -285,7 +298,10 @@
 import { collection, doc, getDoc, getDocFromCache, getDocs, setDoc, writeBatch, serverTimestamp, query, where }
   from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
+import { clearCache } from '@/lib/cache.js';
 import { toast } from '@/lib/toast.js';
+import { completeStatement } from '@/lib/statement-approve.js';
+import { notifyRole } from '@/services/notificationService.js';
 import { ARRANGEMENTS, DM_STARTER, paymentSummary, byUnit, nextMonth, r2 } from '@/lib/engine.js';
 import { loadProperties, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, monthSummary } from '@/lib/finance-data.js';
 import { draftRecord, monthEndFromSummaries, ALL_MONTHS } from '@/lib/summaries.js';
@@ -330,7 +346,8 @@ export default {
       filters: [{ key: 'all', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'done', label: 'Completed' }, { key: 'attention', label: 'Needs attention' }, { key: 'negative', label: 'Negative' },
         { key: 'fixed', label: 'Fixed rent' }, { key: 'share', label: 'Profit share' }],
       toast, sel: null, selOpen: false, ctripInput: {},
-      settingsOpen: false, set: {}, confirming: false, reopening: false, overrideReason: ''
+      settingsOpen: false, set: {}, confirming: false, reopening: false, overrideReason: '',
+      approvals: {}, pulling: false, pullReason: ''
     };
   },
   // Remember the property for the next page (see lib/last-property.js)
@@ -362,6 +379,7 @@ export default {
         this.prop = { id: this.propertyId, ...(ps.exists() ? ps.data() : {}) };
         const pm = await propertyMonth(this.prop, this.month, { me, canWrite: canWriteSummaries(me), unitSummaries: true });
         this.ums = pm.units; this.unitFull = {}; this.rateVersions = null; this.payHistory = {};
+        await this.loadApprovals();
         this.compute();
       } catch (e) { this.error = friendlyError(e, 'load the month'); }
       this.loading = false;
@@ -525,7 +543,7 @@ export default {
 
     // ---- Ctrip amount typed per booking (ARR-13) ----
     async saveCtrip(l) {
-      if (this.sel?.status === 'completed') return;
+      if (this.locked(this.sel)) return;
       const v = Number(this.ctripInput[l.reservationNo]);
       if (!(v > 0)) { this.error = 'Type the Trip.com amount (above zero) first.'; return; }
       this.busy = true; this.error = '';
@@ -548,7 +566,7 @@ export default {
 
     // ---- Unit settings (effective-dated terms, ARR-15/16) ----
     async openSettings(u) {
-      if (this.isDone(u.id)) return;   // a completed unit's settings for this month are read-only
+      if (this.isDone(u.id) || this.sentState({ unitId: u.id }) === 'submitted') return;   // a completed or sent unit's settings for this month are read-only
       if (u.missing) { try { await this.loadUnitFull(u.id); } catch (e) { this.error = friendlyError(e, 'open the unit settings'); return; } u = this.unitById(u.id); }
       const t = u.terms || {};
       this.set = { unitId: u.id, unitCode: u.unitCode, arrangement: t.arrangement || 'profitShare20', fixedRentAmount: t.fixedRentAmount ?? '',
@@ -583,7 +601,7 @@ export default {
         markFrom(b, this.propertyId, s.effectiveFrom, s.unitId);   // summaries from that month on are worked out again
         audit(b, me, { action: 'unitTerms.create', entity: `units/${s.unitId}/terms`, propertyId: this.propertyId, month: s.effectiveFrom,
           changes: [{ field: 'arrangement', old: this.unitById(s.unitId).terms?.arrangement || null, new: s.arrangement }], reason: s.reason.trim() });
-        await b.commit();
+        await b.commit(); clearCache();
         this.settingsOpen = false;
         this.okMsg = `${s.unitCode} settings saved, applying from ${monthName(s.effectiveFrom)}.`;
         await this.load();
@@ -611,7 +629,7 @@ export default {
         }
         audit(b, me, { action: 'unitTerms.starter', entity: `properties/${this.propertyId}`, propertyId: this.propertyId, month: this.month,
           changes: [{ field: 'units', old: null, new: n }], reason: 'Starter settings loaded' });
-        await b.commit();
+        await b.commit(); clearCache();
         this.okMsg = `Starter settings loaded for ${n} units, applying from ${monthName(this.month)}. Fixed rents are Sep 2026 amounts: check them for earlier months.`;
         await this.load();
       } catch (e) { this.error = friendlyError(e, 'load the starter settings'); }
@@ -627,50 +645,63 @@ export default {
         updatedBy: me.user.uid, updatedByName: me.name, updatedAt: serverTimestamp(),
         ...(sum.status === 'completed' ? { completedBy: me.user.uid, completedByName: me.name, completedAt: serverTimestamp() } : {}) };
     },
+    // Director: approve & complete straight from here. Finance: send the frozen statement to the Director.
     async complete() {
       const r = this.sel;
       if (!r || r.status === 'completed' || this.blockers(r).length) return;
-      const again = this.reopened(r), prev = this.unitFull[r.unitId]?.statement;
-      if (again && me.role !== 'director') { this.error = `${r.unitCode} was reopened. Only a Director can complete it again (Director Override).`; return; }
-      if (again && !this.overrideReason.trim()) { this.error = 'Add the reason for the new revision.'; return; }
       this.busy = true; this.error = '';
       try {
-        const next = nextMonth(this.month), id = statementId(r.unitId, this.month);
-        if (await this.doneIn(r.unitId, next)) throw new Error(`${r.unitCode} is already completed for ${monthName(next)}, so its balance can't carry forward into it.`);
-        const b = writeBatch(db);
-        let nextChanged = r.totals.payout < 0;
-        // A Brought Forward line made earlier (from Finance's statement for this month) goes if the PMS payout is no longer negative
-        for (const e of (await this.unitExpenses(r.unitId, next)).filter(e => e.auto && e.sourceMonth === this.month && !e.deleted))
-          if (!(r.totals.payout < 0)) {
-            b.update(doc(db, 'expenses', e.id), { deleted: true, auto: true, deletedReason: `${r.unitCode} ${monthName(this.month)} completed in the PMS` });
-            nextChanged = true;
-          }
-        b.set(doc(db, 'payoutHistory', id), { propertyId: this.propertyId, unitId: r.unitId, unitCode: r.unitCode, month: this.month, year: this.month.slice(0, 4),
-          source: 'pms', totalIncome: r.totals.totalReceivable, charges: r2(r.totals.totalReceivable - r.totals.payout), payout: r.totals.payout, fixed: r.fixed, remark: '',
-          fileName: null, importedBy: me.user.uid, importedByName: me.name, importedAt: serverTimestamp() });
-        // The old revision was saved when the unit was reopened (the rules check it exists before allowing the new revision)
-        b.set(doc(db, 'statements', id), { ...r, status: 'completed', revision: (prev?.revision || 0) + 1,
-          ...(again ? { overrideReason: this.overrideReason.trim() } : {}),
-          completedBy: me.user.uid, completedByName: me.name, completedAt: serverTimestamp() });
-        if (r.totals.payout < 0)   // ARR-18: negative balance carried forward automatically
-          b.set(doc(db, 'expenses', `bf_${r.unitId}_${next}`), { propertyId: this.propertyId, unitId: r.unitId, date: `${next}-01`, month: next,
-            kind: 'broughtForward', type: 'broughtForward', description: `Brought forward from ${monthName(this.month)}`, amount: r2(-r.totals.payout),
-            auto: true, sourceStatementId: id, sourceMonth: this.month, files: [], deleted: false,
-            createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
-        const doneIds = new Set([...this.rows.filter(x => x.status === 'completed').map(x => x.unitId), r.unitId]);
-        const m = this.monthSummaryDoc(doneIds);
-        b.set(doc(db, 'months', `${this.propertyId}_${this.month}`), m, { merge: true });
-        // The unit's summary now comes from the completed statement; the next month's changes with its brought-forward line
-        markDirty(b, this.propertyId, this.month, [r.unitId]);
-        if (nextChanged) markDirty(b, this.propertyId, next, [r.unitId]);
-        audit(b, me, { action: again ? 'statement.override' : 'statement.complete', entity: `statements/${id}`,
-          propertyId: this.propertyId, month: this.month, changes: [{ field: 'status', old: again ? 'reopened' : 'open', new: 'completed' }], reason: this.overrideReason.trim() });
-        await b.commit();
+        if (me.role === 'director') {
+          const unitIds = this.rows.map(x => x.unitId);
+          const doneIds = new Set(this.rows.filter(x => x.status === 'completed').map(x => x.unitId));
+          const { monthDoc } = await completeStatement({ r, propertyId: this.propertyId, month: this.month, me, unitIds, doneIds, summary: this.summary, overrideReason: this.overrideReason,
+            approval: this.sentState(r) === 'submitted' ? this.approvals[r.unitId] : null });   // a sent unit's waiting record is closed in the same batch
+          this.okMsg = `${r.unitCode} completed for ${monthName(this.month)}.` + (monthDoc.status === 'completed'
+            ? ` All ${monthDoc.unitCount} statements for ${monthName(this.month)} are completed.` : ` ${monthDoc.completedUnits} of ${monthDoc.unitCount} units completed.`);
+        } else {
+          await this.sendToDirector(r);
+          this.okMsg = `${r.unitCode} sent to the Director for ${monthName(this.month)}.`;
+        }
         this.confirming = false; this.overrideReason = '';
-        this.okMsg = `${r.unitCode} completed for ${monthName(this.month)}.` + (m.status === 'completed'
-          ? ` All ${m.unitCount} statements for ${monthName(this.month)} are completed.` : ` ${m.completedUnits} of ${m.unitCount} units completed.`);
         await this.reloadAt(r.unitId);
-      } catch (e) { this.error = e.code ? friendlyError(e, 'complete the statement') : e.message; }
+      } catch (e) { this.error = e.code ? friendlyError(e, me.role === 'director' ? 'complete the statement' : 'send the statement') : e.message; }
+      this.busy = false;
+    },
+    // ---- Finance to Director (approvals/{unitId}_{month}) ----
+    async loadApprovals() {
+      const snap = await getDocs(query(collection(db, 'approvals'), where('propertyId', '==', this.propertyId), where('month', '==', this.month)));
+      this.approvals = Object.fromEntries(snap.docs.map(d => [d.data().unitId, { id: d.id, ...d.data() }]));
+    },
+    // submitted / returned / withdrawn / approved, or null. An approved one only counts while the statement is completed.
+    sentState(r) { const a = r && this.approvals[r.unitId]; return a && a.status !== 'approved' ? a.status : null; },
+    locked(r) { return !!r && (r.status === 'completed' || this.sentState(r) === 'submitted'); },
+    async sendToDirector(r) {
+      const id = statementId(r.unitId, this.month), old = this.approvals[r.unitId];
+      const b = writeBatch(db);
+      const data = { propertyId: this.propertyId, unitId: r.unitId, unitCode: r.unitCode, month: this.month, status: 'submitted', snapshot: JSON.parse(JSON.stringify(r)),
+        payout: r.totals.payout, submittedBy: me.user.uid, submittedByName: me.name, submittedAt: serverTimestamp(), again: this.reopened(r),
+        returnReason: null, returnedBy: null, returnedByName: '', withdrawReason: null };
+      if (old) b.update(doc(db, 'approvals', id), data); else b.set(doc(db, 'approvals', id), data);
+      audit(b, me, { action: 'statement.send', entity: `approvals/${id}`, propertyId: this.propertyId, month: this.month,
+        changes: [{ field: 'status', old: old?.status || 'open', new: 'submitted' }], reason: '' });
+      await b.commit();
+      notifyRole({ recipientRole: 'director', title: 'Statement waiting for approval', message: `${r.unitCode} · ${monthName(this.month)} · ${this.propertyName()}`,
+        type: 'statement', link: '/Finance/statement-approvals', refId: id }).catch(e => console.warn('Director notification not sent:', e));
+    },
+    async pullBack() {
+      const r = this.sel, a = r && this.approvals[r.unitId];
+      if (!a || a.status !== 'submitted' || !this.pullReason.trim()) return;
+      this.busy = true; this.error = '';
+      try {
+        const b = writeBatch(db);
+        b.update(doc(db, 'approvals', a.id), { status: 'withdrawn', withdrawReason: this.pullReason.trim(), withdrawnBy: me.user.uid, withdrawnByName: me.name, withdrawnAt: serverTimestamp() });
+        audit(b, me, { action: 'statement.pullback', entity: `approvals/${a.id}`, propertyId: this.propertyId, month: this.month,
+          changes: [{ field: 'status', old: 'submitted', new: 'withdrawn' }], reason: this.pullReason.trim() });
+        await b.commit();
+        this.pulling = false; this.pullReason = '';
+        this.okMsg = `${r.unitCode} pulled back. You can edit it again.`;
+        await this.reloadAt(r.unitId);
+      } catch (e) { this.error = friendlyError(e, 'pull the statement back'); }
       this.busy = false;
     },
     // Director only: the unit's statement is saved as a revision, then it is a draft again.

@@ -14,6 +14,7 @@
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptionsAll" label="Property" @change="switchProperty()" v-show="top !== 'properties'" />
         <MonthPicker :ahead="1" v-model="asOf" @change="switchMonth()" v-if="!viewOnly" />
+        <RefreshButton @refresh="go()" />
       </div>
     </div>
 
@@ -26,6 +27,7 @@
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="switchProperty()" />
         <MonthPicker :ahead="1" v-model="asOf" @change="switchMonth()" v-if="!viewOnly" />
+        <RefreshButton @refresh="go()" />
         <button class="btn btn-primary" v-show="ptab === 'units'" @click="openUnit(null)" v-if="canAdd">+ Add unit</button>
         <button class="btn" v-show="ptab === 'overview'" @click="openProperty(property())" v-if="!viewOnly || canEdit">Edit property</button>
       </div>
@@ -569,6 +571,8 @@ import { propertyMonth, markFrom, canWriteSummaries } from '@/lib/summary-data.j
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { amt, monthName, monthOffset, stamp, pct, dmy } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { cached, clearCache, patchCache, TTL } from '@/lib/cache.js';
+import RefreshButton from '@/components/RefreshButton.vue';
 import { askConfirm, showNotice } from '@/lib/confirm.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
@@ -604,7 +608,7 @@ const UNIT_TYPES = ['Studio', '1 bedroom', '2 bedrooms', '3 bedrooms', 'Dual key
 import OptionPicker from '@/components/OptionPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 export default {
-  components: { OptionPicker, MonthPicker },
+  components: { OptionPicker, MonthPicker, RefreshButton },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -729,7 +733,7 @@ export default {
         return ` Noted on ${h.listingId}.`;
       } catch (e) { return ` Not noted on ${h.listingId}: ${friendlyError(e, 'update the listing')}`; }
     },
-    async setPtab(k) { this.ptab = k; this.okMsg = ''; this.syncUrl(); if ((k === 'rates' || k === 'ota') && !this.viewOnly) await this.openRates(); },
+    async setPtab(k) { this.ptab = k; this.okMsg = ''; this.syncUrl(); if ((k === 'rates' || k === 'ota') && !this.viewOnly) await this.openRates(); if (k === 'audit' && !this.viewOnly) await this.loadAudits(); },
 
     async go() {
       this.loading = true; this.error = '';
@@ -752,24 +756,31 @@ export default {
           this.loading = false;
           return;
         }
-        const [ownerSnap, sets, mdocs, bfSnap] = await Promise.all([
-          getDocs(collection(db, 'owners')),
-          Promise.all(this.properties.map(p => (view ? loadUnits(p.id).then(units => ({ units })) : loadSetup(p.id, this.asOf)))),
-          view ? [] : Promise.all(this.properties.map(p => getDoc(doc(db, 'months', `${p.id}_${this.asOf}`)))),
-          view ? { docs: [] } : getDocs(query(collection(db, 'expenses'), where('month', '==', this.asOf)))
+        // Opening one property needs only that property's units, terms, month and expenses. Owners (and the Owners tab,
+        // which lists each owner's units across properties) need every property.
+        const one = this.onProperty() && this.top !== 'owners' ? this.properties.filter(p => p.id === this.propertyId) : this.properties;
+        const [owners, sets, mdocs, bfSnap] = await Promise.all([
+          cached(`owners:${view}:${this.canEdit}`, TTL.mid, async () => {
+            const list = (await getDocs(collection(db, 'owners'))).docs.map(d => ({ id: d.id, ...d.data() }));
+            // Names live in private/main (PDPA); older owners kept the name on the main record.
+            const privs = view && !this.canEdit ? [] : await Promise.all(list.map(x => getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null)));
+            list.forEach((x, i) => { x.private = privs[i]?.exists?.() ? privs[i].data() : {}; });
+            return list;
+          }),
+          Promise.all(one.map(p => cached(`set:${p.id}:${view ? 'v' : this.asOf}`, TTL.mid, () => (view ? loadUnits(p.id).then(units => ({ units })) : loadSetup(p.id, this.asOf))))),
+          view ? [] : Promise.all(one.map(p => getDoc(doc(db, 'months', `${p.id}_${this.asOf}`)))),
+          view ? { docs: [] } : getDocs(one.length === 1 ? query(collection(db, 'expenses'), where('month', '==', this.asOf), where('propertyId', '==', one[0].id))
+            : query(collection(db, 'expenses'), where('month', '==', this.asOf)))
         ]);
-        const owners = ownerSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Names live in private/main (PDPA); older owners kept the name on the main record.
-        const privs = view && !this.canEdit ? [] : await Promise.all(owners.map(x => getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null)));
-        owners.forEach((x, i) => { x.private = privs[i]?.exists?.() ? privs[i].data() : {}; });
-        this.owners = owners.sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id));   // by name; codes are for the system only
+        // By name; codes are for the system only.
+        this.owners = [...owners].sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id));
         this.allUnits = sets.flatMap(s => s.units);
-        this.monthDocs = Object.fromEntries(this.properties.map((p, i) => [p.id, mdocs[i]?.exists() ? mdocs[i].data() : { status: 'open' }]));
+        this.monthDocs = Object.fromEntries(this.properties.map(p => { const i = one.indexOf(p); return [p.id, i >= 0 && mdocs[i]?.exists() ? mdocs[i].data() : { status: 'open' }]; }));
         this.bfLines = bfSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.auto && e.kind === 'broughtForward' && !e.deleted);
         this.units = this.propertyId === 'all' ? [] : this.allUnits.filter(x => x.propertyId === this.propertyId);
         if (this.top === 'bookings') await this.loadOfflineBookings();
         if (this.onProperty() && !view) {
-          await this.loadAudits();
+          if (this.ptab === 'audit') await this.loadAudits(); else { this.audits = []; this.auditLast = null; }
           if (this.ptab === 'rates' || this.ptab === 'ota') await this.openRates();
         }
       } catch (e) { this.error = friendlyError(e, 'load the portfolio'); }
@@ -860,8 +871,15 @@ export default {
       return out.length ? out : ['—'];
     },
     actionText(a) {
-      return ({ 'unit.create': 'Unit added', 'unit.update': 'Unit changed', 'unitTerms.starter': 'Starter settings', 'rates.create': 'Fees & rates', 'property.create': 'Property added',
-        'property.update': 'Property changed', 'month.complete': 'Month completed', 'month.reopen': 'Month reopened', 'statement.complete': 'Statement completed', 'statement.reopen': 'Statement reopened' })[a.action] || a.action;
+      const label = ({ 'unit.create': 'Unit added', 'unit.update': 'Unit changed', 'unitTerms.starter': 'Starter settings', 'rates.create': 'Fees & rates', 'property.create': 'Property added',
+        'property.update': 'Property changed', 'month.complete': 'Month completed', 'month.reopen': 'Month reopened', 'statement.complete': 'Statement completed', 'statement.reopen': 'Statement reopened', 'statement.send': 'Statement sent', 'statement.pullback': 'Statement pulled back', 'statement.return': 'Statement sent back',
+        'owner.create': 'Owner added', 'owner.update': 'Owner changed', 'owner.deactivate': 'Owner deactivated', 'owner.reactivate': 'Owner reactivated', 'owner.delete': 'Owner deleted',
+        'unit.delete': 'Unit deleted', 'ezee.upload': 'eZee report uploaded', 'unitTerms.create': 'Unit settings changed', 'expense.create': 'Expense added',
+        'expense.update': 'Expense changed', 'expense.remove': 'Expense removed' })[a.action]
+        // Anything else: "offlineBooking.create" -> "Offline booking create"
+        || String(a.action || '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[._]/g, ' ').toLowerCase().replace(/^./, c => c.toUpperCase());
+      // Every word starts with a capital (eZee keeps its own spelling)
+      return label.replace(/(^|\s)([a-z])/g, (m, sp, c) => sp + c.toUpperCase()).replace(/\bEzee\b/g, 'eZee');
     },
 
     // ---- owners ----
@@ -923,10 +941,23 @@ export default {
         const noted = o.isNew ? await this.noteOnListing(o.fromListing, 'ownerId', id, 'owner') : '';
         this.ownerOpen = false;
         this.okMsg = `${priv.fullName || 'Owner'} saved.${noted}`;
+        await this.refreshOwner(id);
         await this.go();
       } catch (e) { o.error = friendlyError(e, 'save the owner'); }
       this.busy = false;
     },
+    // After a save only what changed is read again (not every owner and unit): one owner is patched in the saved list,
+    // and a property's units, terms and fees are dropped so this one property is read fresh.
+    async refreshOwner(id, removed = false) {
+      let owner = null;
+      if (!removed) {
+        const [m, pr] = await Promise.all([getDoc(doc(db, 'owners', id)), getDoc(doc(db, 'owners', id, 'private', 'main')).catch(() => null)]);
+        if (m.exists()) owner = { id, ...m.data(), private: pr?.exists?.() ? pr.data() : {} };
+      }
+      const ok = await patchCache(`owners:${this.viewOnly}:${this.canEdit}`, list => [...list.filter(x => x.id !== id), ...(owner ? [owner] : [])]);
+      if (!ok) await clearCache('owners:');
+    },
+    async forgetUnits() { await Promise.all([clearCache(`set:${this.propertyId}:`), clearCache(`units:${this.propertyId}`)]); },
     // Safe delete (Directors only): works only when nothing refers to the record. Otherwise deactivate keeps the history.
     async hasRefs(list, id) {
       for (const [coll, field] of list) {
@@ -950,6 +981,7 @@ export default {
         audit(b, me, { action: 'unit.delete', entity: `units/${u.id}`, propertyId: this.propertyId, changes: [{ field: 'unit', old: u.unitCode, new: null }], reason: 'Deleted, no history' });
         await b.commit();
         this.unitOpen = false; this.okMsg = `${u.unitCode} deleted.`;
+        await this.forgetUnits();
         await this.go();
       } catch (e) { u.error = friendlyError(e, 'delete the unit'); }
       this.busy = false;
@@ -968,6 +1000,7 @@ export default {
         audit(b, me, { action: 'owner.delete', entity: `owners/${o.id}`, propertyId: this.propertyId === 'all' ? null : this.propertyId, changes: [{ field: 'owner', old: o.fullName || o.code || o.id, new: null }], reason: 'Deleted, no units linked' });
         await b.commit();
         this.ownerOpen = false; this.okMsg = `${o.fullName || 'Owner'} deleted.`;
+        await this.refreshOwner(o.id, true);
         await this.go();
       } catch (e) { o.error = friendlyError(e, 'delete the owner'); }
       this.busy = false;
@@ -986,6 +1019,7 @@ export default {
         audit(b, me, { action: 'owner.deactivate', entity: `owners/${o.id}`, changes: [{ field: 'active', old: true, new: false }], reason: o.deactivateReason.trim() });
         await b.commit();
         this.ownerOpen = false; this.okMsg = `${o.fullName || 'Owner'} deactivated. Nothing was deleted.`;
+        await this.refreshOwner(o.id);
         await this.go();
       } catch (e) { o.error = friendlyError(e, 'deactivate the owner'); }
       this.busy = false;
@@ -1000,6 +1034,7 @@ export default {
         audit(b, me, { action: 'owner.reactivate', entity: `owners/${o.id}`, changes: [{ field: 'active', old: false, new: true }], reason: o.reason.trim() });
         await b.commit();
         this.ownerOpen = false; this.okMsg = `${o.fullName || 'Owner'} is active again.`;
+        await this.refreshOwner(o.id);
         await this.go();
       } catch (e) { o.error = friendlyError(e, 'turn the owner back on'); }
       this.busy = false;
@@ -1072,6 +1107,7 @@ export default {
         const noted = u.isNew ? await this.noteOnListing(u.fromListing, 'unitId', id, 'unit') : '';
         this.unitOpen = false;
         this.okMsg = `${code} saved` + (termsChanged ? `, settings apply from ${monthName(u.effectiveFrom)}.` : '.') + noted;
+        await this.forgetUnits();
         await this.go();
       } catch (e) { u.error = friendlyError(e, 'save the unit'); }
       this.busy = false;
@@ -1092,6 +1128,7 @@ export default {
         audit(b, me, { action: 'unitTerms.starter', entity: `properties/${this.propertyId}`, propertyId: this.propertyId, month: this.asOf, changes: [{ field: 'units', old: null, new: n }], reason: 'Starter settings loaded' });
         await b.commit();
         this.okMsg = `Starter settings loaded for ${n} units from ${monthName(this.asOf)}. Fixed rents are Sep 2026 amounts: check them.`;
+        await this.forgetUnits();
         await this.go();
       } catch (e) { this.error = friendlyError(e, 'load the starter settings'); }
       this.busy = false;
@@ -1129,8 +1166,9 @@ export default {
         audit(b, me, { action: 'rates.create', entity: `properties/${this.propertyId}/rateVersions`, propertyId: this.propertyId, month: r.effectiveFrom, reason: r.reason.trim() });
         markFrom(b, this.propertyId, r.effectiveFrom);   // every unit's summary from that month on is worked out again
         await b.commit();
+        await this.forgetUnits();
         this.okMsg = `Saved, applying from ${monthName(r.effectiveFrom)}.`;
-        await this.openRates(); await this.loadAudits();
+        await this.openRates(); if (this.ptab === 'audit') await this.loadAudits(); else { this.audits = []; this.auditLast = null; }
       } catch (e) { this.error = friendlyError(e, 'save the rates'); }
       this.busy = false;
     },
@@ -1163,6 +1201,7 @@ export default {
           audit(b, me, { action: 'property.update', entity: `properties/${p.id}`, propertyId: p.id, changes, reason: p.reason.trim() });
           await b.commit();
           this.propOpen = false; this.okMsg = `${name} saved.`;
+          await clearCache('properties'); await this.forgetUnits();
           await this.go();
         } catch (e) { p.error = friendlyError(e, 'save the property'); }
         this.busy = false;
@@ -1181,6 +1220,7 @@ export default {
         const noted = await this.noteOnListing(p.fromListing, 'propertyId', id, 'property');
         this.propOpen = false;
         this.okMsg = `${name} added. Upload its eZee report to bring in units, or add them here.${noted}`;
+        await clearCache('properties');
         this.openPropertyPage(id);
       } catch (e) { p.error = friendlyError(e, 'add the property'); }
       this.busy = false;

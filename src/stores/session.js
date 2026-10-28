@@ -1,6 +1,7 @@
 // Who is signed in. Filled once by the router before the first page shows.
 import { defineStore } from 'pinia';
 import { whoAmI } from '../lib/firebase.js';
+import { loadMyTheme } from '../lib/theme.js';
 
 let checking = null;
 
@@ -10,7 +11,7 @@ export const useSession = defineStore('session', {
     // Asks Firebase once; later calls reuse the answer.
     async check() {
       if (this.checked) return this;
-      checking ||= whoAmI().then(me => { Object.assign(this, { user: me.user, role: me.role, name: me.name || '', active: me.active ?? false, checked: true }); });
+      checking ||= whoAmI().then(me => { Object.assign(this, { user: me.user, role: me.role, name: me.name || '', active: me.active ?? false, checked: true }); loadMyTheme(me.user?.uid); });
       await checking;
       return this;
     },

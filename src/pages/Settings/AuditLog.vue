@@ -76,7 +76,7 @@ const ACTIONS = {
   'unitTerms.create': 'Changed unit fees or fixed rent', 'unitTerms.starter': 'Loaded starter unit settings', 'unitTerms.fromStatement': "Set up units from Finance's statement",
   'rates.create': 'Changed fees & rates or OTA commissions', 'property.create': 'Added a property', 'property.update': 'Edited property details',
   'owner.create': 'Added an owner', 'owner.update': 'Edited an owner', 'owner.deactivate': 'Deactivated an owner', 'owner.reactivate': 'Turned an owner back on',
-  'month.complete': 'Approved & completed a month', 'month.reopen': 'Reopened a month', 'statement.complete': 'Approved & completed a unit statement', 'statement.reopen': 'Reopened a unit statement', 'statement.override': 'Edited a statement (Director Override)',
+  'month.complete': 'Approved & completed a month', 'month.reopen': 'Reopened a month', 'statement.complete': 'Approved & completed a unit statement', 'statement.reopen': 'Reopened a unit statement', 'statement.send': 'Sent a unit statement to the Director', 'statement.pullback': 'Pulled a statement back from the Director', 'statement.return': 'Sent a statement back to Finance', 'statement.override': 'Edited a statement (Director Override)',
   'ezee.upload': 'Uploaded an eZee report', 'financeStatement.import': "Imported Finance's statement", 'staff.create': 'Invited staff', 'staff.update': 'Changed a staff account',
   'offlineInquiry.create': 'Logged an offline inquiry', 'offlineInquiry.assign': 'Assigned an offline inquiry', 'offlineInquiry.update': 'Updated an offline inquiry',
   'offlineInquiry.contact': "Edited a customer's details", 'offlineBooking.create': 'Created an offline booking', 'offlineBooking.ezee': 'Linked an eZee reservation',

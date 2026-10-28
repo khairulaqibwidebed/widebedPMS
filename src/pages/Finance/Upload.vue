@@ -162,6 +162,7 @@
 import { collection, doc, getDocs, query, where, writeBatch, serverTimestamp }
   from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
+import { clearCache } from '@/lib/cache.js';
 import { parseCSV, readEzee, bookingPTO, effectiveRates, DEFAULT_OTA, DM_STARTER, ARRANGEMENTS, unitIdOf, byUnit, r2, nextMonth } from '@/lib/engine.js';
 import { parseFinanceStatement, sheetText, rowHash } from '@/lib/finance-import.js';
 import { markDirty, markFrom } from '@/lib/summary-data.js';
@@ -524,14 +525,14 @@ export default {
             createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
         }
         if (c.negatives.length) markDirty(b, p.id, c.next, c.negatives.map(u => unitIdOf(p.id, u.unitCode)));
-        await b.commit();
+        await b.commit(); clearCache();
         this.percent = 10;
         for (let i = 0; i < c.docs.length; i += 400) {
           b = writeBatch(db);
           for (const { id, ...d } of c.docs.slice(i, i + 400))
             b.set(doc(db, 'payoutHistory', id), { ...d, fileName: this.fileName, importBatchId: batchRef.id,
               importedBy: me.user.uid, importedByName: me.name, importedAt: serverTimestamp() });
-          await b.commit();
+          await b.commit(); clearCache();
           this.percent = Math.round(10 + 45 * Math.min(1, (i + 400) / c.docs.length));
         }
         const tally = c.bookings ? await this.saveBookings(c.bookings.records, batchRef, 55, 95, c.bookings) : null;
@@ -542,7 +543,7 @@ export default {
           uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
         audit(b, me, { action: 'financeStatement.import', entity: `importBatches/${batchRef.id}`, propertyId: p.id, month: c.month,
           changes: [{ field: 'payoutHistory', old: null, new: c.docs.length }], reason: this.fileName });
-        await b.commit();
+        await b.commit(); clearCache();
         this.percent = 100;
         this.newUnitsSaved = c.newUnits.length > 0;
         this.done = `Saved ${monthName(c.month)} as reference: ${c.units.length} owner payouts` +
@@ -578,7 +579,7 @@ export default {
             aliases: p.code === 'DM' ? (DM_STARTER.aliases[r.unitCode] || []) : [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
           markFrom(b, p.id, ALL_MONTHS, r.unitId);   // a new unit counts in every month's summary
         }
-        await b.commit();
+        await b.commit(); clearCache();
         this.percent = 5;
         const list = c.records;
         const tally = await this.saveBookings(list, batchRef, 5, 95, c);
@@ -590,7 +591,7 @@ export default {
           uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
         audit(b, me, { action: 'ezee.upload', entity: `importBatches/${batchRef.id}`, propertyId: p.id, month: this.month,
           changes: [{ field: 'bookings', old: null, new: c.active }], reason: this.fileName });
-        await b.commit();
+        await b.commit(); clearCache();
         this.percent = 100;
         this.newUnitsSaved = c.newUnits.length > 0;
         this.done = `Saved ${c.active} bookings for ${monthName(this.month)} (${tally.created} new, ${tally.changed} changed, ${tally.unchanged} unchanged).` +

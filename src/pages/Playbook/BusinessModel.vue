@@ -6,8 +6,8 @@
         <div class="sub">What Widebed does and how it earns money. Read this in your first week.</div>
       </div>
       <div class="head-tools">
-        <span class="chip" v-show="!loading">{{ page.updatedBy ? `Last updated by ${page.updatedBy} · ${page.updatedOn}` : 'Starter text, not edited yet' }}</span>
-        <button class="btn" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit page</button>
+        <span class="chip" v-show="!loading && page.updatedBy">{{ `Last updated by ${page.updatedBy} · ${page.updatedOn}` }}</span>
+        <button class="btn edit-outline" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit page</button>
       </div>
     </div>
     <div class="notice error" v-show="error">{{ error }}</div>
@@ -127,6 +127,9 @@ export default {
 </script>
 
 <style scoped>
+    .head-tools { align-self: flex-end; }
+    .edit-outline { border: 1.5px solid var(--accent); color: var(--accent); transition: background .15s, color .15s; }
+    .edit-outline:hover:not(:disabled) { background: var(--accent); color: #fff; }
     .brief { padding: 20px 18px; }
     .brief h2 { font-size: 15px; margin: 0 0 12px; }
     .brief .body { font-size: 13px; color: var(--text); white-space: pre-line; line-height: 1.6; }

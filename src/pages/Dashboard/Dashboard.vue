@@ -139,6 +139,7 @@
             <div class="stack">
               <section class="card">
                 <div class="card-head"><h2>Open tickets</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
+                <div class="tk-body">
                 <template v-if="issues">
                   <div class="empty" v-show="!issues.total">No open tickets.</div>
                   <template v-if="issues.total">
@@ -160,11 +161,17 @@
                   </template>
                 </template>
                 <div class="empty" v-else>{{ issuesError || 'Loading…' }}</div>
+                </div>
               </section>
               <section class="card">
                 <div class="card-head"><h2>Quick actions</h2></div>
                 <div class="dq-grid col">
-                  <RouterLink class="dq-tile dq-main" to="/Portfolio/properties?add=1">
+                  <RouterLink class="dq-tile dq-main" to="/Finance/statement-approvals">
+                    <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></span>
+                    <span class="dq-txt"><b>Statement Approvals</b><small>{{ approvalsWaiting == null ? 'Check what Finance has sent' : approvalsWaiting ? `${approvalsWaiting} waiting for you` : 'Nothing waiting' }}</small></span>
+                    <span class="dq-go">&rsaquo;</span>
+                  </RouterLink>
+                  <RouterLink class="dq-tile" to="/Portfolio/properties?add=1">
                     <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg></span>
                     <span class="dq-txt"><b>Add property</b><small>Set up a new building and its units</small></span>
                     <span class="dq-go">&rsaquo;</span>
@@ -194,11 +201,12 @@
 import { notBuilt } from '@/lib/toast.js';
 import MonthPicker from '@/components/MonthPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
-import { loadProperties, loadMonth, loadTeamActivity, loadOpenIssues } from '@/lib/dashboard-data.js';
+import { loadProperties, loadMonth, loadTeamActivity, loadOpenIssues, loadApprovalsWaiting } from '@/lib/dashboard-data.js';
 import { rm, signed, monthName, shortMonth, ddmm, monthOffset, when, stamp } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { ROLE_LABEL } from '@/lib/firebase.js';
+import { noteQuotaError } from '@/lib/quota.js';
 
 const me = useSession();
 
@@ -212,7 +220,7 @@ export default {
       months: Array.from({ length: 12 }, (_, i) => monthOffset(-i)),
       propertyId: lastProperty(true) || 'all',
       properties: [],
-      data: null, team: [], issues: null, issuesError: '', loading: true, error: '',
+      data: null, team: [], approvalsWaiting: null, issues: null, issuesError: '', loading: true, error: '',
       rm, signed, monthName, shortMonth, ddmm, when, stamp, ROLE_LABEL,
       soon: notBuilt
     };
@@ -239,8 +247,9 @@ export default {
         this.data = await loadMonth({ properties: this.properties, propertyId: this.propertyId, month: this.month, me });
         if (this.view === 'director') {
           this.team = await loadTeamActivity();
+          loadApprovalsWaiting().then(n => { this.approvalsWaiting = n; }).catch(() => {});
           // Tickets don't change with the property or month, so they are read once.
-          if (!this.issues) this.issues = await loadOpenIssues().catch(e => { console.error(e); this.issuesError = 'Could not load the tickets.'; return null; });
+          if (!this.issues) this.issues = await loadOpenIssues().catch(e => { console.error(e); this.issuesError = noteQuotaError(e) ? 'The free daily limit is used up, so tickets can\'t load until it resets.' : `Could not load the tickets (${e.code || e.message}).`; return null; });
         }
       } catch (e) { this.fail(e); }
       this.loading = false;

@@ -1,11 +1,10 @@
 <template>
   <main class="content soft-page">
-    <div class="page-head"><div><h1>Send a complaint to the Directors</h1><div class="sub">Only HR can use this form</div></div>
+    <div class="page-head"><div><h1>{{ isHr ? 'Send a complaint to the Directors' : 'Director Complaints' }}</h1><div class="sub">{{ isHr ? 'Only HR can use this form' : 'Complaints sent to the Directors by HR' }}</div></div>
       </div>
-    <div class="callout" style="margin-bottom:20px">HR sends these complaints and the Directors read them. HR has no login yet, so for now the form shows to Directors so it can be tried out; the inbox below is what Directors see.</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="notice error" v-show="loadErr">{{ loadErr }}</div>
-    <div class="side-grid">
+    <div class="side-grid" v-if="isHr">
       <section class="card">
         <div class="card-head"><h2>New complaint</h2></div>
         <form @submit.prevent="send()">
@@ -34,7 +33,7 @@
         </section>
       </div>
     </div>
-    <section class="card" style="margin-top:20px">
+    <section class="card" :style="isHr ? 'margin-top:20px' : ''">
       <div class="card-head"><h2>Directors' inbox</h2><span class="help">{{ `${list.filter(c => !c.read).length} not read` }}</span></div>
       <div class="loading-bar" v-show="loading"></div>
       <Paged :items="list" v-slot="{ pageRows }">
@@ -76,6 +75,7 @@ import { useSession } from '@/stores/session.js';
 const me = useSession();
 
 export default {
+  computed: { isHr() { return me.role === 'hr'; } },
   data() {
     return {
       WHO: [['HR', true], ['Directors', true], ['IT', false], ['Other staff', false]],

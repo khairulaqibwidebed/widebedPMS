@@ -4,7 +4,7 @@
       <div><h1>{{ cfg.title }}</h1><div class="sub">{{ cfg.sub }}</div></div>
       <div class="head-tools">
         <span class="chip" v-show="!canEdit">View only</span>
-        <template v-if="canEdit"><label class="btn" :class="{ disabled: busy || loading }">Upload document<input type="file" hidden @change="upload($event)"></label></template>
+        <template v-if="canEdit"><label class="btn btn-outline-brand" :class="{ disabled: busy || loading }">Upload document<input type="file" hidden @change="upload($event)"></label></template>
         <button class="btn btn-primary" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit SOP</button>
       </div>
     </div>
@@ -142,6 +142,8 @@ export default {
 </script>
 
 <style scoped>
+    .btn-outline-brand { border: 1.5px solid var(--accent); color: var(--accent); cursor: pointer; }
+    .btn-outline-brand:hover { background: var(--accent-soft); }
   .sop-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
   .sop-steps li, .sop-edit { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; }
   .sop-num { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; display: grid; place-items: center; }

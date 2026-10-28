@@ -3,12 +3,17 @@ import { db } from './firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, serverTimestamp }
   from 'firebase/firestore';
 import { byUnit } from './engine.js';
+import { cached, TTL } from './cache.js';
+import { noteQuotaError, resetTime } from './quota.js';
 
-export async function loadProperties() {
-  const snap = await getDocs(collection(db, 'properties'));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
-    .filter(p => p.active !== false)
-    .sort((a, b) => a.name.localeCompare(b.name));
+// Properties and units are kept for a while (lib/cache.js). Whatever page saves one calls clearCache().
+export function loadProperties() {
+  return cached('properties', TTL.long, async () => {
+    const snap = await getDocs(collection(db, 'properties'));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(p => p.active !== false)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
 }
 
 // Latest version whose effectiveFrom is on or before the month. Several versions in the same
@@ -20,15 +25,17 @@ export function latestVersion(versions, month) {
 }
 const stampMs = t => (t?.toMillis ? t.toMillis() : 0);
 
-export async function loadUnits(propertyId) {
-  const snap = await getDocs(query(collection(db, 'units'), where('propertyId', '==', propertyId)));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.active !== false).sort((a, b) => byUnit(a.unitCode, b.unitCode));
+export function loadUnits(propertyId) {
+  return cached(`units:${propertyId}`, TTL.mid, async () => {
+    const snap = await getDocs(query(collection(db, 'units'), where('propertyId', '==', propertyId)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.active !== false).sort((a, b) => byUnit(a.unitCode, b.unitCode));
+  });
 }
 
 // Units with every terms version (so the settings panel can show history), plus the property rate version for the month.
 export async function loadSetup(propertyId, month) {
   const [units, rateSnap] = await Promise.all([
-    loadUnits(propertyId),
+    loadUnits(propertyId).then(list => list.map(u => ({ ...u }))),   // copies: terms are added below, and the saved list is shared
     getDocs(collection(db, 'properties', propertyId, 'rateVersions'))
   ]);
   const termSnaps = await Promise.all(units.map(u => getDocs(collection(db, 'units', u.id, 'terms'))));
@@ -48,9 +55,15 @@ export async function monthDoc(propertyId, month) {
 // Completion is per unit (Khairul, Oct 2026): statements/{unitId}_{month} with status 'completed'.
 // The months/{propertyId}_{month} document is only a summary: 'open', 'partial' or 'completed' (every unit done).
 export const statementId = (unitId, month) => `${unitId}_${month}`;
+// Units whose statement can't change this month: completed, or sent to the Director and frozen until they decide.
 export async function completedUnitIds(propertyId, month) {
-  const snap = await getDocs(query(collection(db, 'statements'), where('propertyId', '==', propertyId), where('month', '==', month)));
-  return new Set(snap.docs.map(d => d.data()).filter(s => s.status === 'completed').map(s => s.unitId));
+  const [snap, sent] = await Promise.all([
+    getDocs(query(collection(db, 'statements'), where('propertyId', '==', propertyId), where('month', '==', month))),
+    getDocs(query(collection(db, 'approvals'), where('propertyId', '==', propertyId), where('month', '==', month)))
+  ]);
+  const ids = snap.docs.map(d => d.data()).filter(s => s.status === 'completed').map(s => s.unitId);
+  for (const d of sent.docs) if (d.data().status === 'submitted') ids.push(d.data().unitId);
+  return new Set(ids);
 }
 // Summary status for the month document, from the units that have a statement this month.
 export function monthSummary(unitIds, doneIds) {
@@ -79,6 +92,7 @@ export function audit(batch, me, { action, entity, propertyId = null, month = nu
 
 export function friendlyError(e, what) {
   console.error(e);
+  if (noteQuotaError(e)) return `The free daily Firestore limit is used up, so nothing can load or save until it resets at about ${resetTime()}.`;
   if (e.code === 'permission-denied') return 'Firestore refused this. Check the latest security rules are deployed and your role is set.';
   if (e.code === 'failed-precondition') return 'Firestore needs an index for this. Open the browser console (F12) and click the link it gives.';
   if (e.code === 'unavailable') return 'No connection to Firestore. Check the internet and try again.';

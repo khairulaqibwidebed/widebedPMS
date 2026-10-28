@@ -5,6 +5,8 @@ const P = (label, to = null, icon = 'dot') => ({ label, to, icon });
 const G = (label, icon, items) => ({ label, icon, items });
 
 const PORTFOLIO = G('Portfolio', 'building', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'), P('Bookings', '/Portfolio/bookings', 'calendar')]);
+// Finance and Directors also get Bulk Upload (owners and properties from a spreadsheet).
+const PORTFOLIO_FD = G('Portfolio', 'building', [...PORTFOLIO.items, P('Bulk Upload', '/Portfolio/bulk-upload', 'upload')]);
 const HR_STAFF = G('HR', 'users', [P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]);
 const NEW_LISTINGS = G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home')]);
 // Every role's own account page, last in the sidebar.
@@ -14,7 +16,7 @@ const PLAYBOOK = G('Playbook', 'book', [P('Onboarding', '/Playbook/onboarding', 
 export const NAV = {
   finance: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
-    PORTFOLIO,
+    PORTFOLIO_FD,
     G('Finance', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Reimbursements', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
@@ -24,8 +26,8 @@ export const NAV = {
   ],
   director: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
-    PORTFOLIO,
-    G('Finance', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Reimbursements', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
+    PORTFOLIO_FD,
+    G('Finance', 'banknote', [P('Statement Approvals', '/Finance/statement-approvals', 'shieldCheck'), P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Reimbursements', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard')]),
     G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home'), P('Forms', '/Procurement/forms', 'filePlus')]),

@@ -40,7 +40,7 @@
 
         <Paged :items="shown()" v-slot="{ pageRows }">
         <div class="table-wrap">
-          <table class="table">
+          <table class="table hover-rows">
             <thead><tr><th>Ticket no.</th><th>Title</th><th>Unit</th><th>Tags</th><th>Raised by</th><th>Raised on</th><th>Status</th><th class="cnt" title="Comments">💬</th><th class="cnt" title="Drive links">🔗</th></tr></thead>
             <tbody>
               <template v-for="t in pageRows" :key="t.id">
@@ -72,14 +72,21 @@
       <div>
         <div class="page-head">
           <div>
+            <a class="back-link" href="#" @click.prevent="back()">← All tickets</a>
             <h1>{{ ticket.id + ' · ' + ticket.title }}</h1>
             <div class="sub">{{ (ticket.property || 'Office') + (ticket.unit ? ' · ' + ticket.unit : '') + ' · Raised by ' + ticket.raisedBy + (showRole(ticket.raisedBy, ticket.raisedRole) ? ` (${ticket.raisedRole})` : '') + ' on ' + stamp(ticket.raisedAt) }}</div>
           </div>
           <div class="head-tools">
-            <button class="btn" @click="back()">← All tickets</button>
-            <button class="btn" v-show="ticket.status === 'open' && canUpdate()" @click="setProgress()" :disabled="busy">Mark in progress</button>
-            <button class="btn btn-primary" v-show="ticket.status !== 'done' && canUpdate()" @click="confirmDone = true; doneError = ''">Mark completed</button>
-            <button class="btn btn-danger" v-if="canDelete" @click="openDelete()">Delete ticket</button>
+            <div class="acts" v-if="(ticket.status !== 'done' && canUpdate()) || canDelete">
+              <button class="btn btn-primary" @click="menuOpen = !menuOpen" aria-haspopup="menu" :aria-expanded="String(menuOpen)">Actions
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+              <div class="acts-back" v-if="menuOpen" @click="menuOpen = false"></div>
+              <div class="acts-menu" v-if="menuOpen" role="menu">
+                <button role="menuitem" v-show="ticket.status === 'open' && canUpdate()" @click="menuOpen = false; setProgress()" :disabled="busy">Mark in progress</button>
+                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; confirmDone = true; doneError = ''">Mark completed</button>
+                <button role="menuitem" class="danger" v-if="canDelete" @click="menuOpen = false; openDelete()">Delete ticket</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -126,7 +133,7 @@
               <div class="kv"><span>Raised by</span><span class="who">{{ ticket.raisedBy }}<span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ ticket.raisedRole }}</span></span></div>
               <div class="kv"><span>Raised on</span><span>{{ day(ticket.raisedAt) }}</span></div>
               <div class="kv"><span>Tagged</span><span><template v-for="g in ticket.tags" :key="g"><span class="tag">{{ g }}</span></template></span></div>
-              <button class="btn" style="width:100%;margin-top:8px" v-show="ticket.status !== 'done' && canUpdate()" @click="openTags()">Edit tags (reason needed)</button>
+              <button class="btn" style="width:100%;margin-top:8px" v-show="ticket.status !== 'done' && canUpdate()" @click="openTags()">Edit Department Tags </button>
               <div class="side-note">Who can see this: roles tagged above, the person who raised it, and Directors.</div>
             </div>
             <div class="card">
@@ -180,20 +187,17 @@
     <div class="modal-back" v-show="tagEdit" @click.self="tagEdit = null" v-esc="() => { tagEdit = null }">
       <template v-if="tagEdit">
         <form class="modal" role="dialog" aria-label="Edit tags" @submit.prevent="saveTags()" style="max-width:460px">
-          <h2>Edit tags</h2>
+          <h2>Edit Department Tags</h2>
           <div class="notice error" v-show="tagEdit.error">{{ tagEdit.error }}</div>
           <!-- Tagged roles as chips (× removes one); the drop-down adds a role not yet tagged -->
           <div class="field"><label for="tAdd">Tagged roles</label>
             <div class="tag-pick">
-              <template v-for="g in TAGS.filter(x => tagEdit.tags.includes(x))" :key="g"><span class="tag-chip">{{ g }}<button type="button" @click="tagEdit.tags = tagEdit.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
+              <template v-for="g in TAGS.filter(x => tagEdit.tags.includes(x))" :key="g"><span class="tag-chip">{{ g }}<span class="lock" v-if="g === raiserTag()" title="The department that raised the ticket stays tagged"> (Raised)</span><button type="button" v-if="g !== raiserTag()"  @click="tagEdit.tags = tagEdit.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
               <span class="help" v-show="!tagEdit.tags.length">No roles tagged</span>
             </div>
-            <select class="select" id="tAdd" style="width:100%" v-show="tagEdit.tags.length < TAGS.length" @change="if ($event.target.value) tagEdit.tags.push($event.target.value); $event.target.value = ''">
-              <option value="">+ Add a role…</option>
-              <template v-for="g in TAGS.filter(x => !tagEdit.tags.includes(x))" :key="g"><option :value="g">{{ g }}</option></template>
-            </select></div>
+            <OptionPicker class="add-role" v-show="tagEdit.tags.length < TAGS.length" v-model="addPick" :options="addOptions()" label="Add a role" @change="addTag($event)" /></div>
           <div class="field"><label for="tWhy">Reason</label><input class="input" id="tWhy" v-model="tagEdit.reason" placeholder="e.g. Not an IT issue"></div>
-          <div class="help">Removing your own role's tag may hide the ticket from your team.</div>
+          <div class="help">The department that raised the ticket always stays tagged.</div>
           <div class="modal-foot"><button type="button" class="btn" @click="tagEdit = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Save tags</button></div>
         </form>
       </template>
@@ -237,6 +241,7 @@ import { roleTint } from '@/lib/avatars.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
+import OptionPicker from '@/components/OptionPicker.vue';
 
 const me = useSession();
 const myRole = ROLE_LABEL[me.role] || me.role;          // 'Finance', 'Director'
@@ -266,11 +271,11 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], raisedAt: isoOf(d.createdAt), doneAt: isoOf(d.doneAt) });
 
 export default {
-  components: { Avatar, ComboInput },
+  components: { Avatar, ComboInput, OptionPicker },
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
-      tickets: [], ticket: null, replies: [], units: [], search: '', unitFilter: '',
+      menuOpen: false, addPick: '', tickets: [], ticket: null, replies: [], units: [], search: '', unitFilter: '',
       // The dashboard links here with ?tag= (one team's tickets) and ?filter= (e.g. active = open or in progress).
       filter: FILTERS.some(f => f.key === this.$route.query.filter) ? this.$route.query.filter : (this.$route.query.tag ? 'active' : 'all'),
       tagFilter: TAGS.includes(this.$route.query.tag) ? this.$route.query.tag : '', okMsg: '', error: '', doneError: '',
@@ -462,10 +467,15 @@ export default {
       } catch (e) { this.error = friendlyError(e, 'update the ticket'); }
       this.busy = false;
     },
+    addOptions() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.tagEdit.tags.includes(x)).map(g => ({ value: g, label: g }))]; },
+    addTag(v) { if (v && !this.tagEdit.tags.includes(v)) this.tagEdit.tags.push(v); this.addPick = ''; },
+    // The department that raised the ticket stays tagged for good.
+    raiserTag() { return this.ticket && this.ticket.tags.includes(this.ticket.raisedRole) ? this.ticket.raisedRole : null; },
     openTags() { this.tagEdit = { tags: [...this.ticket.tags], reason: '', error: '' }; },
     async saveTags() {
       const e = this.tagEdit, t = this.ticket;
       if (!e.tags.length) return e.error = 'Keep at least one role tagged.';
+      if (this.raiserTag() && !e.tags.includes(this.raiserTag())) return e.error = `${this.raiserTag()} raised this ticket, so it stays tagged.`;
       const added = e.tags.filter(g => !t.tags.includes(g)), removed = t.tags.filter(g => !e.tags.includes(g));
       if (!added.length && !removed.length) return this.tagEdit = null;
       if (!e.reason.trim()) return e.error = 'Give a reason for the tag change.';
@@ -550,6 +560,20 @@ export default {
 </script>
 
 <style scoped>
+    .modal .add-role { display: block !important; width: 100% !important; }
+    .modal .add-role :deep(.op-btn) { width: 100% !important; min-height: 40px; color: var(--text); }
+    .add-role :deep(.op-val) { max-width: none; }
+    .add-role :deep(.op-pop) { max-width: none; width: 100%; }
+    .back-link { display: inline-block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; }
+    .back-link:hover { text-decoration: underline; }
+    .acts { position: relative; }
+    .acts > .btn { display: inline-flex; align-items: center; gap: 6px; }
+    .acts-back { position: fixed; inset: 0; z-index: 20; }
+    .acts-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 190px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
+    .acts-menu button { text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; }
+    .acts-menu button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+    .acts-menu button.danger { color: var(--danger); }
+    .acts-menu button.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
     .kpis.k3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
     .iss-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
     .iss-tools .input { max-width: 224px; height: 34px; }

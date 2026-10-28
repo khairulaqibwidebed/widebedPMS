@@ -46,7 +46,7 @@ export function subscribeToNotifications(role, callback, onError = console.error
 
       const listen = (key, field, value) =>
         onSnapshot(
-          query(notificationsRef, where(field, "==", value), orderBy("createdAt", "desc"), limit(100)),
+          query(notificationsRef, where(field, "==", value), orderBy("createdAt", "desc"), limit(30)),
           (snapshot) => {
             buckets[key] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
             publish()

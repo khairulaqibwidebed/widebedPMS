@@ -5,27 +5,35 @@
         <h1>Profile &amp; Appearance</h1>
         <div class="sub">Your account details, and how the PMS looks on your screen.</div>
       </div>
+      <div class="preview head-preview">
+        <span class="pv-label">Preview</span>
+        <button class="btn btn-primary">+ Add line</button>
+        <button class="btn">Cancel</button>
+        <span class="pill green">Completed</span><span class="pill amber">Estimated</span><span class="pill grey">Draft</span>
+        <span class="role-badge">Finance</span>
+        <span class="editlink">Edit ›</span>
+      </div>
     </div>
 
-    <section class="card">
-      <div class="card-head"><h2>Profile</h2><div class="head-btns"><button class="btn" @click="resetPw" :disabled="busy || !email">Reset password</button></div></div>
-      <div class="profile">
-        <div class="pic">
-          <Avatar :uid="uid" :name="me.name" :role="me.role" :size="96" />
-          <div class="pic-btns">
-            <label class="btn">{{ hasPic ? 'Change photo' : 'Upload photo' }}<input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="pick" :disabled="busy"></label>
-            <button class="btn" v-if="hasPic" @click="removePic" :disabled="busy">Remove photo</button>
-          </div>
+    <div class="layout">
+    <aside class="card idcard">
+      <div class="banner"></div>
+      <div class="id-body">
+        <div class="ava"><Avatar :uid="uid" :name="me.name" :role="me.role" :size="104" /></div>
+        <h2 class="id-name">{{ me.name || '-' }}</h2>
+        <span class="role-badge role-tint" :style="roleTint(me.role)">{{ roleLabel }}</span>
+        <div class="id-mail">{{ email || '-' }}</div>
+        <div class="id-btns">
+          <label class="btn" :class="{ 'btn-primary': !hasPic }">{{ hasPic ? 'Change photo' : 'Upload photo' }}<input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="pick" :disabled="busy"></label>
+          <button class="btn" v-if="hasPic" @click="removePic" :disabled="busy">Remove photo</button>
         </div>
-        <div class="facts">
-          <div class="kv"><span>Name</span><b>{{ me.name || '-' }}</b></div>
-          <div class="kv"><span>Email</span><b>{{ email || '-' }}</b></div>
-          <div class="kv"><span>Role</span><span><span class="role-badge role-tint" :style="roleTint(me.role)">{{ roleLabel }}</span></span></div>
-          <p class="ok" v-if="okMsg">{{ okMsg }}</p>
-          <p class="err" v-if="error">{{ error }}</p>
-        </div>
+        <div class="id-sep"></div>
+        <button class="btn btn-danger wide" @click="resetPw" :disabled="busy || !email">Reset password</button>
+        <p class="ok" v-if="okMsg">{{ okMsg }}</p>
+        <p class="err" v-if="error">{{ error }}</p>
       </div>
-    </section>
+    </aside>
+    <div class="stack">
 
     <section class="card">
       <div class="card-head"><h2>Colour theme</h2></div>
@@ -62,18 +70,10 @@
       </div>
     </section>
 
-    <section class="card">
-      <div class="card-head"><h2>Preview</h2></div>
-      <div class="preview">
-        <button class="btn btn-primary">+ Add line</button>
-        <button class="btn">Cancel</button>
-        <span class="pill green">Completed</span><span class="pill amber">Estimated</span><span class="pill grey">Draft</span>
-        <span class="role-badge">Finance</span>
-        <span class="editlink">Edit ›</span>
-      </div>
-    </section>
+    </div>
+    </div>
 
-    <p class="note" style="margin-top:16px">Saved in this browser for now, so set it again on another computer. It will follow your account once that is switched on. Statements, invoices, receipts and other PDFs always use Widebed's company colours and logo (Settings › Brand logos), whatever you pick here.</p>
+    <p class="note" style="margin-top:16px">Saved to your account, so it follows you to any computer. Statements, invoices, receipts and other PDFs always use Widebed's company colours and logo (Settings › Brand logos), whatever you pick here.</p>
   </main>
 </template>
 
@@ -164,22 +164,30 @@ export default {
 </script>
 
 <style scoped>
-    .head-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .profile { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); gap: 28px; align-items: start; }
-    .pic { display: grid; gap: 12px; justify-items: start; }
-    .pic-btns { display: flex; gap: 8px; flex-wrap: wrap; }
-    .pic-btns label.btn { cursor: pointer; }
-    .facts { display: grid; gap: 10px; min-width: 0; }
-    .facts .kv { display: grid; grid-template-columns: 90px minmax(0, 1fr); justify-content: start; justify-items: start; gap: 12px; align-items: center; font-size: 14px; text-align: left; }
-    .facts .kv > * { text-align: left; }
-    .kv > span:first-child { color: var(--muted); font-size: 13px; }
-    .kv b { overflow-wrap: anywhere; }
+    .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: stretch; }
+    .stack { display: grid; gap: 20px; min-width: 0; }
+    .stack .card + .card, .card + .card { margin-top: 0; }
+    .idcard { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+    .id-body { flex: 1; }
+    .id-body .wide { margin-top: auto; }
+    .head-preview { margin-left: auto; align-self: end; justify-content: flex-end; }
+    .pv-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .banner { height: 84px; background: linear-gradient(135deg, var(--brand), var(--accent)); }
+    .id-body { display: grid; justify-items: center; gap: 8px; padding: 0 20px 22px; text-align: center; }
+    .ava { margin-top: -52px; border-radius: 50%; border: 4px solid var(--surface); background: var(--surface); line-height: 0; }
+    .id-name { margin: 6px 0 0; font-size: 18px; }
+    .id-body .role-badge { justify-self: center; width: auto; display: inline-flex; align-items: center; line-height: 1; padding: 6px 12px 5px; }
+    .id-mail { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+    .id-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+    .id-btns label.btn { cursor: pointer; }
+    .id-sep { height: 1px; background: var(--border); width: 100%; margin: 10px 0 4px; }
+    .wide { width: 100%; }
+    @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } .idcard { position: static; } .head-preview { margin-left: 0; } }
     .muted { color: var(--muted); font-size: 12px; }
     .small { margin: 0; }
     .ok { color: var(--green, #1F8A4C); font-size: 13px; margin: 0; }
     .err { color: var(--red, #C0392B); font-size: 13px; margin: 0; }
-    @media (max-width: 700px) { .profile { grid-template-columns: minmax(0, 1fr); } }
-    .theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+    .theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
     .choice.custom { cursor: pointer; }
     .pick { display: flex; gap: 8px; align-items: center; }
     .pick input[type=color] { width: 38px; height: 34px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; flex: none; }
@@ -202,7 +210,6 @@ export default {
     .mini.system .sb { background: linear-gradient(180deg, #FFFFFF 50%, #1A2029 50%); } .mini.system .bd { background: linear-gradient(180deg, #F5F6F8 50%, #12161C 50%); } .mini.system .bd i { background: #8A919C; }
     .tick { font-size: 12px; font-weight: 600; color: var(--accent); }
     .preview { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    .card + .card { margin-top: 20px; }
-    @media (max-width: 900px) { .theme-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+    @media (max-width: 1200px) { .theme-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
     @media (max-width: 520px) { .theme-grid, .mode-grid { grid-template-columns: minmax(0,1fr); } }
 </style>

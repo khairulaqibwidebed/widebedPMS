@@ -7,10 +7,13 @@
       </div>
     </div>
 
+    <div class="tabs-row">
     <div class="pills brand ob-tabs" role="tablist">
       <template v-for="tb in TABS" :key="tb.key">
         <button class="pill-btn" role="tab" :aria-selected="tab === tb.key" :class="tab === tb.key && 'on'" @click="setTab(tb.key)">{{ tb.label }}</button>
       </template>
+    </div>
+    <button class="btn" style="border:1.5px solid var(--accent); color:var(--accent)" v-show="tab === 'checklist' && canEdit && !editing" :disabled="loading" @click="startEdit()">Edit checklist</button>
     </div>
 
     <div class="side-grid">
@@ -21,8 +24,7 @@
           <div class="stack" style="gap:16px">
             <div class="notice error" v-show="error">{{ error }}</div>
             <div class="card">
-              <div class="prog-head"><h2>{{ `Your progress · ${doneCount()} of ${total()} done` }}</h2><span class="tag" v-show="intern">Intern</span>
-                <button class="btn btn-sm" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit checklist</button></div>
+              <div class="prog-head"><h2>{{ `Your progress · ${doneCount()} of ${total()} done` }}</h2><span class="tag" v-show="intern">Intern</span></div>
               <div class="bar"><div :style="`width:${total() ? doneCount() / total() * 100 : 0}%`"></div></div>
               <div class="loading-bar" v-show="loading" style="margin-top:10px"></div>
             </div>
@@ -288,6 +290,10 @@ export default {
 </script>
 
 <style scoped>
+    .tabs-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tabs-row .ob-tabs { margin-bottom: 0; width: auto; flex: 0 1 auto; }
+    .tabs-row > .btn { margin-left: auto; transition: background .15s, color .15s; }
+    .tabs-row > .btn:hover:not(:disabled) { background: var(--accent); color: #fff !important; }
     .ob-tabs { margin-bottom: 20px; }
     .prog-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
     .prog-head h2 { margin: 0; font-size: 15px; }

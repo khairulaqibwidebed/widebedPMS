@@ -79,14 +79,30 @@ export async function loadTeamActivity() {
 // Director only: open tickets on the Issues page. Counts cost one read each (per 1,000 tickets),
 // and only the 5 newest open tickets are read in full.
 export const ISSUE_TAGS = ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
+// How many unit statements Finance has sent that are waiting for a Director.
+export async function loadApprovalsWaiting() {
+  const s = await getCountFromServer(query(collection(db, 'approvals'), where('status', '==', 'submitted')));
+  return s.data().count;
+}
+
 export async function loadOpenIssues() {
   const col = collection(db, 'issues');
   const open = where('status', 'in', ['open', 'progress']);
   const count = q => getCountFromServer(q).then(s => s.data().count);
+  // Newest first needs the issues index (status + createdAt, firebase/firestore.indexes.json). Until it exists in the
+  // console, read the open tickets without it and sort them here, so the card still loads.
+  const newest = () => getDocs(query(col, open, orderBy('createdAt', 'desc'), limit(4)))
+    .catch(async e => {
+      if (e.code !== 'failed-precondition') throw e;
+      console.warn('Create the issues index (status, createdAt) in the Firestore console to avoid this fallback:', e.message);
+      const snap = await getDocs(query(col, open, limit(50)));
+      const ms = d => d.data().createdAt?.toMillis?.() || 0;
+      return { docs: snap.docs.sort((a, b) => ms(b) - ms(a)).slice(0, 4) };
+    });
   const [total, notStarted, recentSnap] = await Promise.all([
     count(query(col, open)),
     count(query(col, where('status', '==', 'open'))),
-    getDocs(query(col, open, orderBy('createdAt', 'desc'), limit(4)))
+    newest()
   ]);
   return {
     total, notStarted,

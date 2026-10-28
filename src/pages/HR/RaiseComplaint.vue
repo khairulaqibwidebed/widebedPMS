@@ -1,9 +1,9 @@
 <template>
   <main class="content soft-page">
-    <div class="page-head"><div><h1>Raise a staff complaint</h1><div class="sub">Sent to HR</div></div></div>
+    <div class="page-head"><div><h1>Raise a staff complaint</h1><div class="sub">Sent to HR</div></div><button class="btn btn-primary" type="button" @click="showMine = true">My complaints{{ list.length ? ` (${list.length})` : '' }}</button></div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="notice error" v-show="loadErr">{{ loadErr }}</div>
-    <div class="side-grid">
+    <div>
       <section class="card">
         <div class="card-head"><h2>Your complaint</h2></div>
         <form @submit.prevent="send()">
@@ -16,17 +16,10 @@
           <div class="actions"><button class="btn btn-primary" type="submit" :disabled="busy">{{ busy ? 'Sending…' : 'Send to HR' }}</button><button class="btn" type="button" @click="clear()">Cancel</button></div>
         </form>
       </section>
-      <section class="card">
-        <div class="card-head"><h2>What happens next</h2></div>
-        <div class="rows">
-          <div class="row"><span>HR reads your complaint</span></div>
-          <div class="row"><span>HR may contact you (not if anonymous)</span></div>
-          <div class="row"><span>You can see the status under My complaints</span></div>
-        </div>
-      </section>
     </div>
-    <section class="card" style="margin-top:20px">
-      <div class="card-head"><h2>My complaints</h2></div>
+    <div class="modal-back" v-if="showMine" @click.self="showMine = false" v-esc="() => { showMine = false }">
+    <div class="modal" role="dialog" aria-label="My complaints" style="max-width:760px;width:calc(100% - 32px)">
+      <h2>My complaints</h2>
       <div class="loading-bar" v-show="loading"></div>
       <Paged :items="list" v-slot="{ pageRows }">
       <div class="table-wrap">
@@ -41,7 +34,9 @@
         </table>
       </div>
       </Paged>
-    </section>
+      <div class="modal-foot"><button class="btn" @click="showMine = false">Close</button></div>
+    </div>
+    </div>
   </main>
 </template>
 
@@ -54,7 +49,7 @@ const me = useSession();
 
 export default {
   data() {
-    return { STATUS, myName: me.name || 'With my name', list: [], loading: true, loadErr: '', busy: false, subject: '', details: '', anonymous: false, files: [], err: '', okMsg: '' };
+    return { STATUS, myName: me.name || 'With my name', list: [], showMine: false, loading: true, loadErr: '', busy: false, subject: '', details: '', anonymous: false, files: [], err: '', okMsg: '' };
   },
   async mounted() { await this.load(); },
   methods: {

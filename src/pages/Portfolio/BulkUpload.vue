@@ -7,10 +7,22 @@
       </div>
     </div>
 
+    <ol class="steps bu-steps" aria-label="Steps">
+      <li class="step" :class="{ current: !rows.length && !loading, done: rows.length || loading }"><span class="dot">1</span>Choose what and where</li>
+      <li class="step" :class="{ current: loading, done: rows.length }"><span class="dot">2</span>Add the file</li>
+      <li class="step" :class="{ current: rows.length && !done, done }"><span class="dot">3</span>Check and save</li>
+    </ol>
+
     <!-- What kind of file -->
-    <div class="seg kind-seg" role="tablist" aria-label="What are you uploading">
-      <button type="button" :class="{ on: kind === 'properties' }" :disabled="saving" @click="setKind('properties')">Properties</button>
-      <button type="button" :class="{ on: kind === 'owners' }" :disabled="saving" @click="setKind('owners')">Unit owners</button>
+    <div class="bu-kinds" role="tablist" aria-label="What are you uploading">
+      <button type="button" class="bu-kind" :class="{ on: kind === 'properties' }" :disabled="saving" @click="setKind('properties')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V5l8-3 8 3v16h-6v-6h-4v6z"/></svg>
+        <span><b>Properties</b><small>One property per row</small></span>
+      </button>
+      <button type="button" class="bu-kind" :class="{ on: kind === 'owners' }" :disabled="saving" @click="setKind('owners')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg>
+        <span><b>Unit owners</b><small>Owners with their units, one unit per row</small></span>
+      </button>
     </div>
 
     <!-- Unit owners: which property the units belong to (one property per upload) -->
@@ -18,12 +30,7 @@
       <div class="prop-row">
         <div class="field">
           <label for="buProp">Save units under</label>
-          <select class="select" id="buProp" v-model="propertyId" :disabled="saving" @change="recheck()">
-            <option value="" disabled>Choose a property</option>
-            <option value="__all">All properties (one sheet or file each)</option>
-            <template v-for="p in properties" :key="p.id"><option :value="p.id">{{ `${p.name} (${p.code || p.id})` }}</option></template>
-            <option value="__new">New property…</option>
-          </select>
+          <OptionPicker v-model="propertyId" :options="propertyChoices(true)" label="Save units under" :disabled="saving" @change="recheck()" />
         </div>
         <template v-if="propertyId === '__new'">
           <div class="field"><label for="buName">Property name</label><input class="input" id="buName" v-model="newProp.name" :disabled="saving" placeholder="e.g. D'Majestic Place"></div>
@@ -31,9 +38,7 @@
         </template>
         <div class="field" v-show="sheets.length > 1 && !allMode">
           <label for="buSheet">Sheet</label>
-          <select class="select" id="buSheet" v-model="sheet" :disabled="saving" @change="recheck()">
-            <template v-for="n in sheets" :key="n"><option :value="n">{{ n }}</option></template>
-          </select>
+          <OptionPicker v-model="sheet" :options="sheets.map(n => ({ value: n, label: n }))" label="Sheet" :disabled="saving" @change="recheck()" />
         </div>
       </div>
       <p class="help" style="margin:8px 0 0">{{ allMode
@@ -49,11 +54,7 @@
               <tr v-if="sheetMap[n]">
                 <td>{{ n }}</td>
                 <td>
-                  <select class="select" v-model="sheetMap[n].pid" :disabled="saving" :aria-label="`Property for ${n}`" @change="recheck()">
-                    <option value="__skip">Leave out</option>
-                    <option value="__new">New property…</option>
-                    <template v-for="p in properties" :key="p.id"><option :value="p.id">{{ `${p.name} (${p.code || p.id})` }}</option></template>
-                  </select>
+                  <OptionPicker v-model="sheetMap[n].pid" :options="propertyChoices(false)" :label="`Property for ${n}`" :disabled="saving" @change="recheck()" />
                 </td>
                 <td><input class="input" v-show="sheetMap[n].pid === '__new'" v-model="sheetMap[n].name" :disabled="saving" :aria-label="`New property name for ${n}`"></td>
                 <td><input class="input code-in" v-show="sheetMap[n].pid === '__new'" v-model="sheetMap[n].code" :disabled="saving" :aria-label="`Code for ${n}`"></td>
@@ -82,16 +83,16 @@
     <!-- Preview -->
     <section class="card" v-show="rows.length">
       <div class="card-head">
-        <h2>{{ `Preview · ${fileName}` }}</h2>
+        <h2><span class="file-badge">{{ /\.xlsx$/i.test(fileName) ? 'XLSX' : 'CSV' }}</span> {{ fileName }}</h2>
         <button type="button" class="link" :disabled="saving" @click="clear()">{{ allMode ? 'Choose other files' : 'Choose another file' }}</button>
       </div>
 
-      <div class="counts">
-        <span class="pill green">{{ `${count('ok')} ready` }}</span>
-        <span class="pill amber" v-show="count('skip')">{{ `${count('skip')} already in the PMS` }}</span>
-        <span class="pill blue" v-show="kind === 'owners' && rows.length">{{ `${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'} · ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'} · ${newFees} ${newFees === 1 ? 'fee' : 'fees'} to set up` }}</span>
-        <span class="pill red" v-show="count('error')">{{ `${count('error')} with problems` }}</span>
+      <div class="bu-stats">
+        <div class="bu-stat ok"><b>{{ count('ok') }}</b><span>Ready to save</span></div>
+        <div class="bu-stat skip"><b>{{ count('skip') }}</b><span>Already in the PMS</span></div>
+        <div class="bu-stat bad"><b>{{ count('error') }}</b><span>With problems</span></div>
       </div>
+      <p class="bu-note" v-show="kind === 'owners' && rows.length">{{ `This will add ${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'}, ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'} and set up ${newFees} ${newFees === 1 ? 'fee' : 'fees'}.` }}</p>
 
       <p class="help sheets" v-show="sheetsNote">{{ sheetsNote }}</p>
 
@@ -127,7 +128,7 @@
       </div>
       </Paged>
 
-      <div class="actions">
+      <div class="actions bu-actions">
         <span class="help">{{ blocker || (count('ok') ? `Only the ${count('ok')} ready ${count('ok') === 1 ? 'row is' : 'rows are'} saved. Skipped rows and rows with problems are left out.` : 'Nothing to save.') }}</span>
         <button type="button" class="btn btn-primary" :disabled="saving || !count('ok') || !!blocker" :title="blocker" @click="save()">{{ saving ? `Saving… ${savedSoFar} of ${count('ok')}` : 'Confirm & Upload to Database' }}</button>
       </div>
@@ -137,8 +138,10 @@
 
 <script>
 import { markRaw } from 'vue';
+import OptionPicker from '@/components/OptionPicker.vue';
 import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
+import { clearCache } from '@/lib/cache.js';
 import { ARRANGEMENTS, DEFAULT_OTA, unitIdOf } from '@/lib/engine.js';
 import { markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
@@ -267,6 +270,7 @@ const COLS = {
 };
 
 export default {
+  components: { OptionPicker },
   data() {
     return { kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
       properties: [], propertyId: '', newProp: { name: '', code: '' }, sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {} };
@@ -306,6 +310,13 @@ export default {
     try { this.properties = await loadProperties(); } catch (e) { this.error = friendlyError(e, 'load the properties'); }
   },
   methods: {
+    // Choices for the property picker. `top` = the main picker (with "All properties"); otherwise the per-sheet one ("Leave out").
+    propertyChoices(top) {
+      const list = this.properties.map(p => ({ value: p.id, label: `${p.name} (${p.code || p.id})` }));
+      return top
+        ? [{ value: '', label: 'Choose a property' }, { value: '__all', label: 'All properties (one sheet or file each)' }, ...list, { value: '__new', label: 'New property…' }]
+        : [{ value: '__skip', label: 'Leave out' }, { value: '__new', label: 'New property…' }, ...list];
+    },
     setKind(k) { if (k !== this.kind) { this.kind = k; this.clear(); this.done = ''; } },
     clear() { Object.assign(this, { rows: [], columns: [], fileName: '', error: '', sheetsNote: '', sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {} }); },
     count(s) { return this.rows.filter(r => r.status === s).length; },
@@ -505,7 +516,7 @@ export default {
         for (let i = 0; i < ready.length; i += ROWS_PER_BATCH) {
           const b = writeBatch(db);
           for (const r of ready.slice(i, i + ROWS_PER_BATCH)) this.kind === 'properties' ? this.writeProperty(b, r) : this.writeUnitOwner(b, r, made);
-          await b.commit();
+          await b.commit(); clearCache();
           this.savedSoFar = Math.min(i + ROWS_PER_BATCH, ready.length);
         }
         if (this.kind === 'properties') this.done = `Saved ${ready.length} ${ready.length === 1 ? 'property' : 'properties'} from ${this.fileName}. Add their units on Portfolio, or upload their eZee report.`;
@@ -544,7 +555,7 @@ export default {
       b.set(doc(db, 'properties', id, 'rateVersions', '2000-01_default'), { effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
         reason: 'Default OTA settings', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
       audit(b, me, { action: 'property.create', entity: `properties/${id}`, propertyId: id, reason: `Bulk upload (${this.fileName})` });
-      await b.commit();
+      await b.commit(); clearCache();
       this.properties = await loadProperties();
       this.propertyId = id; this.newProp = { name: '', code: '' };
     },
@@ -561,7 +572,7 @@ export default {
         audit(b, me, { action: 'property.create', entity: `properties/${id}`, propertyId: id, reason: `Bulk upload (${n})` });
         made[n] = id;
       }
-      await b.commit();
+      await b.commit(); clearCache();
       this.properties = await loadProperties();
       for (const [n, id] of Object.entries(made)) this.sheetMap[n] = { pid: id, name: '', code: '' };
     },
@@ -592,10 +603,33 @@ export default {
 </script>
 
 <style scoped>
-    .kind-seg { max-width: 320px; }
+    .bu-steps { margin: 0 0 16px; padding: 0; list-style: none; }
+    .bu-kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .bu-kind { display: flex; align-items: center; gap: 14px; text-align: left; padding: 16px; border: 1.5px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); cursor: pointer; }
+    .bu-kind svg { width: 40px; height: 40px; padding: 9px; border-radius: 10px; background: var(--chip); fill: var(--text-2); flex: none; }
+    .bu-kind b { display: block; font-size: 15px; }
+    .bu-kind small { color: var(--muted); font-size: 12.5px; }
+    .bu-kind:hover { border-color: var(--accent); }
+    .bu-kind.on { border-color: var(--accent); background: var(--accent-soft); }
+    .bu-kind.on svg { background: var(--accent); fill: #fff; }
+    .bu-kind:disabled { opacity: .6; cursor: default; }
+    .bu-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px; }
+    .bu-stat { padding: 12px 14px; border-radius: 10px; background: var(--chip); }
+    .bu-stat b { display: block; font-size: 24px; line-height: 1.1; }
+    .bu-stat span { font-size: 12.5px; color: var(--text-2); }
+    .bu-stat.ok { background: var(--green-soft); } .bu-stat.ok b { color: var(--green); }
+    .bu-stat.skip { background: var(--amber-soft); } .bu-stat.skip b { color: var(--amber); }
+    .bu-stat.bad { background: var(--red-soft); } .bu-stat.bad b { color: var(--red); }
+    .bu-note { margin: 0 0 12px; font-size: 13px; color: var(--text-2); }
+    .card-head h2 { display: flex; align-items: center; gap: 10px; }
+    .file-badge { font-size: 11px; font-weight: 700; padding: 3px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
+    .bu-actions { position: sticky; bottom: 0; background: var(--surface); padding: 12px 0 0; border-top: 1px solid var(--line); }
     .prop-card { margin-bottom: 16px; }
     .prop-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
     .prop-row .field { margin: 0; min-width: 0; flex: 1 1 220px; }
+    .prop-row :deep(.op), .sheet-map :deep(.op) { display: block; }
+    .prop-row :deep(.op-btn), .sheet-map :deep(.op-btn) { width: 100%; }
+    .prop-row :deep(.op-val), .sheet-map :deep(.op-val) { max-width: none; }
     .prop-row .field.code { flex: 0 1 120px; }
     .sheet-map { margin-top: 12px; }
     .sheet-map .select, .sheet-map .input { min-width: 160px; }

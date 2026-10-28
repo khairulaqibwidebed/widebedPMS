@@ -90,7 +90,7 @@ export async function loadIT(uid) {
     getDocs(collection(db, 'users')),
     loadUploads(5),
     // Index: auditLog role ASC, at DESC (fb/indexes_dash.json).
-    getDocs(query(collection(db, 'auditLog'), where('role', '==', 'it'), orderBy('at', 'desc'), limit(50)))
+    getDocs(query(collection(db, 'auditLog'), where('role', '==', 'it'), orderBy('at', 'desc'), limit(10)))
   ]);
   const users = rows(usersSnap);
   const on = users.filter(u => u.active !== false), off = users.filter(u => u.active === false);

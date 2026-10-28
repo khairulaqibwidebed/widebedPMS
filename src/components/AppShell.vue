@@ -49,6 +49,10 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
               Profile &amp; Appearance
             </router-link>
+            <button type="button" class="um-item" role="menuitem" @click="refreshData">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+              Refresh saved data
+            </button>
             <button type="button" class="um-item danger" role="menuitem" @click="logOut">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
               Log out
@@ -64,6 +68,11 @@
           <span v-if="unreadCount > 0" class="notification-dot" :title="`${unreadCount} unread notifications`"></span>
         </button> -->
       </header>
+      <div class="quota-bar" role="alert" v-if="quota.hit && !quota.hiddenAt">
+        <b>The free daily Firestore limit is used up.</b>
+        <span>{{ `Pages can't load or save data until it resets at about ${resetAt}. Saved copies still show. Please stop reloading.` }}</span>
+        <button type="button" class="btn" @click="quota.hiddenAt = Date.now()">Hide</button>
+      </div>
       <RouterView :key="$route.fullPath" />
     </div>
     <CommandPalette v-if="paletteOpen" :groups="groups" @close="paletteOpen = false" />
@@ -73,6 +82,8 @@
 <script>
 import { NAV } from '../nav.js';
 import { ROLE_LABEL, logOut } from '../lib/firebase.js';
+import { clearCache } from '../lib/cache.js';
+import { quota, resetTime } from '../lib/quota.js';
 import { notBuilt } from '../lib/toast.js';
 import { useSession } from '../stores/session.js';
 import NavItem from './NavItem.vue';
@@ -98,11 +109,12 @@ const DESKTOP_QUERY = '(min-width: 861px)';
 export default {
   components: { NavItem, CommandPalette, Avatar, NotificationBell },
   data: () => ({
-    ROLE_LABEL, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
+    ROLE_LABEL, quota, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
     folded: readFolded(), collapsed: readCollapsed(),
     wide: window.matchMedia(DESKTOP_QUERY).matches
   }),
   computed: {
+    resetAt: () => resetTime(),
     me: () => useSession(),
     groups() { return NAV[this.me.role] || []; },
     active() { return this.$route.meta.label; },
@@ -150,6 +162,7 @@ export default {
   },
   methods: {
     logOut,
+    async refreshData() { await clearCache(); location.reload(); },
     notBuilt, roleTint,
     groupIcon(g) { return NAV_ICONS[g.icon] || NAV_ICONS.dot; },
     hasActive(g) { return g.items.some(it => it.label === this.active); },
@@ -267,4 +280,6 @@ main.content {flex: 1;width: 100%;max-width: 1760px;margin: 0 auto;padding: clam
 @media (prefers-reduced-motion: reduce) {
   .sidebar, .brand-text, .nav-group-btn, .grp-label, .collapse-arrow, .toggle-label, .sidebar-toggle { transition: none; }
 }
+.quota-bar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 10px 20px; background: var(--red-soft); color: var(--red); border-bottom: 1px solid var(--border); font-size: 13px; }
+.quota-bar span { flex: 1; min-width: 200px; color: var(--text-2); }
 </style>

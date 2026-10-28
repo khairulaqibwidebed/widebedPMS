@@ -54,8 +54,14 @@ service cloud.firestore {
       return /databases/$(database)/documents/statements/$(unitId + '_' + month);
     }
     function unitCompleted(unitId, month) {
-      return exists(statementPath(unitId, month))
-        && get(statementPath(unitId, month)).data.status == 'completed';
+      return (exists(statementPath(unitId, month))
+        && get(statementPath(unitId, month)).data.status == 'completed')
+        // Finance sent it to the Director: its numbers are frozen until approved, sent back or pulled back.
+        || (exists(approvalPath(unitId, month))
+        && get(approvalPath(unitId, month)).data.status == 'submitted');
+    }
+    function approvalPath(unitId, month) {
+      return /databases/$(database)/documents/approvals/$(unitId + '_' + month);
     }
     function unitMonthKeys() {
       return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'fixedRentAmount',
@@ -166,6 +172,12 @@ service cloud.firestore {
       allow read: if isDirector() || isIT();
       allow create: if isIT() && request.resource.data.uid == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // Appearance: userPrefs/{uid} = { brand, mode, custom, updatedAt }. Each person reads and writes only their own.
+    match /userPrefs/{uid} {
+      allow read, create, update: if anyStaff() && request.auth.uid == uid;
+      allow delete: if false;
     }
 
     // Profile pictures: avatars/{uid} = { src, updatedAt }, a 128 px square data URL. Each person writes only their own.
@@ -339,8 +351,8 @@ service cloud.firestore {
 
     match /statements/{id} {
       allow read: if staff();
-      // Approve & complete, one unit at a time.
-      allow create: if finOrDir() && request.resource.data.revision == 1 && request.resource.data.status == 'completed';
+      // Approve & complete, one unit at a time. Only a Director completes (Finance sends to the Director: approvals below).
+      allow create: if isDirector() && request.resource.data.revision == 1 && request.resource.data.status == 'completed';
       // Director reopens one unit: same revision, status 'reopened', and the revision is saved first.
       allow update: if isDirector()
         && resource.data.status == 'completed' && request.resource.data.status == 'reopened'
@@ -357,6 +369,28 @@ service cloud.firestore {
         allow create: if isDirector();
         allow update, delete: if false;
       }
+    }
+
+    // Finance sends a unit's statement to the Director (Statement Approvals page). id = unitId_month, same as statements.
+    // submitted -> approved (Director completes it, same batch as the statement) or returned (Director, reason) or
+    // withdrawn (Finance pulls it back, reason). Returned / withdrawn can be sent again. After a Director reopen, an approved
+    // one can be sent again too.
+    match /approvals/{id} {
+      allow read: if staff();
+      allow create: if finOrDir() && request.resource.data.status == 'submitted'
+        && id == request.resource.data.unitId + '_' + request.resource.data.month
+        && request.resource.data.submittedBy == request.auth.uid
+        && (!exists(statementPath(request.resource.data.unitId, request.resource.data.month))
+          || get(statementPath(request.resource.data.unitId, request.resource.data.month)).data.status == 'reopened');
+      allow update: if finOrDir() && request.resource.data.status == 'submitted' && request.resource.data.submittedBy == request.auth.uid
+        && (resource.data.status in ['returned', 'withdrawn']
+          || (resource.data.status == 'approved' && get(statementPath(resource.data.unitId, resource.data.month)).data.status == 'reopened'));
+      allow update: if finOrDir() && resource.data.status == 'submitted' && request.resource.data.status == 'withdrawn'
+        && request.resource.data.withdrawReason is string && request.resource.data.withdrawReason.size() > 0;
+      allow update: if isDirector() && resource.data.status == 'submitted'
+        && (request.resource.data.status == 'approved'
+          || (request.resource.data.status == 'returned' && request.resource.data.returnReason is string && request.resource.data.returnReason.size() > 0));
+      allow delete: if false;
     }
 
     match /exports/{id} {

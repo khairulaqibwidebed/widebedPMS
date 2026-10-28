@@ -7,7 +7,9 @@
         <h1>Staff accounts</h1>
         <div class="sub">Director and HR. Invite staff, set their role, and turn accounts off when someone leaves.</div>
       </div>
-      <button class="btn btn-primary" @click="openAdd()">+ Invite staff</button>
+      <button class="btn info-btn" type="button" @click="rolesOpen = true" aria-label="What each role can do" title="What each role can do">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      </button>
     </div>
 
     <div class="notice error" v-show="error">{{ error }}</div>
@@ -19,17 +21,19 @@
           <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ `${f.label} (${count(f.key)})` }}</button>
         </template>
       </div>
-      <select class="select" v-model="roleFilter" aria-label="Filter by role">
-        <option value="">All roles</option>
-        <template v-for="r in ROLES" :key="r"><option :value="r">{{ ROLE_LABEL[r] || r }}</option></template>
-      </select>
+      <OptionPicker v-model="roleFilter" :options="roleOptions" label="Filter by role" />
+      <div class="head-tools push">
+        <button class="btn" @click="openLogs()">Logs</button>
+        <button class="btn btn-primary" @click="openAdd()">+ Invite staff</button>
+      </div>
     </div>
 
+    <Paged :items="shown()" v-slot="{ pageRows }">
     <div class="table-wrap soft-wrap">
       <table class="table staff-table hover-rows">
         <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Active</th><th>Joined</th><th></th></tr></thead>
         <tbody>
-          <template v-for="row in shown()" :key="row.id">
+          <template v-for="row in pageRows" :key="row.id">
             <tr>
               <td><button class="name-btn" @click="openEdit(row)">{{ row.displayName || '(no name)' }}</button><span class="you" v-show="row.id === myUid">You</span></td>
               <td>{{ row.email }}</td>
@@ -52,18 +56,36 @@
         </tbody>
       </table>
     </div>
+    </Paged>
     <p class="note staff-note">Changing a role or turning an account off asks for a reason and is saved in the audit log. Nothing is deleted.</p>
 
-    <section class="card" style="margin-top:20px">
-      <div class="card-head"><h2>Recent account changes</h2></div>
-      <div class="changes">
-        <template v-for="c in changes" :key="c.id"><div>{{ c.text }}</div></template>
-        <div class="empty" v-show="!changes.length">No account changes yet.</div>
-      </div>
-    </section>
+    <!-- Account log: read only when it is opened -->
+    <template v-if="logsOpen">
+      <div class="drawer-back" @click="logsOpen = false"></div>
+      <aside class="drawer wide" role="dialog" aria-label="Account logs" v-esc="() => { logsOpen = false }">
+        <div class="drawer-head"><h2>Account logs</h2><button class="icon-btn" @click="logsOpen = false" aria-label="Close">×</button></div>
+        <div class="drawer-body">
+          <p class="help" style="margin:0 0 12px">Who was invited, who changed role and who was turned off or back on, newest first.</p>
+          <div class="notice error" v-show="logsError">{{ logsError }}</div>
+          <div class="empty" v-show="logsLoading">Loading…</div>
+          <Paged :items="changes" :size="10" v-slot="{ pageRows }">
+            <div class="changes logs-list">
+              <template v-for="c in pageRows" :key="c.id"><div>{{ c.text }}</div></template>
+            </div>
+          </Paged>
+          <div class="empty" v-show="!logsLoading && !changes.length && !logsError">No account changes yet.</div>
+        </div>
+        <div class="drawer-foot">
+          <RouterLink class="btn" to="/Settings/AuditLog" style="margin-right:auto">Full audit log</RouterLink>
+          <button class="btn" @click="loadChanges()" :disabled="logsLoading">Refresh</button>
+          <button class="btn btn-primary" @click="logsOpen = false">Close</button>
+        </div>
+      </aside>
+    </template>
 
-    <section class="card" style="margin-top:20px">
-      <div class="card-head"><h2>What each role can do</h2></div>
+    <div class="modal-back" v-if="rolesOpen" @click.self="rolesOpen = false" v-esc="() => { rolesOpen = false }">
+      <div class="modal" role="dialog" aria-label="What each role can do" style="max-width:720px;width:calc(100% - 32px)">
+        <h2>What each role can do</h2>
       <div class="role-list">
         <div><b>Director</b><span>Everything, including Staff accounts and Director Override.</span></div>
         <div><b>Finance</b><span>Upload eZee, expenses, month-end payout, exports.</span></div>
@@ -73,7 +95,9 @@
         <div><b>Procurement</b><span>The Fillout form links, Issues, Playbook and SOPs.</span></div>
         <div><b>Marketing</b><span>Issues, Playbook and SOPs for now. Own pages come later.</span></div>
       </div>
-    </section>
+        <div class="modal-foot"><button class="btn" @click="rolesOpen = false">Close</button></div>
+      </div>
+    </div>
 
     <!-- Turn off / Turn back on -->
     <template v-if="panelOpen && panel.quick">
@@ -155,11 +179,13 @@
 <script>
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, updateProfile, signOut, sendPasswordResetEmail } from 'firebase/auth';
-import { collection, doc, getDocs, serverTimestamp, writeBatch, query, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, getDocs, serverTimestamp, writeBatch, query, where, limit } from 'firebase/firestore';
+import { friendlyError } from '@/lib/finance-data.js';
 import { auth, db, ROLE_LABEL, ALLOWED_ROLES } from '@/lib/firebase.js';
 import { firebaseConfig } from '@/firebase-config.js';
 import { when } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import OptionPicker from '@/components/OptionPicker.vue';
 
 const me = useSession();
 
@@ -193,17 +219,19 @@ function audit(batch, action, uid, changes, reason) {
 }
 
 export default {
+  components: { OptionPicker },
   data() {
     return {
       ROLES, ROLE_LABEL, when,
       myUid: me.user.uid,
       users: [], loading: true, error: '', okMsg: '',
-      filter: 'all', roleFilter: '', changes: [],
+      filter: 'all', roleFilter: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
       filters: [{ key: 'all', label: 'All' }, { key: 'active', label: 'Active' }, { key: 'off', label: 'Turned off' }],
       panel: {}, panelOpen: false
     };
   },
   computed: {
+    roleOptions() { return [{ value: '', label: 'All roles' }, ...ROLES.map(r => ({ value: r, label: ROLE_LABEL[r] || r }))]; },
     roleChoices() { return me.role === 'director' ? ROLES : ROLES.filter(r => r !== 'director'); }
   },
   async mounted() {
@@ -217,7 +245,6 @@ export default {
         const snap = await getDocs(collection(db, 'users'));
         this.users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
-        await this.loadChanges();
       } catch (e) {
         console.error(e);
         this.error = e.code === 'permission-denied'
@@ -236,13 +263,15 @@ export default {
     shown() { return this.users.filter(u => this.match(u, this.filter) && (!this.roleFilter || u.role === this.roleFilter)); },
     roleText(u) { const r = ROLE_LABEL[u.role] || 'No role'; return u.intern ? `Intern (${r})` : r; },
     joined(ts) { const d = ts.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); },
-    // Last 30 audit entries, staff ones only (one orderBy, no extra index needed).
+    openLogs() { this.logsOpen = true; this.loadChanges(); },
+    // Staff account entries only, read when the Logs panel is opened (not on every visit to this page).
     async loadChanges() {
+      this.logsLoading = true; this.logsError = '';
       try {
-        const snap = await getDocs(query(collection(db, 'auditLog'), orderBy('at', 'desc'), limit(30)));
+        const snap = await getDocs(query(collection(db, 'auditLog'), where('action', 'in', ['staff.create', 'staff.update']), limit(100)));
         const nameOf = id => { const u = this.users.find(x => x.id === id); return u ? (u.displayName || u.email) : 'a removed account'; };
-        const field = { role: 'role', active: 'account', displayName: 'name' };
-        this.changes = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => (a.entity || '').startsWith('users/')).slice(0, 8).map(a => {
+        this.changes = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => (a.entity || '').startsWith('users/'))
+          .sort((a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0)).map(a => {
           const who = nameOf(a.entity.slice(6)), at = a.at ? this.joined(a.at) : '';
           let what;
           if (a.action === 'staff.create') what = `${a.userName} invited ${who} as ${ROLE_LABEL[a.changes?.[0]?.new] || 'staff'}`;
@@ -250,7 +279,8 @@ export default {
             : c.field === 'role' ? `changed ${who} from ${ROLE_LABEL[c.old] || 'no role'} to ${ROLE_LABEL[c.new]}` : `renamed ${c.old || who} to ${c.new}`).join(', ');
           return { id: a.id, text: `${at} · ${what}${a.reason && a.action !== 'staff.create' ? ` · reason: "${a.reason}"` : ''}` };
         });
-      } catch (e) { console.warn('audit read', e); this.changes = []; }
+      } catch (e) { console.warn('audit read', e); this.changes = []; this.logsError = friendlyError(e, 'load the logs'); }
+      this.logsLoading = false;
     },
     roleColour(r) { return { director: 'red', finance: 'blue', it: 'grey', operations: 'amber', hr: 'green', procurement: 'grey', marketing: 'amber' }[r] || 'grey'; },
     canSignIn(r) { return ALLOWED_ROLES.includes(r); },
@@ -339,6 +369,9 @@ export default {
 </script>
 
 <style scoped>
+    .head-tools.push { margin-left: auto; display: flex; gap: 8px; }
+    .info-btn { padding: 8px 10px; color: var(--accent); border: 1.5px solid var(--accent); }
+    .info-btn:hover { background: var(--accent-soft); }
     .staff-filters { margin-bottom: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
     .staff-table td { white-space: nowrap; }
     .name-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; }
@@ -347,4 +380,9 @@ export default {
     .row-acts span { display: inline-flex; gap: 6px; }
     .staff-note { margin: 12px 0 0; }
     .changes { display: grid; gap: 8px; font-size: 12px; color: var(--text-2); }
+    .role-list { display: grid; gap: 8px; margin: 14px 0 6px; max-height: 60vh; overflow: auto; }
+    .role-list > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; align-items: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .role-list b { font-size: 13px; color: var(--accent); }
+    .role-list span { font-size: 14px; line-height: 1.5; color: var(--text); }
+    @media (max-width: 520px) { .role-list > div { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
 </style>
