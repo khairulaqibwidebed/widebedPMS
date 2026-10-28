@@ -261,7 +261,7 @@
       <section class="card" style="margin-top:20px" v-if="!viewOnly">
         <h2 class="t">Audit log · unit settings</h2>
         <p class="card-intro">Every change is recorded with who, when, old and new value, effective month and reason. Saving asks for the reason. Entries can't be edited or deleted.</p>
-        <Paged :items="audits.filter(x => /^unit/.test(x.action || ''))" v-slot="{ pageRows }">
+        <Paged :items="audits.filter(x => /^unit/.test(x.action || ''))" keep-page @page="onAuditPage" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table audit-tbl hover-rows">
             <colgroup><col style="width:170px"><col style="width:130px"><col style="width:110px"><col><col style="width:120px"><col style="width:22%"></colgroup>
@@ -276,7 +276,7 @@
           </table>
         </div>
         </Paged>
-        <div class="more-row" v-show="auditMore"><button type="button" class="btn" @click="loadAudits(true)">Load 30 more changes</button></div>
+        <div class="more-row" v-show="auditMore && audits.filter(x => /^unit/.test(x.action || '')).length <= 10"><button type="button" class="btn" @click="loadAudits(true)" :disabled="auditBusy">Load 30 more changes</button></div>
       </section>
     </div>
 
@@ -350,7 +350,7 @@
       <section class="card">
         <h2 class="t">Audit log</h2>
         <p class="card-intro">Every change to this property: who, when, old and new value, start month and reason. Entries can't be edited or deleted.</p>
-        <Paged :items="audits" v-slot="{ pageRows }">
+        <Paged :items="audits" keep-page @page="onAuditPage" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table audit-tbl hover-rows">
             <colgroup><col style="width:170px"><col style="width:130px"><col style="width:150px"><col><col style="width:100px"><col style="width:22%"></colgroup>
@@ -365,7 +365,7 @@
           </table>
         </div>
         </Paged>
-        <div class="more-row" v-show="auditMore"><button type="button" class="btn" @click="loadAudits(true)">Load 30 more changes</button></div>
+        <div class="more-row" v-show="auditMore && audits.length <= 10"><button type="button" class="btn" @click="loadAudits(true)" :disabled="auditBusy">Load 30 more changes</button></div>
       </section>
     </div>
 
@@ -628,7 +628,7 @@ export default {
       ptab: params.get('ptab') || 'units',
       properties: [], propertyId: params.get('property') || lastProperty(true) || 'all', asOf: params.get('month') || monthOffset(0),
       months: Array.from({ length: 25 }, (_, i) => monthOffset(1 - i)),
-      allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [], auditLast: null, auditMore: false,
+      allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [], auditLast: null, auditMore: false, auditBusy: false,
       offlineBookings: [], bookingsLoading: false,
       search: '', filter: 'all', propSearch: '', ownerSearch: '', showInactive: false, bookingSearch: '', bookingKind: 'all', propAttn: false,
       filters: [{ key: 'all', label: 'All' }, { key: 'none', label: 'Not set up' }, { key: 'share', label: 'Profit share' }, { key: 'fixed', label: 'Fixed rent' }, { key: 'long', label: 'Long-term' }],
@@ -788,7 +788,14 @@ export default {
     },
     // The property's change history, 30 at a time, newest first (index: auditLog propertyId + at).
     // If that index isn't deployed yet, fall back to a capped read so the page still works.
+    // The audit tables fetch the next 30 on their own when the user reaches the last loaded page
+    onAuditPage({ page, last }) { if (page >= last && this.auditMore && !this.auditBusy) this.loadAudits(true); },
     async loadAudits(more = false) {
+      if (this.auditBusy) return;
+      this.auditBusy = true;
+      try { await this.loadAuditsNow(more); } finally { this.auditBusy = false; }
+    },
+    async loadAuditsNow(more = false) {
       const col = collection(db, 'auditLog');
       const base = [where('propertyId', '==', this.propertyId)];
       try {

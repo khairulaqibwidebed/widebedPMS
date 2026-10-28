@@ -145,16 +145,6 @@
       </div>
       </Paged>
     </section>
-
-    <section class="card" id="daily" style="margin-top:20px">
-      <div class="card-head"><h2>Daily finance export</h2></div>
-      <p class="help" style="margin-top:0">Short-term stays (29 nights or less) that checked out on the date, sorted by property then unit. Tourism tax has its own column.</p>
-      <div class="toolbar">
-        <input class="input" type="date" v-model="exportDate" aria-label="Checkout date">
-        <button class="btn" @click="dailyExport()" :disabled="working">Download CSV</button>
-        <span class="note">{{ exportNote }}</span>
-      </div>
-    </section>
   </main>
 </template>
 
@@ -204,8 +194,7 @@ export default {
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       dragging: false, working: false, saving: false, error: '', suggestMonth: '',
       stage: 0, percent: 0, stages: [], fileName: '', fileSize: '', fileKind: '', lastFile: null,
-      check: null, done: '', newUnitsSaved: false, history: [],
-      exportDate: dayOffset(-1), exportNote: ''
+      check: null, done: '', newUnitsSaved: false, history: []
     };
   },
   // Remember the property for the next page (see lib/last-property.js)
@@ -603,32 +592,7 @@ export default {
         this.error = friendlyError(e, 'save the upload') + ' Nothing is lost: upload the same file again and it picks up where it stopped.';
       }
       this.saving = false; this.working = false;
-    },
-
-    // Q-16: short-term stays with checkout on the date (yesterday by default, Malaysia time)
-    async dailyExport() {
-      this.working = true; this.exportNote = ''; this.error = '';
-      try {
-        const snap = await getDocs(query(collection(db, 'bookings'), where('departure', '==', this.exportDate)));
-        const rows = snap.docs.map(d => d.data()).filter(b => b.status !== 'cancelled' && Number(b.nights) < 30);
-        const propName = id => this.properties.find(p => p.id === id)?.name || id;
-        rows.sort((a, b) => propName(a.propertyId).localeCompare(propName(b.propertyId)) || byUnit(a.unitCode || '', b.unitCode || ''));
-        const setups = {};
-        for (const pid of new Set(rows.map(b => b.propertyId))) setups[pid] = await loadSetup(pid, this.exportDate.slice(0, 7));
-        const aoa = [['Property', 'Unit', 'Reservation No', 'Source', 'Arrival', 'Departure', 'Nights', 'Room charges (excl. SST)', 'SST', 'Cleaning fee',
-          'Tourism tax', 'Total (eZee)', 'Method', 'PTO (before fees)']];
-        for (const b of rows) {
-          const s = setups[b.propertyId], u = s.units.find(x => x.id === b.unitId);
-          const p = bookingPTO(b, effectiveRates(s.rates, u?.terms));
-          aoa.push([propName(b.propertyId), b.unitCode || '', b.reservationNo, b.source, b.arrival, b.departure, b.nights,
-            r2(b.allRoomCharges), r2(b.sst), r2(b.cleaningFee), r2(b.tourismTax), r2(b.totalInclTax), p.method, r2(p.pto)]);
-        }
-        if (!rows.length) this.exportNote = 'No short-term checkouts on that date.';
-        else { download(`Widebed daily export ${this.exportDate}.csv`, toCSV(aoa)); this.exportNote = `${rows.length} stays exported.`; }
-      } catch (e) { this.error = friendlyError(e, 'make the export'); }
-      this.working = false;
-    }
-  }
+    },  }
 };
 </script>
 

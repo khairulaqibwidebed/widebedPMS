@@ -7,22 +7,19 @@
         <h1>Month-end payout</h1>
         <div class="sub">{{ `${monthName(month)} · ${propertyName()} · owner statements by checkout month` }}</div>
       </div>
-      <div class="head-tools" style="margin-left:auto">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
-        <MonthPicker :ahead="1" v-model="month" @change="load()" />
-      </div>
     </div>
-    <div class="me-actions" v-show="!selOpen && propertyId">
-            <span class="pill" :class="completed ? 'green' : (doneCount() ? 'blue' : 'grey')">{{ completed ? 'Completed' : (doneCount() ? `${doneCount()} of ${rows.length} completed` : 'Open') }}</span>
-      <RouterLink class="btn" :to="{ path: '/Finance/upload', query: { property: propertyId, month } }" v-show="!completed">Upload eZee report</RouterLink>
-      <div class="dl-wrap">
+    <div class="me-actions" v-show="!selOpen">
+      <span class="pill" v-show="propertyId" :class="completed ? 'green' : (doneCount() ? 'blue' : 'grey')">{{ completed ? 'Completed' : (doneCount() ? `${doneCount()} of ${rows.length} completed` : 'Open') }}</span>
+      <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+      <MonthPicker :ahead="1" v-model="month" @change="load()" />
+      <div class="dl-wrap" v-show="propertyId">
         <button class="btn btn-primary" type="button" @click="dlOpen = !dlOpen" :disabled="!rows.length || busy" aria-haspopup="menu" :aria-expanded="String(dlOpen)">Download
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
         <div class="dl-back" v-if="dlOpen" @click="dlOpen = false"></div>
         <div class="dl-menu" v-if="dlOpen" role="menu">
-          <button role="menuitem" @click="dlOpen = false; downloadXlsx()">Statements (xlsx)</button>
-          <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent()">Fixed rent summary (xlsx)</button>
-          <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent('pdf')">Fixed rent summary (PDF)</button>
+          <button role="menuitem" @click="dlOpen = false; downloadXlsx()">Statements (.xlsx)</button>
+          <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent()">Fixed rent summary (.xlsx)</button>
+          <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent('pdf')">Fixed rent summary (.pdf)</button>
         </div>
       </div>
     </div>
@@ -48,15 +45,16 @@
       </div>
     </div>
 
-    <section class="card" v-show="rows.length">
+    <section class="card" v-show="rows.length || (!loading && propertyId)">
       <div class="card-head"><h2>{{ `Statements · ${monthName(month)} · ${rows.length} units` }}</h2>
         <span class="help head-note">{{ completed ? `${monthName(month)} is completed. Statements are read-only.` : (checklist.length ? `${checklist.length} item${checklist.length === 1 ? '' : 's'} to fix before those units can be completed. Draft statements recalculate by themselves.` : 'All clear. Open each unit\'s statement to review it, then Approve & complete it.') }}</span></div>
     <Paged :items="shown()" v-slot="{ pageRows }">
-    <div class="table-wrap">
+    <div class="table-wrap stmt-wrap">
       <table class="table">
         <thead><tr><th>Unit</th><th>Arrangement</th><th class="num">Bookings</th><th class="num">Income</th>
           <th class="num">Fees & expenses</th><th class="num">Payout</th><th>Status</th><th></th></tr></thead>
         <tbody>
+          <tr v-if="!rows.length" class="no-rows"><td colspan="8">No bookings or fixed-rent units for this month. Upload the eZee report for it first.</td></tr>
           <template v-for="r in pageRows" :key="r.unitId">
             <tr class="clickable" @click="open(r)">
               <td><b>{{ r.unitCode }}</b></td>
@@ -75,7 +73,6 @@
     </div>
     </Paged>
     </section>
-    <div class="empty card" style="margin-top:16px" v-show="!loading && propertyId && !rows.length">No bookings or fixed-rent units for this month. Upload the eZee report for it first.</div>
     <div class="grid-2 fill" style="margin-top:24px" v-show="!loading && propertyId">
       <section class="card" ref="checks">
         <div class="card-head"><h2>Before you can complete</h2>
@@ -458,12 +455,12 @@ export default {
     yearMonths() { const y = this.month.slice(0, 4); return SHORT.map((_, i) => `${y}-${String(i + 1).padStart(2, '0')}`); },
     // Finance's FIXED RENT sheet for the property: every fixed-rent unit, its deductions, reimbursements and remark.
     // kind: 'xlsx' or 'pdf' (lib/statement-pdf.js: Finance's PDF of the same sheet)
-    async downloadFixedRent(kind = 'xlsx') {
+    async downloadFixedRent(kind = 'xlsx', onlyUnitId = null) {
       this.busy = true;
       try {
         const pdf = kind === 'pdf';
         const [X, tpl, rows] = await Promise.all([pdf ? loadPdfKit() : loadXlsxLib(), pdf ? null : loadStatementTemplate(FIXED_RENT_TEMPLATE_URL), this.fullRows()]);
-        const units = rows.filter(r => r.fixed).map(r => ({
+        const units = rows.filter(r => r.fixed && (!onlyUnitId || r.unitId === onlyUnitId)).map(r => ({
           unitCode: r.unitCode, rent: r.totals.totalReceivable,
           deductions: r.expenseLines.filter(e => e.amount < 0).map(e => -e.amount),
           reimburse: r.expenseLines.filter(e => e.amount > 0).map(e => e.amount),
@@ -472,7 +469,7 @@ export default {
         const f = { propertyName: this.property().name || this.propertyName(), month: this.month, units };
         const bytes = pdf ? await buildFixedRentPdf(X.lib, X.fontkit, X.fonts, f) : buildFixedRentXlsx(X, tpl, f);
         const [y, m] = this.month.split('-');
-        download(`${this.property().code || this.propertyId} ${SHORT[+m - 1]}${y.slice(2)} Fixed Rent Summary${this.completed ? '' : ' (draft)'}.${kind}`,
+        download(`${this.property().code || this.propertyId} ${onlyUnitId ? (units[0]?.unitCode || 'unit') + ' ' : ''}${SHORT[+m - 1]}${y.slice(2)} Fixed Rent Summary${this.completed ? '' : ' (draft)'}.${kind}`,
           new Blob([bytes], { type: pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       } catch (e) { this.error = e.code ? friendlyError(e, 'make the fixed rent summary') : e.message; }
       this.busy = false;
@@ -480,7 +477,7 @@ export default {
     // The unit's statement as Finance's xlsx (lib/statement-xlsx.js: their "D 0719" sheet, only names and numbers change).
     async downloadStatement(kind = 'xlsx') {
       const s = this.sel;
-      if (s.fixed) { await this.downloadFixedRent(kind); return; }   // Finance's fixed-rent statement is one sheet for the property
+      if (s.fixed) { await this.downloadFixedRent(kind, s.unitId); return; }   // the fixed-rent sheet, for this unit only (the Download menu gives the whole property)
       this.busy = true;
       try {
         const pdf = kind === 'pdf';
@@ -801,7 +798,7 @@ export default {
     .dl-wrap { position: relative; }
     .dl-wrap > .btn { display: inline-flex; align-items: center; gap: 6px; }
     .dl-back { position: fixed; inset: 0; z-index: 20; }
-    .dl-menu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 0; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
+    .dl-menu { position: absolute; right: 0; left: auto; width: max-content; min-width: 100%; top: calc(100% + 6px); z-index: 21; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
     .dl-menu button { text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; }
     .dl-menu button:hover { background: var(--accent-soft); color: var(--accent); }
     .head-note { margin-left: auto; text-align: right; font-size: 12px; }
@@ -824,4 +821,8 @@ export default {
     .table tr.est td { background: color-mix(in srgb, var(--amber-soft) 60%, var(--surface)); }
     .stmt-label { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 14px 0 4px; }
     @media (max-width: 1000px) { .stmt-grid { grid-template-columns: minmax(0,1fr); } }
+    .month-empty { margin-top: 16px; height: 56px; padding: 0 20px; display: flex; align-items: center; text-align: left; box-sizing: border-box; }
+    /* the table keeps the height of a full page (10 rows, header and total) so it does not shrink on a quiet month */
+    .stmt-wrap { min-height: 462px; }
+    .no-rows td { text-align: left; color: var(--muted); padding: 20px 16px; }
 </style>

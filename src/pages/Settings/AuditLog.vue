@@ -21,7 +21,7 @@
 
     <section class="card">
       <div class="card-head"><h2>{{ `Changes · newest first` }}</h2><span class="help">{{ `${shown().length} of ${entries.length} loaded` }}</span></div>
-      <Paged :items="shown()" v-slot="{ pageRows }">
+      <Paged :items="shown()" keep-page @page="onPage" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table hover-rows">
           <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Record</th><th>Changes</th><th>Reason</th></tr></thead>
@@ -51,7 +51,8 @@
       </Paged>
       <div class="card-foot">
         <span>Entries can't be edited or deleted. Personal details (IC, bank, phone, email, address) are never shown here, only that they changed.</span>
-        <button class="btn" v-show="more" @click="loadMore()" :disabled="loading">Load more</button>
+        <span class="muted" v-show="loading && entries.length">Loading more…</span>
+        <button class="btn" v-show="more && shown().length <= 10" @click="loadMore()" :disabled="loading">Load more</button>
       </div>
     </section>
   </main>
@@ -96,6 +97,8 @@ export default {
   },
   async mounted() { await this.loadMore(); },
   methods: {
+    // Reaching the last loaded page fetches the next batch by itself
+    onPage({ page, last }) { if (page >= last && this.more && !this.loading) this.loadMore(); },
     async loadMore() {
       this.loading = true; this.error = '';
       try {

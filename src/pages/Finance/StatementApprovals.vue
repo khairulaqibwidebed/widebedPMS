@@ -9,7 +9,7 @@
       </div>
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="refilter()" />
-        <MonthPicker v-if="tab === 'history'" :ahead="1" v-model="month" @change="loadHistory()" />
+        <MonthPicker :ahead="1" :model-value="tab === 'waiting' ? waitMonth : month" :all-label="tab === 'waiting' ? 'All months' : ''" @update:model-value="pickMonth" />
       </div>
     </div>
 
@@ -19,7 +19,7 @@
     <section class="kpis sa-kpis">
       <button type="button" class="card kpi kpi-link" :class="{ on: tab === 'waiting' }" @click="tab = 'waiting'"><div class="label">Waiting for you</div><div class="value" :class="{ alert: waiting.length }">{{ waiting.length }}</div><div class="hint">Sent by Finance</div></button>
       <div class="card kpi"><div class="label">Sent back</div><div class="value">{{ returnedCount == null ? '…' : returnedCount }}</div><div class="hint">With Finance to fix</div></div>
-      <button type="button" class="card kpi kpi-link" :class="{ on: tab === 'history' }" @click="openHistory()"><div class="label">History</div><div class="value">{{ historyLoaded ? history.filter(h => h.status === 'approved').length : '—' }}</div><div class="hint">{{ historyLoaded ? `approved in ${monthName(month)}` : 'Open to see approved and sent back' }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: tab === 'history' }" @click="openHistory()"><div class="label">History</div><div class="value">{{ historyLoaded ? history.filter(h => h.status === 'approved').length + (historyMore ? '+' : '') : '—' }}</div><div class="hint">{{ historyLoaded ? `approved in ${monthName(month)}` : 'Open to see approved and sent back' }}</div></button>
     </section>
 
     <!-- Waiting, grouped by property and month -->
@@ -56,11 +56,12 @@
     <!-- History for the picked month -->
     <template v-else>
       <section class="card">
+        <Paged :items="shownHistory" keep-page @page="onHistPage" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
             <thead><tr><th>Unit</th><th>Property</th><th class="num">Payout</th><th>Result</th><th>When</th></tr></thead>
             <tbody>
-              <template v-for="a in shownHistory" :key="a.id">
+              <template v-for="a in pageRows" :key="a.id">
                 <tr>
                   <td><b>{{ a.unitCode }}</b></td>
                   <td>{{ propertyName(a.propertyId) }}</td>
@@ -73,6 +74,9 @@
             </tbody>
           </table>
         </div>
+        </Paged>
+        <div class="card-foot" v-if="historyBusy && historyLoaded"><span class="help">Loading more…</span></div>
+        <div class="card-foot" v-else-if="historyMore && shownHistory.length <= 10"><button class="btn" @click="loadHistory(true)">Load more</button></div>
       </section>
     </template>
 
@@ -122,7 +126,7 @@
 </template>
 
 <script>
-import { collection, doc, getCountFromServer, getDoc, getDocs, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getCountFromServer, getDoc, getDocs, query, where, limit, orderBy, startAfter, documentId, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { loadProperties, audit, friendlyError } from '@/lib/finance-data.js';
 import { completeStatement } from '@/lib/statement-approve.js';
@@ -133,19 +137,21 @@ import { notifyRole } from '@/services/notificationService.js';
 import { amt, pct, dmy, stamp, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { askConfirm } from '@/lib/confirm.js';
+import Paged from '@/components/Paged.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 
 const me = useSession();
 const msOf = t => (t?.toMillis ? t.toMillis() : 0);
 
+const HISTORY_PAGE = 30;   // the history is an audit log: 30 entries per read, only when the History tab is opened, more on request
 export default {
-  components: { MonthPicker, OptionPicker },
+  components: { MonthPicker, OptionPicker, Paged },
   data() {
     return {
       amt, pct, dmy, stamp, monthName,
-      tab: 'waiting', properties: [], propertyId: 'all', month: monthOffset(0),
-      waiting: [], returnedCount: null, history: [], historyLoaded: false,
+      tab: 'waiting', properties: [], propertyId: 'all', month: monthOffset(-1), waitMonth: '',
+      HISTORY_PAGE, historyMore: false, historyLast: null, historyBusy: false, waiting: [], returnedCount: null, history: [], historyLoaded: false,
       loading: true, busy: false, error: '', okMsg: '',
       sel: null, drawerError: '', returning: false, returnReason: '', overrideReason: ''
     };
@@ -162,6 +168,7 @@ export default {
       const m = new Map();
       for (const a of this.waiting) {
         if (this.propertyId !== 'all' && a.propertyId !== this.propertyId) continue;
+        if (this.waitMonth && a.month !== this.waitMonth) continue;
         const key = `${a.propertyId}|${a.month}`;
         if (!m.has(key)) m.set(key, { key, propertyId: a.propertyId, propertyName: this.propertyName(a.propertyId), month: a.month, items: [] });
         m.get(key).items.push(a);
@@ -173,6 +180,8 @@ export default {
   async created() { await this.load(); },
   methods: {
     propertyName(id) { return this.properties.find(p => p.id === id)?.name || id; },
+    // On Waiting the month is an optional filter (all months until one is picked); on History it picks the month to read
+    pickMonth(m) { if (this.tab === 'waiting') this.waitMonth = m; else { this.month = m; this.loadHistory(); } },
     refilter() { /* the lists are filtered by propertyId in the computed values */ },
     async load() {
       this.loading = true; this.error = '';
@@ -187,13 +196,21 @@ export default {
       } catch (e) { this.error = friendlyError(e, 'load the approvals'); }
       this.loading = false;
     },
+    // Reaching the last loaded page fetches the next 30 (nothing is read ahead of time)
+    onHistPage({ page, last }) { if (page >= last && this.historyMore && !this.historyBusy) this.loadHistory(true); },
     async openHistory() { this.tab = 'history'; if (!this.historyLoaded) await this.loadHistory(); },
-    async loadHistory() {
-      this.historyLoaded = false;
+    async loadHistory(more = false) {
+      if (!more) { this.historyLoaded = false; this.history = []; this.historyLast = null; this.historyMore = false; }
+      this.historyBusy = true;
       try {
-        const snap = await getDocs(query(collection(db, 'approvals'), where('month', '==', this.month)));
-        this.history = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => a.status === 'approved' || a.status === 'returned');
+        const q = query(collection(db, 'approvals'), where('month', '==', this.month), where('status', 'in', ['approved', 'returned']),
+          orderBy(documentId()), ...(more && this.historyLast ? [startAfter(this.historyLast)] : []), limit(HISTORY_PAGE));
+        const snap = await getDocs(q);
+        this.history = [...this.history, ...snap.docs.map(d => ({ id: d.id, ...d.data() }))];
+        this.historyLast = snap.docs[snap.docs.length - 1] || this.historyLast;
+        this.historyMore = snap.docs.length === HISTORY_PAGE;
       } catch (e) { this.error = friendlyError(e, 'load the history'); }
+      this.historyBusy = false;
       this.historyLoaded = true;
     },
     view(a) { this.sel = a; this.drawerError = ''; this.returning = false; this.returnReason = ''; this.overrideReason = ''; },

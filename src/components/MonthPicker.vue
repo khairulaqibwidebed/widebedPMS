@@ -15,7 +15,8 @@
             :disabled="key(i) > maxMonth" @click="pick(i)">{{ name }}</button>
         </template>
       </div>
-      <div class="mp-quick">
+      <div class="mp-quick" :class="{ both: allLabel }">
+        <button type="button" class="link" v-if="allLabel" @click="set('')">{{ allLabel }}</button>
         <button type="button" class="link" @click="set(thisMonth)">This month</button>
       </div>
     </div>
@@ -29,11 +30,11 @@ import { monthName, monthOffset } from '@/lib/format.js';
 //   <MonthPicker v-model="month" @change="load()" />
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export default {
-  props: { modelValue: { type: String, required: true }, minYear: { type: Number, default: 2024 }, disabled: { type: Boolean, default: false }, ahead: { type: Number, default: 0 } },
+  props: { modelValue: { type: String, required: true }, minYear: { type: Number, default: 2024 }, disabled: { type: Boolean, default: false }, ahead: { type: Number, default: 0 }, allLabel: { type: String, default: '' } },
   emits: ['update:modelValue', 'change'],
-  data() { return { open: false, year: +this.modelValue.slice(0, 4), MON, thisMonth: monthOffset(0) }; },
+  data() { return { open: false, year: +(this.modelValue || monthOffset(0)).slice(0, 4), MON, thisMonth: monthOffset(0) }; },
   computed: {
-    label() { return monthName(this.modelValue); },
+    label() { return this.modelValue ? monthName(this.modelValue) : (this.allLabel || monthName(monthOffset(0))); },
     maxMonth() { return monthOffset(this.ahead); },
     maxYear() { return +this.maxMonth.slice(0, 4); }
   },
@@ -41,7 +42,7 @@ export default {
   beforeUnmount() { document.removeEventListener('mousedown', this.away); },
   methods: {
     key(i) { return `${this.year}-${String(i + 1).padStart(2, '0')}`; },
-    toggle() { this.open = !this.open; if (this.open) this.year = +this.modelValue.slice(0, 4); },
+    toggle() { this.open = !this.open; if (this.open) this.year = +(this.modelValue || monthOffset(0)).slice(0, 4); },
     away(e) { if (this.open && !this.$refs.root.contains(e.target)) this.open = false; },
     pick(i) { this.set(this.key(i)); },
     set(m) {
@@ -71,4 +72,5 @@ export default {
 .mp-m:disabled { opacity: .3; cursor: default; }
 .mp-quick { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .mp-quick .link { background: none; border: 0; cursor: pointer; padding: 0; font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); }
+.mp-quick.both { display: flex; justify-content: space-between; }
 </style>

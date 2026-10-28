@@ -103,13 +103,22 @@
         <p style="margin:0">Figures are not rounded to RM 0.05 like a payout, so a full-month report can differ from the completed statement by a few sen. Gross Rental is the owner's share of each booking after OTA commission and the 8% SST (the same base the fees are worked out on). SST is the SST on Widebed's fee (long-term tenants); to be revisited.</p>
       </div>
     </section>
+    <section class="card" id="daily" style="margin-top:20px">
+      <div class="card-head"><h2>Daily finance export</h2></div>
+      <p class="help" style="margin-top:0">Short-term stays (29 nights or less) that checked out on the date, sorted by property then unit. Tourism tax has its own column.</p>
+      <div class="toolbar">
+        <input class="input" type="date" v-model="exportDate" aria-label="Checkout date">
+        <button class="btn" @click="dailyExport()" :disabled="exporting">Download CSV</button>
+        <span class="note">{{ exportNote }}</span>
+      </div>
+    </section>
   </main>
 </template>
 
 <script>
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
-import { ARRANGEMENTS } from '@/lib/engine.js';
+import { ARRANGEMENTS, bookingPTO, effectiveRates, byUnit } from '@/lib/engine.js';
 import { loadProperties, loadSetup, loadBookings, loadExpenses, friendlyError, download, toCSV, loadXlsxLib } from '@/lib/finance-data.js';
 import { amt, dmy, dayOffset } from '@/lib/format.js';
 import { propertyReport, unitReport, monthsToLoad, monthPieces } from '@/lib/reports.js';
@@ -146,7 +155,7 @@ export default {
       kind: params.get('kind') === 'unit' ? 'unit' : 'property',
       from: params.get('from') || quickRange('lastMonth')[0], to: params.get('to') || quickRange('lastMonth')[1],
       cache: { bookings: {}, expenses: {} },
-      report: null, loading: true, busy: false, error: ''
+      report: null, loading: true, busy: false, error: '', exporting: false, exportDate: dayOffset(-1), exportNote: ''
     };
   },
   computed: {
@@ -163,6 +172,29 @@ export default {
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
   },
   methods: {
+    // Q-16: short-term stays with checkout on the date (yesterday by default, Malaysia time)
+    async dailyExport() {
+      this.exporting = true; this.exportNote = ''; this.error = '';
+      try {
+        const snap = await getDocs(query(collection(db, 'bookings'), where('departure', '==', this.exportDate)));
+        const rows = snap.docs.map(d => d.data()).filter(b => b.status !== 'cancelled' && Number(b.nights) < 30);
+        const propName = id => this.properties.find(p => p.id === id)?.name || id;
+        rows.sort((a, b) => propName(a.propertyId).localeCompare(propName(b.propertyId)) || byUnit(a.unitCode || '', b.unitCode || ''));
+        const setups = {};
+        for (const pid of new Set(rows.map(b => b.propertyId))) setups[pid] = await loadSetup(pid, this.exportDate.slice(0, 7));
+        const aoa = [['Property', 'Unit', 'Reservation No', 'Source', 'Arrival', 'Departure', 'Nights', 'Room charges (excl. SST)', 'SST', 'Cleaning fee',
+          'Tourism tax', 'Total (eZee)', 'Method', 'PTO (before fees)']];
+        for (const b of rows) {
+          const s = setups[b.propertyId], u = s.units.find(x => x.id === b.unitId);
+          const p = bookingPTO(b, effectiveRates(s.rates, u?.terms));
+          aoa.push([propName(b.propertyId), b.unitCode || '', b.reservationNo, b.source, b.arrival, b.departure, b.nights,
+            r2(b.allRoomCharges), r2(b.sst), r2(b.cleaningFee), r2(b.tourismTax), r2(b.totalInclTax), p.method, r2(p.pto)]);
+        }
+        if (!rows.length) this.exportNote = 'No short-term checkouts on that date.';
+        else { download(`Widebed daily export ${this.exportDate}.csv`, toCSV(aoa)); this.exportNote = `${rows.length} stays exported.`; }
+      } catch (e) { this.error = friendlyError(e, 'make the export'); }
+      this.exporting = false;
+    },
     async changeProperty() {
       if (!this.propertyId) { this.loading = false; return; }
       this.loading = true; this.error = ''; this.cache = { bookings: {}, expenses: {} };

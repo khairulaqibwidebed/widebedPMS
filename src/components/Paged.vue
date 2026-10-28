@@ -16,9 +16,11 @@
 <script>
 // Shows a list 10 rows at a time with a pager underneath. Wrap the table:
 //   <Paged :items="shown()" v-slot="{ pageRows }"> ... v-for="x in pageRows" ... </Paged>
-// Goes back to page 1 when the list changes size (a new search or filter).
+// Goes back to page 1 when the list changes size (a new search or filter), unless keep-page is set.
+// Emits 'page' ({ page, last }) when the user changes page, so a list can fetch more as its end is reached.
 export default {
-  props: { items: { type: Array, default: () => [] }, size: { type: Number, default: 10 } },
+  props: { items: { type: Array, default: () => [] }, size: { type: Number, default: 10 }, keepPage: { type: Boolean, default: false } },
+  emits: ['page'],
   data() { return { page: 1 }; },
   computed: {
     list() { return this.items || []; },
@@ -39,7 +41,7 @@ export default {
       return out;
     }
   },
-  watch: { 'list.length'() { this.page = 1; } },
-  methods: { go(p) { this.page = Math.min(Math.max(1, p), this.last); } }
+  watch: { 'list.length'() { if (!this.keepPage) this.page = 1; } },
+  methods: { go(p) { this.page = Math.min(Math.max(1, p), this.last); this.$emit('page', { page: this.page, last: this.last }); } }
 };
 </script>

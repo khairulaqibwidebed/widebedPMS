@@ -20,8 +20,8 @@
   --blue: #2563A8;
   --blue-soft: #E5EFFA;
   --radius: 12px;
-  --navy: #15293D;
-  --navy-soft: #E8EDF3;
+  --navy: var(--accent);
+  --navy-soft: var(--accent-soft);
   --head: #F7F8FA;
   --hover: var(--hover);
   --chip: #EEF0F3;
@@ -360,7 +360,7 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 /* ---------- Appearance: colour theme per account (Settings > Appearance) ---------- */
 :root[data-brand="blue"] { --brand: #4C7FE0; --accent: #2F5FBF; --accent-soft: #E6EEFB; }
 :root[data-mode="dark"] { --bg: #12161C; --surface: #1A2029; --border: #2C3440; --line: #242B35; --text: #E8EAED; --text-2: #B8BEC8;
-  --muted: #8A919C; --head: #202733; --hover: #202733; --chip: #2A3240; --navy: #6E9BCB; --navy-soft: #1F2C3B;
+  --muted: #8A919C; --head: #202733; --hover: #202733; --chip: #2A3240; --navy: var(--accent); --navy-soft: var(--accent-soft);
   --accent-soft: #3A2620; --green-soft: #17311F; --amber-soft: #34290F; --red-soft: #3A2620; --blue-soft: #18283C; color-scheme: dark;
   --green: #5CC48C; --amber: #E2A84A; --red: #F08A70; --blue: #7FAFE6; }
 :root[data-mode="dark"] body, :root[data-mode="dark"] .app { background: var(--bg); }
