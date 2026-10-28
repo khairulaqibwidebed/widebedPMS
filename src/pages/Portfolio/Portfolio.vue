@@ -569,7 +569,7 @@ import { propertyMonth, markFrom, canWriteSummaries } from '@/lib/summary-data.j
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { amt, monthName, monthOffset, stamp, pct, dmy } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
-import { askConfirm } from '@/lib/confirm.js';
+import { askConfirm, showNotice } from '@/lib/confirm.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
 
@@ -942,7 +942,7 @@ export default {
       try {
         const used = await this.hasRefs([['bookings', 'unitId'], ['expenses', 'unitId'], ['statements', 'unitId'], ['payoutHistory', 'unitId'],
           ['offlineBookings', 'unitId'], ['issues', 'unitId']], u.id);
-        if (used) { u.error = `${u.unitCode} already has history (${used}), so it cannot be deleted. Use Deactivate / set it to inactive instead.`; this.busy = false; return; }
+        if (used) { this.busy = false; await showNotice(`${u.unitCode} can't be deleted`, `It already has history (${used}). Set the unit to inactive instead, so the history stays.`); return; }
         if (!await askConfirm({ title: `Delete unit ${u.unitCode}?`, message: 'It will be removed from the system for good, including its terms history. This cannot be undone.', confirmText: 'Delete unit', danger: true })) { this.busy = false; return; }
         const b = writeBatch(db);
         for (const sub of ['terms', 'ownership']) (await getDocs(collection(db, 'units', u.id, sub))).forEach(d => b.delete(d.ref));
@@ -960,7 +960,7 @@ export default {
       this.busy = true;
       try {
         const used = await this.hasRefs([['units', 'ownerId'], ['agreements', 'ownerId'], ['payoutHistory', 'ownerId']], o.id);
-        if (used) { o.error = `${o.fullName || 'This owner'} is still linked (${used}), so they cannot be deleted. Move the units to another owner first, or Deactivate.`; this.busy = false; return; }
+        if (used) { this.busy = false; await showNotice(`${o.fullName || 'This owner'} can't be deleted`, `They are still linked to ${used === 'units' ? 'one or more units' : used}. Move the units to another owner first, or use Deactivate to keep the history.`); return; }
         if (!await askConfirm({ title: `Delete ${o.fullName || 'this owner'}?`, message: 'Their record and personal details will be removed from the system for good. This cannot be undone.', confirmText: 'Delete owner', danger: true })) { this.busy = false; return; }
         const b = writeBatch(db);
         b.delete(doc(db, 'owners', o.id, 'private', 'main'));

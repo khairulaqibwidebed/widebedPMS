@@ -1,12 +1,12 @@
 <template>
   <div class="modal-back cf-back" v-if="s.open" @click.self="answer(false)">
     <div class="modal cf" role="alertdialog" aria-modal="true" :aria-label="s.title" v-esc="() => answer(false)">
-      <div class="cf-icon" :class="{ danger: s.danger }" aria-hidden="true">{{ s.danger ? '🗑' : '?' }}</div>
+      <div class="cf-icon" :class="{ danger: s.danger }" aria-hidden="true">{{ s.alertOnly ? '!' : s.danger ? '🗑' : '?' }}</div>
       <h2>{{ s.title }}</h2>
       <p>{{ s.message }}</p>
       <div class="modal-foot cf-foot">
-        <button class="btn" @click="answer(false)">Cancel</button>
-        <button class="btn cf-yes" :class="s.danger ? 'cf-danger' : 'btn-primary'" ref="yes" @click="answer(true)">{{ s.confirmText }}</button>
+        <button class="btn" v-if="!s.alertOnly" @click="answer(false)">Cancel</button>
+        <button class="btn cf-yes" :class="s.danger && !s.alertOnly ? 'cf-danger' : 'btn-primary'" ref="yes" @click="answer(true)">{{ s.confirmText }}</button>
       </div>
     </div>
   </div>
