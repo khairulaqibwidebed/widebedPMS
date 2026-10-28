@@ -218,7 +218,8 @@ service cloud.firestore {
 
     match /units/{unitId} {
       allow read: if staff() || portfolioViewer();
-      allow write: if finOrDir();
+      allow create, update: if finOrDir();
+      allow delete: if isDirector();   // safe delete: the page only offers it for units with no history
       // Operations: no terms (arrangement, fixed rent, fees).
       allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
           'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
@@ -231,7 +232,8 @@ service cloud.firestore {
       match /terms/{v} {
         allow read: if staff();
         allow create: if finOrDir() && request.resource.data.reason is string;
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isDirector();   // only when a unit is safe-deleted
       }
       match /ownership/{id} {
         allow read: if staff();
@@ -242,7 +244,8 @@ service cloud.firestore {
     // The owner parent holds bankLast4 (not shown to portfolio viewers); Operations create it with none.
     match /owners/{ownerId} {
       allow read: if staff() || portfolioViewer();
-      allow write: if finOrDir();
+      allow create, update: if finOrDir();
+      allow delete: if isDirector();   // safe delete: the page only offers it for owners with no units
       allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.get('bankLast4', null) == null
         && request.resource.data.createdBy == request.auth.uid;

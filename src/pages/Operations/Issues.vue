@@ -151,8 +151,7 @@
           <div class="notice error" v-show="raise.error">{{ raise.error }}</div>
           <div class="field"><label for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
           <div class="field"><label for="rUnit">Unit (optional)</label>
-            <input class="input" id="rUnit" list="unitOpts" v-model="raise.unit" placeholder="Choose a unit · leave blank for office issues">
-            <datalist id="unitOpts"><template v-for="un in units" :key="un.id"><option :value="un.unitCode"></option></template></datalist></div>
+            <ComboInput id="rUnit" v-model="raise.unit" :options="unitOptions()" placeholder="Choose a unit · leave blank for office issues" /></div>
           <div class="field"><label for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
           <div class="field" style="margin-bottom:8px"><label>Tag the roles who should handle it</label>
             <!-- Same chips + drop-down as Edit tags. Your own role is always tagged and has no × -->
@@ -232,6 +231,7 @@
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
 import { db, ROLE_LABEL } from '@/lib/firebase.js';
+import ComboInput from '@/components/ComboInput.vue';
 import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
 import { useSession } from '@/stores/session.js';
@@ -254,6 +254,7 @@ const FILTERS = [{ key: 'all', label: 'All' }, { key: 'active', label: 'Not comp
 // Directors are always notified: they see every ticket.
 const TAG_ROLE = { Director: 'director', IT: 'it', Admin: 'director', HR: 'hr', Finance: 'finance', Operations: 'operations', Procurement: 'procurement', Marketing: 'marketing' };
 const LIST_LIMIT = 500;
+let unitCache = null;
 // Links must point at the company Google Drive (Drive, Docs, Sheets, Slides).
 const DRIVE_HOSTS = ['drive.google.com', 'docs.google.com'];
 
@@ -265,7 +266,7 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], raisedAt: isoOf(d.createdAt), doneAt: isoOf(d.doneAt) });
 
 export default {
-  components: { Avatar },
+  components: { Avatar, ComboInput },
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
@@ -323,6 +324,7 @@ export default {
     // Visibility: tagged to my role, raised by me, or Director (sees all)
     raisedByMe(t) { return t.raisedByUid === me.user.uid; },
     canSee(t) { return isDirector || t.tags.includes(myRole) || this.raisedByMe(t); },
+    unitOptions() { return this.units.map(u => ({ value: u.unitCode, hint: u.propertyName })); },
     visible() { return this.tickets.filter(t => t.status !== 'deleted' && this.canSee(t)); },
     canUpdate() { const t = this.ticket; return t && canWrite && t.status !== 'done' && (isDirector || t.tags.includes(myRole)); },
     canComment() { return canWrite; },
@@ -361,12 +363,15 @@ export default {
     showRole(name, role) { return !!role && name !== role && name !== `${role} user`; },
     async units4raise() {
       if (this.units.length) return;
+      // The unit list is a read per unit; keep it for 10 minutes in this tab so reopening Issues doesn't download it again.
+      if (unitCache && Date.now() - unitCache.at < 600000) { this.units = unitCache.units; return; }
       // Operations, Finance and Directors can read units; other roles type the unit instead.
       try {
         const [ps, us] = await Promise.all([getDocs(collection(db, 'properties')), getDocs(collection(db, 'units'))]);
         const names = Object.fromEntries(ps.docs.map(d => [d.id, d.data().name]));
         this.units = us.docs.map(d => ({ id: d.id, ...d.data(), propertyName: names[d.data().propertyId] || '' }))
           .filter(u => u.active !== false && u.unitCode).sort((a, b) => a.unitCode.localeCompare(b.unitCode));
+        unitCache = { at: Date.now(), units: this.units };
       } catch { this.units = []; }
     },
 

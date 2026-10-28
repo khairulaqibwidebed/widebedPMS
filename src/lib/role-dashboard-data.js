@@ -4,7 +4,7 @@
 // assigned to the person, and so on. A Director using "View as" passes the same checks.
 // Nothing here reads a private/ document except the complaint subject on the HR dashboard (HR and Directors only).
 import { db, ROLE_LABEL } from './firebase.js';
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, getCountFromServer } from 'firebase/firestore';
 import { dayOffset } from './format.js';
 import { STAGES, withIds } from '@/pages/Playbook/onboarding-stages.js';
 
@@ -27,12 +27,16 @@ export async function loadMyTickets(role, uid, { tagOnly = false } = {}) {
 
 // ---- Properties and units (Portfolio view-only roles read the parents, never terms) ----
 export async function loadPortfolioCounts() {
-  const [p, u] = await Promise.all([getDocs(collection(db, 'properties')), getDocs(collection(db, 'units'))]);
-  const units = rows(u).filter(x => x.active !== false);
-  const properties = rows(p).filter(x => x.active !== false)
-    .map(x => ({ id: x.id, name: x.name || x.id, units: units.filter(y => y.propertyId === x.id).length }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  return { properties, unitCount: units.filter(x => properties.some(p => p.id === x.propertyId)).length };
+  // Counted on the server (about 1 read per property) instead of downloading every unit (1 read per unit).
+  const p = await getDocs(collection(db, 'properties'));
+  const units = collection(db, 'units');
+  const count = q => getCountFromServer(q).then(s => s.data().count);
+  const properties = await Promise.all(rows(p).filter(x => x.active !== false).map(async x => {
+    const [all, off] = await Promise.all([count(query(units, where('propertyId', '==', x.id))), count(query(units, where('propertyId', '==', x.id), where('active', '==', false)))]);
+    return { id: x.id, name: x.name || x.id, units: all - off };
+  }));
+  properties.sort((a, b) => a.name.localeCompare(b.name));
+  return { properties, unitCount: properties.reduce((n, x) => n + x.units, 0) };
 }
 
 // Last eZee upload (any kind, as on the Finance dashboard).

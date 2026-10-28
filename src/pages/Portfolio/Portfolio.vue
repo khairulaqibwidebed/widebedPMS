@@ -98,7 +98,7 @@
         <p class="card-intro" v-else-if="viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Finance and Directors. This list shows each owner's units only.</p>
         <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Finance and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.
           Owner details can later come from the Google Sheet staff already keep (cached copy plus Sync now).</p>
-        <div class="toolbar"><input class="input" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"></div>
+        <div class="toolbar tb-split"><input class="input" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"><button class="btn btn-primary" @click="openOwnerForm(null)" v-if="canAdd">+ Add owner</button></div>
         <Paged :items="shownOwners()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
@@ -125,7 +125,7 @@
           </table>
         </div>
         </Paged>
-        <div class="card-foot"><span>{{ `Showing ${shownOwners().length} of ${owners.length} owners` }}</span><button class="btn" @click="openOwnerForm(null)" v-if="canAdd">+ Add owner</button></div>
+        <div class="card-foot"><span>{{ `Showing ${shownOwners().length} of ${owners.length} owners` }}</span></div>
       </section>
     </div>
 
@@ -274,6 +274,7 @@
           </table>
         </div>
         </Paged>
+        <div class="more-row" v-show="auditMore"><button type="button" class="btn" @click="loadAudits(true)">Load 30 more changes</button></div>
       </section>
     </div>
 
@@ -362,6 +363,7 @@
           </table>
         </div>
         </Paged>
+        <div class="more-row" v-show="auditMore"><button type="button" class="btn" @click="loadAudits(true)">Load 30 more changes</button></div>
       </section>
     </div>
 
@@ -376,7 +378,7 @@
             <p class="help from-listing" v-if="u.fromListing">{{ `Filled in from new owner listing ${u.fromListing.listingId}. Check the details, then Save unit.` }}</p>
             <div class="field"><label for="uCode">Unit code</label>
               <input class="input" id="uCode" v-model="u.unitCode" :readonly="!u.isNew" :placeholder="`${property().code || 'DM'} 1615`">
-              <span class="help" v-show="u.isNew">As Finance writes it: property code, space, floor and unit, e.g. DM 0719.</span></div>
+              <span class="help" v-show="u.isNew">{{ property().code ? `Starts with this property's code (${property().code}), then the floor and unit, e.g. ${property().code} 0719. You can change it.` : 'This property has no short code yet. Type the unit code as Finance writes it.' }}</span></div>
             <div class="field"><label for="uAlias">Other eZee names for this unit</label>
               <input class="input" id="uAlias" v-model="u.aliases" placeholder="e.g. DM 1509-2"><span class="help">Comma between names. Bookings under these names count for this unit on the next upload.</span></div>
             <div class="field"><label for="uOwner">Owner</label>
@@ -441,6 +443,7 @@
             </template>
           </form>
           <div class="drawer-foot">
+            <button class="icon-btn trash" style="margin-right:auto" v-if="isDirector && !u.isNew" @click="deleteUnit()" :disabled="busy" title="Delete this unit from the system" aria-label="Delete unit">🗑</button>
             <button class="btn" @click="unitOpen = false">Cancel</button>
             <button class="btn btn-primary" type="submit" form="unitForm" :disabled="busy">{{ busy ? 'Saving…' : 'Save unit' }}</button>
           </div>
@@ -537,14 +540,15 @@
             <div class="field" v-show="!o.isNew"><label for="oWhy">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
             <template v-if="!o.isNew && o.active !== false && !viewOnly">
               <div class="confirm-box" v-show="o.deactivating">
-                <div class="field" style="margin-bottom:10px"><label for="oDeact">Why deactivate this owner?</label><input class="input" id="oDeact" v-model="o.deactivateReason" placeholder="e.g. Sold the unit"></div>
-                <button type="button" class="btn btn-primary" @click="deactivateOwner()" :disabled="busy">Deactivate owner</button> <button type="button" class="btn" @click="o.deactivating = false">Keep active</button>
+                <div class="field" style="margin-bottom:10px"><label for="oDeact">Why deactivate this owner? <span style="color:#d92d20">*required</span></label><input class="input" id="oDeact" v-model="o.deactivateReason" placeholder="e.g. Sold the unit"></div>
+                <button type="button" class="btn btn-primary" @click="deactivateOwner()" :disabled="busy || !o.deactivateReason.trim()">Deactivate owner</button> <button type="button" class="btn" @click="o.deactivating = false">Keep active</button>
               </div>
             </template>
           </form>
           <div class="drawer-foot">
-            <button class="btn" style="margin-right:auto" v-show="!viewOnly && !o.isNew && o.active !== false && !o.deactivating" @click="o.deactivating = true">Deactivate</button>
-            <button class="btn" v-show="!viewOnly && !o.isNew && o.active === false" @click="reactivateOwner()" :disabled="busy">Turn back on</button>
+            <button class="icon-btn trash" style="margin-right:auto" v-if="isDirector && !o.isNew" @click="deleteOwner()" :disabled="busy" title="Delete this owner from the system" aria-label="Delete owner">🗑</button>
+            <button class="btn" v-show="!viewOnly && !o.isNew && o.active !== false && !o.deactivating" @click="startDeactivate()">Deactivate</button>
+            <button class="btn btn-primary" v-show="!viewOnly && !o.isNew && o.active === false" @click="reactivateOwner()" :disabled="busy">Reactivate</button>
             <button class="btn" @click="ownerOpen = false">Cancel</button>
             <button class="btn btn-primary" type="submit" form="ownerForm" :disabled="busy">{{ o.isNew ? 'Add owner' : 'Save owner' }}</button>
           </div>
@@ -556,7 +560,8 @@
 </template>
 
 <script>
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { markRaw } from 'vue';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { ARRANGEMENTS, DEFAULT_OTA, DM_STARTER, unitIdOf } from '@/lib/engine.js';
 import { loadProperties, loadUnits, loadSetup, latestVersion, audit, friendlyError } from '@/lib/finance-data.js';
@@ -564,6 +569,7 @@ import { propertyMonth, markFrom, canWriteSummaries } from '@/lib/summary-data.j
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { amt, monthName, monthOffset, stamp, pct, dmy } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { askConfirm } from '@/lib/confirm.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
 
@@ -573,6 +579,7 @@ let params = new URLSearchParams(location.search);
 const pctIn = v => (v === '' || v == null ? null : Number(v) / 100);
 const pctOut = v => (v == null ? '' : +(v * 100).toFixed(4));
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+const AUDIT_PAGE = 30;
 const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const msOf = t => (t?.toMillis ? t.toMillis() : 0);
 const dateOnly = t => { if (!t) return ''; const d = t.toDate ? t.toDate() : new Date(t); return `${d.getDate()} ${MON3[d.getMonth()]} ${d.getFullYear()}`; };
@@ -604,6 +611,7 @@ export default {
       ARRANGEMENTS, STATES, UNIT_TYPES, amt, monthName, stamp, pct, dmy,
       canLogInquiry: me.role === 'director',   // logging inquiries is Directors only for now
       viewOnly: VIEWERS.includes(me.role),
+      isDirector: me.role === 'director',
       canOpenInquiry: ['director', 'finance', 'operations'].includes(me.role),   // who may open Offline inquiries
       canAdd: ADDERS.includes(me.role),    // + Add property / unit / owner
       // Marketing also open and edit properties, units and owners (Khairul 27 Oct): details and contact only, no money,
@@ -616,7 +624,7 @@ export default {
       ptab: params.get('ptab') || 'units',
       properties: [], propertyId: params.get('property') || lastProperty(true) || 'all', asOf: params.get('month') || monthOffset(0),
       months: Array.from({ length: 25 }, (_, i) => monthOffset(1 - i)),
-      allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [],
+      allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [], auditLast: null, auditMore: false,
       offlineBookings: [], bookingsLoading: false,
       search: '', filter: 'all', propSearch: '', ownerSearch: '', showInactive: false, bookingSearch: '', bookingKind: 'all', propAttn: false,
       filters: [{ key: 'all', label: 'All' }, { key: 'none', label: 'Not set up' }, { key: 'share', label: 'Profit share' }, { key: 'fixed', label: 'Fixed rent' }, { key: 'long', label: 'Long-term' }],
@@ -663,7 +671,8 @@ export default {
       if (url !== location.pathname + location.search) history.replaceState(history.state, '', url);
     },
     // Another section, or the list / a property page: the router remounts the page and it loads again.
-    toList(tab) { this.okMsg = ''; this.$router.push(tab === this.$route.meta.section ? this.urlFor(tab, 'all') : `/Portfolio/${tab}`); },
+    // Going back to the list means All properties: forget the remembered single property first, or the page reopens on it.
+    toList(tab) { this.okMsg = ''; rememberProperty('all'); this.$router.push(tab === this.$route.meta.section ? this.urlFor(tab, 'all') : `/Portfolio/${tab}`); },
     openPropertyPage(id) { this.okMsg = ''; this.$router.push(this.$route.meta.section === 'properties' ? this.urlFor('properties', id, 'units') : `/Portfolio/properties?property=${id}`); },
     // Property or month picked in the header: new address (replaces it, as before). The router remounts the page,
     // so what the old page kept in memory (searches and filters) is carried over to the new one.
@@ -766,9 +775,24 @@ export default {
       } catch (e) { this.error = friendlyError(e, 'load the portfolio'); }
       this.loading = false;
     },
-    async loadAudits() {
-      const snap = await getDocs(query(collection(db, 'auditLog'), where('propertyId', '==', this.propertyId)));
-      this.audits = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => msOf(b.at) - msOf(a.at));
+    // The property's change history, 30 at a time, newest first (index: auditLog propertyId + at).
+    // If that index isn't deployed yet, fall back to a capped read so the page still works.
+    async loadAudits(more = false) {
+      const col = collection(db, 'auditLog');
+      const base = [where('propertyId', '==', this.propertyId)];
+      try {
+        const snap = await getDocs(query(col, ...base, orderBy('at', 'desc'), ...(more && this.auditLast ? [startAfter(this.auditLast)] : []), limit(AUDIT_PAGE)));
+        const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        this.audits = more ? [...this.audits, ...rows] : rows;
+        this.auditLast = snap.docs.length ? markRaw(snap.docs[snap.docs.length - 1]) : this.auditLast;
+        this.auditMore = snap.docs.length === AUDIT_PAGE;
+      } catch (e) {
+        if (e.code !== 'failed-precondition') throw e;
+        console.warn('auditLog index (propertyId, at) is missing; showing the latest 100 only. Create it here:', (e.message.match(/https:\/\/\S+/) || [''])[0]);
+        const snap = await getDocs(query(col, ...base, limit(100)));
+        this.audits = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => msOf(b.at) - msOf(a.at));
+        this.auditMore = false;
+      }
     },
 
     // ---- helpers ----
@@ -903,6 +927,55 @@ export default {
       } catch (e) { o.error = friendlyError(e, 'save the owner'); }
       this.busy = false;
     },
+    // Safe delete (Directors only): works only when nothing refers to the record. Otherwise deactivate keeps the history.
+    async hasRefs(list, id) {
+      for (const [coll, field] of list) {
+        const snap = await getDocs(query(collection(db, coll), where(field, '==', id), limit(1)));
+        if (!snap.empty) return coll;
+      }
+      return '';
+    },
+    async deleteUnit() {
+      const u = this.u; u.error = '';
+      if (this.busy) return;
+      this.busy = true;
+      try {
+        const used = await this.hasRefs([['bookings', 'unitId'], ['expenses', 'unitId'], ['statements', 'unitId'], ['payoutHistory', 'unitId'],
+          ['offlineBookings', 'unitId'], ['issues', 'unitId']], u.id);
+        if (used) { u.error = `${u.unitCode} already has history (${used}), so it cannot be deleted. Use Deactivate / set it to inactive instead.`; this.busy = false; return; }
+        if (!await askConfirm({ title: `Delete unit ${u.unitCode}?`, message: 'It will be removed from the system for good, including its terms history. This cannot be undone.', confirmText: 'Delete unit', danger: true })) { this.busy = false; return; }
+        const b = writeBatch(db);
+        for (const sub of ['terms', 'ownership']) (await getDocs(collection(db, 'units', u.id, sub))).forEach(d => b.delete(d.ref));
+        b.delete(doc(db, 'units', u.id));
+        audit(b, me, { action: 'unit.delete', entity: `units/${u.id}`, propertyId: this.propertyId, changes: [{ field: 'unit', old: u.unitCode, new: null }], reason: 'Deleted, no history' });
+        await b.commit();
+        this.unitOpen = false; this.okMsg = `${u.unitCode} deleted.`;
+        await this.go();
+      } catch (e) { u.error = friendlyError(e, 'delete the unit'); }
+      this.busy = false;
+    },
+    async deleteOwner() {
+      const o = this.o; o.error = '';
+      if (this.busy) return;
+      this.busy = true;
+      try {
+        const used = await this.hasRefs([['units', 'ownerId'], ['agreements', 'ownerId'], ['payoutHistory', 'ownerId']], o.id);
+        if (used) { o.error = `${o.fullName || 'This owner'} is still linked (${used}), so they cannot be deleted. Move the units to another owner first, or Deactivate.`; this.busy = false; return; }
+        if (!await askConfirm({ title: `Delete ${o.fullName || 'this owner'}?`, message: 'Their record and personal details will be removed from the system for good. This cannot be undone.', confirmText: 'Delete owner', danger: true })) { this.busy = false; return; }
+        const b = writeBatch(db);
+        b.delete(doc(db, 'owners', o.id, 'private', 'main'));
+        b.delete(doc(db, 'owners', o.id));
+        audit(b, me, { action: 'owner.delete', entity: `owners/${o.id}`, propertyId: this.propertyId === 'all' ? null : this.propertyId, changes: [{ field: 'owner', old: o.fullName || o.code || o.id, new: null }], reason: 'Deleted, no units linked' });
+        await b.commit();
+        this.ownerOpen = false; this.okMsg = `${o.fullName || 'Owner'} deleted.`;
+        await this.go();
+      } catch (e) { o.error = friendlyError(e, 'delete the owner'); }
+      this.busy = false;
+    },
+    startDeactivate() {
+      this.o.deactivating = true;
+      this.$nextTick(() => { const el = document.getElementById('oDeact'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); } });
+    },
     async deactivateOwner() {
       const o = this.o; o.error = '';
       if (!o.deactivateReason.trim()) return o.error = 'Say why the owner is being deactivated.';
@@ -919,7 +992,7 @@ export default {
     },
     async reactivateOwner() {
       const o = this.o; o.error = '';
-      if (!o.reason.trim()) return o.error = 'Add a reason (audit log) before turning the owner back on.';
+      if (!o.reason.trim()) o.reason = 'Reactivated';
       this.busy = true;
       try {
         const b = writeBatch(db);
@@ -951,7 +1024,7 @@ export default {
       const u = this.u; u.error = '';
       const code = u.unitCode.trim().replace(/\s+/g, ' ');
       // Any code with a number in it: "DM 0719", "CS B-07-13", or no prefix like "C-01-06" (183 Ampang, Langkawi, NOVO)
-      if (!/\d/.test(code)) return u.error = 'Type the unit code like DM 0719 or C-01-06.';
+      if (!/\d/.test(code)) return u.error = `Type the unit code with its number${this.property().code ? `, like ${this.property().code} 0719` : ''}.`;
       const id = u.id || unitIdOf(this.propertyId, code);
       if (u.isNew && this.units.some(x => x.id === id)) return u.error = 'That unit already exists.';
       if (u.arrangement === 'fixedRent' && !(Number(u.fixedRentAmount) > 0)) return u.error = 'Enter the fixed rent amount.';

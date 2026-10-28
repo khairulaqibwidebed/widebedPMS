@@ -485,3 +485,8 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 .rows.hold-5-wait { min-height: 340px; align-content: start; }
 .rows.hold-5-team { min-height: 250px; align-content: start; }
 .rows.hold-4-tickets { min-height: 296px; align-content: start; }
+.more-row { display: flex; justify-content: center; margin-top: 12px; }
+.toolbar.tb-split { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.icon-btn.trash { width: 44px; height: 44px; font-size: 22px; line-height: 1; border-radius: 8px; background: #d92d20; color: #fff; }
+.icon-btn.trash:hover { background: #b42318; }
+.icon-btn.trash:disabled { opacity: .5; }
