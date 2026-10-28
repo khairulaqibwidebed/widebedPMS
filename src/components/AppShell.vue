@@ -200,7 +200,7 @@ export default {
 
 <style>
 /* .app { --sidebar-w: 240px; --nav-ease: cubic-bezier(.4, 0, .2, 1); } */
-.app {display: flex;min-height: 100vh;min-height: 100dvh;width: 100%;overflow-x: hidden;--sidebar-w: 240px;--topbar-h: 60px;--nav-ease: cubic-bezier(.4, 0, .2, 1);}
+.app {display: flex;min-height: 100vh;min-height: 100dvh;width: 100%;overflow-x: hidden;--sidebar-w: 268px;--topbar-h: 60px;--nav-ease: cubic-bezier(.4, 0, .2, 1);}
 /* Main content area sits next to the sidebar and scrolls independently */
 .main {flex: 1;display: flex;flex-direction: column;min-width: 0; /* Prevents flex children from pushing wider than screen */height: 100vh;height: 100dvh;overflow-y: auto;}
 /* Fixed/sticky topbar height */

@@ -501,3 +501,5 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 /* Pickers and drop-downs highlight in the theme colour on hover */
 .op-btn:focus-visible:not(:disabled), .op-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .select:hover:not(:disabled) { border-color: var(--accent); }   /* native list can't be themed, so only the border changes */
+
+.nofee-cap { display: inline-block; margin-left: 8px; padding: 0 7px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); font-size: 11px; font-weight: 600; line-height: 16px; vertical-align: 1px; }

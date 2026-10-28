@@ -118,7 +118,7 @@
                 <div class="rows hold-5-wait">
                   <Capped :items="directorItems()" :size="5" :fixed="true" v-slot="{ capRows }">
                   <template v-for="(a, i) in capRows" :key="i">
-                    <div class="row"><span>{{ a.text }}</span><RouterLink class="btn" to="/Portfolio/properties">Set up</RouterLink></div>
+                    <div class="row"><span>{{ noFee(a.text) || a.text }}<span class="nofee-cap" v-if="noFee(a.text)">No Fee</span></span><RouterLink class="btn" to="/Portfolio/properties">Set up</RouterLink></div>
                   </template>
                   </Capped>
                   <div class="empty" v-show="!directorItems().length">Nothing is waiting on you.</div>
@@ -239,6 +239,7 @@ export default {
     propertyOptions() { return [{ value: 'all', label: 'All properties' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))]; }
   },
   methods: {
+    noFee(t) { const x = ' · no fee % set up'; return typeof t === 'string' && t.endsWith(x) ? t.slice(0, -x.length) : ''; },
     jump(name) { this.$refs[name]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
     // Director and Finance switch in place; another role's dashboard is a different page (?as=role).
     async load() {
