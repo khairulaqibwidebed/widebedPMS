@@ -434,3 +434,49 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 .soft-page .card .card-head h2, .soft-page .card > h2, .soft-page .card.brief h2 { display: flex; align-items: center; gap: 8px; }
 .soft-page .card .card-head h2::before, .soft-page .card > h2::before, .soft-page .card.brief h2::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
 .soft-page .table-wrap, .soft-page .input, .soft-page .select, .soft-page textarea { background: var(--surface); }
+
+/* Director dashboard: Open tickets panel */
+.tk-summary { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--text-2); margin: 2px 0 14px; }
+.tk-summary b { color: var(--text); font-size: 15px; }
+.tk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.tk-dot.amber { background: var(--amber); }
+.tk-dot.blue { background: var(--blue); }
+.tk-sub { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 6px 0 6px; }
+.tk-roles { display: grid; gap: 2px; margin-bottom: 14px; }
+.tk-role { display: grid; grid-template-columns: 96px 1fr 28px; align-items: center; gap: 10px; padding: 6px 8px; margin: 0 -8px;
+  border-radius: 8px; color: var(--text); font-size: 13px; }
+.tk-role:hover, .tk-role:focus-visible { background: var(--accent-soft); }
+.tk-role:hover .tk-name { color: var(--accent); }
+.tk-bar { height: 8px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+.tk-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.tk-n { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tk-ticket { color: var(--text); margin: 0 -8px; padding: 10px 8px; border-radius: 8px; }
+.tk-ticket:hover, .tk-ticket:focus-visible { background: var(--accent-soft); }
+.tk-ticket:hover .tk-title { color: var(--accent); }
+.tk-main { display: grid; gap: 2px; min-width: 0; }
+.tk-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-all { display: inline-block; margin-top: 10px; }
+
+/* Director dashboard: the two columns end level, and Quick actions spans the bottom row */
+.grid-2.fill { align-items: stretch; }
+.grid-2.fill .stack { display: flex; flex-direction: column; }
+.grid-2.fill .stack > .card:last-child { flex: 1; }
+.qa-wide { margin-top: 24px; }
+.dq-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
+.dq-tile { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius, 10px);
+  background: var(--surface); color: var(--text); transition: border-color .15s, background .15s; }
+.dq-tile:hover, .dq-tile:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
+.dq-ic { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.dq-tile.dq-main .dq-ic { background: var(--accent); color: #fff; }
+.dq-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dq-txt b { font-size: 13px; font-weight: 600; }
+.dq-txt small { font-size: 12px; color: var(--text-2); }
+.dq-tile:hover .dq-txt b, .dq-tile:hover .dq-go { color: var(--accent); }
+.dq-go { flex: none; font-size: 20px; color: var(--muted); }
+.dq-grid.col { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.dq-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .dq-grid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .dq-grid.four { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 800px) { .dq-grid { grid-template-columns: minmax(0, 1fr); } }
+.cap-fixed { cursor: default; color: var(--muted); font-weight: 500; }
+.cap-fixed:hover { text-decoration: none; }

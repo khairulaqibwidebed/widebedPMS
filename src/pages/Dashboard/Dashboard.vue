@@ -59,7 +59,7 @@
 
         <!-- FINANCE -->
         <template v-if="view === 'finance'">
-          <div class="grid-2">
+          <div class="grid-2 fill">
             <div class="stack">
               <section class="card">
                 <div class="card-head"><h2>Month-end progress</h2><RouterLink :to="`/Finance/month-end?property=${propertyId === 'all' ? '' : propertyId}&month=${month}`" class="link">Open Month-end payout ›</RouterLink></div>
@@ -73,30 +73,36 @@
                 <div class="note">{{ data.progressNote }}</div>
               </section>
               <section class="card">
-                <div class="card-head"><h2>Statements by status</h2><RouterLink :to="`/Finance/month-end?property=${propertyId === 'all' ? '' : propertyId}&month=${month}`" class="link">View all ›</RouterLink></div>
-                <div class="rows">
-                  <div class="row"><span>Fixed rent</span><span class="pill blue">{{ data.byStatus.fixedRent }}</span></div>
-                  <div class="row"><span>Draft</span><span class="pill grey">{{ data.byStatus.draft }}</span></div>
-                  <div class="row"><span>Negative</span><span class="pill red">{{ data.byStatus.negative }}</span></div>
-                  <div class="row"><span>Estimated</span><span class="pill amber">{{ data.byStatus.estimated }}</span></div>
-                  <div class="row"><span>Completed</span><span class="pill green">{{ data.byStatus.completed }}</span></div>
-                </div>
-              </section>
-              <section class="card">
-                <div class="card-head"><h2>Quick actions</h2></div>
-                <div class="actions">
-                  <RouterLink class="btn btn-primary" to="/Finance/upload">Upload eZee report</RouterLink>
-                  <RouterLink class="btn" :to="`/Finance/expenses?month=${month}&add=1`">Add expense</RouterLink>
-                  <RouterLink class="btn" :to="`/Finance/month-end?month=${month}`">Open Month-end payout</RouterLink>
-                  <RouterLink class="btn" to="/Finance/upload#daily">Download daily export</RouterLink>
-                </div>
-              </section>
+              <div class="card-head"><h2>Quick actions</h2></div>
+              <div class="dq-grid col">
+                <RouterLink class="dq-tile dq-main" :to="'/Finance/upload'">
+                  <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg></span>
+                  <span class="dq-txt"><b>Upload eZee report</b><small>Start the month with the latest bookings</small></span>
+                  <span class="dq-go">&rsaquo;</span>
+                </RouterLink>
+                <RouterLink class="dq-tile" :to="`/Finance/expenses?month=${month}&add=1`">
+                  <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg></span>
+                  <span class="dq-txt"><b>Add expense</b><small>Repairs, bills and reimbursements</small></span>
+                  <span class="dq-go">&rsaquo;</span>
+                </RouterLink>
+                <RouterLink class="dq-tile" :to="`/Finance/month-end?month=${month}`">
+                  <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg></span>
+                  <span class="dq-txt"><b>Open Month-end payout</b><small>Check, edit and complete statements</small></span>
+                  <span class="dq-go">&rsaquo;</span>
+                </RouterLink>
+                <RouterLink class="dq-tile" :to="'/Finance/upload#daily'">
+                  <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg></span>
+                  <span class="dq-txt"><b>Download daily export</b><small>Yesterday's check-outs as CSV</small></span>
+                  <span class="dq-go">&rsaquo;</span>
+                </RouterLink>
+              </div>
+                </section>
             </div>
             <div class="stack">
               <section class="card" ref="attn">
                 <div class="card-head"><h2>Needs attention</h2></div>
                 <div class="rows">
-                  <Capped :items="data.attention" v-slot="{ capRows }">
+                  <Capped :items="data.attention" :size="7" v-slot="{ capRows }">
                   <template v-for="(a, i) in capRows" :key="i">
                     <div class="row"><span>{{ a.text }}</span><span class="r">{{ a.tag }}</span></div>
                   </template>
@@ -104,27 +110,13 @@
                   <div class="empty" v-show="!data.attentionCount">Nothing needs attention for this month.</div>
                 </div>
               </section>
-              <section class="card">
-                <div class="card-head"><h2>Expenses added this month</h2><RouterLink :to="`/Finance/expenses?property=${propertyId === 'all' ? '' : propertyId}&month=${month}`" class="link">Expenses ›</RouterLink></div>
-                <div class="rows">
-                  <Capped :items="data.recentExpenses" v-slot="{ capRows }">
-                  <template v-for="e in capRows" :key="e.id">
-                    <div class="row">
-                      <span>{{ `${ddmm(e.date)} · ${e.unitCode} · ${e.description || e.type}` }}</span>
-                      <span class="r" :class="e.signedAmount < 0 ? '' : 'pos'">{{ signed(e.signedAmount) }}</span>
-                    </div>
-                  </template>
-                  </Capped>
-                  <div class="empty" v-show="!data.recentExpenses.length">No expenses added for this month yet.</div>
-                </div>
-              </section>
             </div>
           </div>
-        </template>
+                  </template>
 
         <!-- DIRECTOR -->
         <template v-if="view === 'director'">
-          <div class="grid-2">
+          <div class="grid-2 fill">
             <div class="stack">
               <section class="card" ref="attn">
                 <div class="card-head"><h2>Waiting on Director</h2></div>
@@ -138,43 +130,6 @@
                 </div>
               </section>
               <section class="card">
-                <div class="card-head"><h2>Month-end at a glance</h2><RouterLink :to="`/Finance/month-end?property=${propertyId === 'all' ? '' : propertyId}&month=${month}`" class="link">Month-end payout ›</RouterLink></div>
-                <div class="steps">
-                  <template v-for="s in data.steps" :key="s.n">
-                    <div class="step" :class="{ done: s.done, current: s.current }">
-                      <span class="dot">{{ s.done ? '✓' : s.n }}</span><span>{{ s.label }}</span>
-                    </div>
-                  </template>
-                </div>
-                <div class="note">Read-only here. Finance completes the month.</div>
-              </section>
-              <section class="card">
-                <div class="card-head"><h2>Quick actions</h2></div>
-                <div class="actions">
-                  <RouterLink class="btn btn-primary" to="/Portfolio/properties?add=1">Add property</RouterLink>
-                  <RouterLink class="btn" to="/Settings/staff?add=1">Invite staff</RouterLink>
-                  <RouterLink class="btn" to="/Settings/AuditLog">Open Audit log</RouterLink>
-                </div>
-              </section>
-            </div>
-            <div class="stack">
-              <section class="card">
-                <div class="card-head"><h2>Open tickets by role</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
-                <div class="rows" v-if="issues">
-                  <template v-for="r in issues.byTag" :key="r.tag">
-                    <div class="row"><span>{{ r.tag }}</span><span class="pill amber">{{ r.count }}</span></div>
-                  </template>
-                  <Capped :items="issues.recent" v-slot="{ capRows }">
-                  <template v-for="t in capRows" :key="t.id">
-                    <div class="row"><RouterLink class="link" :to="`/Operations/issues?id=${t.id}`">{{ `${t.id} · ${t.title}` }}</RouterLink><span class="r">{{ t.status === 'progress' ? 'In progress' : 'Open' }}</span></div>
-                  </template>
-                  </Capped>
-                  <div class="empty" v-show="!issues.total">No open tickets.</div>
-                  <div class="note" v-show="issues.total > issues.recent.length">{{ `Newest ${issues.recent.length} of ${issues.total} open tickets. A ticket tagged to two roles counts once for each.` }}</div>
-                </div>
-                <div class="empty" v-else>{{ issuesError || 'Loading…' }}</div>
-              </section>
-              <section class="card">
                 <div class="card-head"><h2>Team activity</h2><RouterLink to="/Settings/staff" class="link">Staff accounts ›</RouterLink></div>
                 <div class="rows">
                   <Capped :items="team" v-slot="{ capRows }">
@@ -183,6 +138,52 @@
                   </template>
                   </Capped>
                   <div class="empty" v-show="!team.length">No sign-ins recorded yet.</div>
+                </div>
+              </section>
+            </div>
+            <div class="stack">
+              <section class="card">
+                <div class="card-head"><h2>Open tickets</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
+                <template v-if="issues">
+                  <div class="empty" v-show="!issues.total">No open tickets.</div>
+                  <template v-if="issues.total">
+                    <div class="tk-summary">
+                      <span><b>{{ issues.total }}</b> open</span>
+                      <span><span class="tk-dot amber"></span>{{ issues.notStarted }} not started</span>
+                      <span><span class="tk-dot blue"></span>{{ issues.total - issues.notStarted }} in progress</span>
+                    </div>
+                    <div class="tk-sub">Newest</div>
+                    <div class="rows">
+                      <template v-for="t in issues.recent" :key="t.id">
+                        <RouterLink class="row tk-ticket" :to="`/Operations/issues?id=${t.id}`">
+                          <span class="tk-main"><span class="tk-title">{{ t.title }}</span><span class="note">{{ [t.id, when(t.createdAt)].filter(Boolean).join(' · ') }}</span></span>
+                          <span class="pill" :class="t.status === 'progress' ? 'blue' : 'amber'">{{ t.status === 'progress' ? 'In progress' : 'Open' }}</span>
+                        </RouterLink>
+                      </template>
+                    </div>
+                    <RouterLink class="link tk-all" to="/Operations/issues?filter=active" v-show="issues.total > issues.recent.length">{{ `See all ${issues.total} open tickets ›` }}</RouterLink>
+                  </template>
+                </template>
+                <div class="empty" v-else>{{ issuesError || 'Loading…' }}</div>
+              </section>
+              <section class="card">
+                <div class="card-head"><h2>Quick actions</h2></div>
+                <div class="dq-grid col">
+                  <RouterLink class="dq-tile dq-main" to="/Portfolio/properties?add=1">
+                    <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg></span>
+                    <span class="dq-txt"><b>Add property</b><small>Set up a new building and its units</small></span>
+                    <span class="dq-go">&rsaquo;</span>
+                  </RouterLink>
+                  <RouterLink class="dq-tile" to="/Settings/staff?add=1">
+                    <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6" /></svg></span>
+                    <span class="dq-txt"><b>Invite staff</b><small>Create a login and give it a role</small></span>
+                    <span class="dq-go">&rsaquo;</span>
+                  </RouterLink>
+                  <RouterLink class="dq-tile" to="/Settings/AuditLog">
+                    <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8" /></svg></span>
+                    <span class="dq-txt"><b>Open Audit log</b><small>See who changed what, and when</small></span>
+                    <span class="dq-go">&rsaquo;</span>
+                  </RouterLink>
                 </div>
               </section>
             </div>

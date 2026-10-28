@@ -28,6 +28,10 @@
               <button class="pill-btn" :class="filter === f.key && 'on'" @click="filter = f.key">{{ f.label }}</button>
             </template>
           </div>
+          <select class="select" v-model="tagFilter" aria-label="Filter by team">
+            <option value="">All teams</option>
+            <template v-for="g in TAGS" :key="g"><option :value="g">{{ g }}</option></template>
+          </select>
           <select class="select" v-model="unitFilter" aria-label="Filter by unit">
             <option value="">All units</option>
             <template v-for="un in unitList()" :key="un"><option :value="un">{{ un }}</option></template>
@@ -244,7 +248,7 @@ const canWrite = !!me.role;
 
 const TAGS = ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
 const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' }, deleted: { label: 'Deleted', cls: 'red' } };
-const FILTERS = [{ key: 'all', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
+const FILTERS = [{ key: 'all', label: 'All' }, { key: 'active', label: 'Not completed' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];
 // Each tag is answered by one sign-in role ('Admin' has no sign-in role yet, so Directors cover it).
 // Directors are always notified: they see every ticket.
@@ -265,7 +269,10 @@ export default {
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
-      tickets: [], ticket: null, replies: [], units: [], search: '', filter: 'all', unitFilter: '', okMsg: '', error: '', doneError: '',
+      tickets: [], ticket: null, replies: [], units: [], search: '', unitFilter: '',
+      // The dashboard links here with ?tag= (one team's tickets) and ?filter= (e.g. active = open or in progress).
+      filter: FILTERS.some(f => f.key === this.$route.query.filter) ? this.$route.query.filter : (this.$route.query.tag ? 'active' : 'all'),
+      tagFilter: TAGS.includes(this.$route.query.tag) ? this.$route.query.tag : '', okMsg: '', error: '', doneError: '',
       loading: true, busy: false, raise: null, tagEdit: null, confirmDone: false, draft: this.newDraft()
     };
   },
@@ -327,6 +334,8 @@ export default {
       const q = this.search.trim().toLowerCase();
       return this.visible().filter(t => {
         if (['open', 'progress', 'done'].includes(this.filter) && t.status !== this.filter) return false;
+        if (this.filter === 'active' && !['open', 'progress'].includes(t.status)) return false;
+        if (this.tagFilter && !t.tags.includes(this.tagFilter)) return false;
         if (this.filter === 'mine' && !t.tags.includes(myRole)) return false;
         if (this.filter === 'raised' && !this.raisedByMe(t)) return false;
         if (this.unitFilter && t.unit !== this.unitFilter) return false;

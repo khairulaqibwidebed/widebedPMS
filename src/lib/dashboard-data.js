@@ -83,15 +83,13 @@ export async function loadOpenIssues() {
   const col = collection(db, 'issues');
   const open = where('status', 'in', ['open', 'progress']);
   const count = q => getCountFromServer(q).then(s => s.data().count);
-  const [total, notStarted, byTag, recentSnap] = await Promise.all([
+  const [total, notStarted, recentSnap] = await Promise.all([
     count(query(col, open)),
     count(query(col, where('status', '==', 'open'))),
-    Promise.all(ISSUE_TAGS.map(tag => count(query(col, open, where('tags', 'array-contains', tag))))),
-    getDocs(query(col, open, orderBy('createdAt', 'desc'), limit(5)))
+    getDocs(query(col, open, orderBy('createdAt', 'desc'), limit(4)))
   ]);
   return {
     total, notStarted,
-    byTag: ISSUE_TAGS.map((tag, i) => ({ tag, count: byTag[i] })).filter(x => x.count),
     recent: recentSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   };
 }

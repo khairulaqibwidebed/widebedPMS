@@ -36,12 +36,12 @@
       </section>
 
       <!-- OPERATIONS -->
-      <div class="grid-2" v-if="view === 'operations'">
+      <div class="grid-2 fill" v-if="view === 'operations'">
         <div class="stack">
           <section class="card" ref="today">
             <div class="card-head"><h2>Today's arrivals and departures</h2><RouterLink class="link" to="/Portfolio/bookings">Offline bookings ›</RouterLink></div>
-            <div class="rows">
-              <Capped :items="d.moves" v-slot="{ capRows }">
+            <div class="rows hold">
+              <Capped :items="d.moves" :size="4" :fixed="true" v-slot="{ capRows }">
               <template v-for="m in capRows" :key="m.key">
                 <div class="row">
                   <RouterLink class="cell link" :to="m.ezee ? propertyPage(m.propertyId) : bookingsPage(m.propertyId)">{{ m.unit }}</RouterLink>
@@ -55,8 +55,8 @@
           </section>
           <section class="card" ref="leases">
             <div class="card-head"><h2>Leases ending soon</h2><RouterLink class="link" to="/Portfolio/bookings">Bookings ›</RouterLink></div>
-            <div class="rows">
-              <Capped :items="d.leases" v-slot="{ capRows }">
+            <div class="rows hold">
+              <Capped :items="d.leases" :size="4" :fixed="true" v-slot="{ capRows }">
               <template v-for="l in capRows" :key="l.id">
                 <div class="row"><RouterLink class="cell link" :to="bookingsPage(l.propertyId)">{{ `${l.unit} · ${l.id.replace('offline_', '')}` }}</RouterLink><span class="r">{{ `Ends ${dmy(l.departure)} · ${daysTo(l.departure)}` }}</span></div>
               </template>
@@ -64,23 +64,16 @@
               <div class="empty" v-show="!d.leases.length">No long-term lease ends in the next 30 days.</div>
             </div>
           </section>
-          <section class="card">
-            <div class="card-head"><h2>Quick actions</h2></div>
-            <div class="actions">
-              <template v-for="(a, i) in quickFor(view)" :key="a.label"><RouterLink class="btn" :class="{ 'btn-primary': i === 0 }" :to="a.to">{{ a.label }}</RouterLink></template>
-            </div>
-          </section>
         </div>
         <div class="stack">
-          <section class="card" ref="tickets">
-            <div class="card-head"><h2>My tickets</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
-            <div class="rows">
-              <Capped :items="newestTickets()" v-slot="{ capRows }">
-              <template v-for="t in capRows" :key="t.id">
-                <div class="row"><RouterLink class="cell link" :to="`/Operations/issues?id=${t.id}`">{{ `${t.id} · ${t.title}` }}</RouterLink><span class="r">{{ statusOf(t) }}</span></div>
-              </template>
-              </Capped>
-              <div class="empty" v-show="!tickets.length">No open tickets tagged Operations or raised by you.</div>
+          <section class="card">
+            <div class="card-head"><h2>Quick actions</h2></div>
+            <div class="qa-grid col">
+              <RouterLink v-for="(a, i) in quickFor(view)" :key="a.label" class="qa-tile" :class="{ 'qa-main': i === 0 }" :to="a.to">
+                <span class="qa-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="a.icon" /></svg></span>
+                <span class="qa-txt"><b>{{ a.label }}</b><small>{{ a.desc }}</small></span>
+                <span class="qa-go">&rsaquo;</span>
+              </RouterLink>
             </div>
           </section>
           <section class="card" ref="inquiries">
@@ -96,12 +89,12 @@
       </div>
 
       <!-- IT -->
-      <div class="grid-2" v-if="view === 'it'">
+      <div class="grid-2 fill" v-if="view === 'it'">
         <div class="stack">
           <section class="card" ref="tickets">
             <div class="card-head"><h2>IT tickets</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
-            <div class="rows">
-              <Capped :items="d.tickets" v-slot="{ capRows }">
+            <div class="rows hold">
+              <Capped :items="d.tickets" :size="4" :fixed="true" v-slot="{ capRows }">
               <template v-for="t in capRows" :key="t.id">
                 <div class="row"><RouterLink class="cell link" :to="`/Operations/issues?id=${t.id}`">{{ `${t.id} · ${t.title}` }}</RouterLink><span class="r">{{ `${statusOf(t)} · ${when(t.createdAt)}` }}</span></div>
               </template>
@@ -111,14 +104,14 @@
           </section>
           <section class="card" ref="staff">
             <div class="card-head"><h2>Staff accounts</h2></div>
-            <!-- One list at a time (pills), 5 a page -->
+            <!-- One list at a time (pills), 7 a page -->
             <div class="pills brand staff-tabs">
               <template v-for="t in STAFF_TABS" :key="t.key">
                 <button class="pill-btn" type="button" :class="staffTab === t.key && 'on'" @click="staffTab = t.key">{{ t.label + ' · ' + d[t.key].length }}</button>
               </template>
             </div>
             <div class="rows">
-              <Paged :items="d[staffTab]" :size="5" :key="staffTab" v-slot="{ pageRows }">
+              <Paged :items="d[staffTab]" :size="7" :key="staffTab" v-slot="{ pageRows }">
               <template v-for="u in pageRows" :key="u.id"><div class="row"><span class="cell">{{ who(u) }}</span><span class="r">{{ staffWhen(u) }}</span></div></template>
               </Paged>
               <div class="empty" v-show="!d[staffTab].length">{{ STAFF_TABS.find(t => t.key === staffTab).empty }}</div>
@@ -129,8 +122,8 @@
         <div class="stack">
           <section class="card" ref="uploads">
             <div class="card-head"><h2>Upload history</h2></div>
-            <div class="rows">
-              <Capped :items="d.uploads" v-slot="{ capRows }">
+            <div class="rows hold hold3">
+              <Capped :items="d.uploads" :size="3" :fixed="true" v-slot="{ capRows }">
               <template v-for="u in capRows" :key="u.id">
                 <div class="row">
                   <span class="cell">{{ `${stamp(u.uploadedAt)} · ${u.uploadedByName || 'Unknown'}` }}</span>
@@ -144,8 +137,8 @@
           </section>
           <section class="card" ref="changes">
             <div class="card-head"><h2>Recent changes by IT</h2></div>
-            <div class="rows">
-              <Capped :items="d.audits" v-slot="{ capRows }">
+            <div class="rows hold">
+              <Capped :items="d.audits" :size="4" :fixed="true" v-slot="{ capRows }">
               <template v-for="a in capRows" :key="a.id">
                 <div class="row">
                   <RouterLink v-if="ticketOf(a)" class="cell link" :to="`/Operations/issues?id=${ticketOf(a)}`">{{ change(a) }}</RouterLink>
@@ -159,15 +152,19 @@
           </section>
           <section class="card">
             <div class="card-head"><h2>Quick actions</h2></div>
-            <div class="actions">
-              <template v-for="(a, i) in quickFor(view)" :key="a.label"><RouterLink class="btn" :class="{ 'btn-primary': i === 0 }" :to="a.to">{{ a.label }}</RouterLink></template>
+            <div class="qa-grid col">
+              <RouterLink v-for="(a, i) in quickFor(view)" :key="a.label" class="qa-tile" :class="{ 'qa-main': i === 0 }" :to="a.to">
+                <span class="qa-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="a.icon" /></svg></span>
+                <span class="qa-txt"><b>{{ a.label }}</b><small>{{ a.desc }}</small></span>
+                <span class="qa-go">&rsaquo;</span>
+              </RouterLink>
             </div>
           </section>
         </div>
       </div>
 
       <!-- HR -->
-      <div class="grid-2" v-if="view === 'hr'">
+      <div class="grid-2 fill" v-if="view === 'hr'">
         <div class="stack">
           <section class="card" ref="complaints">
             <div class="card-head"><h2>Staff complaints</h2><RouterLink class="link" to="/HR/staff-complaints">View all ›</RouterLink></div>
@@ -221,21 +218,21 @@
               <div class="empty" v-show="!d.onboarding.length">No one is part-way through onboarding.</div>
             </div>
           </section>
+        <section class="card">
+          <div class="card-head"><h2>Quick actions</h2></div>
+          <div class="qa-grid col">
+            <RouterLink v-for="(a, i) in quickFor(view)" :key="a.label" class="qa-tile" :class="{ 'qa-main': i === 0 }" :to="a.to">
+              <span class="qa-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="a.icon" /></svg></span>
+              <span class="qa-txt"><b>{{ a.label }}</b><small>{{ a.desc }}</small></span>
+              <span class="qa-go">&rsaquo;</span>
+            </RouterLink>
+          </div>
+        </section>
         </div>
       </div>
-      <section class="card quick" v-if="view === 'hr'">
-        <div class="card-head"><h2>Quick actions</h2></div>
-        <div class="qa-grid">
-          <RouterLink v-for="(a, i) in quickFor(view)" :key="a.label" class="qa-tile" :class="{ main: i === 0 }" :to="a.to">
-            <span class="qa-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="a.icon" /></svg></span>
-            <span class="qa-txt"><b>{{ a.label }}</b><small>{{ a.desc }}</small></span>
-            <span class="qa-go">&rsaquo;</span>
-          </RouterLink>
-        </div>
-      </section>
 
       <!-- PROCUREMENT and MARKETING -->
-      <div class="grid-2" v-if="view === 'procurement' || view === 'marketing'">
+      <div class="grid-2 fill" v-if="view === 'procurement' || view === 'marketing'">
         <div class="stack">
           <section class="card" ref="tickets">
             <div class="card-head"><h2>My tickets</h2><RouterLink class="link" to="/Operations/issues">Open Issues ›</RouterLink></div>
@@ -250,8 +247,12 @@
           </section>
           <section class="card">
             <div class="card-head"><h2>Quick actions</h2></div>
-            <div class="actions">
-              <template v-for="(a, i) in quickFor(view)" :key="a.label"><RouterLink class="btn" :class="{ 'btn-primary': i === 0 }" :to="a.to">{{ a.label }}</RouterLink></template>
+            <div class="qa-grid col">
+              <RouterLink v-for="(a, i) in quickFor(view)" :key="a.label" class="qa-tile" :class="{ 'qa-main': i === 0 }" :to="a.to">
+                <span class="qa-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="a.icon" /></svg></span>
+                <span class="qa-txt"><b>{{ a.label }}</b><small>{{ a.desc }}</small></span>
+                <span class="qa-go">&rsaquo;</span>
+              </RouterLink>
             </div>
           </section>
         </div>
@@ -259,7 +260,7 @@
           <section class="card" v-if="view === 'procurement'">
             <div class="card-head"><h2>Forms</h2><RouterLink class="link" to="/Procurement/forms">Forms ›</RouterLink></div>
             <div class="rows">
-              <Capped :items="LINKS" v-slot="{ capRows }">
+              <Capped :items="LINKS" :size="50" v-slot="{ capRows }">
               <template v-for="f in capRows" :key="f.name">
                 <div class="row"><a class="cell link" :href="f.url" target="_blank" rel="noopener" @click="openForm($event, f)">{{ f.name }}</a><span class="r">Open ↗</span></div>
               </template>
@@ -269,7 +270,7 @@
           <section class="card" v-if="view === 'marketing'">
             <div class="card-head"><h2>Properties</h2><RouterLink class="link" to="/Portfolio/properties">Portfolio ›</RouterLink></div>
             <div class="rows">
-              <Capped :items="pf.properties" v-slot="{ capRows }">
+              <Capped :items="pf.properties" :size="50" v-slot="{ capRows }">
               <template v-for="p in capRows" :key="p.id">
                 <div class="row"><RouterLink class="cell link" :to="propertyPage(p.id)">{{ p.name }}</RouterLink><span class="r">{{ `${p.units} unit${p.units === 1 ? '' : 's'}` }}</span></div>
               </template>
@@ -319,8 +320,11 @@ const ms = t => dateOf(t)?.getTime() || 0;
 
 // Quick actions per role dashboard; the first is the main button. Shown at the bottom of the left column (IT: right; HR: full width under both).
 const QUICK = {
-  operations: [{ label: 'Raise a ticket', to: '/Operations/issues' }, { label: '+ New booking', to: '/Operations/offline-inquiries?newBooking=1' }, { label: 'Open Portfolio', to: '/Portfolio/properties' }],
-  it: [{ label: 'Open Issues', to: '/Operations/issues' }, { label: 'Raise a ticket', to: '/Operations/issues' }],
+  operations: [{ label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+    { label: 'New booking', to: '/Operations/offline-inquiries?newBooking=1', desc: 'Save an offline booking from an inquiry', icon: 'M12 5v14M5 12h14' },
+    { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' }],
+  it: [{ label: 'Open Issues', to: '/Operations/issues', desc: 'See every ticket tagged IT', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
+    { label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }],
   hr: [{ label: 'Open staff complaints', to: '/HR/staff-complaints', desc: 'Review and reply to what staff raised',
       icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
     { label: 'Send complaint to Directors', to: '/HR/director-complaints', desc: 'Pass a case up, HR only',
@@ -329,8 +333,11 @@ const QUICK = {
       icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
     { label: 'Edit an SOP', to: '/HR/attendance-sop', desc: 'Attendance, advance, allowance, SOCSO',
       icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z' }],
-  procurement: [{ label: 'Raise a ticket', to: '/Operations/issues' }, { label: 'Open Portfolio', to: '/Portfolio/properties' }],
-  marketing: [{ label: 'Raise a ticket', to: '/Operations/issues' }, { label: 'Open Portfolio', to: '/Portfolio/properties' }, { label: 'Open New owner listings', to: '/Procurement/new-owner-listings' }]
+  procurement: [{ label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+    { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' }],
+  marketing: [{ label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+    { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' },
+    { label: 'Open New owner listings', to: '/Procurement/new-owner-listings', desc: 'Tick the Marketing checklist', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8' }]
 };
 
 export default {
@@ -445,17 +452,22 @@ export default {
     .sub-h { color: var(--text-2); font-size: 12px; font-weight: 600; margin-top: 8px; }
     .sub-h:first-of-type { margin-top: 0; }
     .qa-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-    .qa-tile { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius);
+    .qa-tile { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius);
       background: var(--surface); color: var(--text); text-decoration: none; transition: border-color .15s, background .15s; }
     .qa-tile:hover, .qa-tile:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
     .qa-ic { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
-    .qa-tile.main .qa-ic { background: var(--accent); color: #fff; }
+    .qa-tile.qa-main .qa-ic { background: var(--accent); color: #fff; }
     .qa-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
     .qa-txt b { font-size: 13px; font-weight: 600; }
     .qa-txt small { font-size: 12px; color: var(--text-2); }
     .qa-tile:hover .qa-txt b { color: var(--accent); }
     .qa-go { flex: none; font-size: 20px; color: var(--muted); }
     .qa-tile:hover .qa-go { color: var(--accent); }
-    @media (max-width: 1100px) { .qa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .rows.hold.hold3 { min-height: 135px; }
+    .grid-2.fill .stack > .card:last-child:has(.qa-grid) { display: flex; flex-direction: column; }
+    .grid-2.fill .stack > .card:last-child .qa-grid.col { flex: 1; grid-auto-rows: 1fr; }
+    .rows.hold { min-height: 180px; align-content: start; }
+    .qa-grid.col { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    @media (max-width: 1100px) { .qa-grid:not(.col) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 600px) { .qa-grid { grid-template-columns: minmax(0, 1fr); } }
 </style>
