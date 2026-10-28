@@ -480,3 +480,8 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 @media (max-width: 800px) { .dq-grid { grid-template-columns: minmax(0, 1fr); } }
 .cap-fixed { cursor: default; color: var(--muted); font-weight: 500; }
 .cap-fixed:hover { text-decoration: none; }
+
+/* Director dashboard: each list keeps the height it has with every property selected, so empty data never leaves a gap */
+.rows.hold-5-wait { min-height: 340px; align-content: start; }
+.rows.hold-5-team { min-height: 250px; align-content: start; }
+.rows.hold-4-tickets { min-height: 296px; align-content: start; }

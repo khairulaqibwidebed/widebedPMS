@@ -13,10 +13,16 @@
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
-    <div class="pills brand staff-filters">
-      <template v-for="f in filters" :key="f.key">
-        <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ f.counted ? `${f.label} (${count(f.key)})` : f.label }}</button>
-      </template>
+    <div class="staff-filters">
+      <div class="pills brand">
+        <template v-for="f in filters" :key="f.key">
+          <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ `${f.label} (${count(f.key)})` }}</button>
+        </template>
+      </div>
+      <select class="select" v-model="roleFilter" aria-label="Filter by role">
+        <option value="">All roles</option>
+        <template v-for="r in ROLES" :key="r"><option :value="r">{{ ROLE_LABEL[r] || r }}</option></template>
+      </select>
     </div>
 
     <div class="table-wrap soft-wrap">
@@ -192,9 +198,8 @@ export default {
       ROLES, ROLE_LABEL, when,
       myUid: me.user.uid,
       users: [], loading: true, error: '', okMsg: '',
-      filter: 'all', changes: [],
-      filters: [{ key: 'all', label: 'All', counted: true }, { key: 'active', label: 'Active', counted: true }, { key: 'off', label: 'Turned off', counted: true },
-        { key: 'director', label: 'Director' }, { key: 'finance', label: 'Finance' }, { key: 'operations', label: 'Operations' }, { key: 'it', label: 'IT' }],
+      filter: 'all', roleFilter: '', changes: [],
+      filters: [{ key: 'all', label: 'All' }, { key: 'active', label: 'Active' }, { key: 'off', label: 'Turned off' }],
       panel: {}, panelOpen: false
     };
   },
@@ -227,8 +232,8 @@ export default {
       if (key === 'active') return u.active !== false;
       return u.role === key;
     },
-    count(key) { return this.users.filter(u => this.match(u, key)).length; },
-    shown() { return this.users.filter(u => this.match(u, this.filter)); },
+    count(key) { return this.users.filter(u => this.match(u, key) && (!this.roleFilter || u.role === this.roleFilter)).length; },
+    shown() { return this.users.filter(u => this.match(u, this.filter) && (!this.roleFilter || u.role === this.roleFilter)); },
     roleText(u) { const r = ROLE_LABEL[u.role] || 'No role'; return u.intern ? `Intern (${r})` : r; },
     joined(ts) { const d = ts.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); },
     // Last 30 audit entries, staff ones only (one orderBy, no extra index needed).
@@ -334,7 +339,7 @@ export default {
 </script>
 
 <style scoped>
-    .staff-filters { margin-bottom: 16px; }
+    .staff-filters { margin-bottom: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
     .staff-table td { white-space: nowrap; }
     .name-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; }
     .name-btn:hover { text-decoration: underline; }

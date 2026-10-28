@@ -8,12 +8,8 @@
         <div class="sub">{{ `${propName()} · ${monthName(month)} · add them as they happen; each line goes onto its unit's statement` }}</div>
       </div>
       <div class="head-tools">
-        <select class="select" v-model="propertyId" @change="load()" aria-label="Property">
-          <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
-        </select>
-        <select class="select" v-model="month" @change="load()" aria-label="Statement month">
-          <template v-for="m in months" :key="m"><option :value="m" :selected="m === month">{{ monthName(m) }}</option></template>
-        </select>
+        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+        <MonthPicker :ahead="1" v-model="month" @change="load()" />
       </div>
     </div>
 
@@ -164,7 +160,10 @@ const TYPES = [['maintenance', 'Maintenance (repair work)'], ['sewerage', 'Sewer
   ['procurement', 'Item bought for owner'], ['reimburse', 'Reimbursement'], ['broughtForward', 'Brought forward'], ['other', 'Other']];
 let params = new URLSearchParams(location.search);
 
+import OptionPicker from '@/components/OptionPicker.vue';
+import MonthPicker from '@/components/MonthPicker.vue';
 export default {
+  components: { OptionPicker, MonthPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -188,6 +187,9 @@ export default {
       await this.load();
       if (params.has('add')) this.openAdd();
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
+  },
+  computed: {
+    propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name }))]; }
   },
   methods: {
     async load() {

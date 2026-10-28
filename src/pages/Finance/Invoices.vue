@@ -8,12 +8,8 @@
         <div class="sub">Completed, final documents only · read-only</div>
       </div>
       <div class="head-tools">
-        <select class="select" v-model="propertyId" @change="load()" aria-label="Property">
-          <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
-        </select>
-        <select class="select" v-model="month" @change="load()" aria-label="Month">
-          <template v-for="m in months" :key="m"><option :value="m" :selected="m === month">{{ monthName(m) }}</option></template>
-        </select>
+        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+        <MonthPicker :ahead="1" v-model="month" @change="load()" />
       </div>
     </div>
 
@@ -159,7 +155,10 @@ let params = new URLSearchParams(location.search);
 const digits = code => String(code || '').replace(/^[A-Z]+\s*/i, '').replace(/[^0-9A-Z]/gi, '');
 const yymm = ym => ym.slice(2, 4) + ym.slice(5, 7);
 
+import OptionPicker from '@/components/OptionPicker.vue';
+import MonthPicker from '@/components/MonthPicker.vue';
 export default {
+  components: { OptionPicker, MonthPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -180,6 +179,9 @@ export default {
       if (!this.months.includes(this.month)) this.months.push(this.month);
       await this.load();
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
+  },
+  computed: {
+    propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name }))]; }
   },
   methods: {
     // Summary cards: set the list's filter (if any) and scroll to it.

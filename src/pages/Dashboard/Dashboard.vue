@@ -9,13 +9,8 @@
       </div>
       <div class="head-tools">
         <div class="head-row">
-        <select class="select" v-model="propertyId" @change="load()" aria-label="Property">
-          <option value="all">All properties</option>
-          <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
-        </select>
-        <select class="select" v-model="month" @change="load()" aria-label="Month">
-          <template v-for="m in months" :key="m"><option :value="m" :selected="m === month">{{ monthName(m) }}</option></template>
-        </select>
+        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+        <MonthPicker v-model="month" @change="load()" />
         </div>
       </div>
     </div>
@@ -120,8 +115,8 @@
             <div class="stack">
               <section class="card" ref="attn">
                 <div class="card-head"><h2>Waiting on Director</h2></div>
-                <div class="rows">
-                  <Capped :items="directorItems()" v-slot="{ capRows }">
+                <div class="rows hold-5-wait">
+                  <Capped :items="directorItems()" :size="5" :fixed="true" v-slot="{ capRows }">
                   <template v-for="(a, i) in capRows" :key="i">
                     <div class="row"><span>{{ a.text }}</span><RouterLink class="btn" to="/Portfolio/properties">Set up</RouterLink></div>
                   </template>
@@ -131,8 +126,8 @@
               </section>
               <section class="card">
                 <div class="card-head"><h2>Team activity</h2><RouterLink to="/Settings/staff" class="link">Staff accounts ›</RouterLink></div>
-                <div class="rows">
-                  <Capped :items="team" v-slot="{ capRows }">
+                <div class="rows hold-5-team">
+                  <Capped :items="team" :size="5" :fixed="true" v-slot="{ capRows }">
                   <template v-for="u in capRows" :key="u.id">
                     <div class="row"><span>{{ u.displayName || u.email }}</span><span class="r">{{ when(u.lastLoginAt) }}</span></div>
                   </template>
@@ -153,7 +148,7 @@
                       <span><span class="tk-dot blue"></span>{{ issues.total - issues.notStarted }} in progress</span>
                     </div>
                     <div class="tk-sub">Newest</div>
-                    <div class="rows">
+                    <div class="rows hold-4-tickets">
                       <template v-for="t in issues.recent" :key="t.id">
                         <RouterLink class="row tk-ticket" :to="`/Operations/issues?id=${t.id}`">
                           <span class="tk-main"><span class="tk-title">{{ t.title }}</span><span class="note">{{ [t.id, when(t.createdAt)].filter(Boolean).join(' · ') }}</span></span>
@@ -197,6 +192,8 @@
 
 <script>
 import { notBuilt } from '@/lib/toast.js';
+import MonthPicker from '@/components/MonthPicker.vue';
+import OptionPicker from '@/components/OptionPicker.vue';
 import { loadProperties, loadMonth, loadTeamActivity, loadOpenIssues } from '@/lib/dashboard-data.js';
 import { rm, signed, monthName, shortMonth, ddmm, monthOffset, when, stamp } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
@@ -206,6 +203,7 @@ import { ROLE_LABEL } from '@/lib/firebase.js';
 const me = useSession();
 
 export default {
+  components: { MonthPicker, OptionPicker },
   data() {
     return {
       role: me.role,
@@ -228,6 +226,9 @@ export default {
       if (this.propertyId !== 'all' && !this.properties.some(p => p.id === this.propertyId)) this.propertyId = 'all';
     } catch (e) { this.fail(e); }
     await this.load();
+  },
+  computed: {
+    propertyOptions() { return [{ value: 'all', label: 'All properties' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))]; }
   },
   methods: {
     jump(name) { this.$refs[name]?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },

@@ -8,9 +8,7 @@
         <div class="sub">Property and unit figures for any dates you pick · from bookings, settings and expenses in the PMS</div>
       </div>
       <div class="head-tools">
-        <select class="select" v-model="propertyId" @change="changeProperty()" aria-label="Property">
-          <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
-        </select>
+        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="changeProperty()" />
       </div>
     </div>
 
@@ -118,7 +116,7 @@ import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 const me = useSession();
 
 const ARR = Object.fromEntries(Object.entries(ARRANGEMENTS).map(([k, v]) => [k, v.label]));
-const QUICK = [{ key: 'thisMonth', label: 'This month' }, { key: 'lastMonth', label: 'Last month' }, { key: 'thisYear', label: 'This year' }];
+const QUICK = [{ key: 'thisMonth', label: 'This month' }, { key: 'lastMonth', label: 'Last month' }, { key: 'last3', label: 'Last 3 months' }, { key: 'thisYear', label: 'This year' }, { key: 'lastYear', label: 'Last year' }];
 const pad = n => String(n).padStart(2, '0');
 const lastDay = (y, m) => new Date(y, m, 0).getDate();
 const r2 = x => Math.round((Number(x) || 0) * 100) / 100;
@@ -129,10 +127,14 @@ function quickRange(key) {
   const t = dayOffset(0), y = +t.slice(0, 4), m = +t.slice(5, 7);
   if (key === 'thisMonth') return [`${y}-${pad(m)}-01`, `${y}-${pad(m)}-${pad(lastDay(y, m))}`];
   if (key === 'lastMonth') { const ly = m === 1 ? y - 1 : y, lm = m === 1 ? 12 : m - 1; return [`${ly}-${pad(lm)}-01`, `${ly}-${pad(lm)}-${pad(lastDay(ly, lm))}`]; }
+  if (key === 'last3') { const sm = m - 3 <= 0 ? m + 9 : m - 3, sy = m - 3 <= 0 ? y - 1 : y; const em = m === 1 ? 12 : m - 1, ey = m === 1 ? y - 1 : y; return [`${sy}-${pad(sm)}-01`, `${ey}-${pad(em)}-${pad(lastDay(ey, em))}`]; }
+  if (key === 'lastYear') return [`${y - 1}-01-01`, `${y - 1}-12-31`];
   return [`${y}-01-01`, `${y}-12-31`];
 }
 
+import OptionPicker from '@/components/OptionPicker.vue';
 export default {
+  components: { OptionPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -145,6 +147,7 @@ export default {
     };
   },
   computed: {
+    propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name }))]; },
     quickOn() { return QUICK.find(q => { const [a, b] = quickRange(q.key); return a === this.from && b === this.to; })?.key || ''; }
   },
   // Remember the property for the next page (see lib/last-property.js)

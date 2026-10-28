@@ -12,13 +12,8 @@
         </div>
       </div>
       <div class="head-tools">
-        <select class="select" v-model="propertyId" @change="switchProperty()" aria-label="Property" v-show="top !== 'properties'">
-          <option value="all">All properties</option>
-          <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
-        </select>
-        <select class="select" v-model="asOf" @change="switchMonth()" aria-label="Month" v-if="!viewOnly">
-          <template v-for="m in months" :key="m"><option :value="m" :selected="m === asOf">{{ shortName(m) }}</option></template>
-        </select>
+        <OptionPicker v-model="propertyId" :options="propertyOptionsAll" label="Property" @change="switchProperty()" v-show="top !== 'properties'" />
+        <MonthPicker :ahead="1" v-model="asOf" @change="switchMonth()" v-if="!viewOnly" />
       </div>
     </div>
 
@@ -29,12 +24,8 @@
           <span>{{ ` › ${propertyName()}` + (viewOnly ? ' · view only' : ' · set once, used every month') }}</span></div>
       </div>
       <div class="head-tools">
-        <select class="select" v-model="propertyId" @change="switchProperty()" aria-label="Property">
-          <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
-        </select>
-        <select class="select" v-model="asOf" @change="switchMonth()" aria-label="Month" v-if="!viewOnly">
-          <template v-for="m in months" :key="m"><option :value="m" :selected="m === asOf">{{ shortName(m) }}</option></template>
-        </select>
+        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="switchProperty()" />
+        <MonthPicker :ahead="1" v-model="asOf" @change="switchMonth()" v-if="!viewOnly" />
         <button class="btn btn-primary" v-show="ptab === 'units'" @click="openUnit(null)" v-if="canAdd">+ Add unit</button>
         <button class="btn" v-show="ptab === 'overview'" @click="openProperty(property())" v-if="!viewOnly || canEdit">Edit property</button>
       </div>
@@ -603,7 +594,10 @@ const ADDERS = ['director', 'finance', 'operations', 'marketing'];
 const BANK = ['bankName', 'accountHolder', 'bankAccount'];
 const UNIT_TYPES = ['Studio', '1 bedroom', '2 bedrooms', '3 bedrooms', 'Dual key', 'Penthouse', 'Other'];
 
+import OptionPicker from '@/components/OptionPicker.vue';
+import MonthPicker from '@/components/MonthPicker.vue';
 export default {
+  components: { OptionPicker, MonthPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -648,6 +642,10 @@ export default {
     if (!this.PTABS.some(t => t.key === this.ptab)) this.ptab = 'units';
     await this.go();
     await this.pickUpHandoff();
+  },
+  computed: {
+    propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name }))]; },
+    propertyOptionsAll() { return [{ value: 'all', label: 'All properties' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))]; }
   },
   methods: {
     onProperty() { return this.top === 'properties' && this.propertyId !== 'all'; },

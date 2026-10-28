@@ -6,13 +6,8 @@
         <div class="sub">Bring in the month's bookings from eZee, or a past month's completed Finance statement as reference</div>
       </div>
       <div class="head-tools">
-        <select class="select" v-model="propertyId" @change="reset()" aria-label="Property" :disabled="working">
-          <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
-          <option value="__new" v-show="!properties.length">New property (from the file)</option>
-        </select>
-        <select class="select" v-model="month" @change="reset()" aria-label="Month" :disabled="working">
-          <template v-for="m in months" :key="m"><option :value="m" :selected="m === month">{{ shortName(m) }}</option></template>
-        </select>
+        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="reset()" :disabled="working" />
+        <MonthPicker :ahead="1" v-model="month" @change="reset()" :disabled="working" />
       </div>
     </div>
 
@@ -196,7 +191,10 @@ async function readFile(file) {
   return { kind: 'ezee', rows: sheetText(X, ws) };
 }
 
+import OptionPicker from '@/components/OptionPicker.vue';
+import MonthPicker from '@/components/MonthPicker.vue';
 export default {
+  components: { OptionPicker, MonthPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -217,6 +215,9 @@ export default {
       if (!this.properties.some(p => p.id === this.propertyId)) this.propertyId = this.properties[0]?.id || '__new';
       await this.loadHistory();
     } catch (e) { this.error = friendlyError(e, 'load the page'); }
+  },
+  computed: {
+    propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name })), ...(this.properties.length ? [] : [{ value: '__new', label: 'New property (from the file)' }])]; }
   },
   methods: {
     property() { return this.properties.find(p => p.id === this.propertyId) || null; },

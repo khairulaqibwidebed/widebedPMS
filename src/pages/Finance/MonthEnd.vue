@@ -9,12 +9,8 @@
       </div>
       <div class="head-tools">
         <span class="pill" :class="completed ? 'green' : (doneCount() ? 'blue' : 'grey')">{{ completed ? 'Completed' : (doneCount() ? `${doneCount()} of ${rows.length} completed` : 'Open') }}</span>
-        <select class="select" v-model="propertyId" @change="load()" aria-label="Property">
-          <template v-for="p in properties" :key="p.id"><option :value="p.id" :selected="p.id === propertyId">{{ p.name }}</option></template>
-        </select>
-        <select class="select" v-model="month" @change="load()" aria-label="Month">
-          <template v-for="m in months" :key="m"><option :value="m" :selected="m === month">{{ monthName(m) }}</option></template>
-        </select>
+        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+        <MonthPicker :ahead="1" v-model="month" @change="load()" />
       </div>
     </div>
     <div class="me-actions" v-show="!selOpen && propertyId">
@@ -314,7 +310,10 @@ const pctOut = v => (v == null ? '' : +(v * 100).toFixed(4));
 // The list comes from the unit month summaries; a unit's bookings are read only when its statement is opened.
 const msOf = t => (t?.toMillis ? t.toMillis() : (t?.seconds != null ? t.seconds * 1000 : null));
 
+import OptionPicker from '@/components/OptionPicker.vue';
+import MonthPicker from '@/components/MonthPicker.vue';
 export default {
+  components: { OptionPicker, MonthPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -344,6 +343,9 @@ export default {
       this.months.sort().reverse();
       await this.load();
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
+  },
+  computed: {
+    propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name }))]; }
   },
   methods: {
     // Summary cards: set the list's filter (if any) and scroll to it.
