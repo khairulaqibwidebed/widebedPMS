@@ -55,11 +55,10 @@
           </span>
         </div>
       </div>
-      <p class="note" v-if="t.brand === 'custom' && pal.accent !== pal.brand" style="margin:10px 0 0">Buttons use a slightly darker shade ({{ pal.accent }}) so white text on them stays readable.</p>
     </section>
 
     <section class="card">
-      <div class="card-head"><h2>Light or dark</h2></div>
+      <div class="card-head"><h2>Light or dark</h2><button class="btn" @click="resetLook()" :disabled="isDefault">Reset to default</button></div>
       <div class="mode-grid">
         <template v-for="m in modes" :key="m.key">
           <button class="choice" :class="{ on: t.mode === m.key }" @click="set({ mode: m.key })" :aria-pressed="t.mode === m.key">
@@ -73,7 +72,20 @@
     </div>
     </div>
 
-    <p class="note" style="margin-top:16px">Saved to your account, so it follows you to any computer. Statements, invoices, receipts and other PDFs always use Widebed's company colours and logo (Settings › Brand logos), whatever you pick here.</p>
+    <div class="save-bar" v-if="dirty" role="region" aria-label="Unsaved appearance changes">
+      <span>Unsaved changes</span>
+      <button class="btn" @click="discard()">Discard</button>
+      <button class="btn btn-primary" @click="save()">Save</button>
+    </div>
+    <div class="modal-back" v-if="leaveAsk" @click.self="leave('stay')" v-esc="() => leave('stay')">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="Unsaved changes">
+        <h2>Save your appearance changes?</h2>
+        <p class="help">You changed how the PMS looks but have not saved it.</p>
+        <div class="modal-foot"><button class="btn" @click="leave('stay')">Keep editing</button><button class="btn" @click="leave('discard')">Discard</button><button class="btn btn-primary" @click="leave('save')">Save and leave</button></div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:16px">Press Save to keep your look on your account, so it follows you to any computer. Statements, invoices, receipts and other PDFs always use Widebed's company colours and logo (Settings › Brand logos), whatever you pick here.</p>
   </main>
 </template>
 
@@ -97,7 +109,7 @@ export default {
     const me = useSession();
     return {
       me, uid: me.user?.uid || null, email: me.user?.email || '', busy: false, okMsg: '', error: '',
-      t: readTheme(), hexDraft: readTheme().custom,
+      t: readTheme(), saved: readTheme(), hexDraft: readTheme().custom, leaveAsk: null,
       themes: [
         { key: 'widebed', label: 'Widebed', note: 'Orange and white (default)', c: ['#F26D4D', '#C2452B', '#FDEBE6'] },
         { key: 'blue', label: 'Blue', note: 'Classic office blue', c: ['#4C7FE0', '#2F5FBF', '#E6EEFB'] }
@@ -110,9 +122,16 @@ export default {
     };
   },
   // "Match computer" follows the OS setting live
-  mounted() { dark.addEventListener('change', follow); },
-  unmounted() { dark.removeEventListener('change', follow); },
+  mounted() { dark.addEventListener('change', follow); window.addEventListener('beforeunload', this.warn); },
+  unmounted() { dark.removeEventListener('change', follow); window.removeEventListener('beforeunload', this.warn); },
+  // Leaving with an unsaved look: stop and ask (Save, Discard, or stay)
+  beforeRouteLeave() {
+    if (!this.dirty) return true;
+    return new Promise(res => { this.leaveAsk = res; });
+  },
   computed: {
+    dirty() { return JSON.stringify(this.t) !== JSON.stringify(this.saved); },
+    isDefault() { return this.t.brand === 'widebed' && this.t.mode === 'light'; },
     pal() { return customPalette(this.t.custom, this.t.mode === 'dark' || (this.t.mode === 'system' && dark.matches)); },
     hasPic() { return !!avatarSrc(this.uid); },
     roleLabel() { return ROLE_LABEL[this.me.role] || this.me.role || '-'; }
@@ -150,7 +169,17 @@ export default {
       catch (_) { this.error = 'Could not send the reset email. Try again in a few minutes.'; }
       this.busy = false;
     },
-    set(patch) { this.t = { ...this.t, ...patch }; saveTheme(this.t); toast('Appearance saved'); },
+    resetLook() { this.set({ brand: 'widebed', mode: 'light' }); },
+    // Choices preview on screen straight away; they are only kept once Save is pressed
+    set(patch) { this.t = { ...this.t, ...patch }; this.hexDraft = this.t.custom; applyTheme(this.t); },
+    save() { saveTheme(this.t); this.saved = { ...this.t }; toast('Appearance saved'); },
+    discard() { this.t = { ...this.saved }; this.hexDraft = this.t.custom; applyTheme(this.t); },
+    warn(e) { if (this.dirty) { e.preventDefault(); e.returnValue = ''; } },
+    leave(how) {
+      if (how === 'save') this.save(); else if (how === 'discard') this.discard();
+      const res = this.leaveAsk; this.leaveAsk = null;
+      if (res) res(how !== 'stay');
+    },
     // Dragging in the colour picker previews live; letting go saves it
     live(hex) { this.t = { ...this.t, brand: 'custom', custom: hex.toUpperCase() }; this.hexDraft = this.t.custom; applyTheme(this.t); },
     pickColour(hex) { this.hexDraft = hex.toUpperCase(); this.set({ brand: 'custom', custom: this.hexDraft }); },
@@ -164,6 +193,11 @@ export default {
 </script>
 
 <style scoped>
+    .save-bar { position: fixed; right: 24px; bottom: 24px; z-index: 40; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.18); font-weight: 600; animation: bar-in .35s cubic-bezier(.2,.9,.3,1.2); }
+    .save-bar .btn-primary { animation: save-pulse 1.6s ease-in-out 3; }
+    @keyframes bar-in { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+    @keyframes save-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); } 50% { box-shadow: 0 0 0 7px transparent; } }
+    @media (prefers-reduced-motion: reduce) { .save-bar, .save-bar .btn-primary { animation: none; } }
     .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: stretch; }
     .stack { display: grid; gap: 20px; min-width: 0; }
     .stack .card + .card, .card + .card { margin-top: 0; }

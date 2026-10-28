@@ -182,7 +182,7 @@
               <div class="field"><label for="uNote">Follow-up note</label>
                 <textarea class="input" id="uNote" v-model="upd.note" placeholder="e.g. Called back, viewing booked for Saturday"></textarea></div>
               <div class="notice error" v-show="formError && !editing">{{ formError }}</div>
-              <div class="actions"><button class="btn btn-primary" @click="saveUpdate()" :disabled="busy">Save update</button></div>
+              <div class="actions upd-actions"><button class="btn btn-primary" @click="saveUpdate()" :disabled="busy">Save update</button><button class="btn" v-if="updDirty" @click="discardUpdate()" :disabled="busy">Discard changes</button><span class="unsaved-note" v-show="updDirty">Unsaved changes</span></div>
             </section>
           </div>
           <section class="card">
@@ -402,6 +402,7 @@ export default {
   },
   beforeUnmount() { clearTimeout(this.phoneTimer); },
   computed: {
+    updDirty() { const l = this.lead, u = this.upd; return !!l && !!u && ((u.assignedToUid || '') !== (l.assignedToUid || '') || u.status !== l.status || !!(u.note || '').trim()); },
     canAssign() { return ASSIGNERS.includes(me.role); },
     canLog() { return LOGGERS.includes(me.role); },
     who() { const t = this.tenant, l = this.lead || {}; return t ? { name: t.name, phone: t.phone, email: t.email } : { name: l.contactName, phone: l.phone, email: l.email }; },
@@ -413,6 +414,7 @@ export default {
     deposit() { return toCents(this.bk.monthlyRent) * 2; }
   },
   methods: {
+    discardUpdate() { const l = this.lead; this.upd = { assignedToUid: l.assignedToUid || '', status: l.status, note: '' }; this.formError = ''; },
     // Everyone who should hear about a new inquiry or a status change
     // (the roles must match NOTIFY_ROLES / the Firestore rules)
     inquiryRoles() { return ['finance', 'director', 'operations']; },
@@ -898,4 +900,6 @@ export default {
     .ezee-add .input { flex: 1; min-width: 0; }
     .head-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     @media (max-width: 640px) { .status-opts { grid-template-columns: minmax(0,1fr); } }
+    .upd-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-start; }
+    .upd-actions .unsaved-note { font-size: 11px; color: #A9AFBA; font-weight: 400; }
 </style>

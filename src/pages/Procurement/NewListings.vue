@@ -163,7 +163,7 @@
               </template>
               <div class="kv" v-if="d.agreement.signed && d.agreement.signedDuringStage"><span>Recorded</span><span>{{ `Signed during ${d.agreement.signedDuringStage}` }}</span></div>
               <p class="help" v-if="d.agreement.signed && d.agreement.skipNote">{{ `Earlier skipped: ${d.agreement.skipNote}` }}</p>
-              <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn btn-primary" @click="save()" :disabled="busy">Save</button></div>
+              <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn" v-if="dirty" @click="discard()" :disabled="busy">Discard changes</button><button class="btn btn-primary" @click="save()" :disabled="busy">Save</button></div>
             </section>
 
             <!-- 2. Renovation -->
@@ -217,7 +217,7 @@
                   <p class="pre" v-else>{{ d.renovation.ownerNotes || '—' }}</p>
                   <button class="btn copy" @click="copy(d.renovation.ownerNotes)" :disabled="!d.renovation.ownerNotes.trim()">Copy for WhatsApp</button></div>
               </div>
-              <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn btn-primary" @click="save()" :disabled="busy">Save</button></div>
+              <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn" v-if="dirty" @click="discard()" :disabled="busy">Discard changes</button><button class="btn btn-primary" @click="save()" :disabled="busy">Save</button></div>
             </section>
 
             <!-- 3. Furniture -->
@@ -262,7 +262,7 @@
                 <template v-for="f in FURN" :key="f.key"><div class="kv"><span>{{ f.label }}</span><span>{{ rm(sum(d.furniture[f.key])) }}</span></div></template>
                 <div class="kv total"><span>Total</span><span>{{ rm(furnTotal(d)) }}</span></div>
               </div>
-              <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn btn-primary" @click="save()" :disabled="busy">Save</button></div>
+              <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn" v-if="dirty" @click="discard()" :disabled="busy">Discard changes</button><button class="btn btn-primary" @click="save()" :disabled="busy">Save</button></div>
             </section>
 
             <!-- 4. Final quotation & payment -->
@@ -285,7 +285,7 @@
               <p class="help">Payment confirmed sends the Marketing team a notification about this listing.</p>
               <div class="actions" v-if="canEdit">
                 <span class="muted" v-show="dirty">Unsaved changes</span>
-                <button class="btn" @click="save()" :disabled="busy">Save</button>
+                <button class="btn" v-if="dirty" @click="discard()" :disabled="busy">Discard changes</button><button class="btn" @click="save()" :disabled="busy">Save</button>
                 <button class="btn btn-primary" v-if="!d.payment.confirmed" @click="confirmPayment()" :disabled="busy">Payment confirmed</button>
               </div>
             </section>
@@ -320,7 +320,7 @@
               </template>
               <div class="actions" v-if="canEdit && !d.live.live">
                 <span class="muted" v-show="dirty">Unsaved changes</span>
-                <button class="btn" @click="save()" :disabled="busy">Save</button>
+                <button class="btn" v-if="dirty" @click="discard()" :disabled="busy">Discard changes</button><button class="btn" @click="save()" :disabled="busy">Save</button>
                 <button class="btn btn-primary" @click="goLive()" :disabled="busy || !stageDone(d, 4)" :title="!d.payment.confirmed ? 'Confirm the payment first (stage 4)' : stageDone(d, 4) ? '' : 'Tick every marketing item first'">Go Live</button>
               </div>
               <p class="help" v-if="d.live.live">{{ `Live since ${stamp(d.live.at)}. Handover to Operations is in stage 6.` }}</p>
@@ -362,7 +362,7 @@
                     </div>
                   </template>
                 </div>
-                <button class="btn" v-if="canEdit" @click="save()" :disabled="busy">Save</button></div></div>
+                <button class="btn" v-if="dirty" @click="discard()" :disabled="busy">Discard changes</button><button class="btn" v-if="canEdit" @click="save()" :disabled="busy">Save</button></div></div>
               </div>
               </div>
               <div class="kv" v-if="l.portfolio && (l.portfolio.propertyId || l.portfolio.unitId || l.portfolio.ownerId)"><span>In Portfolio</span>
@@ -379,7 +379,7 @@
                 <div class="field"><label for="dPhone">Owner phone</label><input class="input" id="dPhone" v-model="c.ownerPhone" inputmode="tel"></div>
                 <div class="field"><label for="dEmail">Owner email</label><input class="input" id="dEmail" type="email" v-model="c.ownerEmail"></div>
                 <div class="field span2"><label for="dDesc">Description</label><textarea class="input" id="dDesc" v-model="d.description"></textarea></div>
-                <div class="actions span2"><button class="btn btn-primary" @click="save()" :disabled="busy">Save details</button></div>
+                <div class="actions span2"><button class="btn" v-if="dirty" @click="discard()" :disabled="busy">Discard changes</button><button class="btn btn-primary" @click="save()" :disabled="busy">Save details</button></div>
               </div>
               <div class="d-grid" v-else>
                 <div class="kv"><span>Property</span><span>{{ d.property || '—' }}</span></div>
@@ -735,6 +735,7 @@ export default {
       this.d = clone(this.saved);
       this.tab = currentIdxOf(this.d);
     },
+    discard() { this.d = clone(this.saved); this.c = { ...this.c0 }; this.formError = ''; },
     draftOf(l) { return clone(Object.fromEntries([...DETAILS.map(x => x[0]), ...SECTIONS].map(k => [k, l[k]]))); },
     // The linked tasks (Procurement and Marketing), read once on open and on Refresh.
     async loadTasks() {
