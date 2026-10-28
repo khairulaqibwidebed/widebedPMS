@@ -109,15 +109,12 @@
           <div class="confirm-box" v-show="returning">
             <div class="field"><label for="saWhy">Why is it sent back? <span style="color:#d92d20">*required</span></label><input class="input" id="saWhy" v-model="returnReason" placeholder="e.g. Cleaning fee looks wrong"></div>
           </div>
-          <div class="confirm-box" v-show="sel.again">
-            <div class="field"><label for="saOv">Reason for the new revision (reopened statement) <span style="color:#d92d20">*required</span></label><input class="input" id="saOv" v-model="overrideReason"></div>
-          </div>
         </div>
         <div class="drawer-foot">
           <button class="btn" v-show="!returning" @click="startReturn()" :disabled="busy">Send back</button>
           <button class="btn" v-show="returning" @click="returning = false" :disabled="busy">Cancel</button>
           <button class="btn btn-primary" v-show="returning" @click="sendBack()" :disabled="busy || !returnReason.trim()">Send back to Finance</button>
-          <button class="btn btn-primary" v-show="!returning" @click="approveOne()" :disabled="busy || (sel.again && !overrideReason.trim())">{{ busy ? 'Approving…' : 'Approve' }}</button>
+          <button class="btn btn-primary" v-show="!returning" @click="approveOne()" :disabled="busy">{{ busy ? 'Approving…' : 'Approve' }}</button>
         </div>
       </aside>
     </template>
@@ -223,6 +220,9 @@ export default {
     },
     async approveOne() {
       const a = this.sel; if (!a || this.busy) return;
+      const ok = await askConfirm({ title: `Approve ${a.unitCode}?`,
+        message: `This completes and locks ${a.unitCode} for ${monthName(a.month)}. Payout to owner: RM ${amt(a.payout)}.`, confirmText: 'Approve & complete' });
+      if (!ok) return;
       this.busy = true; this.drawerError = '';
       try {
         const ctx = await this.monthContext(a.propertyId, a.month);

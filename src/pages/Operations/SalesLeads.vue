@@ -12,12 +12,14 @@
             <h1>Offline inquiries</h1>
             <div class="sub">{{ canAssign ? 'Log offline inquiries and assign each one to an Operations member to follow up.' : 'Log offline inquiries. A Director assigns each one to an Operations member to follow up.' }}</div>
           </div>
-          <button class="btn btn-primary" v-if="canLog" @click="go('new')">+ Log inquiry</button>
         </div>
-        <div class="pills brand count-pills" style="margin-bottom:16px">
+        <div class="pills-row" style="margin-bottom:16px">
+        <div class="pills brand count-pills">
           <template v-for="f in FILTERS" :key="f.key">
             <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ `${f.label} · ${count(f.key)}` }}</button>
           </template>
+        </div>
+        <button class="btn btn-primary" v-if="canLog" @click="go('new')">+ Log inquiry</button>
         </div>
         <section class="card">
           <Paged :items="shown()" v-slot="{ pageRows }">
@@ -70,19 +72,22 @@
             <div class="sub">{{ canAssign ? 'Record an offline inquiry and assign it to an Operations member to follow up.' : 'Record an offline inquiry. A Director assigns it to an Operations member.' }}</div>
           </div>
           <div class="head-tools">
+            <button class="btn info-btn" type="button" @click="nextOpen = true" aria-label="What happens next" title="What happens next">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </button>
             <button class="btn" @click="go('list')">Cancel</button>
             <button class="btn btn-primary" @click="saveNew()" :disabled="busy">{{ canAssign ? 'Save and assign' : 'Save' }}</button>
           </div>
         </div>
         <div class="notice error" v-show="formError">{{ formError }}</div>
-        <div class="side-grid">
+        <div>
           <div class="form-card">
             <section class="card">
               <h2>Inquiry</h2>
               <div class="grid-fields">
                 <div class="field"><label for="lLooking">Looking for</label><input class="input" id="lLooking" v-model="form.lookingFor" placeholder="e.g. Monthly rental, 2 bedrooms, Ampang"></div>
                 <div class="field"><label for="lSource">Source</label>
-                  <select class="input" id="lSource" v-model="form.source"><template v-for="s in SOURCES" :key="s"><option :value="s">{{ s }}</option></template></select></div>
+                  <OptionPicker class="fld-pick" v-model="form.source" :options="SOURCES.map(x => ({ value: x, label: x }))" label="Source" /></div>
                 <div class="field"><label for="lBudget">Budget</label><input class="input" id="lBudget" v-model="form.budget" placeholder="e.g. RM 2,200 a month"></div>
                 <div class="field"><label for="lView">Preferred viewing</label><input class="input" id="lView" type="date" v-model="form.viewing"></div>
               </div>
@@ -99,10 +104,7 @@
             <section class="card" v-if="canAssign">
               <h2>Assign to</h2>
               <div class="field" style="max-width:340px;margin:0"><label for="lAssign">Operations member</label>
-                <select class="input" id="lAssign" v-model="form.assignedTo">
-                  <option value="">Assign later</option>
-                  <template v-for="s in staff" :key="s.uid"><option :value="s.uid">{{ s.name }}</option></template>
-                </select>
+                <OptionPicker class="fld-pick" v-model="form.assignedTo" :options="[{ value: '', label: 'Assign later' }, ...staff.map(x => ({ value: x.uid, label: x.name }))]" label="Operations member" />
                 <span class="help" v-show="!staff.length">No Operations staff yet. Save it unassigned and assign it later.</span></div>
             </section>
             <section class="card">
@@ -118,15 +120,20 @@
               <textarea class="input" style="height:80px" v-model="form.note" placeholder="e.g. Walked in, wants to view this weekend" aria-label="Note"></textarea>
             </section>
           </div>
-          <section class="card next-list">
-            <div class="card-head"><h2>What happens next</h2></div>
-            <p v-if="!canAssign">- A Director assigns it to an Operations member.</p>
-            <p>- The assigned Operations member sees the inquiry in their Offline inquiries list.</p>
-            <p>- They update the status after each follow-up, from a computer or phone.</p>
-            <p>- When the customer pays, Create booking saves them as a tenant and makes the booking.</p>
-          </section>
         </div>
       </div>
+    <div class="modal-back" v-if="nextOpen" @click.self="nextOpen = false" v-esc="() => { nextOpen = false }">
+      <div class="modal" role="dialog" aria-label="What happens next" style="max-width:520px;width:calc(100% - 32px)">
+        <h2>What happens next</h2>
+        <div class="next-list">
+          <p v-if="!canAssign">- A Director assigns it to an Operations member.</p>
+          <p>- The assigned Operations member sees the inquiry in their Offline inquiries list.</p>
+          <p>- They update the status after each follow-up, from a computer or phone.</p>
+          <p>- When the customer pays, Create booking saves them as a tenant and makes the booking.</p>
+        </div>
+        <div class="modal-foot"><button class="btn" @click="nextOpen = false">Close</button></div>
+      </div>
+    </div>
     </template>
 
     <!-- One inquiry -->
@@ -165,11 +172,7 @@
             <section class="card">
               <div class="card-head"><h2>Update this inquiry</h2></div>
               <div class="field" style="max-width:340px"><label for="uAssign">Assigned to</label>
-                <select class="input" id="uAssign" v-model="upd.assignedToUid" :disabled="!canAssign">
-                  <option value="">{{ canAssign && !staff.length ? 'No Operations staff yet' : 'Not assigned' }}</option>
-                  <option v-if="lead.assignedToUid && !staff.some(s => s.uid === lead.assignedToUid)" :value="lead.assignedToUid">{{ lead.assignedTo }}</option>
-                  <template v-for="s in staff" :key="s.uid"><option :value="s.uid" :selected="s.uid === upd.assignedToUid">{{ s.name }}</option></template>
-                </select></div>
+                <OptionPicker class="fld-pick" v-model="upd.assignedToUid" :disabled="!canAssign" :options="[{ value: '', label: canAssign && !staff.length ? 'No Operations staff yet' : 'Not assigned' }, ...(lead.assignedToUid && !staff.some(x => x.uid === lead.assignedToUid) ? [{ value: lead.assignedToUid, label: lead.assignedTo }] : []), ...staff.map(x => ({ value: x.uid, label: x.name }))]" label="Assigned to" /></div>
               <div class="field" v-if="lead.status !== 'booked'"><label>Status</label>
                 <div class="status-opts">
                   <template v-for="k in PICKABLE" :key="k">
@@ -180,14 +183,6 @@
                 <textarea class="input" id="uNote" v-model="upd.note" placeholder="e.g. Called back, viewing booked for Saturday"></textarea></div>
               <div class="notice error" v-show="formError && !editing">{{ formError }}</div>
               <div class="actions"><button class="btn btn-primary" @click="saveUpdate()" :disabled="busy">Save update</button></div>
-            </section>
-            <section class="card">
-              <div class="card-head"><h2>History</h2></div>
-              <div class="hist">
-                <template v-for="(h, i) in lead.history.slice().reverse()" :key="i">
-                  <div><small>{{ `${stamp(h.at)} · ${h.by}` }}</small><span>{{ h.text }}</span></div>
-                </template>
-              </div>
             </section>
           </div>
           <section class="card">
@@ -231,10 +226,23 @@
             </template>
             <div class="kv"><span>Budget</span><span>{{ lead.budget || '—' }}</span></div>
             <div class="kv"><span>Preferred viewing</span><span>{{ lead.viewing ? short(lead.viewing) : '—' }}</span></div>
+            <button class="btn" style="width:100%;margin-top:12px" @click="histOpen = true">{{ `History (${lead.history.length})` }}</button>
           </section>
         </div>
       </div>
     </template>
+
+    <div class="modal-back" v-if="histOpen && lead" @click.self="histOpen = false" v-esc="() => { histOpen = false }">
+      <div class="modal" role="dialog" aria-label="History" style="max-width:560px;width:calc(100% - 32px)">
+        <h2>{{ `${lead.id} · History` }}</h2>
+        <div class="hist" style="max-height:60vh;overflow:auto">
+          <template v-for="(h, i) in lead.history.slice().reverse()" :key="i">
+            <div><small>{{ `${stamp(h.at)} · ${h.by}` }}</small><span>{{ h.text }}</span></div>
+          </template>
+        </div>
+        <div class="modal-foot"><button class="btn" @click="histOpen = false">Close</button></div>
+      </div>
+    </div>
 
     <!-- Create booking -->
     <template v-if="view === 'book' && (lead || direct)">
@@ -269,15 +277,9 @@
               <h2>Stay</h2>
               <div class="grid-fields">
                 <div class="field"><label for="bProp">Property</label>
-                  <select class="input" id="bProp" v-model="bk.propertyId" @change="loadUnitList()">
-                    <option value="">Choose property</option>
-                    <template v-for="p in properties" :key="p.id"><option :value="p.id">{{ p.name }}</option></template>
-                  </select></div>
+                  <OptionPicker class="fld-pick" v-model="bk.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" @change="loadUnitList()" /></div>
                 <div class="field"><label for="bUnit">Unit</label>
-                  <select class="input" id="bUnit" v-model="bk.unitId" :disabled="!bk.propertyId">
-                    <option value="">{{ bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }}</option>
-                    <template v-for="u in units" :key="u.id"><option :value="u.unitCode"></option></template>
-                  </select></div>
+                  <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="[{ value: '', label: bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" /></div>
                 <div class="field"><label for="bIn">Check-in</label><input class="input" id="bIn" type="date" v-model="bk.arrival"></div>
                 <div class="field"><label for="bOut">Check-out</label><input class="input" id="bOut" type="date" v-model="bk.departure"></div>
               </div>
@@ -327,6 +329,7 @@ import { collection, collectionGroup, doc, getDoc, getDocs, query, where, orderB
   arrayUnion, serverTimestamp, getCountFromServer } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
+import OptionPicker from '@/components/OptionPicker.vue';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
@@ -370,9 +373,10 @@ async function findTenant(phone) {
 const privateOf = async ref => { const s = await getDoc(doc(ref, 'private', 'main')); return s.exists() ? s.data() : {}; };
 
 export default {
+  components: { OptionPicker },
   data() {
     return {
-      STATUS, FILTERS, SOURCES, PICKABLE,
+      nextOpen: false, histOpen: false, STATUS, FILTERS, SOURCES, PICKABLE,
       leads: [], staff: [], tenant: null, booking: null, tenantStays: 0, known: null,
       view: 'list', lead: null, filter: 'all', okMsg: '', formError: '', error: '', loading: true, busy: false,
       direct: false, form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}, bk: {}, properties: [], units: []
@@ -858,6 +862,13 @@ export default {
 </script>
 
 <style scoped>
+    .pills-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .info-btn { padding: 8px 10px; color: var(--accent); border: 1.5px solid var(--accent); }
+    .info-btn:hover { background: var(--accent-soft); }
+    .next-list p { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
+    .fld-pick { display: block; width: 100%; }
+    .fld-pick :deep(.op-btn) { width: 100%; min-height: 40px; }
+    .fld-pick :deep(.op-pop) { max-width: none; width: 100%; }
     .count-pills .pill-btn { height: 26px; font-size: 12px; padding: 0 10px; }
     .assign-sel { height: 26px; font-size: 12px; font-weight: 500; border-radius: 999px; border: 0; padding: 0 22px 0 10px; background-color: var(--accent-soft); color: var(--accent);
       background-position: calc(100% - 13px) 11px, calc(100% - 9px) 11px; }
@@ -868,6 +879,7 @@ export default {
     .status-opts { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
     .status-opt { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; text-align: left; }
     .status-opt::before { content: ""; width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--text-2); flex: none; }
+    .status-opt:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); cursor: pointer; }
     .status-opt.on { border-color: var(--accent); background: var(--accent-soft); }
     .status-opt.on::before { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 2px var(--surface); }
     .next-list p { margin: 0 0 10px; font-size: 13px; color: var(--text-2); }

@@ -35,7 +35,9 @@ export async function completeStatement({ r, propertyId, month, me, unitIds, don
   const again = prev?.status === 'reopened';
   if (r.status === 'completed' || prev?.status === 'completed') throw new Error(`${r.unitCode} is already completed.`);
   if (me.role !== 'director') throw new Error('Only a Director approves a statement.');
-  if (again && !overrideReason.trim()) throw new Error('Add the reason for the new revision.');
+  // The reopen already carries the Director's reason; that is the reason for the new revision.
+  const reason = (overrideReason || prev?.reopenReason || '').trim();
+  if (again && !reason) throw new Error('This reopened statement has no reopen reason.');
   if (nextSnap.exists() && nextSnap.data().status === 'completed') throw new Error(`${r.unitCode} is already completed for ${monthName(next)}, so its balance can't carry forward into it.`);
 
   // Next month's unit is frozen (sent to the Director): its brought-forward line can't be added or removed until it is decided.
@@ -56,7 +58,7 @@ export async function completeStatement({ r, propertyId, month, me, unitIds, don
     fileName: null, importedBy: me.user.uid, importedByName: me.name, importedAt: serverTimestamp() });
   // The old revision was saved when the unit was reopened (the rules check it exists before allowing the new revision)
   b.set(doc(db, 'statements', id), { ...r, status: 'completed', revision: (prev?.revision || 0) + 1,
-    ...(again ? { overrideReason: overrideReason.trim() } : {}),
+    ...(again ? { overrideReason: reason } : {}),
     ...(approval ? { sentBy: approval.submittedBy || null, sentByName: approval.submittedByName || '', sentAt: approval.submittedAt || null } : {}),
     completedBy: me.user.uid, completedByName: me.name, completedAt: serverTimestamp() });
   if (r.totals.payout < 0 && nextFrozen) throw new Error(`${r.unitCode} is sent to the Director for ${monthName(next)}, so its negative balance can't carry forward yet. Approve or send back ${monthName(next)} first.`);
@@ -72,7 +74,7 @@ export async function completeStatement({ r, propertyId, month, me, unitIds, don
   if (nextChanged) markDirty(b, propertyId, next, [r.unitId]);
   if (approval) b.update(doc(db, 'approvals', id), { status: 'approved', approvedBy: me.user.uid, approvedByName: me.name, approvedAt: serverTimestamp() });
   audit(b, me, { action: again ? 'statement.override' : 'statement.complete', entity: `statements/${id}`,
-    propertyId, month, changes: [{ field: 'status', old: again ? 'reopened' : approval ? 'sent' : 'open', new: 'completed' }], reason: overrideReason.trim() });
+    propertyId, month, changes: [{ field: 'status', old: again ? 'reopened' : approval ? 'sent' : 'open', new: 'completed' }], reason });
   await b.commit();
   return { monthDoc, again };
 }

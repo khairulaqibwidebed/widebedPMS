@@ -83,10 +83,7 @@
             </div>
             <div class="field">
               <label for="eUnit">Unit</label>
-              <select class="input" id="eUnit" v-model="panel.unitId" required>
-                <option value="">Choose a unit</option>
-                <template v-for="opt in units" :key="opt.id"><option :value="opt.id" :selected="opt.id === panel.unitId" :disabled="panel.month === month && unitDone(opt.id)">{{ opt.unitCode + (panel.month === month && unitDone(opt.id) ? ' (completed)' : '') }}</option></template>
-              </select>
+              <OptionPicker class="unit-pick" v-model="panel.unitId" :options="unitOptions()" label="Unit" />
             </div>
             <div class="grid-fields">
               <div class="field"><label for="eDate">Date</label><input class="input" id="eDate" type="date" v-model="panel.date" required></div>
@@ -223,6 +220,10 @@ export default {
     },
     // Completion is per unit: a completed unit's lines for this month are read-only, other units stay open.
     unitDone(id) { return this.doneUnits.includes(id); },
+    unitOptions() {
+      const closed = this.panel && this.panel.month === this.month;
+      return [{ value: '', label: 'Choose a unit' }, ...this.units.map(o => { const done = closed && this.unitDone(o.id); return { value: o.id, label: o.unitCode + (done ? ' (completed)' : ''), disabled: done }; })];
+    },
     canEdit(e) { return !this.completed && !this.unitDone(e.unitId) && !e.auto; },
 
     openAdd() {
@@ -305,6 +306,9 @@ export default {
 </script>
 
 <style scoped>
+    .unit-pick { display: block; width: 100%; }
+    .unit-pick :deep(.op-btn) { width: 100%; min-height: 40px; }
+    .unit-pick :deep(.op-pop) { max-width: none; width: 100%; }
     .table tr.bf td { background: color-mix(in srgb, var(--amber-soft) 45%, var(--surface)); }
     .pos-amt { color: var(--green); }
     .table tfoot td { font-weight: 600; }

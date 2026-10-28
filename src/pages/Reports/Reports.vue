@@ -7,16 +7,14 @@
         <h1>Reports</h1>
         <div class="sub">Property and unit figures for any dates you pick · from bookings, settings and expenses in the PMS</div>
       </div>
-      <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="changeProperty()" />
-      </div>
     </div>
 
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice warn" v-show="!loading && !properties.length">No properties yet. Upload an eZee report first; it creates the property and its units.</div>
 
     <section class="card" style="margin-bottom:20px">
-      <div class="card-head"><h2>What to report</h2></div>
+      <div class="card-head"><h2>What to report</h2>
+        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="changeProperty()" /></div>
       <div class="seg" style="max-width:420px" role="tablist" aria-label="Report type">
         <button type="button" :class="{ on: kind === 'property' }" @click="kind = 'property'; run()">Property report</button>
         <button type="button" :class="{ on: kind === 'unit' }" @click="kind = 'unit'; run()">Unit report</button>
@@ -26,9 +24,7 @@
         <div class="field"><label for="rTo">To</label><input class="input" id="rTo" type="date" v-model="to" @change="run()"></div>
         <div class="field" v-show="kind === 'unit'">
           <label for="rUnit">Unit</label>
-          <select class="input" id="rUnit" v-model="unitId" @change="run()">
-            <template v-for="uu in units" :key="uu.id"><option :value="uu.id" :selected="uu.id === unitId">{{ uu.unitCode }}</option></template>
-          </select>
+          <OptionPicker class="unit-pick" v-model="unitId" :options="units.map(uu => ({ value: uu.id, label: uu.unitCode }))" label="Unit" @change="run()" />
         </div>
       </div>
       <div class="quick">
@@ -43,8 +39,15 @@
       <div class="card-head">
         <h2>{{ title() }}</h2>
         <div class="head-tools">
-          <button class="btn" @click="downloadCSV()" :disabled="!report || !report.rows.length">Download CSV</button>
-          <button class="btn btn-primary" @click="downloadXlsx()" :disabled="!report || !report.rows.length || busy">{{ busy ? 'Preparing…' : 'Download .xlsx' }}</button>
+          <div class="dl-wrap">
+            <button class="btn btn-primary" type="button" @click="dlOpen = !dlOpen" :disabled="!report || !report.rows.length || busy" aria-haspopup="menu" :aria-expanded="String(dlOpen)">{{ busy ? 'Preparing…' : 'Download' }}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="dl-back" v-if="dlOpen" @click="dlOpen = false"></div>
+            <div class="dl-menu" v-if="dlOpen" role="menu">
+              <button role="menuitem" @click="dlOpen = false; downloadXlsx()">Excel (.xlsx)</button>
+              <button role="menuitem" @click="dlOpen = false; downloadCSV()">Excel (.csv)</button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="rep-head">
@@ -139,7 +142,7 @@ export default {
   data() {
     return {
       ARR, QUICK, amt, me,
-      properties: [], propertyId: params.get('property') || lastProperty(), units: [], unitId: '', rateVersions: [],
+      dlOpen: false, properties: [], propertyId: params.get('property') || lastProperty(), units: [], unitId: '', rateVersions: [],
       kind: params.get('kind') === 'unit' ? 'unit' : 'property',
       from: params.get('from') || quickRange('lastMonth')[0], to: params.get('to') || quickRange('lastMonth')[1],
       cache: { bookings: {}, expenses: {} },
@@ -261,6 +264,15 @@ export default {
 </script>
 
 <style scoped>
+    .dl-wrap { position: relative; }
+    .dl-wrap > .btn { display: inline-flex; align-items: center; gap: 6px; }
+    .dl-back { position: fixed; inset: 0; z-index: 20; }
+    .dl-menu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 0; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
+    .dl-menu button { text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; }
+    .dl-menu button:hover { background: var(--accent-soft); color: var(--accent); }
+    .unit-pick { display: block; width: 100%; }
+    .unit-pick :deep(.op-btn) { width: 100%; min-height: 40px; }
+    .unit-pick :deep(.op-pop) { max-width: none; width: 100%; }
     .rep-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: end; }
     .rep-form .field { margin: 0; }
     .rep-form .input, .rep-form select.input { height: 38px; }

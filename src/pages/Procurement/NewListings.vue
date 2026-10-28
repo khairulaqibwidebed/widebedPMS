@@ -117,10 +117,6 @@
             <h1>{{ `${l.id} · ${placeOf(l)}` }}</h1>
             <div class="sub">{{ `Started ${full(l.startedOn)} by ${l.createdByName || '—'}${l.ownerName ? ' · owner ' + l.ownerName : ''}` }}</div>
           </div>
-          <div class="head-tools">
-            <span class="pill" :class="l.status === 'live' ? 'green' : 'blue'">{{ l.status === 'live' ? 'Live' : 'In progress' }}</span>
-            <span class="pill" :class="tmsState(l)[1]">{{ tmsState(l)[0] }}</span>
-          </div>
         </div>
 
         <div class="notice warn unsent" v-if="l.tmsTaskId && l.tmsSync?.pending">
@@ -347,19 +343,30 @@
               <div class="form-sec">Handover to Operations</div>
               <label class="tick" v-if="canEdit"><input type="checkbox" v-model="d.live.opsGroup"> Ops WhatsApp group made</label>
               <div class="kv" v-else><span>Ops WhatsApp group made</span><span>{{ d.live.opsGroup ? 'Yes' : 'No' }}</span></div>
+              <div class="ho-line">
               <template v-if="canAddPortfolio">
-                <p class="help">{{ 'Each button opens the Portfolio add form filled in from this listing. Check it and press Save there.'
+                <p class="help">{{ 'Each option opens the Portfolio add form filled in from this listing. Check it and press Save there.'
                   + (canSeeContact ? '' : ' Owner phone and email are not filled in: only Directors, Procurement and Operations see them.') }}</p>
-                <div class="handover">
-                  <button class="btn" @click="toPortfolio('property')">Create property</button>
-                  <button class="btn" @click="toPortfolio('unit')">Create unit</button>
-                  <button class="btn" @click="toPortfolio('owner')">Create owner</button>
-                </div>
               </template>
               <p class="help" v-else>Operations creates these from this listing (the property, unit and owner in Portfolio).</p>
+              <div class="ho-foot">
+                <div class="ho-btns"><span class="muted" v-show="dirty && canEdit">Unsaved changes</span>
+<div class="ho-row"><div class="create-wrap" v-if="canAddPortfolio">
+                  <button class="btn" @click="createOpen = !createOpen">Create ▾</button>
+                  <template v-if="createOpen">
+                    <div class="create-back" @click="createOpen = false"></div>
+                    <div class="create-menu">
+                      <button @click="createOpen = false; toPortfolio('property')">Property</button>
+                      <button @click="createOpen = false; toPortfolio('unit')">Unit</button>
+                      <button @click="createOpen = false; toPortfolio('owner')">Owner</button>
+                    </div>
+                  </template>
+                </div>
+                <button class="btn" v-if="canEdit" @click="save()" :disabled="busy">Save</button></div></div>
+              </div>
+              </div>
               <div class="kv" v-if="l.portfolio && (l.portfolio.propertyId || l.portfolio.unitId || l.portfolio.ownerId)"><span>In Portfolio</span>
                 <span>{{ [l.portfolio.propertyId && `property ${l.portfolio.propertyId}`, l.portfolio.unitId && `unit ${l.portfolio.unitId}`, l.portfolio.ownerId && 'owner added'].filter(Boolean).join(' · ') }}</span></div>
-              <div class="actions" v-if="canEdit"><span class="muted" v-show="dirty">Unsaved changes</span><button class="btn" @click="save()" :disabled="busy">Save</button></div>
             </section>
 
             <section class="card" aria-label="Listing details" v-if="tab === 0">
@@ -392,6 +399,8 @@
             <section class="card" aria-label="Task system">
               <div class="card-head"><h2>Task system</h2><button class="editlink" @click="loadTasks()" :disabled="tasksLoading" v-if="l.tmsTaskId || d.marketing.taskId">Refresh</button></div>
               <template v-if="l.tmsTaskId">
+                <div class="kv"><span>Listing status</span><span class="pill" :class="l.status === 'live' ? 'green' : 'blue'">{{ l.status === 'live' ? 'Live' : 'In progress' }}</span></div>
+                <div class="kv"><span>Task link</span><span class="pill" :class="tmsState(l)[1]">{{ tmsState(l)[0] }}</span></div>
                 <div class="kv"><span>Procurement task</span><span>{{ procTask ? `${procTask.completed ? 'Completed' : procTask.status || 'Open'} · ${procTask.subtasksDone} of ${procTask.subtasksTotal}` : l.tmsSync?.linked === false ? 'Not linked yet' : tasksError ? 'Could not read' : '…' }}</span></div>
                 <div class="kv"><span>Last sent</span><span>{{ l.tmsSync?.pending ? 'Not sent' : stamp(l.tmsSync?.at) || '—' }}</span></div>
               </template>
@@ -399,16 +408,20 @@
               <div class="kv" v-if="d.marketing.taskId"><span>Marketing task</span><span>{{ mkTask ? `${mkTask.completed ? 'Completed' : mkTask.status || 'Open'} · ${mkTask.subtasksDone} of ${mkTask.subtasksTotal}` : tasksError ? 'Could not read' : '…' }}</span></div>
               <p class="help" v-show="tasksError">{{ tasksError }}</p>
               <button type="button" class="btn view-details" @click="showDetails = true">View details</button>
+              <button type="button" class="btn view-details" style="margin-top:8px" @click="histOpen = true">{{ `History (${l.history.length})` }}</button>
             </section>
-            <section class="card" aria-label="History">
-              <div class="card-head"><h2>History</h2></div>
+          </div>
+        </div>
+        <div class="modal-back" v-if="histOpen" @click.self="histOpen = false" v-esc="() => { histOpen = false }">
+          <div class="modal" role="dialog" aria-label="History" style="max-width:560px;width:calc(100% - 32px)">
+            <div class="card-head"><h2>History</h2></div>
               <div class="hist timeline">
                 <template v-for="(h, i) in l.history.slice().reverse()" :key="i">
                   <div><small>{{ `${stamp(h.at)} · ${h.by}` }}</small><span>{{ h.text }}</span></div>
                 </template>
                 <p class="muted" v-show="!l.history.length">Nothing yet.</p>
               </div>
-            </section>
+            <div class="modal-foot"><button type="button" class="btn" @click="histOpen = false">Close</button></div>
           </div>
         </div>
         <div class="modal-back" v-if="showDetails" @click.self="showDetails = false" v-esc="() => { showDetails = false }">
@@ -640,7 +653,7 @@ function summarize(a, b, contactChanged) {
 
 export default {
   data() {
-    return {
+    return { createOpen: false,
       STAGES, RSTATUS, FURN, PAY_LINKS, FILTERS, FEE_PCT,
       canEdit: EDITORS.includes(me.role), hasInbox: ['director', 'procurement'].includes(me.role), isDirector: me.role === 'director',
       canAddPortfolio: PORTFOLIO_ADDERS.includes(me.role), canSeeContact: CONTACT_READERS.includes(me.role),
@@ -648,7 +661,7 @@ export default {
       tasks: [], inboxLoading: false, inboxError: '',
       l: null, saved: null, d: null, c: { ownerPhone: '', ownerEmail: '' }, c0: { ownerPhone: '', ownerEmail: '' },
       tab: 0, linkAdd: { label: '', url: '' }, pasteOpen: '', pasteText: '', mkAdd: '', liveReason: '',
-      linked: [], tasksLoading: false, tasksError: '', showDetails: false, properties: [], propNew: {},
+      linked: [], tasksLoading: false, tasksError: '', showDetails: false, histOpen: false, properties: [], propNew: {},
       form: {}, formError: '', okMsg: '', error: '', loading: true, busy: false
     };
   },
@@ -1001,6 +1014,21 @@ export default {
 
 <style scoped>
     .back { display: inline-block; color: var(--accent); font-size: 13px; font-weight: 500; margin-bottom: 14px; background: none; border: 0; padding: 0; cursor: pointer; }
+    .title-pills { display: flex; gap: 8px; margin: 6px 0 4px; }
+    .ho-line { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+    .ho-line > .help, .ho-line > template { flex: 1 1 320px; }
+    .ho-foot { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; margin-left: auto; }
+    .ho-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .ho-btns { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .ho-btns > .muted { position: absolute; right: 0; bottom: calc(100% + 6px); white-space: nowrap; }
+    .ho-row { display: flex; gap: 8px; }
+    .ho-btns .create-wrap { position: relative; width: 120px; }
+    .handover.create-wrap { position: relative; display: block; width: 120px; margin-left: auto; }
+    .create-wrap > .btn { width: 100%; }
+    .create-back { position: fixed; inset: 0; z-index: 20; }
+    .create-menu { position: absolute; left: 0; right: 0; width: 100%; bottom: calc(100% + 4px); z-index: 21; background: var(--card, #fff); border: 1px solid var(--line, #e5e5e5); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.12); padding: 4px; display: flex; flex-direction: column; }
+    .create-menu button { text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 6px; font: inherit; cursor: pointer; }
+    .create-menu button:hover { background: var(--brand-soft, #fde8e2); }
     .head-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .form-card { display: grid; gap: 16px; min-width: 0; align-content: start; }
     .form-card h2 { font-size: 15px; margin: 0; }

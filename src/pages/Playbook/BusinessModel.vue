@@ -129,7 +129,6 @@ export default {
 <style scoped>
     .head-tools { align-self: flex-end; }
     .edit-outline { border: 1.5px solid var(--accent); color: var(--accent); transition: background .15s, color .15s; }
-    .edit-outline:hover:not(:disabled) { background: var(--accent); color: #fff; }
     .brief { padding: 20px 18px; }
     .brief h2 { font-size: 15px; margin: 0 0 12px; }
     .brief .body { font-size: 13px; color: var(--text); white-space: pre-line; line-height: 1.6; }

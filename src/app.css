@@ -39,7 +39,8 @@ button { font: inherit; cursor: pointer; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); font-weight: 600; white-space: nowrap; }
-.btn:hover { border-color: color-mix(in srgb, var(--border) 70%, var(--text)); }
+@media (hover: hover) { .btn:not(.btn-primary):not(.btn-danger):not(.btn-navy):hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); } }
+.btn:not(.btn-primary):not(.btn-danger):not(.btn-navy):focus-visible:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn-danger:hover { background: color-mix(in srgb, var(--danger) 86%, #000); border-color: color-mix(in srgb, var(--danger) 86%, #000); }
 .bell-btn { padding: 0; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; }
@@ -107,7 +108,7 @@ button { font: inherit; cursor: pointer; }
 .role-badge { background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700;
   letter-spacing: .04em; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; }
 
-.content { padding: 32px 40px 48px; max-width: 1760px; width: 100%; margin: 0 auto; box-sizing: border-box; }   /* sizing set in AppShell.vue */
+.content { padding: 32px 40px 48px; max-width: none; width: 100%; margin: 0; box-sizing: border-box; }   /* sizing set in AppShell.vue */
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
 .page-head h1 { font-size: 28px; margin: 0; letter-spacing: -.01em; }
 .page-head .sub { color: var(--muted); margin-top: 4px; font-size: 14px; }
@@ -396,9 +397,13 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 @media (max-width: 520px) { .form-row { flex-direction: column; align-items: flex-start; } }
 
 /* ---------- Table rows that light up in the theme colour on hover (Staff accounts, Audit logs) ---------- */
-.table.hover-rows tbody tr td { transition: background .15s, box-shadow .15s; }
-.table.hover-rows tbody tr:hover td { background: var(--accent-soft); }
-.table.hover-rows tbody tr:hover td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.table tbody tr td { transition: background .15s, box-shadow .15s; }
+@media (hover: hover) {
+  .table tbody tr:hover td { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+  .table.hover-rows tbody tr:hover td, .table tbody tr.clickable:hover td { background: var(--accent-soft); }
+  .table.hover-rows tbody tr:hover td:first-child, .table tbody tr.clickable:hover td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+}
+.table.hover-rows tbody tr:focus-within td { background: var(--accent-soft); }
 .table.hover-rows tbody tr:hover .name-btn { color: var(--accent); }
 /* Light grey body so a long list isn't all white */
 .soft-wrap tbody td { background: color-mix(in srgb, var(--text) 3%, var(--surface)); }
@@ -492,3 +497,7 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 .icon-btn.trash:disabled { opacity: .5; }
 
 .tk-body { min-height: 400px; }
+
+/* Pickers and drop-downs highlight in the theme colour on hover */
+.op-btn:focus-visible:not(:disabled), .op-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.select:hover:not(:disabled) { border-color: var(--accent); }   /* native list can't be themed, so only the border changes */

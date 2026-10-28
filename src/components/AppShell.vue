@@ -208,7 +208,7 @@ export default {
 /* Global content container for all views */
 /* Fills the space beside the sidebar (open or collapsed) and stays centred; only very wide screens hit the cap.
    Side padding grows with the screen so big monitors don't look cramped at the edges. */
-main.content {flex: 1;width: 100%;max-width: 1760px;margin: 0 auto;padding: clamp(20px, 2.2vw, 36px) clamp(16px, 3vw, 56px) 48px;box-sizing: border-box;}
+main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px, 2.2vw, 36px) clamp(16px, 3vw, 56px) 48px;box-sizing: border-box;}
 /* Ensure flex grids inside dashboards scale down on smaller screens */
 .grid-2 {display: grid;grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));gap: 20px;}
 

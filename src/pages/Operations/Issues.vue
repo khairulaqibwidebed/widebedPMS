@@ -166,10 +166,7 @@
               <template v-for="g in TAGS.filter(x => raise.tags.includes(x))" :key="g"><span class="tag-chip" :class="g === myRole && 'locked'" :title="g === myRole ? 'Your role is always tagged' : null">{{ g }}<button type="button" v-if="g !== myRole" @click="raise.tags = raise.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
               <span class="help" v-show="!raise.tags.length">No roles tagged</span>
             </div>
-            <select class="select" style="width:100%" aria-label="Add a role" v-show="raise.tags.length < TAGS.length" @change="if ($event.target.value) raise.tags.push($event.target.value); $event.target.value = ''">
-              <option value="">+ Add a role…</option>
-              <template v-for="g in TAGS.filter(x => !raise.tags.includes(x))" :key="g"><option :value="g">{{ g }}</option></template>
-            </select></div>
+            <OptionPicker class="add-role" v-show="raise.tags.length < TAGS.length" v-model="addPickR" :options="addOptionsR()" label="Add a role" @change="addTagR($event)" /></div>
           <div class="field" style="margin-bottom:6px"><label for="rLinkName">Add Drive link (optional)</label>
             <div class="link-add" style="margin-top:0">
               <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
@@ -275,7 +272,7 @@ export default {
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
-      menuOpen: false, addPick: '', tickets: [], ticket: null, replies: [], units: [], search: '', unitFilter: '',
+      menuOpen: false, addPick: '', addPickR: '', tickets: [], ticket: null, replies: [], units: [], search: '', unitFilter: '',
       // The dashboard links here with ?tag= (one team's tickets) and ?filter= (e.g. active = open or in progress).
       filter: FILTERS.some(f => f.key === this.$route.query.filter) ? this.$route.query.filter : (this.$route.query.tag ? 'active' : 'all'),
       tagFilter: TAGS.includes(this.$route.query.tag) ? this.$route.query.tag : '', okMsg: '', error: '', doneError: '',
@@ -467,6 +464,8 @@ export default {
       } catch (e) { this.error = friendlyError(e, 'update the ticket'); }
       this.busy = false;
     },
+    addOptionsR() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.raise.tags.includes(x)).map(g => ({ value: g, label: g }))]; },
+    addTagR(v) { if (v && !this.raise.tags.includes(v)) this.raise.tags.push(v); this.addPickR = ''; },
     addOptions() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.tagEdit.tags.includes(x)).map(g => ({ value: g, label: g }))]; },
     addTag(v) { if (v && !this.tagEdit.tags.includes(v)) this.tagEdit.tags.push(v); this.addPick = ''; },
     // The department that raised the ticket stays tagged for good.
@@ -569,7 +568,7 @@ export default {
     .acts { position: relative; }
     .acts > .btn { display: inline-flex; align-items: center; gap: 6px; }
     .acts-back { position: fixed; inset: 0; z-index: 20; }
-    .acts-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 190px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
+    .acts-menu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 0; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
     .acts-menu button { text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; }
     .acts-menu button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
     .acts-menu button.danger { color: var(--danger); }

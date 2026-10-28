@@ -53,7 +53,7 @@
           </div>
         </div>
         <div class="progress"><div :style="`width:${dl.pct}%`"></div></div>
-        <span class="help">{{ dl.done ? `${dl.file} · PDF files come later: for now this is one read-only page holding every document. Open it and print to PDF if needed.` : 'Keep this page open.' }}</span>
+        <span class="help">{{ dl.done ? (dl.file.endsWith('.pdf') ? `${dl.file} · Saved as PDF.` : `${dl.file} · This one is a read-only web page (PDF is for owner statements). Open it and print to PDF if needed.`) : 'Keep this page open.' }}</span>
       </div>
 
       <Paged :items="shown()" v-slot="{ pageRows }">
@@ -138,6 +138,7 @@ import { db } from '@/lib/firebase.js';
 import { toast } from '@/lib/toast.js';
 import { byUnit } from '@/lib/engine.js';
 import { loadProperties, friendlyError, download, loadXlsxLib } from '@/lib/finance-data.js';
+import { buildStatementPdf, loadPdfKit } from '@/lib/statement-pdf.js';
 import { rm, amt, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
@@ -244,8 +245,37 @@ export default {
     },
 
     // ---- Downloads. PDF files come later: for now one read-only HTML page holding the documents ----
+    // Owner statements download as real PDFs (Finance's layout, from the frozen statement); several are merged into one PDF.
+    async downloadPdfs(list) {
+      this.viewing = null;
+      this.dl = { open: true, done: false, pct: 0, count: list.length, file: this.fileName('pdf', list.length === 1 ? list[0].no : null), url: '' };
+      const X = await loadPdfKit();
+      const out = [];
+      for (let i = 0; i < list.length; i++) {
+        const s = list[i].statement;
+        out.push(await buildStatementPdf(X.lib, X.fontkit, X.fonts, {
+          unitCode: s.unitCode, month: s.month, rates: s.rates, payout: s.totals?.payout ?? 0, payouts: {},
+          lines: (s.lines || []).map(l => ({ source: l.source, arrival: l.arrival, departure: l.departure, nights: l.nights, amount: l.pto })),
+          expenses: (s.expenseLines || []).map(e => ({ description: e.description, amount: e.amount })), nextBooking: null }));
+        this.dl.pct = Math.round(((i + 1) / list.length) * 100);
+      }
+      let bytes = out[0];
+      if (out.length > 1) {
+        const merged = await X.lib.PDFDocument.create();
+        for (const b of out) { const src = await X.lib.PDFDocument.load(b); (await merged.copyPages(src, src.getPageIndices())).forEach(pg => merged.addPage(pg)); }
+        bytes = await merged.save();
+      }
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      this.dl.url = URL.createObjectURL(blob);
+      download(this.dl.file, blob);
+      this.dl.done = true;
+    },
     async downloadDocs(list) {
       if (!list.length) return;
+      if (this.dl.url) URL.revokeObjectURL(this.dl.url);
+      if (list.every(d => d.type === 'statement' && !d.statement?.fixed)) {
+        try { await this.downloadPdfs(list); return; } catch (e) { this.dl.open = false; this.error = e.code ? friendlyError(e, 'make the PDF') : e.message; return; }
+      }
       if (this.dl.url) URL.revokeObjectURL(this.dl.url);
       this.viewing = null;
       this.dl = { open: true, done: false, pct: 0, count: list.length, file: this.fileName('html', list.length === 1 ? list[0].no : null), url: '' };

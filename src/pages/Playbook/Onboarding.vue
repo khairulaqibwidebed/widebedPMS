@@ -293,7 +293,6 @@ export default {
     .tabs-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
     .tabs-row .ob-tabs { margin-bottom: 0; width: auto; flex: 0 1 auto; }
     .tabs-row > .btn { margin-left: auto; transition: background .15s, color .15s; }
-    .tabs-row > .btn:hover:not(:disabled) { background: var(--accent); color: #fff !important; }
     .ob-tabs { margin-bottom: 20px; }
     .prog-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
     .prog-head h2 { margin: 0; font-size: 15px; }

@@ -2,23 +2,29 @@
   <main class="content">
     <div class="loading-bar" v-show="loading || busy"></div>
 
-    <div class="page-head">
-      <div :style="selOpen ? 'visibility:hidden' : ''">
+    <div class="page-head" :style="selOpen ? 'margin-bottom:0' : ''">
+      <div v-show="!selOpen">
         <h1>Month-end payout</h1>
         <div class="sub">{{ `${monthName(month)} · ${propertyName()} · owner statements by checkout month` }}</div>
       </div>
-      <div class="head-tools">
-        <span class="pill" :class="completed ? 'green' : (doneCount() ? 'blue' : 'grey')">{{ completed ? 'Completed' : (doneCount() ? `${doneCount()} of ${rows.length} completed` : 'Open') }}</span>
+      <div class="head-tools" style="margin-left:auto">
         <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
         <MonthPicker :ahead="1" v-model="month" @change="load()" />
       </div>
     </div>
     <div class="me-actions" v-show="!selOpen && propertyId">
-      <span class="help">{{ completed ? `${monthName(month)} is completed. Statements are read-only.` : (checklist.length ? `${checklist.length} item${checklist.length === 1 ? '' : 's'} to fix before those units can be completed. Draft statements recalculate by themselves.` : 'All clear. Open each unit\'s statement to review it, then Approve & complete it.') }}</span>
+            <span class="pill" :class="completed ? 'green' : (doneCount() ? 'blue' : 'grey')">{{ completed ? 'Completed' : (doneCount() ? `${doneCount()} of ${rows.length} completed` : 'Open') }}</span>
       <RouterLink class="btn" :to="{ path: '/Finance/upload', query: { property: propertyId, month } }" v-show="!completed">Upload eZee report</RouterLink>
-      <button class="btn" @click="downloadXlsx()" :disabled="!rows.length || busy">Download xlsx</button>
-      <button class="btn" v-show="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="downloadFixedRent()" :disabled="busy">Fixed rent summary</button>
-      <button class="btn" v-show="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="downloadFixedRent('pdf')" :disabled="busy">Fixed rent PDF</button>
+      <div class="dl-wrap">
+        <button class="btn btn-primary" type="button" @click="dlOpen = !dlOpen" :disabled="!rows.length || busy" aria-haspopup="menu" :aria-expanded="String(dlOpen)">Download
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="dl-back" v-if="dlOpen" @click="dlOpen = false"></div>
+        <div class="dl-menu" v-if="dlOpen" role="menu">
+          <button role="menuitem" @click="dlOpen = false; downloadXlsx()">Statements (xlsx)</button>
+          <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent()">Fixed rent summary (xlsx)</button>
+          <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent('pdf')">Fixed rent summary (PDF)</button>
+        </div>
+      </div>
     </div>
 
     <div class="notice error" v-show="error">{{ error }}</div>
@@ -43,7 +49,8 @@
     </div>
 
     <section class="card" v-show="rows.length">
-      <div class="card-head"><h2>{{ `Statements · ${monthName(month)} · ${rows.length} units` }}</h2></div>
+      <div class="card-head"><h2>{{ `Statements · ${monthName(month)} · ${rows.length} units` }}</h2>
+        <span class="help head-note">{{ completed ? `${monthName(month)} is completed. Statements are read-only.` : (checklist.length ? `${checklist.length} item${checklist.length === 1 ? '' : 's'} to fix before those units can be completed. Draft statements recalculate by themselves.` : 'All clear. Open each unit\'s statement to review it, then Approve & complete it.') }}</span></div>
     <Paged :items="shown()" v-slot="{ pageRows }">
     <div class="table-wrap">
       <table class="table">
@@ -69,7 +76,7 @@
     </Paged>
     </section>
     <div class="empty card" style="margin-top:16px" v-show="!loading && propertyId && !rows.length">No bookings or fixed-rent units for this month. Upload the eZee report for it first.</div>
-    <div class="grid-2" style="margin-top:24px" v-show="!loading && propertyId">
+    <div class="grid-2 fill" style="margin-top:24px" v-show="!loading && propertyId">
       <section class="card" ref="checks">
         <div class="card-head"><h2>Before you can complete</h2>
           <button class="btn btn-sm starter-btn" v-if="starterAvailable()" @click="starterAsk = !starterAsk" :aria-expanded="starterAsk"
@@ -79,14 +86,14 @@
           <span>Set arrangement and fixed rent for the D'Majestic units that aren't set up (Finance's Sep 2026 set-up), from <b>{{ monthName(month) }}</b>. You can edit any unit afterwards.</span>
           <span class="starter-acts"><button class="btn btn-sm" @click="starterAsk = false">Cancel</button><button class="btn btn-sm btn-primary" @click="loadStarter(); starterAsk = false" :disabled="busy">Load</button></span>
         </div>
-        <div class="rows">
-          <Paged :items="checklist" :size="5" v-slot="{ pageRows }">
+        <div class="rows checks-rows">
+          <Paged :items="checklist" :size="4" v-slot="{ pageRows }">
           <template v-for="(c, i) in pageRows" :key="c.text + i">
             <div class="row"><span>{{ c.text }}</span>
               <button class="btn" v-show="!!c.label" @click="c.action()">{{ c.label }}</button></div>
           </template>
           </Paged>
-          <div class="empty" v-show="!checklist.length && !completed">All clear. Open each unit's statement, then Approve & complete it.</div>
+          <div class="empty" v-show="!checklist.length && !completed">All clear. Open each unit's statement, then send it to the Director for approval.</div>
           <div class="empty" v-show="completed">Month completed. Statements are read-only.</div>
         </div>
       </section>
@@ -100,7 +107,7 @@
           <div class="row"><b>Bal to pay (positive balances only)</b><b class="r">{{ amt(summary.balToPay) }}</b></div>
           <div class="row"><span>Units completed</span><span class="r">{{ `${doneCount()} of ${rows.length}` }}</span></div>
         </div>
-        <p class="help" style="margin-top:14px">{{ `${doneCount()} of ${rows.length} unit statements completed. Each unit is approved & completed on its own statement page.` }}</p>
+        <p class="help" style="margin-top:14px">{{ `${doneCount()} of ${rows.length} unit statements completed. Each unit is sent to the Director from its own statement page and completed once approved.` }}</p>
       </section>
     </div>
 
@@ -110,7 +117,7 @@
     <!-- Unit statement page (Figma 7:197) -->
     <template v-if="selOpen">
       <div class="stmt-page" v-esc="() => { selOpen = false }">
-        <button class="navlink" style="margin-bottom:14px" @click="selOpen = false">← Back to Month-end payout</button>
+        <button class="navlink" style="margin-bottom:8px" @click="selOpen = false">← Back to Month-end payout</button>
         <div class="page-head" style="margin-bottom:16px">
           <div><h1 style="font-size:24px">{{ `${sel.unitCode} · ${monthName(month)}` }}</h1>
             <div class="sub">{{ sel.arrangementLabel + (sel.fixed ? ` · RM ${amt(sel.rates.fixedRentAmount)} a month` : ` · service ${pct(sel.rates.serviceFeePct)}, utility ${pct(sel.rates.utilityFeePct)}` + (sel.rates.sstOnFeePct ? `, SST on fee ${pct(sel.rates.sstOnFeePct)}` : '')) }}</div></div>
@@ -192,6 +199,7 @@
           </div>
           <div class="unit-done" v-else-if="sentState(sel) === 'submitted'">
             <div class="notice ok">{{ `Sent to the Director${approvals[sel.unitId].submittedByName ? ' by ' + approvals[sel.unitId].submittedByName : ''}. The numbers are frozen until they approve or send it back.` }}</div>
+            <RouterLink class="btn btn-primary" to="/Finance/statement-approvals" v-if="role === 'director'" style="margin-right:8px">Review in Statement Approvals</RouterLink>
             <button class="btn" v-show="!pulling" @click="pulling = true" :disabled="busy">Pull back</button>
             <div class="confirm-box" v-show="pulling">
               <b>{{ `Pull ${sel.unitCode} back?` }}</b>
@@ -205,16 +213,13 @@
             <div class="rows" style="width:100%" v-show="blockers(sel).length">
               <template v-for="(c, i) in blockers(sel)" :key="i"><div class="row"><span class="neg-amt">{{ c.text }}</span></div></template>
             </div>
-            <button class="btn btn-primary" v-show="!confirming" @click="askComplete()" :disabled="busy || blockers(sel).length > 0">{{ role === 'director' ? 'Approve & complete' : 'Send to Director' }}</button>
+            <button class="btn btn-primary" v-show="!confirming" @click="askComplete()" :disabled="busy || blockers(sel).length > 0">Send to Director</button>
           </div>
           <template v-if="confirming && !locked(sel)">
             <div class="confirm-box" id="completeBox" ref="completeBox">
-              <b>{{ role === 'director' ? `Complete ${sel.unitCode} for ${monthName(month)}?` : `Send ${sel.unitCode} to the Director?` }}</b>
-              <p class="help" style="margin:4px 0 10px">{{ role === 'director'
-                ? `The statement becomes read-only. Payout RM ${amt(sel.totals.payout)}.` + (sel.totals.payout < 0 ? ` The negative balance carries forward to ${monthName(nextMonth(month))}.` : '')
-                : `The numbers freeze (payout RM ${amt(sel.totals.payout)}) until the Director approves it, sends it back, or you pull it back.` }}</p>
-              <template v-if="reopened(sel) && role === 'director'"><div class="field"><label>Reason for the new revision (Director Override)</label><input class="input" v-model="overrideReason"></div></template>
-              <div class="actions"><button class="btn btn-primary" @click="complete()" :disabled="busy">{{ role === 'director' ? 'Yes, complete' : 'Yes, send' }}</button><button class="btn" @click="confirming = false">Cancel</button></div>
+              <b>{{ `Send ${sel.unitCode} to the Director?` }}</b>
+              <p class="help" style="margin:4px 0 10px">{{ `The numbers freeze (payout RM ${amt(sel.totals.payout)}) until the Director approves it, sends it back, or you pull it back.` }}</p>
+              <div class="actions"><button class="btn btn-primary" @click="complete()" :disabled="busy">Yes, send</button><button class="btn" @click="confirming = false">Cancel</button></div>
             </div>
           </template>
           <template v-if="reopening && sel.status === 'completed'">
@@ -231,11 +236,11 @@
             <div class="card-head"><h2>Monthly payout summary <span class="help">{{ month.slice(0, 4) }}</span></h2></div>
             <div class="table-wrap">
               <table class="table payout-strip">
-                <thead><tr><template v-for="m in yearMonths()" :key="m"><th class="num">{{ SHORT[+m.slice(5) - 1] }}</th></template></tr></thead>
+                <thead><tr><template v-for="m in yearMonths()" :key="m"><th class="num">{{ SHORT[+m.slice(5) - 1] }}</th></template><th class="num total-col">Total</th></tr></thead>
                 <tbody><tr><template v-for="m in yearMonths()" :key="m">
                   <td class="num" :class="{ 'neg-amt': (payoutFor(sel, m)?.value ?? 0) < 0, muted: payoutFor(sel, m)?.draft }"
                       :title="payoutFor(sel, m)?.label || ''">{{ payoutFor(sel, m) ? amt(payoutFor(sel, m).value) : '' }}</td>
-                </template></tr></tbody>
+                </template><td class="num total-col"><b>{{ amt(yearTotal(sel)) }}</b></td></tr></tbody>
               </table>
             </div>
             <p class="help" style="margin-top:6px">Past months come from completed months in the PMS, or from Finance's statements uploaded on Upload eZee report. Hover a number to see where it came from.</p>
@@ -347,7 +352,7 @@ export default {
         { key: 'fixed', label: 'Fixed rent' }, { key: 'share', label: 'Profit share' }],
       toast, sel: null, selOpen: false, ctripInput: {},
       settingsOpen: false, set: {}, confirming: false, reopening: false, overrideReason: '',
-      approvals: {}, pulling: false, pullReason: ''
+      dlOpen: false, approvals: {}, pulling: false, pullReason: ''
     };
   },
   // Remember the property for the next page (see lib/last-property.js)
@@ -449,6 +454,7 @@ export default {
       return [...drafts, ...done.map(s => ({ ...s, status: 'completed' }))].sort((a, b) => byUnit(a.unitCode, b.unitCode));
     },
     // ---- Monthly payout summary (like the strip at the bottom of Finance's unit sheets) ----
+    yearTotal(r) { return this.yearMonths().reduce((t, m) => t + (this.payoutFor(r, m)?.value ?? 0), 0); },
     yearMonths() { const y = this.month.slice(0, 4); return SHORT.map((_, i) => `${y}-${String(i + 1).padStart(2, '0')}`); },
     // Finance's FIXED RENT sheet for the property: every fixed-rent unit, its deductions, reimbursements and remark.
     // kind: 'xlsx' or 'pdf' (lib/statement-pdf.js: Finance's PDF of the same sheet)
@@ -645,26 +651,17 @@ export default {
         updatedBy: me.user.uid, updatedByName: me.name, updatedAt: serverTimestamp(),
         ...(sum.status === 'completed' ? { completedBy: me.user.uid, completedByName: me.name, completedAt: serverTimestamp() } : {}) };
     },
-    // Director: approve & complete straight from here. Finance: send the frozen statement to the Director.
+    // Everyone (Finance and Director) sends the frozen statement to Statement Approvals; only the Director approves it there.
     async complete() {
       const r = this.sel;
       if (!r || r.status === 'completed' || this.blockers(r).length) return;
       this.busy = true; this.error = '';
       try {
-        if (me.role === 'director') {
-          const unitIds = this.rows.map(x => x.unitId);
-          const doneIds = new Set(this.rows.filter(x => x.status === 'completed').map(x => x.unitId));
-          const { monthDoc } = await completeStatement({ r, propertyId: this.propertyId, month: this.month, me, unitIds, doneIds, summary: this.summary, overrideReason: this.overrideReason,
-            approval: this.sentState(r) === 'submitted' ? this.approvals[r.unitId] : null });   // a sent unit's waiting record is closed in the same batch
-          this.okMsg = `${r.unitCode} completed for ${monthName(this.month)}.` + (monthDoc.status === 'completed'
-            ? ` All ${monthDoc.unitCount} statements for ${monthName(this.month)} are completed.` : ` ${monthDoc.completedUnits} of ${monthDoc.unitCount} units completed.`);
-        } else {
-          await this.sendToDirector(r);
-          this.okMsg = `${r.unitCode} sent to the Director for ${monthName(this.month)}.`;
-        }
+        await this.sendToDirector(r);
+        this.okMsg = `${r.unitCode} sent for approval for ${monthName(this.month)}. Approve it on the Statement Approvals page.`;
         this.confirming = false; this.overrideReason = '';
         await this.reloadAt(r.unitId);
-      } catch (e) { this.error = e.code ? friendlyError(e, me.role === 'director' ? 'complete the statement' : 'send the statement') : e.message; }
+      } catch (e) { this.error = e.code ? friendlyError(e, 'send the statement') : e.message; }
       this.busy = false;
     },
     // ---- Finance to Director (approvals/{unitId}_{month}) ----
@@ -673,6 +670,7 @@ export default {
       this.approvals = Object.fromEntries(snap.docs.map(d => [d.data().unitId, { id: d.id, ...d.data() }]));
     },
     // submitted / returned / withdrawn / approved, or null. An approved one only counts while the statement is completed.
+    waitingCount() { return Object.values(this.approvals).filter(a => a && a.status === 'submitted').length; },
     sentState(r) { const a = r && this.approvals[r.unitId]; return a && a.status !== 'approved' ? a.status : null; },
     locked(r) { return !!r && (r.status === 'completed' || this.sentState(r) === 'submitted'); },
     async sendToDirector(r) {
@@ -799,8 +797,18 @@ export default {
     .st-cell .pill + .pill { margin-left: 6px; }
     .actions .rows .row { padding: 6px 0; }
     .me-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -8px 0 20px; }
-    .me-actions .help { margin-right: auto; }
-    .stmt-grid { grid-template-columns: minmax(0,1fr) 300px; }
+    .me-actions { justify-content: flex-end; }
+    .dl-wrap { position: relative; }
+    .dl-wrap > .btn { display: inline-flex; align-items: center; gap: 6px; }
+    .dl-back { position: fixed; inset: 0; z-index: 20; }
+    .dl-menu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 0; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
+    .dl-menu button { text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; }
+    .dl-menu button:hover { background: var(--accent-soft); color: var(--accent); }
+    .head-note { margin-left: auto; text-align: right; font-size: 12px; }
+    .side-grid.stmt-grid { grid-template-columns: minmax(0,1fr); }
+    .payout-strip { table-layout: fixed; width: 100%; }
+    .payout-strip th, .payout-strip td { text-align: right; padding-left: 6px; padding-right: 10px; }
+    .payout-strip .total-col { border-left: 1px solid var(--border); width: 11%; }
     .stmt-page .table th, .stmt-page .table td { padding: 10px 9px; white-space: nowrap; }
     .stmt-page .table .tag-est { white-space: normal; max-width: 200px; }
     /* Trip.com amount: one compact box with its Save button (Khairul 27 Oct: the table was squashed) */
@@ -808,6 +816,8 @@ export default {
     .ctrip-in .input { width: 104px; height: 32px; padding: 0 8px; text-align: center; appearance: textfield; -moz-appearance: textfield; }
     .ctrip-in .input::-webkit-inner-spin-button, .ctrip-in .input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     .ctrip-in .btn { height: 32px; padding: 0 12px; font-size: 12px; }
+    .checks-rows { min-height: 292px; }
+    .grid-2 > .card > .card-head { min-height: 34px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
     .stmt-label .navlink { text-transform: none; letter-spacing: 0; font-size: 12px; }
     /* Summary goes under the bookings until the table has room beside it */
     @media (max-width: 1600px) { .stmt-grid { grid-template-columns: minmax(0,1fr); } }
