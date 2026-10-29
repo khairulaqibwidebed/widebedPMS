@@ -107,10 +107,11 @@
             <div class="field"><label>Guest / tenant name</label><input class="input" v-model="f.guest"></div>
             <div class="field"><label>Purpose</label><input class="input" v-model="f.purpose" placeholder="e.g. Rental, security deposit"></div>
             <div class="field"><label>Bank reference</label><input class="input" v-model="f.bankRef"></div>
-            <div class="field wide"><label>Receipts / documents <span class="muted">(optional)</span></label><DriveFiles kind="offline-payments" :record-id="newId" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
+            
           <div class="field"><label>Status <span class="muted">(Unknown = no receipt)</span></label>
             <OptionPicker class="fld-pick" v-model="f.status" :options="STATUSES.map(s => ({ value: s, label: s }))" label="Status" /></div>
-          <div class="field"><label>Remarks</label><input class="input" v-model="f.remarks"></div>
+          <div class="field wide"><label>Remarks</label><input class="input" v-model="f.remarks"></div>
+            <div class="field wide"><label>Receipts / documents <span class="muted">(optional)</span></label><DriveFiles kind="offline-payments" :record-id="newId" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
           </div>
           <div class="modal-foot">
             <button type="button" class="btn" @click="open = false">Cancel</button>
@@ -268,7 +269,8 @@ export default {
 .fld-pick :deep(.op-pop) { max-width: none; width: 100%; }
 .table-wrap { min-height: 260px; }
 .modal { max-width: 920px; width: min(920px, 100%); }
-.modal { padding: 18px 24px; max-height: calc(100dvh - 24px); }
+.modal { padding: 18px 24px 0; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.modal .modal-foot { position: sticky; bottom: 0; background: var(--surface); padding: 12px 0 16px; margin-top: 8px; }
 .modal .field { margin-bottom: 0; }
 .modal .field label { margin-bottom: 4px; }
 .modal .input { min-height: 44px; font-size: 15px; }

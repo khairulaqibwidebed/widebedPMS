@@ -26,3 +26,12 @@ export async function uploadFile(kind, recordId, file, onProgress = () => {}) {
   });
   return folderLink;
 }
+
+// The file as a blob URL for the in-site viewer (images, PDFs and small videos; the server refuses files over 4 MB)
+export async function fileBlob(kind, recordId, fileId) {
+  const user = getAuth().currentUser;
+  if (!user) throw new Error('Sign in again.');
+  const r = await fetch('/api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ action: 'file', kind, recordId, fileId }) });
+  if (!r.ok) { let j = {}; try { j = await r.json(); } catch { /* ignore */ } throw new Error(j.error || `Could not open the file (${r.status}).`); }
+  return URL.createObjectURL(await r.blob());
+}
