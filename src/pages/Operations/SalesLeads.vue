@@ -273,6 +273,20 @@
                 <div class="field" v-if="bk.gender === 'Other'"><label for="bGenderOther">If other, type</label><input class="input" id="bGenderOther" v-model="bk.genderOther"></div>
               </div>
             </section>
+            <section class="card" v-for="(c, ci) in bk.coTenants" :key="c.key">
+              <div class="card-head"><h2>{{ `Tenant ${ci + 2}` }}</h2><button type="button" class="btn" @click="bk.coTenants.splice(ci, 1)">Remove</button></div>
+              <div class="grid-fields">
+                <div class="field"><label :for="'cName' + ci">Name</label><input class="input" :id="'cName' + ci" v-model="c.name"></div>
+                <div class="field"><label :for="'cPhone' + ci">Phone</label><input class="input" :id="'cPhone' + ci" v-model="c.phone" inputmode="tel"></div>
+                <div class="field"><label :for="'cEmail' + ci">Email</label><input class="input" :id="'cEmail' + ci" type="email" v-model="c.email"></div>
+                <div class="field"><label :for="'cIc' + ci">IC / Passport</label><input class="input" :id="'cIc' + ci" v-model="c.icPassport"></div>
+                <div class="field"><label :for="'cNat' + ci">Nationality</label><input class="input" :id="'cNat' + ci" v-model="c.nationality"></div>
+                <div class="field"><label :for="'cDob' + ci">Date of birth</label><input class="input" :id="'cDob' + ci" type="date" v-model="c.dob"></div>
+                <div class="field"><label>Gender</label><OptionPicker class="fld-pick" v-model="c.gender" :options="GENDERS" :label="`Gender of tenant ${ci + 2}`" /></div>
+                <div class="field" v-if="c.gender === 'Other'"><label :for="'cGo' + ci">If other, type</label><input class="input" :id="'cGo' + ci" v-model="c.genderOther"></div>
+              </div>
+            </section>
+            <div><button type="button" class="btn" @click="addCoTenant()">+ Add another tenant</button></div>
             <section class="card">
               <h2>Stay</h2>
               <div class="grid-fields">
@@ -401,6 +415,7 @@ export default {
   async mounted() {
     const q = this.$route.query;
     if ('new' in q) await this.show('new');
+    else if ('newBooking' in q) await this.show('direct');
     else if (q.id && 'book' in q) await this.show('book', q.id);
     else if (q.id) await this.show('lead', q.id);
     else { this.okMsg = history.state?.okMsg || ''; await this.show('list'); }
@@ -725,7 +740,7 @@ export default {
     bookBack() { if (this.direct) this.$router.push('/Portfolio/bookings'); else this.go('lead', this.lead.id); },
     async startBooking() {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
-      this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', existing: null,
+      this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null,
         rentType: 'Daily', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', othersFee: '', othersNote: '',
         payMode: '', payDate: today(),
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
@@ -745,10 +760,52 @@ export default {
       if (!this.bk.propertyId) return;
       try { this.units = await loadUnits(this.bk.propertyId); } catch { this.formError = 'Could not load the units. Check your connection and try again.'; }
     },
+    addCoTenant() { this.bk.coTenants.push({ key: Date.now() + Math.random(), name: '', phone: '', email: '', icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '' }); },
+    coError() {
+      const list = this.bk.coTenants;
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i], n = `Tenant ${i + 2}`;
+        if (!c.name.trim()) return `Add the name of ${n}, or remove them.`;
+        if (phoneKey(c.phone).length < 9) return `Add a full phone number for ${n}.`;
+        if (c.email.trim() && !emailOk(c.email.trim())) return `The email for ${n} doesn't look right.`;
+        if (!c.icPassport.trim()) return `Add the IC or passport number of ${n}.`;
+        if (c.gender === 'Other' && !c.genderOther.trim()) return `Type the gender of ${n}, or pick another option.`;
+        if (phoneKey(c.phone) === phoneKey(this.bk.phone) || list.some((o, j) => j < i && phoneKey(o.phone) === phoneKey(c.phone))) return `${n} has the same phone number as another tenant on this booking.`;
+      }
+      return '';
+    },
+    // Each extra tenant gets their own tenant record (found by phone, or a new TEN number); returns their ids
+    async saveCoTenants() {
+      const ids = [];
+      for (const c of this.bk.coTenants) {
+        const details = { kind: 'tenant', name: c.name.trim(), phone: c.phone.trim(), phoneKey: phoneKey(c.phone), email: c.email.trim(),
+          icPassport: c.icPassport.trim(), nationality: c.nationality.trim(), searchWords: searchWords(c.name),
+          dob: c.dob || '', gender: c.gender || '', genderOther: c.gender === 'Other' ? c.genderOther.trim() : '' };
+        const known = await findTenant(c.phone), tcRef = doc(db, 'counters', 'tenants');
+        const id = await runTransaction(db, async tx => {
+          let tenantId = known?.id, n = 0;
+          if (!known) {
+            const cs = await tx.get(tcRef);
+            n = cs.exists() ? cs.data().next || 1 : 1; tenantId = num('TEN', n);
+            if ((await tx.get(doc(db, 'tenants', tenantId))).exists()) throw stop(`${tenantId} already exists. Ask a Director to check counters/tenants.`);
+          }
+          const tRef = doc(db, 'tenants', tenantId);
+          if (known) tx.update(tRef, { status: 'active', updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+          else {
+            tx.set(tcRef, { next: n + 1 });
+            tx.set(tRef, { status: 'active', firstInquiryId: null, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+          }
+          tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
+          return tenantId;
+        });
+        ids.push(id);
+      }
+      return ids;
+    },
     // Booking details and payment details that are saved on every offline booking
-    extra() {
+    extra(coIds = []) {
       const b = this.bk;
-      return { rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
+      return { coTenantIds: coIds, rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
         securityDeposit: this.longTerm ? this.deposit : toCents(b.securityDeposit),
         utilityDeposit: toCents(b.utilityDeposit), internetFee: toCents(b.internetFee), carparkFee: toCents(b.carparkFee), cleaningFee: toCents(b.cleaningFee),
         taFee: toCents(b.taFee), taStampFee: toCents(b.taStampFee), othersFee: toCents(b.othersFee), othersNote: +b.othersFee > 0 ? b.othersNote.trim() : '',
@@ -766,8 +823,9 @@ export default {
         : this.nights <= 0 ? 'Check-out must be after check-in.'
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent. The 2-month deposit is worked out from it.'
         : !this.longTerm && !(+b.amount > 0) ? 'Add the amount paid.'
-        : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.' : '';
+        : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.' : this.coError();
       if (err) { this.formError = err; window.scrollTo(0, 0); return; }
+      if (this.direct) return this.saveDirect();
 
       this.busy = true; this.formError = '';
       try {
@@ -775,6 +833,7 @@ export default {
         const details = { kind: 'tenant', name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(),
           icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name),
           dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
+        const coIds = await this.saveCoTenants();
         const known = this.lead.tenantId ? this.tenant : await findTenant(b.phone);
         const bookingId = `offline_${ld.id}`, unitCode = unit?.unitCode || '';
         const lRef = doc(db, 'offlineInquiries', ld.id), bRef = doc(db, 'offlineBookings', bookingId), cRef = doc(db, 'counters', 'tenants');
@@ -800,7 +859,7 @@ export default {
             propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
             amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
-            paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(), status: 'active',
+            paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           const h = this.entry(`Paid and booked: ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. `
             + `${!known ? `Saved as new tenant ${details.name} (${tenantId}).` : `Added to existing tenant ${details.name} (${tenantId}).`}${b.note.trim() ? ' ' + b.note.trim() : ''}`);
@@ -836,6 +895,60 @@ export default {
       this.busy = false;
     },
 
+    async saveDirect() {
+      const b = this.bk;
+      this.busy = true; this.formError = '';
+      try {
+        const prop = this.properties.find(p => p.id === b.propertyId), unit = this.units.find(u => u.id === b.unitId);
+        const details = { kind: 'tenant', name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(),
+          icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name),
+          dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
+        const coIds = await this.saveCoTenants();
+        const known = await findTenant(b.phone), unitCode = unit?.unitCode || '';
+        const bcRef = doc(db, 'counters', 'offlineBookings'), tcRef = doc(db, 'counters', 'tenants');
+        const res = await runTransaction(db, async tx => {
+          const bc = await tx.get(bcRef), bn = bc.exists() ? bc.data().next || 1 : 1, bookingId = `offline_${num('BK', bn)}`;
+          const bRef = doc(db, 'offlineBookings', bookingId);
+          if ((await tx.get(bRef)).exists()) throw stop(`${bookingId} already exists. Ask a Director to check counters/offlineBookings.`);
+          let tenantId = known?.id, n = 0;
+          if (!known) {
+            const c = await tx.get(tcRef);
+            n = c.exists() ? c.data().next || 1 : 1; tenantId = num('TEN', n);
+            if ((await tx.get(doc(db, 'tenants', tenantId))).exists()) throw stop(`${tenantId} already exists. Ask a Director to check counters/tenants.`);
+          }
+          const tRef = doc(db, 'tenants', tenantId);
+          tx.set(bcRef, { next: bn + 1 });
+          if (known) tx.update(tRef, { status: 'active', lastBookingId: bookingId, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+          else {
+            tx.set(tcRef, { next: n + 1 });
+            tx.set(tRef, { status: 'active', firstInquiryId: null, lastBookingId: bookingId, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+          }
+          tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
+          tx.set(bRef, { source: 'direct', inquiryId: null, tenantId,
+            propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
+            arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
+            amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
+            paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), note: b.note.trim(), status: 'active',
+            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+          audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
+            changes: [{ field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
+          return { isNew: !known, bookingId };
+        });
+
+        const okMsg = `${res.bookingId} saved. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`} Key it into eZee to block the room.`;
+
+        this.notify({
+          roles: ['finance', 'director'],
+          title: 'New offline booking',
+          refId: res.bookingId,
+          message: `${res.bookingId}: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
+          link: '/Portfolio/bookings'
+        });
+
+        this.$router.push({ path: '/Portfolio/bookings', state: { okMsg } });
+      } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
+      this.busy = false;
+    }
   }
 };
 </script>

@@ -329,13 +329,20 @@ export default {
         this.stages[0].note = `Opened the file, ${parsed.header.length} columns found`;
         this.percent = 30; await pause(250);
         const changes = [];
-        if (this.propertyId === '__auto') { await this.startAuto(parsed, changes); this.working = false; return; }
+        if (this.propertyId === '__auto') {
+          // Multi-Property picked but the file has one building we know: go straight to that property
+          const fileCodes = [...new Set(parsed.records.map(r => r.propertyCode).filter(Boolean))];
+          const nk = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const hit = fileCodes.length === 1 ? this.properties.find(p => nk(p.code) === nk(fileCodes[0])) : null;
+          if (hit) { changes.push({ what: 'Property', from: 'Multi-Properties', to: hit.name }); this.propertyId = hit.id; }
+          else { await this.startAuto(parsed, changes); this.working = false; return; }
+        }
         // 2. Extracting numbers
         this.stage = 2;
         let prop = this.property();
         const codes = {}; parsed.records.forEach(r => { if (r.propertyCode) codes[r.propertyCode] = (codes[r.propertyCode] || 0) + 1; });
         let code = prop ? prop.code : Object.keys(codes).sort((a, b) => codes[b] - codes[a])[0];
-        if (prop && !codes[prop.code]) {
+        if (prop && (!codes[prop.code] || Object.keys(codes).length > 1)) {   // not this property's file, or a file with several buildings
           // Not this property's file: switch to sorting by building instead of refusing
           if (!Object.keys(codes).length) throw new Error(`This file has no ${prop.name} rooms (rooms starting with ${prop.code}) and no recognisable rooms. Pick the right property.`);
           // One building in the file that we already know: go straight to that property
@@ -497,8 +504,12 @@ export default {
       this.percent = 30; await pause(250);
       this.stage = 2;
       let prop = this.property();
-      if (prop && st.propertyCode && prop.code !== st.propertyCode) {
-        const other = this.properties.find(p => p.code === st.propertyCode);
+      // The statement's "Property" cell can be a code (DM) or a name (Windmill); unit codes ("WM B1906") carry the code too
+      const nk = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const unitPrefix = (st.units[0]?.unitCode || '').split(' ')[0];
+      const isIt = p => [p.code, p.name, p.ezeeName].some(v => nk(v) && nk(v) === nk(st.propertyCode)) || (unitPrefix && nk(p.code) === nk(unitPrefix));
+      if (prop && st.propertyCode && !isIt(prop)) {
+        const other = this.properties.find(isIt);
         if (!other) throw new Error(`This statement is for property ${st.propertyCode}, not ${prop.name}. Pick the right property.`);
         this.propertyId = other.id; prop = other;
       }
@@ -508,11 +519,12 @@ export default {
       this.stages[1].note = `${st.units.length} units, payouts and negative balances`;
       this.percent = 55; await pause(250);
       this.stage = 3;
-      const code = st.propertyCode || prop?.code || 'DM';
+      const code = prop?.code || st.propertyCode || 'DM';
       const property = prop ? { code: prop.code, id: prop.id, name: prop.name, isNew: false }
         : { code, id: slug(code === 'DM' ? "D'Majestic" : code), name: code === 'DM' ? "D'Majestic" : '', isNew: true };
       const units = prop ? await loadUnits(prop.id) : [];
-      const unitFor = c => units.find(u => u.unitCode === c || (u.aliases || []).includes(c))?.unitCode || c;
+      const bare = c => c.replace(/^[A-Z]{2,4} (?=[A-Z]\d)/, '');   // "WM B1906" is "B1906" in the Portfolio
+      const unitFor = c => units.find(u => u.unitCode === c || (u.aliases || []).includes(c) || u.unitCode === bare(c))?.unitCode || c;
       const existing = {};
       if (prop) (await getDocs(query(collection(db, 'payoutHistory'), where('propertyId', '==', prop.id)))).docs.forEach(d => existing[d.id] = d.data());
       // Month rows: this month from Payment To Owner; earlier months from each unit sheet's Monthly Payout Summary.

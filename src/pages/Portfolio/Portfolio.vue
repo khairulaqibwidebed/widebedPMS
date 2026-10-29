@@ -22,7 +22,7 @@
       <div>
         <h1>{{ propertyName() }}</h1>
         <div class="sub crumb"><a href="/Portfolio/properties" @click.prevent="toList('properties')">Portfolio</a> › <a href="/Portfolio/properties" @click.prevent="toList('properties')">Properties</a>
-          <span>{{ ` › ${propertyName()}` + (viewOnly ? ' · view only' : ' · set once, used every month') }}</span></div>
+          <span>{{ ` › ${propertyName()}` + (viewOnly ? ' · view only' : '') }}</span></div>
       </div>
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="switchProperty()" />
@@ -141,10 +141,11 @@
       </section>
       <section class="card">
         <div class="card-head"><h2>Offline bookings</h2>
-          <div class="head-tools" v-if="canLogInquiry">
-            <RouterLink class="btn" :class="{ 'btn-primary': true }" v-if="canLogInquiry" to="/Operations/offline-inquiries?new=1">Log inquiry</RouterLink>
+          <div class="head-tools" v-if="canLogInquiry || canBook">
+            <RouterLink class="btn" :class="{ 'btn-primary': !canBook }" v-if="canLogInquiry" to="/Operations/offline-inquiries?new=1">Log inquiry</RouterLink>
+            <RouterLink class="btn btn-primary" v-if="canBook" to="/Operations/offline-inquiries?newBooking=1">Create booking</RouterLink>
           </div></div>
-        <p class="card-intro">Stays not booked through eZee, e.g. long-term tenants. They are made from Offline inquiries with Create booking; this list is read-only. Each one is keyed into eZee to block the room; month-end pays the owner from the eZee booking, so these are never counted twice.</p>
+        <p class="card-intro">Stays not booked through eZee, e.g. long-term tenants. They are made from Offline inquiries with Create booking, or with + New booking for a stay with no inquiry; this list is read-only. Each one is keyed into eZee to block the room; month-end pays the owner from the eZee booking, so these are never counted twice.</p>
         <div class="toolbar" ref="bookList">
           <input class="input" type="search" placeholder="Search booking no., unit or tenant ID" v-model="bookingSearch" aria-label="Search booking">
         </div>
@@ -166,7 +167,7 @@
                   <td class="num" v-if="canOpenInquiry"><RouterLink class="navlink" v-if="bkRow.inquiryId" :to="`/Operations/offline-inquiries?id=${bkRow.inquiryId}`">View</RouterLink><span class="muted" v-else>—</span></td>
                 </tr>
               </template>
-              <tr v-show="!shownBookings().length"><td :colspan="9 - (viewOnly ? 1 : 0) - (canOpenInquiry ? 0 : 1)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : bookingSearch.trim() ? 'No bookings match.' : 'No offline bookings yet. They are made from Offline inquiries with Create booking.' }}</td></tr>
+              <tr v-show="!shownBookings().length"><td :colspan="9 - (viewOnly ? 1 : 0) - (canOpenInquiry ? 0 : 1)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : bookingSearch.trim() ? 'No bookings match.' : 'No offline bookings yet. They are made from Offline inquiries with Create booking, or with + New booking.' }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -625,7 +626,7 @@ export default {
       // Owners, Properties and Bookings share this page; the route picks the section.
       top: this.$route.meta.section || 'properties',
       ptab: params.get('ptab') || 'units',
-      properties: [], propertyId: params.get('property') || lastProperty(true) || 'all', asOf: params.get('month') || monthOffset(0),
+      properties: [], propertyId: params.get('property') || (this.$route.meta.section === 'properties' ? 'all' : lastProperty(true)) || 'all', asOf: params.get('month') || monthOffset(0),
       months: Array.from({ length: 25 }, (_, i) => monthOffset(1 - i)),
       allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [], auditLast: null, auditMore: false, auditBusy: false,
       offlineBookings: [], bookingsLoading: false,
@@ -647,7 +648,14 @@ export default {
     }
   },
   // Remember the property for the next page (see lib/last-property.js)
-  watch: { propertyId(v) { rememberProperty(v); } },
+  watch: {
+    propertyId(v) { rememberProperty(v); },
+    // The sidebar's Properties link while a property is open: back to the full list
+    '$route.fullPath'() {
+      const r = this.$route;
+      if (r.meta.section === 'properties' && !r.query.property && this.propertyId !== 'all') { this.propertyId = 'all'; this.okMsg = ''; this.go(); }
+    }
+  },
   async mounted() {
     if (!this.months.includes(this.asOf)) this.months.push(this.asOf);
     if (!this.PTABS.some(t => t.key === this.ptab)) this.ptab = 'units';
