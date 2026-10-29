@@ -3,7 +3,7 @@
 // Pure: takes a SheetJS workbook (read with cellDates: true), returns plain data. Cells are found by their
 // labels, not fixed positions, because Finance's files shift rows from month to month.
 
-const UNIT = /^[A-Z]{1,4} \d[\w-]*$/;           // DM 0719, DM 1408-2, DM 1513A
+const UNIT = /^[A-Z]{1,4} [A-Z]?\d[\w-]*$/;           // DM 0719, DM 1408-2, DM 1513A
 const num = v => (typeof v === 'number' && isFinite(v) ? v : null);
 const text = v => (v == null ? '' : String(v).trim());
 const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -51,6 +51,11 @@ export function parseFinanceStatement(X, wb) {
   const month = monthOf(labelValue(pRows, /^month$/i));
   if (!month) throw new Error('Could not find the month on the "Payment To Owner" sheet (the cell next to "Month").');
 
+  // Some buildings (e.g. Windmill) list bare codes like "B1906"; the unit sheets are "WM B1906", so borrow that prefix
+  const BARE = /^[A-Z]\d{3,5}[A-Z]?$/;
+  const sheetPrefix = (wb.SheetNames.map(n => n.trim().match(/^([A-Z]{2,4}) [A-Z]\d{3,5}[A-Z]?$/)).find(Boolean) || [])[1] || '';
+  const withPrefix = v => { const t = unitCodeOf(v); return BARE.test(t) && sheetPrefix ? `${sheetPrefix} ${t}` : t; };
+
   // Payment To Owner: header row has "Payment To Owner"; unit rows have a unit code
   const hIdx = pRows.findIndex(r => r.some(c => /^payment to owner$/i.test(text(c))));
   const head = pRows[hIdx] || [];
@@ -58,10 +63,10 @@ export function parseFinanceStatement(X, wb) {
   const cIncome = col(/rental income/i), cCharges = col(/fees|charges/i), cPay = col(/^payment to owner$/i), cRemark = col(/^remark/i);
   const units = new Map();
   for (const r of pRows.slice(hIdx + 1)) {
-    const ci = r.findIndex(c => UNIT.test(unitCodeOf(c)));
+    const ci = r.findIndex(c => UNIT.test(withPrefix(c)));
     if (ci < 0 || ci > Math.max(cIncome, 2)) continue;
-    const code = unitCodeOf(r[ci]);
-    const income = num(r[cIncome]), charges = num(r[cCharges]) ?? 0, payout = num(r[cPay]);
+    const code = withPrefix(r[ci]);
+    const income = cIncome >= 0 ? num(r[cIncome]) : null, charges = (cCharges >= 0 ? num(r[cCharges]) : null) ?? 0, payout = num(r[cPay]);
     if (payout == null && income == null) continue;
     const remark = cRemark >= 0 ? text(r[cRemark]) : '';
     units.set(code, { unitCode: code, totalIncome: income, charges, payout: payout ?? r2((income || 0) - charges),

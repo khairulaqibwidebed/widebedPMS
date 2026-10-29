@@ -69,8 +69,30 @@ export function parseCSV(text) {
 
 // "DM 07-19-1 Bedroom Suite" -> { property: "DM", unit: "DM 0719" }; "DM 14-08-2-Studio" -> "DM 1408-2"
 export function unitCodeOf(room) {
-  const m = /^(\S+) (\d{2})-(\d{2}[A-Z]?)(-\d+(?=-))?/.exec(room || '');
-  return m ? { property: m[1], unit: `${m[1]} ${m[2]}${m[3]}${m[4] || ''}` } : null;
+  const m = /^([A-Z]{2,4}) (\d{2})-(\d{2}[A-Z]?)(-\d+(?=-))?/.exec(room || '');
+  return m ? { property: m[1], unit: `${m[1]} ${m[2]}${m[3]}${m[4] || ''}` } : buildingUnitOf(room);
+}
+
+// Other eZee accounts hold many buildings in one report. The Room column reads "<Building> <unit>-<room type>", e.g.
+// "Novo N-27-12 - type E-Novo 1 Bedroom Suite (686 sqft)", "Swiss Garden N1308-Swiss Garden Superior King Apartment",
+// "Flexus Studio 10-25-Flexus Signature Suite". The building is the words before the unit; the unit is the first word that
+// holds a digit (its hyphen parts are digits like 03, 23A or a letter+digits like A1; a room-type word never matches).
+const UNIT_WORD = /^(?:[A-Za-z]{1,2}\d*|\d+[A-Za-z]?)(?:-(?:\d+[A-Za-z]?|[A-Za-z]\d+))*/;
+export function buildingCode(name) {
+  const w = String(name || '').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean).filter(x => x !== 'THE' && x !== 'AT');
+  if (!w.length) return '';
+  return w.length === 1 ? w[0].slice(0, 4) : w.map(x => x[0]).join('').slice(0, 4);
+}
+export function buildingUnitOf(room) {
+  const words = String(room || '').trim().split(/\s+/);
+  for (let i = 1; i < words.length; i++) {
+    const m = UNIT_WORD.exec(words[i]);
+    if (!m || !/\d/.test(m[0])) continue;
+    const building = words.slice(0, i).join(' '), code = buildingCode(building), unit = m[0].toUpperCase();
+    if (!code) return null;
+    return { property: code, unit: `${code} ${unit}`, building };
+  }
+  return null;
 }
 // eZee dates are d/m/yyyy
 export function isoDate(d) {
@@ -121,6 +143,7 @@ export function readEzee(rows) {
       source: get(r, 'Source'), otaKey: otaKeyOf(get(r, 'Source')), rateType: get(r, 'Rate Type'),
       arrival: isoDate(get(r, 'Arrival')), departure, departureMonth: departure ? departure.slice(0, 7) : null,
       nights: num(get(r, 'Nights')), roomRaw,
+      ...(code && code.building ? { building: code.building } : {}),
       propertyCode: code ? code.property : null, unitCode: code ? code.unit : null,
       // eZee row with no room number = cancelled (CSV-20). A room type with no number counts as no room.
       status: code ? 'active' : 'cancelled',

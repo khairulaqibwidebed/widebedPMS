@@ -42,6 +42,60 @@
       </div>
       <p class="help" v-show="stage < 4 || saving">Please keep this page open. This usually takes under a minute.</p>
 
+      <!-- Multi-Properties-->
+      <template v-if="stage === 4 && auto && !done">
+        <div>
+          <div class="notice" style="margin-top:0">{{ `This file has ${auto.groups.length} building${auto.groups.length === 1 ? '' : 's'}. Check where each one goes, then press Check.` }}</div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Building in the file</th><th class="num">Bookings</th><th class="num">Units</th><th>Goes to</th><th v-show="checks.length">Result</th></tr></thead>
+              <tbody>
+                <template v-for="(g, gi) in auto.groups" :key="g.code">
+                  <tr>
+                    <td><b>{{ g.building }}</b><div class="help">{{ g.code }}</div></td>
+                    <td class="num">{{ g.bookings }}</td><td class="num">{{ g.units }}</td>
+                    <td>
+                      <OptionPicker v-model="g.target" :options="targetOptions(g)" :label="`Property for ${g.building}`" :disabled="working || !!checks.length" />
+                      <input class="input" style="height:34px;margin-top:6px;max-width:260px" v-show="g.target === '__new'" v-model="g.newName" :disabled="!!checks.length" placeholder="New property name" :aria-label="`Name for ${g.building}`">
+                    </td>
+                    <td v-show="checks.length"><span v-if="checks[gi]" class="r wrap">{{ checks[gi].note }}</span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="rows" style="margin-top:12px" v-show="auto.noRoom || auto.otherMonths.length">
+            <div class="row" v-show="auto.noRoom"><span class="neg-amt">No room in the row (saved as cancelled, not sorted)</span><span class="r wrap">{{ auto.noRoom }}</span></div>
+            <div class="row" v-show="auto.otherMonths.length"><span>Other months in the file (left out)</span><span class="r wrap">{{ auto.otherMonths.map(m => `${shortName(m.month)} (${m.count})`).join(', ') }}</span></div>
+          </div>
+          <div v-if="checks.length">
+            <h3 class="prev-h">{{ `Preview: ${previewRows.length} rows to be saved` }}</h3>
+            <Paged :items="previewRows" v-slot="{ pageRows }">
+              <div class="table-wrap">
+                <table class="table">
+                  <thead><tr><th>Property</th><th>Unit</th><th>Reservation</th><th>Source</th><th>Check-in</th><th>Check-out</th><th class="num">Nights</th><th class="num">Total (RM)</th><th>Result</th></tr></thead>
+                  <tbody>
+                    <template v-for="r in pageRows" :key="r.key">
+                      <tr>
+                        <td>{{ r.property }}</td><td>{{ r.unit || '—' }}</td><td>{{ r.reservationNo }}</td><td>{{ r.source }}</td>
+                        <td>{{ dmy(r.arrival) }}</td><td>{{ dmy(r.departure) }}</td><td class="num">{{ r.nights }}</td><td class="num">{{ amt(r.total) }}</td>
+                        <td><span class="pill" :class="r.cancelled ? 'grey' : (r.isNew ? 'green' : 'blue')">{{ r.cancelled ? 'Cancelled' : (r.isNew ? 'New' : 'Update') }}</span></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </Paged>
+          </div>
+          <div class="actions" style="margin-top:16px">
+            <button class="btn btn-primary" v-show="!checks.length" @click="checkAuto()" :disabled="working || auto.groups.some(g => g.target === '__new' && !g.newName.trim())">Check</button>
+            <button class="btn btn-primary" v-show="checks.length" @click="saveAll()" :disabled="working || !checks.some(c => c.check && c.check.records.length)">{{ `Save ${checks.filter(c => c.check && c.check.records.length).length} properties to the PMS` }}</button>
+            <button class="btn" v-show="checks.length" @click="checks = []" :disabled="working">Change where they go</button>
+            <button class="btn" @click="reset()">Cancel</button>
+          </div>
+        </div>
+      </template>
+
       <!-- Check summary -->
       <template v-if="stage === 4 && check && !done && check.kind === 'ezee'">
         <div>
@@ -62,6 +116,25 @@
             <div class="row" v-show="check.otherMonths.length"><span>Other months in the file (left out)</span>
               <span class="r wrap">{{ check.otherMonths.map(m => `${shortName(m.month)} (${m.count})`).join(', ') }}</span></div>
             <div class="row" v-show="check.noUnit.length"><span class="neg-amt">Room name not recognised (saved as cancelled)</span><span class="r wrap">{{ check.noUnit.join(', ') }}</span></div>
+          </div>
+          <div v-if="check.records.length">
+            <h3 class="prev-h">{{ `Preview: ${previewRows.length} rows to be saved` }}</h3>
+            <Paged :items="previewRows" v-slot="{ pageRows }">
+              <div class="table-wrap">
+                <table class="table">
+                  <thead><tr><th>Property</th><th>Unit</th><th>Reservation</th><th>Source</th><th>Check-in</th><th>Check-out</th><th class="num">Nights</th><th class="num">Total (RM)</th><th>Result</th></tr></thead>
+                  <tbody>
+                    <template v-for="r in pageRows" :key="r.key">
+                      <tr>
+                        <td>{{ r.property }}</td><td>{{ r.unit || '—' }}</td><td>{{ r.reservationNo }}</td><td>{{ r.source }}</td>
+                        <td>{{ dmy(r.arrival) }}</td><td>{{ dmy(r.departure) }}</td><td class="num">{{ r.nights }}</td><td class="num">{{ amt(r.total) }}</td>
+                        <td><span class="pill" :class="r.cancelled ? 'grey' : (r.isNew ? 'green' : 'blue')">{{ r.cancelled ? 'Cancelled' : (r.isNew ? 'New' : 'Update') }}</span></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </Paged>
           </div>
           <div class="actions" style="margin-top:16px">
             <button class="btn btn-primary" @click="save()" :disabled="working || !check.records.length || (check.property.isNew && !check.property.name.trim())">Save to the PMS</button>
@@ -121,6 +194,18 @@
       </template>
     </section>
 
+    <!-- Switched to fit the file -->
+    <div class="modal-back" v-if="switched.length" @click.self="switched = []" v-esc="() => { switched = [] }">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="Changed to fit the file" style="max-width:480px">
+        <h2>Changed to fit your file</h2>
+        <p class="help" style="margin:0 0 12px">The file did not match what was selected, so the page switched for you.</p>
+        <div class="rows">
+          <template v-for="c in switched" :key="c.what"><div class="row"><span>{{ c.what }}</span><span class="r wrap">{{ `${c.from} → ${c.to}` }}</span></div></template>
+        </div>
+        <div class="modal-foot"><button class="btn btn-primary" @click="switched = []">OK</button></div>
+      </div>
+    </div>
+
     <!-- Previous uploads -->
     <section class="card" style="margin-top:20px">
       <div class="card-head"><h2>Previous uploads</h2></div>
@@ -158,7 +243,7 @@ import { parseFinanceStatement, sheetText, rowHash } from '@/lib/finance-import.
 import { markDirty, markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { loadProperties, loadUnits, loadSetup, latestVersion, monthDoc, completedUnitIds, audit, friendlyError, download, toCSV, loadXlsxLib } from '@/lib/finance-data.js';
-import { monthName, monthOffset, stamp, dayOffset, amt } from '@/lib/format.js';
+import { monthName, monthOffset, stamp, dayOffset, amt, dmy } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
@@ -189,16 +274,16 @@ export default {
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
-      monthName, shortName, stamp, amt,
+      monthName, shortName, stamp, amt, dmy,
       properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       dragging: false, working: false, saving: false, error: '', suggestMonth: '',
       stage: 0, percent: 0, stages: [], fileName: '', fileSize: '', fileKind: '', lastFile: null,
-      check: null, done: '', newUnitsSaved: false, history: []
+      check: null, auto: null, checks: [], switched: [], done: '', newUnitsSaved: false, history: []
     };
   },
   // Remember the property for the next page (see lib/last-property.js)
-  watch: { propertyId(v) { rememberProperty(v); } },
+  watch: { propertyId(v) { if (v !== '__auto') rememberProperty(v); } },
   async mounted() {
     try {
       this.properties = await loadProperties();
@@ -207,12 +292,13 @@ export default {
     } catch (e) { this.error = friendlyError(e, 'load the page'); }
   },
   computed: {
-    propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name })), ...(this.properties.length ? [] : [{ value: '__new', label: 'New property (from the file)' }])]; }
+    previewRows() { return this.previewRowsFn(); },
+    propertyOptions() { return [{ value: '__auto', label: 'Multi-Property' }, ...this.properties.map(p => ({ value: p.id, label: p.name })), ...(this.properties.length ? [] : [{ value: '__new', label: 'New property (from the file)' }])]; }
   },
   methods: {
     property() { return this.properties.find(p => p.id === this.propertyId) || null; },
     async loadHistory() {
-      if (this.propertyId === '__new') { this.history = []; return; }
+      if (this.propertyId === '__new' || this.propertyId === '__auto') { this.history = []; return; }
       const snap = await getDocs(query(collection(db, 'importBatches'), where('propertyIds', 'array-contains', this.propertyId)));
       this.history = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0)).slice(0, 10);
@@ -222,7 +308,7 @@ export default {
         { title: 'Sorting', note: 'By unit, then check-out date' }, { title: 'Finished', note: 'Ready to check' }];
     },
     reset() {
-      Object.assign(this, { stage: 0, percent: 0, check: null, done: '', error: '', suggestMonth: '', saving: false, newUnitsSaved: false });
+      Object.assign(this, { stage: 0, percent: 0, check: null, auto: null, checks: [], switched: [], done: '', error: '', suggestMonth: '', saving: false, newUnitsSaved: false });
       this.loadHistory().catch(() => {});
     },
 
@@ -242,16 +328,30 @@ export default {
         const parsed = readEzee(read.rows);
         this.stages[0].note = `Opened the file, ${parsed.header.length} columns found`;
         this.percent = 30; await pause(250);
+        const changes = [];
+        if (this.propertyId === '__auto') { await this.startAuto(parsed, changes); this.working = false; return; }
         // 2. Extracting numbers
         this.stage = 2;
         const prop = this.property();
         const codes = {}; parsed.records.forEach(r => { if (r.propertyCode) codes[r.propertyCode] = (codes[r.propertyCode] || 0) + 1; });
         const code = prop ? prop.code : Object.keys(codes).sort((a, b) => codes[b] - codes[a])[0];
-        if (prop && !codes[prop.code])
-          throw new Error(`This file has no ${prop.name} rooms (rooms starting with ${prop.code}). It has ${Object.keys(codes).join(', ') || 'no recognisable rooms'}. Pick the right property.`);
+        if (prop && !codes[prop.code]) {
+          // Not this property's file: switch to sorting by building instead of refusing
+          if (!Object.keys(codes).length) throw new Error(`This file has no ${prop.name} rooms (rooms starting with ${prop.code}) and no recognisable rooms. Pick the right property.`);
+          changes.push({ what: 'Property', from: prop.name, to: 'Multi-Properties' });
+          this.propertyId = '__auto';
+          await this.startAuto(parsed, changes); this.working = false; return;
+        }
         const mine = parsed.records.filter(r => !r.propertyCode || r.propertyCode === code);
-        const inMonth = mine.filter(r => r.departureMonth === this.month);
+        let inMonth = mine.filter(r => r.departureMonth === this.month);
         const byMonth = {}; mine.forEach(r => { if (r.departureMonth) byMonth[r.departureMonth] = (byMonth[r.departureMonth] || 0) + 1; });
+        if (!inMonth.length) {
+          const top = Object.keys(byMonth).sort((a, b) => byMonth[b] - byMonth[a])[0];
+          if (top && this.months.includes(top)) {
+            changes.push({ what: 'Month', from: monthName(this.month), to: monthName(top) });
+            this.month = top; inMonth = mine.filter(r => r.departureMonth === this.month);
+          }
+        }
         if (!inMonth.length) {
           const best = Object.keys(byMonth).sort((a, b) => byMonth[b] - byMonth[a])[0];
           this.suggestMonth = best && this.months.includes(best) ? best : '';
@@ -269,6 +369,7 @@ export default {
         this.percent = 85; await pause(250);
         // 4. Finished
         this.stage = 4; this.percent = 100;
+        this.switched = changes;
       } catch (e) {
         this.error = e.code ? friendlyError(e, 'read the file') : e.message;
         this.stage = 0;
@@ -276,13 +377,17 @@ export default {
       this.working = false;
     },
 
-    async buildCheck(recs, code, byMonth) {
-      const prop = this.property();
+    async buildCheck(recs, code, byMonth, over) {
+      const prop = over ? over.prop : this.property();
       const property = prop ? { code, id: prop.id, name: prop.name, isNew: false }
+        : over ? { code, id: slug(over.newName), name: over.newName.trim(), isNew: true }
         : { code, id: slug(code === 'DM' ? "D'Majestic" : code), name: code === 'DM' ? "D'Majestic" : '', isNew: true };
       const units = prop ? await loadUnits(prop.id) : [];
+      const nk = t => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       const unitFor = unitCode => {
-        const u = units.find(u => u.unitCode === unitCode || (u.aliases || []).includes(unitCode));
+        // Sorting by building: an existing unit may be saved as "N-27-12" or "Novo N-27-12", so the code without the building prefix is tried too
+        const bare = over ? nk(unitCode.slice(code.length)) : null;
+        const u = units.find(u => u.unitCode === unitCode || (u.aliases || []).includes(unitCode) || (over && (nk(u.unitCode) === nk(unitCode) || nk(u.unitCode) === bare || nk(u.unitCode).endsWith(nk(code) + bare))));
         if (u) return u.unitCode;
         if (code === 'DM') for (const [main, al] of Object.entries(DM_STARTER.aliases)) if (al.includes(unitCode)) return main;
         return unitCode;
@@ -563,43 +668,139 @@ export default {
       const c = this.check, p = c.property;
       this.working = true; this.saving = true; this.error = ''; this.percent = 0;
       try {
-        const batchRef = doc(collection(db, 'importBatches'));
-        let b = writeBatch(db);
-        if (p.isNew) {
-          b.set(doc(db, 'properties', p.id), { name: p.name.trim(), code: p.code, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
-          b.set(doc(db, 'properties', p.id, 'rateVersions', '2000-01_default'), {
-            effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
-            reason: 'Default OTA settings, created on first eZee upload', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp()
-          });
-          audit(b, me, { action: 'property.create', entity: `properties/${p.id}`, propertyId: p.id, reason: 'New property found in eZee upload' });
-        }
-        for (const r of c.newUnitRecs) {
-          b.set(doc(db, 'units', r.unitId), { propertyId: p.id, unitCode: r.unitCode, ezeeRoomMatch: r.unitCode,
-            aliases: p.code === 'DM' ? (DM_STARTER.aliases[r.unitCode] || []) : [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
-          markFrom(b, p.id, ALL_MONTHS, r.unitId);   // a new unit counts in every month's summary
-        }
-        await b.commit(); clearCache();
-        this.percent = 5;
-        const list = c.records;
-        const tally = await this.saveBookings(list, batchRef, 5, 95, c);
-        b = writeBatch(db);
-        const counts = { rows: list.length, bookings: c.active, cancelled: c.cancelled, noUnit: c.noUnit.length, ctripNeedingAmount: c.ctrip,
-          created: c.newCount, updated: c.active - c.newCount, otherMonthsLeftOut: c.otherMonths.reduce((s, m) => s + m.count, 0),
-          changed: tally.changed, unchanged: tally.unchanged, bookingWrites: tally.writes };
-        b.set(batchRef, { kind: 'ezee', fileName: this.fileName, filePath: null, months: [this.month], propertyIds: [p.id], counts, result: 'ok',
-          uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
-        audit(b, me, { action: 'ezee.upload', entity: `importBatches/${batchRef.id}`, propertyId: p.id, month: this.month,
-          changes: [{ field: 'bookings', old: null, new: c.active }], reason: this.fileName });
-        await b.commit(); clearCache();
-        this.percent = 100;
+        const r = await this.saveOne(c, 0, 100);
         this.newUnitsSaved = c.newUnits.length > 0;
-        this.done = `Saved ${c.active} bookings for ${monthName(this.month)} (${tally.created} new, ${tally.changed} changed, ${tally.unchanged} unchanged).` +
-          (c.newUnits.length ? ` ${c.newUnits.length} new units need setting up in Portfolio.` : '') +
-          (c.ctrip ? ` ${c.ctrip} Ctrip bookings need their Trip.com amount on Month-end payout.` : '');
+        this.done = r.msg;
         if (p.isNew) { this.properties = await loadProperties(); this.propertyId = p.id; }
         await this.loadHistory();
       } catch (e) {
         this.error = friendlyError(e, 'save the upload') + ' Nothing is lost: upload the same file again and it picks up where it stopped.';
+      }
+      this.saving = false; this.working = false;
+    },
+    // One property's part of the file: new property + units, bookings, the import record. lo..hi is its share of the progress bar.
+    async saveOne(c, lo, hi) {
+      const p = c.property, at = f => Math.round(lo + (hi - lo) * f);
+      const batchRef = doc(collection(db, 'importBatches'));
+      let b = writeBatch(db);
+      if (p.isNew) {
+        b.set(doc(db, 'properties', p.id), { name: p.name.trim(), code: p.code, ...(c.ezeeName ? { ezeeName: c.ezeeName } : {}), active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+        b.set(doc(db, 'properties', p.id, 'rateVersions', '2000-01_default'), {
+          effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
+          reason: 'Default OTA settings, created on first eZee upload', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp()
+        });
+        audit(b, me, { action: 'property.create', entity: `properties/${p.id}`, propertyId: p.id, reason: 'New property found in eZee upload' });
+      }
+      for (const r of c.newUnitRecs) {
+        b.set(doc(db, 'units', r.unitId), { propertyId: p.id, unitCode: r.unitCode, ezeeRoomMatch: r.unitCode,
+          aliases: p.code === 'DM' ? (DM_STARTER.aliases[r.unitCode] || []) : [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+        markFrom(b, p.id, ALL_MONTHS, r.unitId);   // a new unit counts in every month's summary
+      }
+      await b.commit(); clearCache();
+      this.percent = at(0.05);
+      const list = c.records;
+      const tally = await this.saveBookings(list, batchRef, at(0.05), at(0.95), c);
+      b = writeBatch(db);
+      const counts = { rows: list.length, bookings: c.active, cancelled: c.cancelled, noUnit: c.noUnit.length, ctripNeedingAmount: c.ctrip,
+        created: c.newCount, updated: c.active - c.newCount, otherMonthsLeftOut: c.otherMonths.reduce((s, m) => s + m.count, 0),
+        changed: tally.changed, unchanged: tally.unchanged, bookingWrites: tally.writes };
+      b.set(batchRef, { kind: 'ezee', fileName: this.fileName, filePath: null, months: [this.month], propertyIds: [p.id], counts, result: 'ok',
+        uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
+      audit(b, me, { action: 'ezee.upload', entity: `importBatches/${batchRef.id}`, propertyId: p.id, month: this.month,
+        changes: [{ field: 'bookings', old: null, new: c.active }], reason: this.fileName });
+      await b.commit(); clearCache();
+      this.percent = at(1);
+      const msg = `Saved ${c.active} bookings for ${monthName(this.month)} (${tally.created} new, ${tally.changed} changed, ${tally.unchanged} unchanged).` +
+        (c.newUnits.length ? ` ${c.newUnits.length} new units need setting up in Portfolio.` : '') +
+        (c.ctrip ? ` ${c.ctrip} Ctrip bookings need their Trip.com amount on Month-end payout.` : '');
+      return { msg, tally };
+    },
+
+    // ---- Many-Properties: one eZee file with many properties ----
+    // Each building (read from the Room column) goes to an existing property (matched by its eZee name, name or code) or becomes a new one.
+    async startAuto(parsed, changes = []) {
+      const nk = t => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const recs = parsed.records;
+      let inMonth = recs.filter(r => r.departureMonth === this.month);
+      const byMonth = {}; recs.forEach(r => { if (r.departureMonth) byMonth[r.departureMonth] = (byMonth[r.departureMonth] || 0) + 1; });
+      if (!inMonth.length) {
+        const top = Object.keys(byMonth).sort((a, b) => byMonth[b] - byMonth[a])[0];
+        if (top && this.months.includes(top)) {
+          changes.push({ what: 'Month', from: monthName(this.month), to: monthName(top) });
+          this.month = top; inMonth = recs.filter(r => r.departureMonth === this.month);
+        }
+      }
+      if (!inMonth.length) {
+        const best = Object.keys(byMonth).sort((a, b) => byMonth[b] - byMonth[a])[0];
+        this.suggestMonth = best && this.months.includes(best) ? best : '';
+        throw new Error(`No checkouts in ${monthName(this.month)} in this file.` + (best ? ` It has ${monthName(best)} (${byMonth[best]} bookings).` : ''));
+      }
+      const groups = new Map();
+      for (const r of inMonth) {
+        if (!r.propertyCode) continue;
+        if (!groups.has(r.propertyCode)) groups.set(r.propertyCode, { code: r.propertyCode, names: {}, bookings: 0, units: new Set(), recs: [] });
+        const g = groups.get(r.propertyCode);
+        g.recs.push(r); if (r.status === 'active') g.bookings++; g.units.add(r.unitCode);
+        const n = r.building || r.propertyCode; g.names[n] = (g.names[n] || 0) + 1;
+      }
+      const titleCase = n => (n === n.toUpperCase() && n.length > 4 ? n.charAt(0) + n.slice(1).toLowerCase() : n);
+      const list = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code)).map(g => {
+        const building = titleCase(Object.keys(g.names).sort((a, b) => g.names[b] - g.names[a])[0]);
+        const hit = this.properties.find(p => nk(p.ezeeName) === nk(building) || nk(p.name) === nk(building) || nk(p.code) === nk(g.code));
+        return { code: g.code, building, bookings: g.bookings, units: g.units.size, recs: g.recs, target: hit ? hit.id : '__new', newName: building };
+      });
+      if (!list.length) throw new Error('No rooms in this file could be matched to a building. The Room column should read like "Novo N-27-12 - type E-Novo 1 Bedroom Suite".');
+      this.stages[1].note = `${inMonth.filter(r => r.status === 'active').length} bookings in ${list.length} buildings`;
+      this.percent = 70; await pause(250);
+      this.stage = 3; this.stages[2].note = 'Matching each building to a property'; await pause(250);
+      this.stage = 4; this.percent = 100;
+      this.auto = { groups: list, byMonth, noRoom: inMonth.filter(r => !r.propertyCode).length,
+        otherMonths: Object.entries(byMonth).filter(([m]) => m !== this.month).sort().map(([month, count]) => ({ month, count })) };
+      this.checks = []; this.switched = changes;
+    },
+    // What the check found, one line per booking (shown 10 a page before anything is saved)
+    previewRowsFn() {
+      const lines = c => (c ? c.records.map(r => ({ key: `${c.property.id}|${r.docId}`, property: c.property.name, unit: r.unitCode, reservationNo: r.reservationNo, source: r.source,
+        arrival: r.arrival, departure: r.departure, nights: r.nights, total: r.totalInclTax, isNew: r.isNew, cancelled: r.status !== 'active' })) : []);
+      const all = this.auto ? this.checks.flatMap(x => lines(x.check)) : lines(this.check);
+      return all.sort((a, b) => a.property.localeCompare(b.property) || (a.unit || '').localeCompare(b.unit || '', undefined, { numeric: true }) || (a.departure || '').localeCompare(b.departure || ''));
+    },
+    targetOptions(g) {
+      return [{ value: '__new', label: 'Create new property' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))];
+    },
+    async checkAuto() {
+      this.working = true; this.error = '';
+      try {
+        const out = [];
+        for (const g of this.auto.groups) {
+          const prop = g.target === '__new' ? null : this.properties.find(p => p.id === g.target);
+          if (prop && (await monthDoc(prop.id, this.month)).status === 'completed') { out.push({ note: `${monthName(this.month)} is completed for ${prop.name}; left out`, check: null }); continue; }
+          const c = await this.buildCheck(g.recs, g.code, this.auto.byMonth, { prop, newName: g.newName || g.building });
+          c.ezeeName = g.building;
+          const bits = [`${c.active} bookings`, c.newUnits.length ? `${c.newUnits.length} new units` : '', c.lockedUnits.length ? `${c.lockedUnits.length} completed (left out)` : '', c.property.isNew ? 'new property' : ''].filter(Boolean);
+          out.push({ note: bits.join(' · '), check: c });
+        }
+        this.checks = out;
+      } catch (e) { this.error = e.code ? friendlyError(e, 'check the file') : e.message; }
+      this.working = false;
+    },
+    async saveAll() {
+      const todo = this.checks.filter(x => x.check && x.check.records.length);
+      this.working = true; this.saving = true; this.error = ''; this.percent = 0;
+      const notes = [];
+      try {
+        for (let i = 0; i < todo.length; i++) {
+          const c = todo[i].check;
+          const r = await this.saveOne(c, Math.round(100 * i / todo.length), Math.round(100 * (i + 1) / todo.length));
+          notes.push(`${c.property.name}: ${c.active} bookings (${r.tally.created} new, ${r.tally.changed} changed)${c.newUnits.length ? `, ${c.newUnits.length} new units` : ''}`);
+          todo[i].saved = true;
+        }
+        this.newUnitsSaved = todo.some(x => x.check.newUnits.length);
+        this.done = `Saved ${monthName(this.month)} for ${todo.length} properties. ${notes.join('. ')}.`;
+        this.properties = await loadProperties();
+        this.propertyId = this.properties.find(p => p.id === todo[0].check.property.id)?.id || this.propertyId;
+      } catch (e) {
+        this.error = friendlyError(e, 'save the upload') + (notes.length ? ` Saved so far: ${notes.join('; ')}.` : '') + ' Nothing is lost: upload the same file again and it picks up where it stopped.';
       }
       this.saving = false; this.working = false;
     },  }
@@ -608,6 +809,7 @@ export default {
 
 <style scoped>
     /* Property name box shrinks on a phone instead of pushing the page sideways */
+    .prev-h { margin: 18px 0 8px; font-size: 15px; }
     .name-cell { min-width: 0; }
     .name-cell .input { max-width: 100%; }
 </style>
