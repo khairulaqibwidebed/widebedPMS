@@ -1,6 +1,6 @@
 // Every page address in one list. Pages load only when first opened.
 // meta.label = the sidebar item that lights up; meta.roles = who may open the page.
-// A person opens a page if their main role OR one of their extra departments is in meta.roles (lib/access.js).
+// meta.perm = a tickable page (lib/access.js): opening it needs its View tick on Staff accounts, not a role.
 import { createRouter, createWebHistory } from 'vue-router';
 import { signOut } from 'firebase/auth';
 import { auth, ALLOWED_ROLES } from './lib/firebase.js';
@@ -11,43 +11,42 @@ import { useSession } from './stores/session.js';
 const FD = ['director', 'finance'], D = ['director'], DH = ['director', 'hr'];
 // Issues, the Playbook and the staff HR pages: every role.
 const ALL = ALLOWED_ROLES;
-// Portfolio: Director and Finance edit; Operations, Procurement and Marketing view only.
-const PORTFOLIO_ROLES = [...FD, 'operations', 'procurement', 'marketing'];
 const page = (path, load, label, roles = FD, extra = {}) => ({ path, component: load, meta: { label, title: label, roles, ...extra } });
+// A tickable page: who opens it is decided by the person's ticks (roles left empty on purpose).
+const ticked = (path, load, label, perm, extra = {}) => page(path, load, label, [], { perm, ...extra });
 
 const routes = [
   { path: '/', component: () => import('./pages/Login.vue'), meta: { public: true, title: 'Sign in' } },
 
   // Every role has a Dashboard: Director and Finance their own page, the others RoleDashboard (DashboardHome picks).
   page('/Dashboard', () => import('./pages/Dashboard/DashboardHome.vue'), 'Dashboard', ALL),
-  page('/Reports', () => import('./pages/Reports/Reports.vue'), 'Reports'),
+  ticked('/Reports', () => import('./pages/Reports/Reports.vue'), 'Reports', 'reports'),
 
   ...['owners', 'properties', 'bookings'].map(section =>
-    page(`/Portfolio/${section}`, () => import('./pages/Portfolio/Portfolio.vue'), section[0].toUpperCase() + section.slice(1), PORTFOLIO_ROLES, { section })),
-  page('/Portfolio/bulk-upload', () => import('./pages/Portfolio/BulkUpload.vue'), 'Bulk Upload'),
+    ticked(`/Portfolio/${section}`, () => import('./pages/Portfolio/Portfolio.vue'), section[0].toUpperCase() + section.slice(1), 'portfolio', { section })),
+  ticked('/Portfolio/bulk-upload', () => import('./pages/Portfolio/BulkUpload.vue'), 'Bulk Upload', 'bulkUpload'),
   { path: '/Portfolio', redirect: to => ({ path: `/Portfolio/${['owners', 'bookings'].includes(to.query.tab) ? to.query.tab : 'properties'}`, query: { ...to.query, tab: undefined } }) },
 
-  page('/Finance/upload', () => import('./pages/Finance/Upload.vue'), 'Upload eZee Report'),
-  page('/Finance/expenses', () => import('./pages/Finance/Expenses.vue'), 'Expenses & Others'),
-  page('/Finance/statement-approvals', () => import('./pages/Finance/StatementApprovals.vue'), 'Statement Approvals', D),
-  page('/Finance/month-end', () => import('./pages/Finance/MonthEnd.vue'), 'Month-End Payout'),
-  page('/Finance/invoices', () => import('./pages/Finance/Invoices.vue'), 'Invoices & Receipts'),
-  page('/Finance/offline-payments', () => import('./pages/Finance/OfflinePayments.vue'), 'Offline Payments'),
+  ticked('/Finance/upload', () => import('./pages/Finance/Upload.vue'), 'Upload eZee Report', 'ezeeUpload'),
+  ticked('/Finance/expenses', () => import('./pages/Finance/Expenses.vue'), 'Expenses & Others', 'expenses'),
+  page('/Finance/statement-approvals', () => import('./pages/Finance/StatementApprovals.vue'), 'Statement Approvals', D),   // Director only, never tickable
+  ticked('/Finance/month-end', () => import('./pages/Finance/MonthEnd.vue'), 'Month-End Payout', 'monthEnd'),
+  ticked('/Finance/invoices', () => import('./pages/Finance/Invoices.vue'), 'Invoices & Receipts', 'invoices'),
+  ticked('/Finance/offline-payments', () => import('./pages/Finance/OfflinePayments.vue'), 'Offline Payments', 'offlinePayments'),
 
   page('/Operations/issues', () => import('./pages/Operations/Issues.vue'), 'Issues', ALL),
-  page('/Operations/offline-inquiries', () => import('./pages/Operations/SalesLeads.vue'), 'Offline Inquiries', [...FD, 'operations']),
+  ticked('/Operations/offline-inquiries', () => import('./pages/Operations/SalesLeads.vue'), 'Offline Inquiries', 'offlineInquiries'),
   { path: '/Operations/sales-leads', redirect: to => ({ path: '/Operations/offline-inquiries', query: to.query }) },
-  page('/Operations/booking-forms', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', [...FD, 'operations']),
+  ticked('/Operations/booking-forms', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
 
-  // New Owner Listings: Director and Procurement edit; Finance, Operations and Marketing view only.
-  page('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'New Owner Listings', [...FD, 'operations', 'procurement', 'marketing']),
+  ticked('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'New Owner Listings', 'newOwnerListings'),
   { path: '/Procurement/new-listings', redirect: to => ({ path: '/Procurement/new-owner-listings', query: to.query }) },
-  page('/Procurement/forms', () => import('./pages/Procurement/Forms.vue'), 'Forms', [...FD, 'procurement'], { title: 'Procurement forms' }),
+  ticked('/Procurement/forms', () => import('./pages/Procurement/Forms.vue'), 'Forms', 'procurementForms', { title: 'Procurement forms' }),
 
   page('/Playbook/onboarding', () => import('./pages/Playbook/Onboarding.vue'), 'Onboarding', ALL),
   page('/Playbook/business-model', () => import('./pages/Playbook/BusinessModel.vue'), 'Business Model', ALL),
 
-  // Staff accounts and Audit log: Director and HR (Khairul 21 Oct).
+  // Staff accounts and Audit log: Director and HR (Khairul 21 Oct). Never tickable.
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),
   page('/Settings/brand-logos', () => import('./pages/Settings/BrandLogos.vue'), 'Brand Logos', D),
   page('/Settings/audit-log', () => import('./pages/Settings/AuditLog.vue'), 'Audit Log', DH),
@@ -56,7 +55,7 @@ const routes = [
   ...[['attendance', 'Attendance SOP'], ['advance', 'Advance SOP'], ['allowance', 'Allowance SOP']].map(([sop, label]) =>
     page(`/HR/${sop}-sop`, () => import('./pages/HR/SopPage.vue'), label, ALL, { sop })),
   page('/HR/claim-socso', () => import('./pages/HR/SopPage.vue'), 'Claim SOCSO', ALL, { sop: 'socso' }),
-  // Staff complaints: HR only. Directors see only the Director complaints page.
+  // Staff complaints: HR only. Directors see only the Director complaints page. Never tickable.
   page('/HR/staff-complaints', () => import('./pages/HR/StaffComplaints.vue'), 'Staff Complaints', ['hr']),
   page('/HR/director-complaints', () => import('./pages/HR/DirectorComplaints.vue'), 'Director Complaints', DH),
   page('/HR/raise-complaint', () => import('./pages/HR/RaiseComplaint.vue'), 'Raise a Complaint', ALL),
@@ -77,8 +76,8 @@ router.beforeEach(async to => {
   if (to.meta.public) return true;
   const me = await useSession().check();
   if (!me.user) return { path: '/' };
-  // Main role or any ticked extra department.
-  if (!canOpen(to.meta.roles || ALLOWED_ROLES, me)) {
+  // Tickable pages need their View tick (Directors always have it); the rest follow the role list.
+  if (!canOpen(to.meta, me, ALLOWED_ROLES)) {
     if (ALLOWED_ROLES.includes(me.role)) return { path: homeFor(me.role) };
     await signOut(auth);
     location.replace('/?noaccess=1');

@@ -80,7 +80,7 @@
 </template>
 
 <script>
-import { NAV } from '../nav.js';
+import { navFor } from '../nav.js';
 import { ROLE_LABEL, logOut } from '../lib/firebase.js';
 import { clearCache } from '../lib/cache.js';
 import { quota, resetTime } from '../lib/quota.js';
@@ -116,7 +116,8 @@ export default {
   computed: {
     resetAt: () => resetTime(),
     me: () => useSession(),
-    groups() { return NAV[this.me.role] || []; },
+    // Main role's sidebar plus the pages of any extra departments (nav.js navFor).
+    groups() { return navFor(this.me); },
     active() { return this.$route.meta.label; },
     // Collapsed AND on desktop. On mobile the sidebar is always the full drawer.
     rail() { return this.collapsed && this.wide; },
