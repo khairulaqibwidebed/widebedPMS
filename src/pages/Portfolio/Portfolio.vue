@@ -141,9 +141,8 @@
       </section>
       <section class="card">
         <div class="card-head"><h2>Offline bookings</h2>
-          <div class="head-tools" v-if="canLogInquiry || canBook">
-            <RouterLink class="btn" :class="{ 'btn-primary': !canBook }" v-if="canLogInquiry" to="/Operations/offline-inquiries?new=1">Log inquiry</RouterLink>
-            <RouterLink class="btn btn-primary" v-if="canBook" to="/Operations/offline-inquiries?newBooking=1">Create booking</RouterLink>
+          <div class="head-tools" v-if="canLogInquiry">
+            <RouterLink class="btn" :class="{ 'btn-primary': true }" v-if="canLogInquiry" to="/Operations/offline-inquiries?new=1">Log inquiry</RouterLink>
           </div></div>
         <p class="card-intro">Stays not booked through eZee, e.g. long-term tenants. They are made from Offline inquiries with Create booking, or with + New booking for a stay with no inquiry; this list is read-only. Each one is keyed into eZee to block the room; month-end pays the owner from the eZee booking, so these are never counted twice.</p>
         <div class="toolbar" ref="bookList">

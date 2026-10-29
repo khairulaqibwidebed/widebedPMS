@@ -1,9 +1,14 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.10, 27 Oct 2026: same behaviour as Draft 0.9, plus two changes:
-// (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
+// Widebed PMS Firestore rules. Draft 0.12, 29 Oct 2026: page access.
+// users/{uid}.perms (ticked on Staff accounts) lists the pages a person may view or edit: '<page>.view' / '<page>.edit'.
+// No perms saved = the role's preset (presetFor below), so accounts that were never changed behave as in Draft 0.10.
+// Data is protected per area: any Finance page opens the finance data, Portfolio Edit opens owners/units/terms, and so on.
+// Directors keep everything. Statement approvals, Director Override, brand logos, staff accounts, the audit log and
+// complaints still follow the role only and can't be ticked.
+// Draft 0.10, 27 Oct 2026: (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
 // (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
 // 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
-// History: 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
+// History: 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
 // 0.7 month summaries (unitMonths, months.summary).
 // 0.6 every role signs in; Portfolio for Operations/Procurement/Marketing; direct bookings. 0.5 offline inquiries,
 // tenants, offline bookings, Issues, SOPs, complaints, Playbook, brand logos. 0.4 month-end completion is per unit.
@@ -25,23 +30,53 @@ service cloud.firestore {
         ? get(myRecord()).data.get('role', null) : null;
     }
     function isDirector() { return role() == 'director'; }
-    function isFinance()  { return role() == 'finance'; }
     function isIT()       { return role() == 'it'; }
     function isHR()       { return role() == 'hr'; }
-    function isOps()      { return role() == 'operations'; }
-    function isProc()     { return role() == 'procurement'; }
-    function isMkt()      { return role() == 'marketing'; }
+    function opsRole()    { return role() == 'operations'; }
     // Any active staff record with a role (every role, including IT).
     function anyStaff()   { return role() != null; }
     // Staff accounts: Director and HR. HR can't create, edit or promote anyone to Director.
     function staffAdmin() { return isDirector() || isHR(); }
-    function finOrDir()   { return isDirector() || isFinance(); }
     function hrOrDir()    { return isHR() || isDirector(); }
-    function staff()      { return finOrDir() || isIT(); }
-    function portfolioViewer() { return role() in ['operations', 'procurement', 'marketing']; }
-    // Operations and Marketing may add properties, units and owners (create only, no terms or bank details).
-    function portfolioAdder() { return role() in ['operations', 'marketing']; }
-    function listingEditor()   { return isDirector() || isProc() || isMkt(); }   // Marketing too (Khairul 27 Oct)
+
+    // ---- Page access (Draft 0.12) ----
+    // What each role gets before anyone changes its ticks. KEEP IN STEP WITH PRESETS in lib/access.js.
+    function presetFor(r) {
+      return {
+        'finance': ['reports.view', 'reports.edit', 'ezeeUpload.view', 'ezeeUpload.edit', 'expenses.view', 'expenses.edit',
+          'monthEnd.view', 'monthEnd.edit', 'invoices.view', 'invoices.edit', 'offlinePayments.view', 'offlinePayments.edit',
+          'portfolio.view', 'portfolio.edit', 'bulkUpload.view', 'bulkUpload.edit', 'offlineInquiries.view', 'offlineInquiries.edit'],
+        'operations': ['portfolio.view', 'offlineInquiries.view', 'offlineInquiries.edit', 'bookingForms.view', 'newOwnerListings.view'],
+        'it': [],
+        'hr': ['playbook.edit', 'sops.edit'],
+        'procurement': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'procurementForms.view'],
+        'marketing': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit']
+      }.get(r, []);
+    }
+    // The person's ticks: saved on their record, or their role's preset. A switched-off record has none.
+    function myPerms()    { return role() != null ? get(myRecord()).data.get('perms', presetFor(role())) : []; }
+    function can(p)       { return isDirector() || p in myPerms(); }
+
+    // Finance data: any Finance page lets them read it; any Finance page ticked for Edit lets them change it.
+    function finEdit()    { return isDirector() || myPerms().hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit']); }
+    function finView()    { return finEdit() || myPerms().hasAny(['reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view', 'offlinePayments.view']); }
+    function finOrDir()   { return finEdit(); }
+    function isFinance()  { return finEdit(); }
+    // Finance-data readers, plus IT (view-only on everything, as before).
+    function staff()      { return finView() || isIT(); }
+    // Offline Inquiries page: works the inquiries assigned to them (Create booking, tenants, direct bookings).
+    function isOps()      { return can('offlineInquiries.view'); }
+    // Portfolio: View reads owners, properties, units and bookings. Edit (or Bulk Upload Edit) changes them,
+    // terms and bank details included.
+    function portfolioViewer() { return can('portfolio.view'); }
+    function portfolioEditor() { return finEdit() || can('portfolio.edit') || can('bulkUpload.edit'); }
+    // Operations and Marketing with Portfolio View may also add properties, units and owners (no terms or bank details).
+    function portfolioAdder()  { return role() in ['operations', 'marketing'] && portfolioViewer(); }
+    // Marketing with Portfolio View also edit names and details (Khairul 27 Oct).
+    function isMkt()      { return role() == 'marketing' && portfolioViewer(); }
+    // New Owner Listings.
+    function listingViewer()   { return can('newOwnerListings.view'); }
+    function listingEditor()   { return can('newOwnerListings.edit'); }
 
     // ---- Paths and writes ----
     function docPath(col, id)    { return /databases/$(database)/documents/$(col)/$(id); }
@@ -54,8 +89,14 @@ service cloud.firestore {
       return /databases/$(database)/documents/statements/$(unitId + '_' + month);
     }
     function unitCompleted(unitId, month) {
-      return exists(statementPath(unitId, month))
-        && get(statementPath(unitId, month)).data.status == 'completed';
+      return (exists(statementPath(unitId, month))
+        && get(statementPath(unitId, month)).data.status == 'completed')
+        // Finance sent it to the Director: its numbers are frozen until approved, sent back or pulled back.
+        || (exists(approvalPath(unitId, month))
+        && get(approvalPath(unitId, month)).data.status == 'submitted');
+    }
+    function approvalPath(unitId, month) {
+      return /databases/$(database)/documents/approvals/$(unitId + '_' + month);
     }
     function unitMonthKeys() {
       return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'fixedRentAmount',
@@ -104,13 +145,15 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
+      // Page ticks, when saved, are a list.
+      function permsOk() { return !('perms' in request.resource.data) || request.resource.data.perms is list; }
       allow read: if signedIn() && (request.auth.uid == uid || staffAdmin() || isIT());
-      allow create: if isDirector() || (isHR() && request.resource.data.role != 'director');
+      allow create: if permsOk() && (isDirector() || (isHR() && request.resource.data.role != 'director'));
       // A Director cannot remove their own Director role or switch themselves off (no lock-out).
-      allow update: if isDirector() && (uid != request.auth.uid
+      allow update: if isDirector() && permsOk() && (uid != request.auth.uid
         || (request.resource.data.role == 'director' && request.resource.data.get('active', true) == true));
       // HR: anyone except Directors and themselves, and never to Director.
-      allow update: if isHR() && uid != request.auth.uid
+      allow update: if isHR() && permsOk() && uid != request.auth.uid
         && resource.data.role != 'director' && request.resource.data.role != 'director';
       // Sign-in stamps lastLoginAt on your own record (Team activity).
       allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
@@ -168,6 +211,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Appearance: userPrefs/{uid} = { brand, mode, custom, updatedAt }. Each person reads and writes only their own.
+    match /userPrefs/{uid} {
+      allow read, create, update: if anyStaff() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
     // Profile pictures: avatars/{uid} = { src, updatedAt }, a 128 px square data URL. Each person writes only their own.
     match /avatars/{uid} {
       allow read: if anyStaff();
@@ -195,7 +244,7 @@ service cloud.firestore {
 
     match /properties/{propertyId} {
       allow read: if staff() || portfolioViewer();
-      allow write: if finOrDir();
+      allow write: if portfolioEditor();
       allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.name is string && request.resource.data.code is string
@@ -206,8 +255,8 @@ service cloud.firestore {
       allow update: if isMkt() && changed().hasOnly(['name', 'info', 'updatedAt', 'updatedBy', 'summaryMarks'])
         && request.resource.data.info.keys().hasOnly(['address', 'city', 'state', 'ezeeAccount', 'ezeeName']);
       match /rateVersions/{v} {
-        allow read: if staff();
-        allow create: if finOrDir() && request.resource.data.reason is string;
+        allow read: if staff() || portfolioEditor();
+        allow create: if portfolioEditor() && request.resource.data.reason is string;
         // Operations: only the default OTA rates, only in the batch that creates the property.
         allow create: if portfolioAdder() && v == '2000-01_default' && createdNow('properties', propertyId)
           && request.resource.data.effectiveFrom == '2000-01' && request.resource.data.createdBy == request.auth.uid
@@ -218,7 +267,8 @@ service cloud.firestore {
 
     match /units/{unitId} {
       allow read: if staff() || portfolioViewer();
-      allow write: if finOrDir();
+      allow create, update: if portfolioEditor();
+      allow delete: if isDirector();   // safe delete: the page only offers it for units with no history
       // Operations: no terms (arrangement, fixed rent, fees).
       allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
           'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
@@ -229,26 +279,30 @@ service cloud.firestore {
       allow update: if isMkt() && changed().hasOnly(['aliases', 'info', 'updatedAt', 'updatedBy'])
         && request.resource.data.info.keys().hasOnly(['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb']);
       match /terms/{v} {
-        allow read: if staff();
-        allow create: if finOrDir() && request.resource.data.reason is string;
-        allow update, delete: if false;
+        allow read: if staff() || portfolioEditor();
+        allow create: if portfolioEditor() && request.resource.data.reason is string;
+        allow update: if false;
+        allow delete: if isDirector();   // only when a unit is safe-deleted
       }
       match /ownership/{id} {
-        allow read: if staff();
-        allow write: if finOrDir();
+        allow read: if staff() || portfolioEditor();
+        allow write: if portfolioEditor();
       }
     }
 
     // The owner parent holds bankLast4 (not shown to portfolio viewers); Operations create it with none.
     match /owners/{ownerId} {
       allow read: if staff() || portfolioViewer();
-      allow write: if finOrDir();
+      allow create, update: if portfolioEditor();
+      allow delete: if isDirector();   // safe delete: the page only offers it for owners with no units
       allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.get('bankLast4', null) == null
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if isMkt() && changed().hasOnly(['updatedAt', 'updatedBy']);
       // Operations write name and contact details once, in the batch that creates the owner, and never read them back.
       match /private/{docId} {
+        // Portfolio Edit: names, contact and bank details.
+        allow read, write: if portfolioEditor() && docId == 'main';
         allow create: if portfolioAdder() && docId == 'main' && createdNow('owners', ownerId)
           && newKeysOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'updatedAt', 'updatedBy'])
           && request.resource.data.updatedBy == request.auth.uid;
@@ -261,15 +315,15 @@ service cloud.firestore {
     }
 
     match /agreements/{id} {
-      allow read: if staff();
-      allow write: if finOrDir();
+      allow read: if staff() || portfolioEditor();
+      allow write: if portfolioEditor();
     }
 
     // ================= Finance: bookings and month-end =================
 
     // eZee uploads. Operations read the latest for "Last eZee upload" on their dashboard.
     match /importBatches/{id} {
-      allow read: if staff() || isOps();
+      allow read: if staff() || isOps() || opsRole();
       allow create: if finOrDir();
       allow update, delete: if false;
     }
@@ -278,7 +332,7 @@ service cloud.firestore {
     // through a Director Override revision.
     // ===== Role dashboards (dash): Operations read today's check-ins/outs (parent docs only, no write).
     match /bookings/{reservationNo} {
-      allow read: if staff() || isOps();
+      allow read: if staff() || isOps() || opsRole();
       allow create, update: if finOrDir();
       allow delete: if false;
     }
@@ -336,8 +390,8 @@ service cloud.firestore {
 
     match /statements/{id} {
       allow read: if staff();
-      // Approve & complete, one unit at a time.
-      allow create: if finOrDir() && request.resource.data.revision == 1 && request.resource.data.status == 'completed';
+      // Approve & complete, one unit at a time. Only a Director completes (Finance sends to the Director: approvals below).
+      allow create: if isDirector() && request.resource.data.revision == 1 && request.resource.data.status == 'completed';
       // Director reopens one unit: same revision, status 'reopened', and the revision is saved first.
       allow update: if isDirector()
         && resource.data.status == 'completed' && request.resource.data.status == 'reopened'
@@ -356,9 +410,31 @@ service cloud.firestore {
       }
     }
 
+    // Finance sends a unit's statement to the Director (Statement Approvals page). id = unitId_month, same as statements.
+    // submitted -> approved (Director completes it, same batch as the statement) or returned (Director, reason) or
+    // withdrawn (Finance pulls it back, reason). Returned / withdrawn can be sent again. After a Director reopen, an approved
+    // one can be sent again too.
+    match /approvals/{id} {
+      allow read: if staff();
+      allow create: if finOrDir() && request.resource.data.status == 'submitted'
+        && id == request.resource.data.unitId + '_' + request.resource.data.month
+        && request.resource.data.submittedBy == request.auth.uid
+        && (!exists(statementPath(request.resource.data.unitId, request.resource.data.month))
+          || get(statementPath(request.resource.data.unitId, request.resource.data.month)).data.status == 'reopened');
+      allow update: if finOrDir() && request.resource.data.status == 'submitted' && request.resource.data.submittedBy == request.auth.uid
+        && (resource.data.status in ['returned', 'withdrawn']
+          || (resource.data.status == 'approved' && get(statementPath(resource.data.unitId, resource.data.month)).data.status == 'reopened'));
+      allow update: if finOrDir() && resource.data.status == 'submitted' && request.resource.data.status == 'withdrawn'
+        && request.resource.data.withdrawReason is string && request.resource.data.withdrawReason.size() > 0;
+      allow update: if isDirector() && resource.data.status == 'submitted'
+        && (request.resource.data.status == 'approved'
+          || (request.resource.data.status == 'returned' && request.resource.data.returnReason is string && request.resource.data.returnReason.size() > 0));
+      allow delete: if false;
+    }
+
     match /exports/{id} {
       allow read: if staff();
-      allow create: if finOrDir();
+      allow create: if finOrDir() || can('reports.edit');
       allow update, delete: if false;
     }
 
@@ -513,7 +589,7 @@ service cloud.firestore {
     // sops/{attendance|advance|allowance|socso}. Everyone reads; HR and Directors edit. Never deleted.
     match /sops/{sopKey} {
       allow read: if anyStaff();
-      allow create, update: if hrOrDir() && sopKey in ['attendance', 'advance', 'allowance', 'socso']
+      allow create, update: if can('sops.edit') && sopKey in ['attendance', 'advance', 'allowance', 'socso']
         && request.resource.data.updatedByUid == request.auth.uid
         && request.resource.data.steps is list && request.resource.data.steps.size() > 0;
       allow delete: if false;
@@ -522,7 +598,7 @@ service cloud.firestore {
     // playbook/businessModel and playbook/onboarding. Everyone reads; HR and Directors edit.
     match /playbook/{pageId} {
       allow read: if anyStaff();
-      allow create, update: if hrOrDir() && pageId in ['businessModel', 'onboarding']
+      allow create, update: if can('playbook.edit') && pageId in ['businessModel', 'onboarding']
         && request.resource.data.updatedByUid == request.auth.uid;
       allow delete: if false;
     }
@@ -572,10 +648,10 @@ service cloud.firestore {
 
     // ================= Procurement: New Owner Listings =================
 
-    // newOwnerListings/{NL-0001}: one new unit from service agreement to Live. Director, Procurement and Marketing create and edit;
-    // Finance and Operations read. Owner phone and email in private/main (Director and Procurement edit, Operations reads).
+    // newOwnerListings/{NL-0001}: one new unit from service agreement to Live. New Owner Listings Edit creates and edits;
+    // anyone with the page ticked reads. Owner phone and email in private/main (editors; Operations with View read them).
     match /newOwnerListings/{id} {
-      allow read: if role() in ['director', 'finance', 'operations', 'procurement', 'marketing'];
+      allow read: if listingViewer() || listingEditor();
       allow create: if listingEditor() && id.matches('NL-[0-9]{4,}')
         && request.resource.data.createdByUid == request.auth.uid
         && request.resource.data.status in ['inProgress', 'live'];
@@ -584,7 +660,7 @@ service cloud.firestore {
         && request.resource.data.status in ['inProgress', 'live'];
       allow delete: if false;
       match /private/{docId} {
-        allow read: if (listingEditor() || isOps()) && docId == 'main';
+        allow read: if (listingEditor() || (opsRole() && listingViewer())) && docId == 'main';
         allow write: if listingEditor() && docId == 'main';
       }
     }

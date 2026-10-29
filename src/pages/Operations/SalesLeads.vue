@@ -243,20 +243,20 @@
     <!-- Create booking -->
     <template v-if="view === 'book' && (lead || direct)">
       <div>
-        <button class="back" @click="bookBack()">{{ direct ? '← Back to Bookings' : `← Back to ${lead.id}` }}</button>
+        <button class="back" v-if="!embedded" @click="bookBack()">{{ direct ? '← Back to Booking Forms' : `← Back to ${lead.id}` }}</button>
         <div class="page-head">
           <div>
-            <h1>{{ direct ? 'New booking' : 'Create booking' }}</h1>
+            <h1 v-if="!embedded">{{ direct ? 'New booking' : 'Create booking' }}</h1>
             <div class="sub">{{ direct ? 'A booking without an inquiry, e.g. a walk-in or a returning tenant. Saving saves the customer as a tenant.'
               : `From ${lead.id} · ${lead.lookingFor}. Saving marks the inquiry as paid and saves the customer as a tenant.` }}</div>
           </div>
-          <div class="head-tools">
+          <div class="head-tools" v-if="!embedded">
             <button class="btn" @click="bookBack()">Cancel</button>
             <button class="btn btn-primary" @click="saveBooking()" :disabled="busy">Save booking</button>
           </div>
         </div>
         <div class="notice error" v-show="formError">{{ formError }}</div>
-        <div class="side-grid">
+        <div :class="{ 'side-grid': !embedded }">
           <div class="form-card">
             <section class="card">
               <h2>Tenant</h2>
@@ -302,6 +302,8 @@
             <section class="card">
               <h2>Booking details</h2>
               <div class="grid-fields">
+                <div class="field"><label>Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="SOURCES_BK" label="Booking source" /></div>
+                <div class="field"><label>Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" /></div>
                 <div class="field"><label for="bRentType">Type of rent</label>
                   <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" /></div>
                 <div class="field" v-if="longTerm"><label for="bRent">Rental (RM)</label><input class="input" id="bRent" type="number" min="0" step="0.01" v-model="bk.monthlyRent"></div>
@@ -325,8 +327,21 @@
               <div class="field" style="margin-top:12px"><label for="bNote">Remarks</label>
                 <textarea class="input" id="bNote" style="height:70px" v-model="bk.note" placeholder="e.g. Paid in full by bank transfer"></textarea></div>
             </section>
+            <section class="card">
+              <h2>Door access and passcodes</h2>
+              <div class="grid-fields">
+                <div class="field"><label for="bPass">Main door passcode <span class="muted">(optional)</span></label><input class="input" id="bPass" v-model="bk.mainPasscode" autocomplete="off"></div>
+                <div class="field"><label for="bExp">Current expiry date <span class="muted">(optional)</span></label><input class="input" id="bExp" type="date" v-model="bk.currentExpiry"></div>
+                <div class="field"><label for="bNextPass">Next door passcode <span class="muted">(optional)</span></label><input class="input" id="bNextPass" v-model="bk.nextPasscode" autocomplete="off"></div>
+                <div class="field"><label for="bNextExp">Next expiry date <span class="muted">(optional)</span></label><input class="input" id="bNextExp" type="date" v-model="bk.nextExpiry"></div>
+              </div>
+            </section>
+            <div class="bottom-actions">
+              <button class="btn" @click="bookBack()">Cancel</button>
+              <button class="btn btn-primary" @click="saveBooking()" :disabled="busy">Save booking</button>
+            </div>
           </div>
-          <section class="card next-list">
+          <section class="card next-list" v-if="!embedded">
             <div class="card-head"><h2>When you save</h2></div>
             <p>{{ bk.existing ? `- The booking is added to tenant ${bk.existing.id}.` : '- The customer is saved as a new tenant.' }}</p>
             <p v-if="direct">- The booking gets the next number, offline_BK-0001 and up, and shows under Portfolio > Bookings.</p>
@@ -382,6 +397,8 @@ const phoneKey = p => { const n = String(p || '').replace(/\D/g, ''); return n.s
 const searchWords = name => [...new Set(String(name || '').toLowerCase().split(/\s+/).filter(Boolean)
   .flatMap(w => Array.from({ length: Math.max(0, w.length - 1) }, (_, i) => w.slice(0, i + 2))))];
 const GENDERS = ['Male', 'Female', 'Other'].map(x => ({ value: x, label: x })); GENDERS.unshift({ value: '', label: 'Not set' });
+const SOURCES_BK = [{ value: '', label: 'Choose source…' }, ...['Offline', 'Website', 'Agent', 'OTA'].map(x => ({ value: x, label: x }))];
+const RENTAL_STATUSES = [{ value: '', label: 'Choose status…' }, { value: 'Paid', label: 'Paid' }, { value: 'Unpaid', label: 'Unpaid' }];
 const RENT_TYPES = ['Daily', 'Monthly', 'Yearly'].map(x => ({ value: x, label: x }));
 const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); PAY_MODES.unshift({ value: '', label: 'Choose mode' });
 const FEES = [{ key: 'utilityDeposit', label: 'Utility deposit' }, { key: 'internetFee', label: 'Internet fees' }, { key: 'carparkFee', label: 'Carpark fees' },
@@ -406,13 +423,16 @@ export default {
   components: { OptionPicker },
   data() {
     return {
-      nextOpen: false, histOpen: false, STATUS, FILTERS, GENDERS, RENT_TYPES, PAY_MODES, FEES, SOURCES, PICKABLE,
+      nextOpen: false, histOpen: false, STATUS, FILTERS, GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, PAY_MODES, FEES, SOURCES, PICKABLE,
       leads: [], staff: [], tenant: null, booking: null, tenantStays: 0, known: null,
       view: 'list', lead: null, filter: 'all', okMsg: '', formError: '', error: '', loading: true, busy: false,
       direct: false, form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}, bk: {}, properties: [], units: []
     };
   },
+  props: { embedded: { type: Boolean, default: false } },   // inside Operations > Booking Forms: only the new-booking form, no page navigation
+  emits: ['close', 'saved'],
   async mounted() {
+    if (this.embedded) { await this.show('direct'); this.loading = false; return; }
     const q = this.$route.query;
     if ('new' in q) await this.show('new');
     else if ('newBooking' in q) await this.show('direct');
@@ -737,11 +757,11 @@ export default {
       this.busy = false;
     },
 
-    bookBack() { if (this.direct) this.$router.push('/Portfolio/bookings'); else this.go('lead', this.lead.id); },
+    bookBack() { if (this.embedded) { this.$emit('close'); return; } if (this.direct) this.$router.push('/Operations/booking-forms'); else this.go('lead', this.lead.id); },
     async startBooking() {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
       this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null,
-        rentType: 'Daily', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', othersFee: '', othersNote: '',
+        rentType: 'Daily', bookingSource: '', rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', othersFee: '', othersNote: '',
         payMode: '', payDate: today(),
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
       await this.refill();
@@ -802,10 +822,13 @@ export default {
       }
       return ids;
     },
+    // Door passcodes live in the booking's private record (Director, Finance, Operations only)
+    passcodes() { const b = this.bk; return { mainDoorPasscode: b.mainPasscode.trim(), currentExpiryDate: b.currentExpiry || '', nextDoorPasscode: b.nextPasscode.trim(), nextExpiryDate: b.nextExpiry || '' }; },
     // Booking details and payment details that are saved on every offline booking
     extra(coIds = []) {
       const b = this.bk;
-      return { coTenantIds: coIds, rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
+      return { coTenantIds: coIds, bookingSource: b.bookingSource, rentalStatus: b.rentalStatus, moveInStatus: 'Ready_to_Send', moveOutStatus: 'Ready_to_Send',
+        passwordStatus: b.mainPasscode.trim() && b.currentExpiry ? 'Ready_to_Send' : '', rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
         securityDeposit: this.longTerm ? this.deposit : toCents(b.securityDeposit),
         utilityDeposit: toCents(b.utilityDeposit), internetFee: toCents(b.internetFee), carparkFee: toCents(b.carparkFee), cleaningFee: toCents(b.cleaningFee),
         taFee: toCents(b.taFee), taStampFee: toCents(b.taStampFee), othersFee: toCents(b.othersFee), othersNote: +b.othersFee > 0 ? b.othersNote.trim() : '',
@@ -819,11 +842,15 @@ export default {
         : !b.icPassport.trim() ? 'Add the IC or passport number.'
         : b.gender === 'Other' && !b.genderOther.trim() ? 'Type the gender, or pick another option.'
         : !b.unitId ? 'Choose the property and unit.'
+        : !b.bookingSource ? 'Choose the booking source.'
+        : !b.rentalStatus ? 'Choose the rental status.'
         : !b.arrival || !b.departure ? 'Add the check-in and check-out dates.'
         : this.nights <= 0 ? 'Check-out must be after check-in.'
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent. The 2-month deposit is worked out from it.'
         : !this.longTerm && !(+b.amount > 0) ? 'Add the amount paid.'
-        : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.' : this.coError();
+        : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
+        : b.mainPasscode.trim() && !b.currentExpiry ? 'Add the expiry date of the main door passcode.'
+        : b.nextPasscode.trim() && !b.nextExpiry ? 'Add the expiry date of the next door passcode.' : this.coError();
       if (err) { this.formError = err; window.scrollTo(0, 0); return; }
       if (this.direct) return this.saveDirect();
 
@@ -861,6 +888,7 @@ export default {
             amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
             paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+          tx.set(doc(bRef, 'private', 'main'), this.passcodes());
           const h = this.entry(`Paid and booked: ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. `
             + `${!known ? `Saved as new tenant ${details.name} (${tenantId}).` : `Added to existing tenant ${details.name} (${tenantId}).`}${b.note.trim() ? ' ' + b.note.trim() : ''}`);
           tx.update(lRef, { status: 'booked', tenantId, bookingId, updatedAt: serverTimestamp(), history: arrayUnion(h) });
@@ -930,6 +958,7 @@ export default {
             amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
             paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), note: b.note.trim(), status: 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+          tx.set(doc(bRef, 'private', 'main'), this.passcodes());
           audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
             changes: [{ field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
           return { isNew: !known, bookingId };
@@ -945,7 +974,8 @@ export default {
           link: '/Portfolio/bookings'
         });
 
-        this.$router.push({ path: '/Portfolio/bookings', state: { okMsg } });
+        if (this.embedded) { this.$emit('saved', okMsg); await this.startBooking(); window.scrollTo(0, 0); }
+        else this.$router.push({ path: '/Portfolio/bookings', state: { okMsg } });
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
       this.busy = false;
     }
@@ -988,6 +1018,7 @@ export default {
     .ezee-add label { display: block; color: var(--text-2); margin-bottom: 6px; }
     .ezee-add div { display: flex; gap: 8px; }
     .ezee-add .input { flex: 1; min-width: 0; }
+    .bottom-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; padding: 14px 0 20px; }
     .head-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     @media (max-width: 640px) { .status-opts { grid-template-columns: minmax(0,1fr); } }
     .upd-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-start; }
