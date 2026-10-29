@@ -16,7 +16,6 @@
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="notice warn" v-show="completed">This month is completed, so its lines are read-only. Add new costs to the next open month.</div>
-    <div class="notice warn" v-show="!completed && doneUnits.length">{{ `${doneUnits.map(unitCode).join(', ')} ${doneUnits.length === 1 ? 'is' : 'are'} completed for ${monthName(month)}, so ${doneUnits.length === 1 ? 'its' : 'their'} lines are read-only. Other units stay open.` }}</div>
     <div class="notice warn" v-show="!loading && !properties.length">No properties yet. Upload an eZee report first; it creates the property and its units.</div>
 
     <section class="card">
