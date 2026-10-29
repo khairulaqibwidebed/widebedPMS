@@ -23,23 +23,24 @@ import { fileBlob, driveId } from '@/lib/drive.js';
 //   this.$refs.viewer.open({ name, url, kind })   // kind = the Drive area the file was uploaded to ('expenses', 'issues', …)
 // Links that aren't uploaded Drive files just open in a new tab.
 export default {
-  data() { return { file: null, src: '', loading: false, error: '', type: '' }; },
+  data() { return { seq: 0, file: null, src: '', loading: false, error: '', type: '' }; },
   methods: {
     async open(f) {
       const id = f.id || driveId(f.url);
       if (!id || !f.kind) { window.open(f.url, '_blank', 'noopener'); return; }
+      const seq = this.seq = (this.seq || 0) + 1;
       this.file = f; this.src = ''; this.error = ''; this.type = this.guess(f.name); this.loading = true;
       try {
         const u = await fileBlob(f.kind, id);
-        if (this.file !== f) { URL.revokeObjectURL(u); return; }
+        if (this.seq !== seq) { URL.revokeObjectURL(u); return; }
         this.src = u;
         const blob = await (await fetch(u)).blob();
         this.type = blob.type.startsWith('image/') ? 'image' : blob.type.startsWith('video/') ? 'video' : blob.type === 'application/pdf' ? 'pdf' : 'other';
       } catch (e) { this.error = `${e.message} Use Open in Drive.`; }
-      this.loading = false;
+      if (this.seq === seq) this.loading = false;
     },
     guess(n = '') { return /\.(png|jpe?g|gif|webp|heic)$/i.test(n) ? 'image' : /\.(mp4|mov|webm|m4v)$/i.test(n) ? 'video' : /\.pdf$/i.test(n) ? 'pdf' : 'other'; },
-    close() { if (this.src) URL.revokeObjectURL(this.src); this.file = null; this.src = ''; }
+    close() { this.seq = (this.seq || 0) + 1; if (this.src) URL.revokeObjectURL(this.src); this.file = null; this.src = ''; }
   }
 };
 </script>
