@@ -195,13 +195,14 @@
 
               <div class="form-sec">Photos and videos (Google Drive links)</div>
               <template v-for="(lk, i) in d.renovation.links" :key="i">
-                <div class="link-row"><a :href="lk.url" target="_blank" rel="noopener">{{ lk.label }}</a><button class="editlink" v-if="canEdit" @click="d.renovation.links.splice(i, 1)">Remove</button></div>
+                <div class="link-row"><a :href="lk.url" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: lk.label, url: lk.url, kind: 'listings' })">{{ lk.label }}</a><button class="editlink" v-if="canEdit" @click="d.renovation.links.splice(i, 1)">Remove</button></div>
               </template>
               <p class="muted" v-show="!d.renovation.links.length">No links yet.</p>
               <div class="link-add" v-if="canEdit">
                 <input class="input" v-model="linkAdd.label" placeholder="Label, e.g. Before photos" aria-label="Link label">
                 <input class="input" v-model="linkAdd.url" placeholder="https://drive.google.com/…" aria-label="Drive link">
                 <button class="btn" @click="addLink()">Add link</button>
+                <UploadFile kind="listings" label="⬆ Upload photos / videos" @done="f => addUploaded(f)" />
               </div>
 
               <div class="grid-fields notes">
@@ -265,8 +266,9 @@
             <section class="card" v-if="tab === 3" aria-label="Final quotation and payment">
               <div class="card-head"><h2>4. Final quotation &amp; payment</h2><span class="pill" :class="d.payment.confirmed ? 'green' : 'grey'">{{ d.payment.confirmed ? 'Payment confirmed' : 'Waiting for payment' }}</span></div>
               <template v-for="k in PAY_LINKS" :key="k[0]">
-                <div class="field" v-if="canEdit"><label :for="'pay_' + k[0]">{{ `${k[1]} (Google Drive link)` }}</label><input class="input" :id="'pay_' + k[0]" v-model="d.payment[k[0]]" placeholder="https://drive.google.com/…"></div>
-                <div class="kv" v-else><span>{{ k[1] }}</span><span><a v-if="d.payment[k[0]]" :href="d.payment[k[0]]" target="_blank" rel="noopener">Open</a><template v-else>—</template></span></div>
+                <div class="field" v-if="canEdit"><label :for="'pay_' + k[0]">{{ `${k[1]} (Google Drive link)` }}</label><input class="input" :id="'pay_' + k[0]" v-model="d.payment[k[0]]" placeholder="https://drive.google.com/…">
+                  <div style="margin-top:6px"><UploadFile kind="listings" :multiple="false" accept="image/*,application/pdf" @done="f => d.payment[k[0]] = f[0].url" /></div></div>
+                <div class="kv" v-else><span>{{ k[1] }}</span><span><a v-if="d.payment[k[0]]" :href="d.payment[k[0]]" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: k[1], url: d.payment[k[0]], kind: 'listings' })">Open</a><template v-else>—</template></span></div>
               </template>
               <div class="totals quote">
                 <div class="kv"><span>{{ `Renovation (incl. ${FEE_PCT}% procurement fee)` }}</span><span>{{ rm(renoCost(d) + renoFee(d)) }}</span></div>
@@ -449,6 +451,7 @@
         </div>
       </div>
     </template>
+    <FileViewer ref="viewer" />
   </main>
 </template>
 
@@ -469,6 +472,8 @@ import { notifyRole } from '@/services/notificationService';
 import { toast } from '@/lib/toast.js';
 import { handOff } from '@/lib/handoff.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import UploadFile from '@/components/UploadFile.vue';
+import FileViewer from '@/components/FileViewer.vue';
 
 const me = useSession();
 // Who edits (the rules say the same). Finance, Operations and Marketing view only.
@@ -649,7 +654,7 @@ function summarize(a, b, contactChanged) {
 }
 
 export default {
-  components: { OptionPicker },
+  components: { OptionPicker, UploadFile, FileViewer },
   data() {
     return { createOpen: false,
       STAGES, RSTATUS, FURN, PAY_LINKS, FILTERS, FEE_PCT,
@@ -811,6 +816,9 @@ export default {
       if (!rows.length) { this.formError = 'Paste one item a line, e.g. TV RM2500.'; return; }
       rows.forEach(r => this.d.furniture[k].push({ id: lineId(), ...r, done: false }));
       this.pasteText = ''; this.pasteOpen = ''; this.formError = '';
+    },
+    addUploaded(files) {
+      for (const f of files) if (!this.d.renovation.links.some(l => l.url === f.url)) this.d.renovation.links.push({ label: f.name.slice(0, 80), url: f.url });
     },
     addLink() {
       const label = this.linkAdd.label.trim() || 'Photos', url = this.linkAdd.url.trim();

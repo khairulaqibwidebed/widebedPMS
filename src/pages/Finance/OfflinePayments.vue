@@ -72,7 +72,6 @@
             <div class="field"><label>Guest / tenant name</label><input class="input" v-model="ed.guest"></div>
             <div class="field"><label>Purpose</label><input class="input" v-model="ed.purpose"></div>
             <div class="field"><label>Bank reference</label><input class="input" v-model="ed.bankRef"></div>
-            <div class="field"><label>Documents link</label><input class="input" v-model="ed.docsLink" placeholder="https://drive.google.com/…"></div>
           </div>
           <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :key="view.id" @folder="l => saveFolder(view, l)" />
           <div class="v-edit">
@@ -186,7 +185,7 @@ export default {
     saveFolder(r, link) { if (link && link !== r.docsLink) this.patch(r, { docsLink: link }, 'docsLink', r.docsLink || ''); },
     async startEdit() {
       const r = this.view;
-      this.ed = { date: r.date, amount: r.amount, propertyId: r.propertyId || '', unitCode: r.unitCode || '', guest: r.guest, purpose: r.purpose, bankRef: r.bankRef || '', docsLink: r.docsLink || '' };
+      this.ed = { date: r.date, amount: r.amount, propertyId: r.propertyId || '', unitCode: r.unitCode || '', guest: r.guest, purpose: r.purpose, bankRef: r.bankRef || '' };
       this.formError = ''; this.editing = true;
       try {
         if (!this.properties.length) this.properties = await loadProperties();
@@ -201,11 +200,11 @@ export default {
     async saveEdit() {
       const e = this.ed, r = this.view;
       this.formError = !e.date ? 'Choose the payment date.' : !(+e.amount > 0) ? 'Enter the amount.' : !e.propertyId ? 'Choose the property.' : !String(e.guest).trim() ? 'Enter the guest name.' : !String(e.purpose).trim() ? 'Enter the purpose.'
-        : (String(e.docsLink).trim() && !/^https?:\/\//i.test(String(e.docsLink).trim())) ? 'The documents link should start with https://' : '';
+        : '';
       if (this.formError) return;
       const prop = this.properties.find(p => p.id === e.propertyId);
       const data = { date: e.date, amount: Math.round(+e.amount * 100) / 100, propertyId: e.propertyId, propertyName: prop?.name || r.propertyName || '', unitCode: e.unitCode,
-        guest: String(e.guest).trim(), purpose: String(e.purpose).trim(), bankRef: String(e.bankRef).trim(), docsLink: String(e.docsLink).trim() };
+        guest: String(e.guest).trim(), purpose: String(e.purpose).trim(), bankRef: String(e.bankRef).trim() };
       const changes = Object.keys(data).filter(k => (r[k] ?? '') !== data[k]).map(k => ({ field: k, old: r[k] ?? '', new: data[k] }));
       if (!changes.length) { this.editing = false; return; }
       this.busy = true;

@@ -73,13 +73,13 @@
             <div class="post orig">
               <div class="post-head"><Avatar :uid="ticket.raisedByUid" :name="ticket.raisedBy" :role="ticket.raisedRole" :size="24" /><b>{{ ticket.raisedBy }}</b><span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ ticket.raisedRole }}</span><span class="when">{{ stamp(ticket.raisedAt) }}</span><span class="tag">Original issue</span></div>
               <p>{{ ticket.body }}</p>
-              <div class="files" v-show="ticket.links.length"><template v-for="l in ticket.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
+              <div class="files" v-show="ticket.links.length"><template v-for="l in ticket.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
             </div>
             <template v-for="c in replies" :key="c.id">
               <div class="post">
                 <div class="post-head"><Avatar :uid="c.byUid" :name="c.by" :role="c.byRole" :size="24" /><b>{{ c.by }}</b><span class="tag role-tint" :style="roleTint(c.byRole)" v-if="showRole(c.by, c.byRole)">{{ c.byRole }}</span><span class="when">{{ stamp(c.at) }}</span></div>
                 <p>{{ c.text }}</p>
-                <div class="files" v-show="c.links.length"><template v-for="l in c.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
+                <div class="files" v-show="c.links.length"><template v-for="l in c.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
               </div>
             </template>
 
@@ -93,8 +93,9 @@
               </div>
               <div class="notice error" v-show="draft.error">{{ draft.error }}</div>
               <div class="composer-row">
+                <UploadFile kind="issues" @done="f => addUploaded(draft, f)" />
                 <button class="btn" type="button" @click="draft.adding = !draft.adding">🔗 Add Drive link</button>
-                <span class="help">Put the file in the company Google Drive and paste its link here</span>
+                <span class="help">Upload a photo, PDF or video, or paste a Drive link</span>
                 <button class="btn btn-primary" @click="postComment()" :disabled="busy || (!draft.text.trim() && !draft.links.length)">Post comment</button>
               </div>
             </div>
@@ -152,6 +153,7 @@
               <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
               <input class="input" v-model="raise.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(raise)">
               <button class="btn" type="button" @click="addLink(raise)">Add</button>
+              <UploadFile kind="issues" @done="f => addUploaded(raise, f)" />
             </div>
             <div class="help">Files stay in the company Google Drive; the ticket keeps only the link.</div></div>
           <div class="files" v-show="raise.links.length"><template v-for="(l, i) in raise.links" :key="l.url + i"><span class="file-chip"><span>{{ icon(l.name) + ' ' + l.name }}</span><button type="button" @click="raise.links.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
@@ -215,6 +217,7 @@
         <div class="modal-foot"><button class="btn" @click="confirmDone = false">Cancel</button><button class="btn btn-primary" @click="complete()" :disabled="busy">Mark completed</button></div>
       </div>
     </div>
+    <FileViewer ref="viewer" />
   </main>
 </template>
 
@@ -232,6 +235,8 @@ import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import UploadFile from '@/components/UploadFile.vue';
+import FileViewer from '@/components/FileViewer.vue';
 
 const me = useSession();
 const myRole = ROLE_LABEL[me.role] || me.role;          // 'Finance', 'Director'
@@ -261,7 +266,7 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], raisedAt: isoOf(d.createdAt), doneAt: isoOf(d.doneAt) });
 
 export default {
-  components: { Avatar, ComboInput, OptionPicker },
+  components: { Avatar, ComboInput, OptionPicker, UploadFile, FileViewer },
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
@@ -343,6 +348,9 @@ export default {
     stamp(iso) { return iso ? `${this.day(iso)}, ${iso.slice(11, 16)}` : ''; },
     icon(fn) { return /\.(jpe?g|png|gif|webp|heic)$/i.test(fn) || /photo|image|picture/i.test(fn) ? '🖼' : /\.(xlsx?|csv)$/i.test(fn) || /sheet/i.test(fn) ? '📊' : '📄'; },
     // Add Drive link: a name and a Google Drive URL (nothing is uploaded to the PMS).
+    addUploaded(target, files) {
+      for (const f of files) if (target.links.length < 10 && !target.links.some(l => l.url === f.url)) target.links.push({ name: f.name.slice(0, 80), url: f.url });
+    },
     addLink(target) {
       target.error = '';
       let url;

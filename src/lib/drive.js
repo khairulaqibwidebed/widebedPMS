@@ -14,24 +14,45 @@ async function call(body) {
 export const listFiles = (kind, recordId) => call({ action: 'list', kind, recordId });
 
 // Sends one file straight from the browser to Drive. onProgress gets 0..1.
+const parse = t => { try { return JSON.parse(t); } catch { return {}; } };
 export async function uploadFile(kind, recordId, file, onProgress = () => {}) {
   const { uploadUrl, folderLink } = await call({ action: 'session', kind, recordId, name: file.name, mimeType: file.type });
-  await new Promise((resolve, reject) => {
+  const file_ = await new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open('PUT', uploadUrl);
     x.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
-    x.onload = () => (x.status >= 200 && x.status < 300 ? resolve() : reject(new Error(`Drive upload failed (${x.status}).`)));
+    x.onload = () => (x.status >= 200 && x.status < 300 ? resolve(parse(x.responseText)) : reject(new Error(`Drive upload failed (${x.status}).`)));
     x.onerror = () => reject(new Error('Upload failed. Check your connection.'));
     x.send(file);
   });
-  return folderLink;
+  return Object.assign(new String(folderLink), { file: file_ });
 }
 
 // The file as a blob URL for the in-site viewer (images, PDFs and small videos; the server refuses files over 4 MB)
-export async function fileBlob(kind, recordId, fileId) {
+export async function fileBlob(kind, fileId) {
   const user = getAuth().currentUser;
   if (!user) throw new Error('Sign in again.');
-  const r = await fetch('/api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ action: 'file', kind, recordId, fileId }) });
+  const r = await fetch('/api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ action: 'file', kind, fileId }) });
   if (!r.ok) { let j = {}; try { j = await r.json(); } catch { /* ignore */ } throw new Error(j.error || `Could not open the file (${r.status}).`); }
   return URL.createObjectURL(await r.blob());
+}
+
+// Uploads files into a fresh folder of this kind and gives back [{ name, url }] for pages that keep links.
+export async function uploadForLink(kind, files, onProgress = () => {}) {
+  const folder = (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 24);
+  const out = [];
+  for (const [i, f] of files.entries()) {
+    const r = await uploadFile(kind, folder, f, p => onProgress((i + p) / files.length));
+    out.push({ name: r.file?.name || f.name, url: r.file?.webViewLink || String(r), id: r.file?.id || '', folder, mimeType: r.file?.mimeType || f.type });
+  }
+  return out;
+}
+
+// Drive file id from a link like https://drive.google.com/file/d/<id>/view
+export const driveId = url => (/\/d\/([A-Za-z0-9_-]{10,})/.exec(url || '') || [])[1] || '';
+// Saves a file from the app to the person's computer
+export async function downloadFile(kind, fileId, name) {
+  const u = await fileBlob(kind, fileId), a = document.createElement('a');
+  a.href = u; a.download = name || 'file'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 10000);
 }

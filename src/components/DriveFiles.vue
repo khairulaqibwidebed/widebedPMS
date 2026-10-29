@@ -45,7 +45,7 @@ export default {
     async view(f) {
       this.viewing = f; this.url = ''; this.vError = ''; this.vLoading = this.kindOf(f) !== 'other';
       if (!this.vLoading) return;
-      try { const u = await fileBlob(this.kind, this.recordId, f.id); if (this.viewing === f) this.url = u; else URL.revokeObjectURL(u); }
+      try { const u = await fileBlob(this.kind, f.id); if (this.viewing === f) this.url = u; else URL.revokeObjectURL(u); }
       catch (e) { this.vError = e.message; }
       this.vLoading = false;
     },
@@ -63,7 +63,7 @@ export default {
       if (!list.length) return;
       this.busy = true; this.error = '';
       try {
-        for (const [i, file] of list.entries()) this.folderLink = await uploadFile(this.kind, this.recordId, file, p => { this.pct = Math.round(((i + p) / list.length) * 100); });
+        for (const [i, file] of list.entries()) this.folderLink = String(await uploadFile(this.kind, this.recordId, file, p => { this.pct = Math.round(((i + p) / list.length) * 100); }));
         this.$emit('folder', this.folderLink);
         await this.load();
       } catch (err) { this.error = err.message; }

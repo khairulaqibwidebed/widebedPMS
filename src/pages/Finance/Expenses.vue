@@ -116,8 +116,9 @@
             </div>
             <div class="field">
               <label for="eFile">Receipt (optional)</label>
-              <input class="input" id="eFile" v-model="panel.fileLink" placeholder="Paste the Google Drive link of the receipt">
-              <div class="help">Receipts are kept in the company Google Drive; the PMS keeps only the link.</div>
+              <div class="file-row"><UploadFile kind="expenses" :multiple="false" label="⬆ Upload receipt" @done="f => panel.fileLink = f[0].url" />
+                <a v-if="panel.fileLink" :href="panel.fileLink" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: 'Receipt', url: panel.fileLink, kind: 'expenses' })">View receipt</a><button type="button" class="editlink" v-if="panel.fileLink" @click="panel.fileLink = ''">Remove</button></div>
+              <div class="help">Receipts are saved to the company Google Drive; the PMS keeps only the link.</div>
             </div>
             <template v-if="panel.id">
               <div class="field"><label for="eReason">Reason for the change (audit log)</label>
@@ -132,6 +133,7 @@
         </aside>
       </div>
     </template>
+    <FileViewer ref="viewer" />
   </main>
 </template>
 
@@ -154,8 +156,10 @@ let params = new URLSearchParams(location.search);
 
 import OptionPicker from '@/components/OptionPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
+import UploadFile from '@/components/UploadFile.vue';
+import FileViewer from '@/components/FileViewer.vue';
 export default {
-  components: { OptionPicker, MonthPicker },
+  components: { OptionPicker, MonthPicker, UploadFile, FileViewer },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -317,4 +321,5 @@ export default {
     .seg.mini button { height: 34px; width: 40px; }
     .input.readonly { background: var(--chip); color: var(--text); font-weight: 600; cursor: default; }
     .drawer .seg { margin-bottom: 18px; }
+.file-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 </style>

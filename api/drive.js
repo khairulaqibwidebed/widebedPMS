@@ -1,13 +1,14 @@
 // POST /api/drive   Authorization: Bearer <Firebase ID token>
 //   { action: 'session', kind, recordId, name, mimeType }  -> { uploadUrl, folderId, folderLink }
 //       Makes (or finds) the folder <root>/<kind>/<recordId> and opens a resumable upload. The browser then PUTs the file to uploadUrl.
-//   { action: 'file', kind, recordId, fileId }              -> the file's bytes (max 4 MB) for the in-site viewer
+//   { action: 'file', kind, fileId }                        -> the file's bytes (max 4 MB) for the in-site viewer and downloads
 //   { action: 'list', kind, recordId }                      -> { folderLink, files: [{ id, name, mimeType, size, link }] }
 // Needs env: GOOGLE_SERVICE_ACCOUNT_JSON (company: Shared Drive) or GOOGLE_OAUTH_CLIENT_ID/_SECRET/_REFRESH_TOKEN (testing on one person's Drive), DRIVE_ROOT_FOLDER_ID, FIREBASE_API_KEY. The folder must sit in a Shared Drive
 // the service account is a member of. Anyone with a PMS login may use it; the files themselves stay inside the Shared Drive.
 import { createSign } from 'node:crypto';
 
-const KINDS = { 'offline-payments': 'Offline Payments', 'utility-bills': 'Utility Bills' };
+const KINDS = { 'offline-payments': 'Offline Payments', 'utility-bills': 'Utility Bills',
+  expenses: 'Expenses', issues: 'Issues', listings: 'New Owner Listings', sops: 'HR SOPs' };
 const SAFE = /^[A-Za-z0-9_-]{1,64}$/;
 const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
@@ -79,7 +80,22 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') throw new HttpError(405, 'POST only.');
     await checkUser(req);
     const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const tok = await driveToken(), folderId = await recordFolder(tok, b.kind, b.recordId);
+    const tok = await driveToken();
+    if (b.action === 'file') {
+      // One file back to a signed-in user (in-site viewer and downloads). Only files inside <root>/<kind>/ are served. Vercel caps a reply at ~4.5 MB.
+      if (!KINDS[b.kind] || !SAFE.test(b.fileId || '')) throw new HttpError(400, 'Bad request.');
+      const root = process.env.DRIVE_ROOT_FOLDER_ID;
+      if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
+      const kindId = await folder(tok, root, KINDS[b.kind]);
+      const meta = await (await g(`${API}/files/${b.fileId}?fields=name,mimeType,size,parents&supportsAllDrives=true`, tok)).json();
+      const parent = meta.parents?.[0] ? await (await g(`${API}/files/${meta.parents[0]}?fields=parents&supportsAllDrives=true`, tok)).json() : {};
+      if (!(meta.parents || []).includes(kindId) && !(parent.parents || []).includes(kindId)) throw new HttpError(403, 'That file is not in this area.');
+      if (+meta.size > 4 * 1024 * 1024) throw new HttpError(413, 'Too large to preview here. Open it in Drive.');
+      const data = Buffer.from(await (await g(`${API}/files/${b.fileId}?alt=media&supportsAllDrives=true`, tok)).arrayBuffer());
+      res.setHeader('Content-Type', meta.mimeType || 'application/octet-stream');
+      return res.status(200).send(data);
+    }
+    const folderId = await recordFolder(tok, b.kind, b.recordId);
     const folderLink = `https://drive.google.com/drive/folders/${folderId}`;
     if (b.action === 'session') {
       const name = String(b.name || 'file').replace(/[\\/]/g, '_').slice(0, 200);
@@ -92,16 +108,6 @@ export default async function handler(req, res) {
       const url = `${API}/files?q=${encodeURIComponent(`'${folderId}' in parents and trashed=false`)}&fields=files(id,name,mimeType,size,webViewLink,createdTime)&orderBy=createdTime desc&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`;
       const files = (await (await g(url, tok)).json()).files || [];
       return res.status(200).json({ folderLink, files: files.map(f => ({ id: f.id, name: f.name, mimeType: f.mimeType, size: +f.size || 0, link: f.webViewLink })) });
-    }
-    if (b.action === 'file') {
-      // Streams one file of this record's folder back to a signed-in user (for the in-site viewer). Vercel caps a reply at ~4.5 MB.
-      if (!SAFE.test(b.fileId || '')) throw new HttpError(400, 'Bad file id.');
-      const meta = await (await g(`${API}/files/${b.fileId}?fields=name,mimeType,size,parents&supportsAllDrives=true`, tok)).json();
-      if (!(meta.parents || []).includes(folderId)) throw new HttpError(403, 'That file is not in this record.');
-      if (+meta.size > 4 * 1024 * 1024) throw new HttpError(413, 'Too large to preview here. Open it in Drive.');
-      const data = Buffer.from(await (await g(`${API}/files/${b.fileId}?alt=media&supportsAllDrives=true`, tok)).arrayBuffer());
-      res.setHeader('Content-Type', meta.mimeType || 'application/octet-stream');
-      return res.status(200).send(data);
     }
     throw new HttpError(400, 'Unknown action.');
   } catch (e) {

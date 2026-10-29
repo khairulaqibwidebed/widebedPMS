@@ -39,15 +39,16 @@
             <div class="doc-row" v-for="(d, i) in data.docs" :key="d.name + i">
               <span class="doc-badge">{{ ext(d.name) }}</span>
               <div class="doc-name"><b>{{ d.name }}</b><small>{{ `Added by ${d.by} · ${d.on}` }}</small></div>
-              <button class="editlink" @click="toast('This file is not linked yet. Files will be kept in the company Google Drive.')">Download</button>
+              <button class="editlink" v-if="d.fileId" @click="$refs.viewer.open({ name: d.name, id: d.fileId, url: d.url, kind: 'sops' })">View</button>
+              <button class="editlink" @click="download(d)">Download</button>
               <button class="doc-remove" v-show="canEdit" :disabled="busy" @click="removeDoc(i)">Remove</button>
             </div>
             <div class="empty" v-show="!data.docs.length">No documents yet.</div>
           </div>
           <template v-if="canEdit">
-            <label class="filedrop sop-drop"><input type="file" hidden @change="upload($event)"><b>Upload document</b>PDF, Word, Excel or images · staff can download</label>
+            <label class="filedrop sop-drop"><input type="file" hidden @change="upload($event)"><b>Upload document</b>PDF, Word, Excel or images, up to 4 MB · staff can download</label>
           </template>
-          <p class="help" style="margin:10px 0 0">Files will be kept in the company Google Drive; the PMS keeps only the link.</p>
+          <p class="help" style="margin:10px 0 0">Files are saved to the company Google Drive (up to 4 MB each); the PMS keeps only the link.</p>
         </section>
         <section class="card" v-show="data.log.length">
           <div class="card-head"><h2>Change log</h2></div>
@@ -55,6 +56,7 @@
         </section>
       </div>
     </div>
+    <FileViewer ref="viewer" />
   </main>
 </template>
 
@@ -70,6 +72,8 @@ import { audit, friendlyError } from '@/lib/finance-data.js';
 import { toast } from '@/lib/toast.js';
 import { useSession } from '@/stores/session.js';
 import { SOPS } from './sops.js';
+import FileViewer from '@/components/FileViewer.vue';
+import { uploadForLink, downloadFile } from '@/lib/drive.js';
 
 const me = useSession();
 
@@ -78,6 +82,7 @@ const today = () => fmt(new Date());
 const LOG_MAX = 20;
 
 export default {
+  components: { FileViewer },
   data() {
     const key = this.$route.meta.sop;
     const cfg = SOPS[key];
@@ -128,9 +133,17 @@ export default {
     async upload(e) {
       const f = e.target.files[0]; e.target.value = '';
       if (!f || this.busy) return;
-      if (f.size > 20 * 1024 * 1024) return toast('Files must be 20 MB or less.');
-      const docs = [{ name: f.name, on: today(), by: me.name }, ...this.data.docs];
-      if (await this.save(`Added ${f.name}`, 'sop.docAdd', { steps: this.data.steps, docs })) toast(`${f.name} added. Files go to the company Google Drive once that is set up.`);
+      if (f.size > 4 * 1024 * 1024) return toast('Files must be 4 MB or less.');
+      this.busy = true;
+      let up;
+      try { [up] = await uploadForLink('sops', [f]); } catch (err) { this.busy = false; return toast(err.message); }
+      this.busy = false;
+      const docs = [{ name: f.name, on: today(), by: me.name, fileId: up.id, url: up.url }, ...this.data.docs];
+      if (await this.save(`Added ${f.name}`, 'sop.docAdd', { steps: this.data.steps, docs })) toast(`${f.name} added.`);
+    },
+    async download(d) {
+      if (!d.fileId) return toast('This starter file has no upload yet. HR can upload it above.');
+      try { await downloadFile('sops', d.fileId, d.name); } catch (err) { toast(err.message); }
     },
     async removeDoc(i) {
       const d = this.data.docs[i];
