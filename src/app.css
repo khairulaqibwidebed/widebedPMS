@@ -47,7 +47,8 @@ button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparen
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Panels that scroll on their own don't drag the page behind them */
-.sidebar, .drawer-body, .modal-back, .palette ul, .table-wrap { overscroll-behavior: contain; }
+.sidebar, .drawer-body, .modal-back, .palette ul { overscroll-behavior: contain; }
+.table-wrap { overscroll-behavior-x: contain; overscroll-behavior-y: auto; }   /* sideways scroll stays in the table; up and down passes to the page */
 
 /* ---------- Buttons ---------- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;

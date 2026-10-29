@@ -12,11 +12,7 @@
 
     <div class="toolbar">
       <input class="input" type="search" placeholder="Search who, unit, reason…" v-model="search" aria-label="Search">
-      <div class="pills brand">
-        <template v-for="a in AREAS" :key="a.key">
-          <button class="pill-btn" :class="{ on: area === a.key }" @click="area = a.key">{{ a.key === 'all' ? `All (${entries.length})` : `${a.label} (${countArea(a.key)})` }}</button>
-        </template>
-      </div>
+      <OptionPicker v-model="area" :options="AREAS.map(a => ({ value: a.key, label: a.key === 'all' ? `All (${entries.length})` : `${a.label} (${countArea(a.key)})` }))" label="Area" />
     </div>
 
     <section class="card">
@@ -63,6 +59,7 @@ import { markRaw } from 'vue';
 import { collection, query, orderBy, limit, startAfter, getDocs } from 'firebase/firestore';
 import { db, ROLE_LABEL } from '@/lib/firebase.js';
 import { friendlyError } from '@/lib/finance-data.js';
+import OptionPicker from '@/components/OptionPicker.vue';
 
 const PAGE = 50;
 const AREAS = [{ key: 'all', label: 'All' }, { key: 'money', label: 'Expenses & Ctrip' }, { key: 'units', label: 'Units & rates' },
@@ -92,6 +89,7 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const val = v => v == null || v === '' ? '(blank)' : typeof v === 'boolean' ? (v ? 'on' : 'off') : typeof v === 'object' ? (v.toDate ? v.toDate().toLocaleDateString('en-GB') : JSON.stringify(v).slice(0, 60)) : String(v).slice(0, 60);
 
 export default {
+  components: { OptionPicker },
   data() {
     return { AREAS, ROLE_LABEL, entries: [], last: null, more: false, loading: true, error: '', search: '', area: 'all' };
   },

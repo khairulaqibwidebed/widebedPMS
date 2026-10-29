@@ -46,11 +46,7 @@
 
         <div class="toolbar nol-tools" ref="list">
           <input class="input" type="search" placeholder="Search NL no., property, unit or owner" v-model="search" aria-label="Search listings">
-          <div class="pills brand">
-            <template v-for="f in FILTERS" :key="f.key">
-              <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ `${f.label} · ${count(f.key)}` }}</button>
-            </template>
-          </div>
+          <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: `${f.label} · ${count(f.key)}` }))" label="Status" />
         </div>
         <section class="card">
           <Paged :items="shown()" v-slot="{ pageRows }">
@@ -472,6 +468,7 @@ import { inbox, link, syncTask, listTasksFor } from '@/lib/tms.js';
 import { notifyRole } from '@/services/notificationService';
 import { toast } from '@/lib/toast.js';
 import { handOff } from '@/lib/handoff.js';
+import OptionPicker from '@/components/OptionPicker.vue';
 
 const me = useSession();
 // Who edits (the rules say the same). Finance, Operations and Marketing view only.
@@ -652,6 +649,7 @@ function summarize(a, b, contactChanged) {
 }
 
 export default {
+  components: { OptionPicker },
   data() {
     return { createOpen: false,
       STAGES, RSTATUS, FURN, PAY_LINKS, FILTERS, FEE_PCT,

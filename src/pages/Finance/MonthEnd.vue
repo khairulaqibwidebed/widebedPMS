@@ -7,8 +7,7 @@
         <h1>Month-end payout</h1>
         <div class="sub">{{ `${monthName(month)} · ${propertyName()} · owner statements by checkout month` }}</div>
       </div>
-    </div>
-    <div class="me-actions" v-show="!selOpen">
+      <div class="head-tools" v-show="!selOpen">
       <span class="pill" v-show="propertyId" :class="completed ? 'green' : (doneCount() ? 'blue' : 'grey')">{{ completed ? 'Completed' : (doneCount() ? `${doneCount()} of ${rows.length} completed` : 'Open') }}</span>
       <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
       <MonthPicker :ahead="1" v-model="month" @change="load()" />
@@ -21,6 +20,7 @@
           <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent()">Fixed rent summary (.xlsx)</button>
           <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent('pdf')">Fixed rent summary (.pdf)</button>
         </div>
+      </div>
       </div>
     </div>
 
@@ -917,8 +917,6 @@ export default {
     .starter-acts { display: inline-flex; gap: 6px; margin-left: auto; }
     .st-cell .pill + .pill { margin-left: 6px; }
     .actions .rows .row { padding: 6px 0; }
-    .me-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -8px 0 20px; }
-    .me-actions { justify-content: flex-end; }
     .dl-wrap { position: relative; }
     .dl-wrap > .btn { display: inline-flex; align-items: center; gap: 6px; }
     .dl-back { position: fixed; inset: 0; z-index: 20; }
