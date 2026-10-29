@@ -1,8 +1,10 @@
 // Every page address in one list. Pages load only when first opened.
 // meta.label = the sidebar item that lights up; meta.roles = who may open the page.
+// A person opens a page if their main role OR one of their extra departments is in meta.roles (lib/access.js).
 import { createRouter, createWebHistory } from 'vue-router';
 import { signOut } from 'firebase/auth';
 import { auth, ALLOWED_ROLES } from './lib/firebase.js';
+import { canOpen } from './lib/access.js';
 import { homeFor } from './nav.js';
 import { useSession } from './stores/session.js';
 
@@ -75,7 +77,8 @@ router.beforeEach(async to => {
   if (to.meta.public) return true;
   const me = await useSession().check();
   if (!me.user) return { path: '/' };
-  if (!(to.meta.roles || ALLOWED_ROLES).includes(me.role)) {
+  // Main role or any ticked extra department.
+  if (!canOpen(to.meta.roles || ALLOWED_ROLES, me)) {
     if (ALLOWED_ROLES.includes(me.role)) return { path: homeFor(me.role) };
     await signOut(auth);
     location.replace('/?noaccess=1');
