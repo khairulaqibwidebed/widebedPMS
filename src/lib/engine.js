@@ -8,11 +8,12 @@
 //   Ctrip       typed Trip.com amount T: PTO = T / 1.08 - (T - (room + SST))
 //               (Finance's Sep 2026 method, Khairul 20 Oct: same total as Finance. Jun/Jul took cleaning off first.)
 //               no amount yet: estimated at 15% like a Net OTA, flagged Estimated
-//   Booking.com PTO = room + SST - (commission + payment fee + 8% SST on each), each rounded to the sen
+//   Booking.com PTO = room (before SST) - (commission 18% of room + cleaning, payment fee 2.8% of the guest total, 8% SST on each), 3 decimals
 //   Direct      PTO = (room + SST) / 1.08   (Finance always takes 8% off, even when eZee shows no SST)
 //   Long-term   PTO = room + SST
 //   Early check-in goes to the owner after SST; other incidentals stay with Widebed.
 
+export const r3 = x => Math.round((x + Math.sign(x) * 1e-9) * 1000) / 1000;   // calculations keep 3 decimals; screens and files show 2
 export const r2 = x => Math.round((x + Math.sign(x) * 1e-9) * 100) / 100;
 export const round05 = x => Math.sign(x) * Math.round(Math.abs(x) / 0.05 + 1e-9) * 0.05;
 const num = v => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isFinite(n) ? n : 0; };
@@ -176,21 +177,25 @@ export function bookingPTO(b, rates) {
     platform = guestPaid - (AU + AX); pto = guestPaid / 1.08 - platform;
   } else if (o && o.payout === 'net') {
     method = otaKey === 'ctrip' ? 'Ctrip' : 'Net';
-    guestPaid = (AU + AX) / (1 - num(o.commissionPct));
-    platform = guestPaid - (AU + AX); pto = guestPaid / 1.08 - platform;
+    // 'Include cleaning fee' ticked: the site's commission also takes a cut of the cleaning fee (Finance did this for Expedia in some months).
+    const base = AU + AX + (o.cleaningInCommission ? AG : 0);
+    guestPaid = base / (1 - num(o.commissionPct));
+    platform = guestPaid - base; pto = guestPaid / 1.08 - platform;
     if (otaKey === 'ctrip') { estimated = true; note = `Estimated at ${+(o.commissionPct * 100).toFixed(2)}%. Type the Trip.com amount.`; }
   } else if (o && o.payout === 'gross') {
     method = 'Gross';
-    const comm = r2(num(o.commissionPct) * T), pay = r2(num(o.paymentFeePct) * num(v.otherPaymentMethod));
-    const tax = r2(comm * num(o.sstPct ?? 0.08)) + r2(pay * num(o.sstPct ?? 0.08));
-    guestPaid = AU + AX; platform = comm + pay + tax; pto = guestPaid - platform;
+    // Finance's Booking.com method (Feb 2026 file): commission on room + cleaning before SST, payment fee on the guest total,
+    // 8% SST on both; the owner gets the room before SST less those charges. Steps keep 3 decimals.
+    const comm = r3(num(o.commissionPct) * (AU + AG)), pay = r3(num(o.paymentFeePct) * (num(v.otherPaymentMethod) || T));
+    const tax = r3(comm * num(o.sstPct ?? 0.08)) + r3(pay * num(o.sstPct ?? 0.08));
+    guestPaid = T; platform = comm + pay + tax; pto = AU - platform;
   } else if (longTerm) {
     method = 'Long-term'; guestPaid = AU + AX; pto = AU + AX;
   } else {
     method = 'Direct'; guestPaid = AU + AX; pto = (AU + AX) / 1.08;
   }
   const early = rates.earlyCheckInToOwner && !final ? AK / 1.08 : 0;
-  pto += early;
+  pto = r3(pto + early);
   if (num(v.roomUpgrade)) note = (note ? note + ' ' : '') + 'Room Upgrade not paid to owner (rule not confirmed).';
   return { method, otaKey, guestPaid, platform, early, pto, estimated, note, final, edited: !!b.edits };
 }

@@ -291,16 +291,21 @@ export default {
       // This read was already here; it also brings each saved booking's rawHash, so unchanged rows can be skipped
       if (prop) (await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', prop.id), where('departureMonth', '==', this.month)))).docs.forEach(d => { existing.add(d.id); savedUnit[d.id] = d.data().unitId; savedHash[d.id] = d.data().rawHash || null; });
       const noUnit = [];
+      // A multi-room reservation is several eZee rows with ONE reservation number but different folio numbers. Each row is its
+      // own booking: its document is "<reservation>-<folio>" (a single-room booking keeps the plain reservation number).
+      const perRes = {};
+      recs.forEach(r => { perRes[r.reservationNo] = (perRes[r.reservationNo] || 0) + 1; });
+      for (const r of recs) r.docId = perRes[r.reservationNo] > 1 && r.folioNo ? `${r.reservationNo}-${r.folioNo}` : r.reservationNo;
       for (const r of recs) {
         r.propertyId = property.id;
         if (r.unitCode) { r.unitCode = unitFor(r.unitCode); r.unitId = unitIdOf(property.id, r.unitCode); }
         else { r.unitId = null; if (r.roomRaw) noUnit.push(r.reservationNo); }
-        r.isNew = !existing.has(r.reservationNo);
+        r.isNew = !existing.has(r.docId);
       }
       // Completion is per unit: bookings of a unit whose statement is completed for the month are left out,
       // and so is a booking already saved on a completed unit (a room move must not take it off that statement)
       const done = prop ? await completedUnitIds(prop.id, this.month) : new Set();
-      const locked = r => (r.unitId && done.has(r.unitId)) || done.has(savedUnit[r.reservationNo]);
+      const locked = r => (r.unitId && done.has(r.unitId)) || done.has(savedUnit[r.docId]);
       const lockedUnits = [...new Set(recs.filter(r => r.unitId && done.has(r.unitId)).map(r => r.unitCode))].sort(byUnit);
       recs = recs.filter(r => !locked(r));
       recs.sort((a, b) => byUnit(a.unitCode || '', b.unitCode || '') || (a.departure || '').localeCompare(b.departure || ''));
@@ -323,24 +328,23 @@ export default {
     async saveBookings(list, batchRef, from, to, check) {
       const month = check.month, pid = check.property.id;
       const tally = { created: 0, changed: 0, unchanged: 0, writes: 0 };
+      const retired = new Set();
       let rows = list.map(r => {
         const { private: priv, propertyCode, isNew, ...data } = r;
         return { r, priv, data, isNew, hash: rowHash(data, priv) };
       });
-      // One reservation on several rows (a multi-room booking) is one document, written row by row with the last row
-      // winning, as before. Its fingerprint covers all its rows, and they are all written again or all skipped, so the
-      // saved document always ends up exactly as a full upload leaves it.
+      // Rows of one document (a plain reservation number) are fingerprinted together; multi-room rows have a document each.
       const groups = new Map();
-      for (const x of rows) { const k = x.r.reservationNo; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x.hash); }
+      for (const x of rows) { const k = x.r.docId; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x.hash); }
       rows = rows.map(x => {
-        const hs = groups.get(x.r.reservationNo);
+        const hs = groups.get(x.r.docId);
         const hash = hs.length === 1 ? x.hash : rowHash({ rows: hs }, null);
-        return { ...x, hash, same: !x.isNew && check.savedHash?.[x.r.reservationNo] === hash };
+        return { ...x, hash, same: !x.isNew && check.savedHash?.[x.r.docId] === hash };
       });
       // A booking new to this month may be saved under another month (its check-out moved): that month's summary is stale too.
       // Only the new ones are looked up, 30 at a time (a missing one costs nothing; at least one read per lookup).
       const moved = {};
-      const fresh = rows.filter(x => x.isNew).map(x => x.r.reservationNo);
+      const fresh = [...new Set(rows.filter(x => x.isNew).map(x => x.r.reservationNo))];
       for (let i = 0; i < fresh.length; i += 30) {
         const snap = await getDocs(query(collection(db, 'bookings'), where('reservationNo', 'in', fresh.slice(i, i + 30))));
         snap.docs.forEach(d => { const o = d.data(); if (o.departureMonth && (o.departureMonth !== month || o.propertyId !== pid)) moved[d.id] = o; });
@@ -354,11 +358,17 @@ export default {
         for (const { r, priv, data, isNew, hash } of write.slice(i, i + CHUNK)) {
           data.importBatchId = batchRef.id; data.lastImportedAt = serverTimestamp(); data.rawHash = hash;
           if (isNew) data.firstImportedAt = serverTimestamp();
-          b.set(doc(db, 'bookings', r.reservationNo), data, { merge: true });
-          b.set(doc(db, 'bookings', r.reservationNo, 'private', 'main'), priv, { merge: true });
+          b.set(doc(db, 'bookings', r.docId), data, { merge: true });
+          b.set(doc(db, 'bookings', r.docId, 'private', 'main'), priv, { merge: true });
+          // The same reservation saved earlier as ONE document (before rows were kept apart): retire it so it is not counted twice
+          if (r.docId !== r.reservationNo && check.savedUnit && r.reservationNo in check.savedUnit && !retired.has(r.reservationNo)) {
+            retired.add(r.reservationNo);
+            b.set(doc(db, 'bookings', r.reservationNo), { status: 'cancelled', supersededBy: 'split rows', lastImportedAt: serverTimestamp() }, { merge: true });
+            touch(pid, month, check.savedUnit[r.reservationNo] || null);
+          }
           touch(pid, month, r.unitId || null);
-          if (!isNew && check.savedUnit?.[r.reservationNo] !== r.unitId) touch(pid, month, check.savedUnit[r.reservationNo] || null);   // room move
-          const o = moved[r.reservationNo];
+          if (!isNew && check.savedUnit?.[r.docId] !== r.unitId) touch(pid, month, check.savedUnit[r.docId] || null);   // room move
+          const o = moved[r.docId];
           if (o) touch(o.propertyId, o.departureMonth, o.unitId || null);
         }
         for (const [k, ids] of dirty) { const [p, m] = k.split('|'); markDirty(b, p, m, ids); }
