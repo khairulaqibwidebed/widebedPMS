@@ -38,11 +38,7 @@
 
     <div class="toolbar" v-show="rows.length" ref="list">
       <input class="input" type="search" placeholder="Search unit" v-model="search" aria-label="Search unit">
-      <div class="pills">
-        <template v-for="f in filters" :key="f.key">
-          <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ `${f.label} (${rows.filter(r => match(r, f.key)).length})` }}</button>
-        </template>
-      </div>
+      <OptionPicker v-model="filter" :options="filterOptions" label="Filter" />
     </div>
 
     <section class="card" v-show="rows.length || (!loading && propertyId)">
@@ -115,6 +111,26 @@
     <template v-if="selOpen">
       <div class="stmt-page" v-esc="() => { selOpen = false }">
         <button class="navlink" style="margin-bottom:8px" @click="selOpen = false">← Back to Month-end payout</button>
+        <div class="modal-back" v-if="editAsk" @click.self="editAsk = false" v-esc="() => { editAsk = false }">
+          <div class="modal" role="dialog" aria-modal="true" aria-label="Reason for the changes">
+            <h2>Why are you changing these bookings?</h2>
+            <p class="help" style="margin:0 0 12px">The reason goes in the audit log with the old and new values.</p>
+            <div class="field"><label for="editWhy">Reason</label><textarea class="input" id="editWhy" v-model="editReason" placeholder="e.g. eZee price was wrong, corrected from the invoice" ref="editWhy"></textarea></div>
+            <div class="notice error" v-if="error" style="margin-top:10px">{{ error }}</div>
+            <div class="modal-foot"><button class="btn" @click="editAsk = false" :disabled="busy">Back</button><button class="btn btn-primary" @click="saveEdit()" :disabled="busy || !editReason.trim()">Save changes</button></div>
+          </div>
+        </div>
+        <div class="modal-back" v-if="ctripEdit" @click.self="ctripEdit = null" v-esc="() => { ctripEdit = null }">
+          <div class="modal" role="dialog" aria-modal="true" aria-label="Ctrip amount">
+            <h2>Ctrip booking {{ ctripEdit.reservationNo }}</h2>
+            <div class="ctrip-opts">
+              <label><input type="radio" value="" v-model="ctripKind[ctripEdit.reservationNo]"> <b>Customer paid</b><span class="help">The amount Trip.com says the guest paid. The PMS works out the owner share.</span></label>
+              <label><input type="radio" value="owner" v-model="ctripKind[ctripEdit.reservationNo]"> <b>Owner share</b><span class="help">The final amount for the owner, for example from Finance's statement. Guest paid stays empty.</span></label>
+            </div>
+            <div class="field"><label for="ctripAmt">Amount (RM)</label><input class="input" id="ctripAmt" type="number" step="0.01" v-model="ctripInput[ctripEdit.reservationNo]" @keyup.enter="saveCtripModal()"></div>
+            <div class="modal-foot"><button class="btn" @click="ctripEdit = null">Cancel</button><button class="btn btn-primary" @click="saveCtripModal()" :disabled="busy || !ctripInput[ctripEdit.reservationNo]">Save</button></div>
+          </div>
+        </div>
         <div class="page-head" style="margin-bottom:16px">
           <div><h1 style="font-size:24px">{{ `${sel.unitCode} · ${monthName(month)}` }}</h1>
             <div class="sub">{{ sel.arrangementLabel + (sel.fixed ? ` · RM ${amt(sel.rates.fixedRentAmount)} a month` : ` · service ${pct(sel.rates.serviceFeePct)}, utility ${pct(sel.rates.utilityFeePct)}` + (sel.rates.sstOnFeePct ? `, SST on fee ${pct(sel.rates.sstOnFeePct)}` : '')) }}</div></div>
@@ -130,31 +146,45 @@
         <section class="card" style="min-width:0">
           <div>
             <div class="notice warn" v-show="sel.status === 'notSetUp'">This unit isn't set up, so 20% service fee is assumed. Open Unit settings to set its arrangement.</div>
-            <div class="card-head"><h2>{{ (sel.fixed ? 'Bookings (kept by Widebed, shown for audit)' : 'Bookings') + ` · ${sel.lines.length}` }}</h2></div>
+            <div class="card-head"><h2>{{ (sel.fixed ? 'Bookings (kept by Widebed, shown for audit)' : 'Bookings') + ` · ${sel.lines.length}` }}</h2>
+              <button class="btn" v-show="!editing && !locked(sel) && sel.lines.length" @click="startEdit()" :disabled="busy" title="Change any value in the table">Edit all</button>
+              <span class="edit-btns" v-if="editing"><button class="btn" @click="cancelEdit()" :disabled="busy">Cancel</button><button class="btn btn-primary" @click="completeEdit()" :disabled="busy">Complete</button></span></div>
             <div class="table-wrap">
               <table class="table">
-                <thead><tr><th>Reservation</th><th>Source</th><th>Check-in</th><th>Check-out</th><th class="num">Nights</th><th class="num">Guest paid</th><th class="num">Platform cut</th><th class="num">Owner share</th><th class="num" v-show="sel.lines.some(l => l.financeAmount != null)" title="Finance's amount for this booking, from their completed statement">Finance</th><th>Status</th></tr></thead>
+                <thead><tr><th>Reservation</th><th>Source</th><th>Check-in</th><th>Check-out</th><th class="num">Nights</th><th class="num">Guest paid</th><th class="num">Platform cut</th><th class="num">Owner share</th><th class="num" v-show="sel.lines.some(l => l.financeAmount != null)" title="Finance's amount for this booking, from their completed statement">Finance</th><th>Status</th><th title="Tick when the site's commission also applies to the cleaning fee">Cleaning fee</th></tr></thead>
                 <tbody>
-                  <template v-for="l in sel.lines" :key="l.reservationNo">
-                    <tr :class="{ est: l.estimated }">
+                  <template v-for="l in sel.lines" :key="l.id || l.reservationNo">
+                    <tr v-if="editing && draft[l.id || l.reservationNo]" class="editing-row">
+                      <template v-for="d in [draft[l.id || l.reservationNo]]" :key="0">
+                      <td><input class="input cell-in" v-model="d.reservationNo" aria-label="Reservation"></td>
+                      <td><input class="input cell-in" v-model="d.source" aria-label="Source"></td>
+                      <td><input class="input cell-in" type="date" v-model="d.arrival" aria-label="Check-in"></td>
+                      <td><input class="input cell-in" type="date" v-model="d.departure" aria-label="Check-out"></td>
+                      <td class="num"><input class="input cell-in num-in" type="number" step="1" v-model="d.nights" aria-label="Nights"></td>
+                      <td class="num"><input class="input cell-in num-in" type="number" step="0.01" v-model="d.guestPaid" aria-label="Guest paid"></td>
+                      <td class="num"><input class="input cell-in num-in" type="number" step="0.01" v-model="d.platform" aria-label="Platform cut"></td>
+                      <td class="num"><input class="input cell-in num-in" type="number" step="0.01" v-model="d.pto" aria-label="Owner share"></td>
+                      <td class="num" v-show="sel.lines.some(x => x.financeAmount != null)">{{ amt(l.financeAmount) }}</td>
+                      <td><span class="pill blue">Editing</span></td><td class="muted">-</td>
+                      </template>
+                    </tr>
+                    <tr v-else :class="{ est: l.estimated }">
                       <td><span>{{ l.reservationNo }}</span><div class="tag-est" v-show="l.note && !l.estimated" :title="l.note">{{ l.note }}</div></td>
                       <td>{{ l.source }}</td>
                       <td>{{ dmy(l.arrival) }}</td><td>{{ dmy(l.departure) }}</td>
                       <td class="num">{{ l.nights }}</td>
                       <td class="num">
-                        <template v-if="l.otaKey === 'ctrip' && !locked(sel) && !l.final">
-                          <span class="ctrip-in"><input class="input" type="number" step="0.01" :placeholder="l.estimated ? 'RM amount' : amt(l.guestPaid)" v-model="ctripInput[l.reservationNo]" aria-label="Trip.com amount" @keyup.enter="saveCtrip(l)">
-                            <button class="btn" @click="saveCtrip(l)" :disabled="busy || !ctripInput[l.reservationNo]">Save</button></span>
-                        </template>
-                        <span v-show="!(l.otaKey === 'ctrip' && !locked(sel) && !l.final)">{{ amt(l.guestPaid) }}</span>
+                        <span>{{ l.guestPaid == null ? '' : amt(l.guestPaid) }}</span>
+                        <button v-if="l.otaKey === 'ctrip' && !locked(sel) && !editing" type="button" class="btn ctrip-btn" @click="openCtrip(l)">{{ l.estimated ? 'Enter amount' : 'Edit' }}</button>
                       </td>
                       <td class="num muted">{{ l.platform == null ? '' : amt(-l.platform) }}</td>
                       <td class="num"><b>{{ amt(l.pto) }}</b></td>
                       <td class="num" v-show="sel.lines.some(l => l.financeAmount != null)" :class="{ 'neg-amt': l.financeAmount != null && Math.abs(l.financeAmount - l.pto) >= 0.05 }">{{ amt(l.financeAmount) }}</td>
                       <td><span class="pill" :class="l.estimated ? 'amber' : (l.edited ? 'blue' : 'green')">{{ l.estimated ? 'Estimated' : (l.edited ? 'Edited' : (l.final ? 'Final' : 'Entered')) }}</span></td>
+                      <td><label v-if="l.cleaning > 0 && l.method === 'Net'" class="cl-in" :title="'Commission also taken off the cleaning fee (RM ' + amt(l.cleaning) + ')'"><input type="checkbox" :checked="l.cleaningIn" :disabled="busy || locked(sel)" @change="saveCleaning(l, $event.target.checked)" :aria-label="'Cleaning fee in commission for ' + l.reservationNo"> {{ amt(l.cleaning) }}</label><span class="muted" v-else>-</span></td>
                     </tr>
                   </template>
-                  <tr v-show="!sel.lines.length"><td colspan="10" class="muted">No bookings checked out this month.</td></tr>
+                  <tr v-show="!sel.lines.length"><td colspan="11" class="muted">No bookings checked out this month.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -210,7 +240,7 @@
             <div class="rows" style="width:100%" v-show="blockers(sel).length">
               <template v-for="(c, i) in blockers(sel)" :key="i"><div class="row"><span class="neg-amt">{{ c.text }}</span></div></template>
             </div>
-            <button class="btn btn-primary" v-show="!confirming" @click="askComplete()" :disabled="busy || blockers(sel).length > 0">Send to Director</button>
+            <button class="btn btn-primary" v-show="!confirming" @click="askComplete()" :disabled="busy || editing || blockers(sel).length > 0" :title="editing ? 'Save or cancel your edits first' : ''">Send to Director</button>
           </div>
           <template v-if="confirming && !locked(sel)">
             <div class="confirm-box" id="completeBox" ref="completeBox">
@@ -304,7 +334,7 @@ import { clearCache } from '@/lib/cache.js';
 import { toast } from '@/lib/toast.js';
 import { completeStatement } from '@/lib/statement-approve.js';
 import { notifyRole } from '@/services/notificationService.js';
-import { ARRANGEMENTS, DM_STARTER, paymentSummary, byUnit, nextMonth, r2 } from '@/lib/engine.js';
+import { otaKeyOf, ARRANGEMENTS, DM_STARTER, paymentSummary, byUnit, nextMonth, r2 } from '@/lib/engine.js';
 import { loadProperties, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, monthSummary } from '@/lib/finance-data.js';
 import { draftRecord, monthEndFromSummaries, ALL_MONTHS } from '@/lib/summaries.js';
 import { propertyMonth, readUnit, markDirty, markFrom, canWriteSummaries } from '@/lib/summary-data.js';
@@ -345,9 +375,9 @@ export default {
       completed: false,
       loading: true, busy: false, error: '', okMsg: '',
       search: '', filter: 'all',
-      filters: [{ key: 'all', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'done', label: 'Completed' }, { key: 'attention', label: 'Needs attention' }, { key: 'negative', label: 'Negative' },
+      filters: [{ key: 'all', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'sent', label: 'Sent to Director' }, { key: 'done', label: 'Completed' }, { key: 'attention', label: 'Needs attention' }, { key: 'negative', label: 'Negative' },
         { key: 'fixed', label: 'Fixed rent' }, { key: 'share', label: 'Profit share' }],
-      toast, sel: null, selOpen: false, ctripInput: {},
+      toast, sel: null, selOpen: false, ctripInput: {}, ctripKind: {}, ctripEdit: null, editing: false, editAsk: false, draft: {}, draft0: {}, editReason: '',
       settingsOpen: false, set: {}, confirming: false, reopening: false, overrideReason: '',
       dlOpen: false, approvals: {}, pulling: false, pullReason: ''
     };
@@ -364,6 +394,7 @@ export default {
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
   },
   computed: {
+    filterOptions() { return this.filters.map(f => ({ value: f.key, label: `${f.label} (${this.rows.filter(r => this.match(r, f.key)).length})` })); },
     propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name }))]; }
   },
   methods: {
@@ -513,6 +544,7 @@ export default {
       if (key === 'negative') return r.totals.payout < 0;
       if (key === 'fixed') return r.fixed;
       if (key === 'open') return r.status !== 'completed';
+      if (key === 'sent') return r.status !== 'completed' && this.sentState(r) === 'submitted';
       if (key === 'done') return r.status === 'completed';
       return !r.fixed;
     },
@@ -525,7 +557,7 @@ export default {
       this.busy = true; this.error = '';
       try {
         await this.loadUnitFull(r.unitId);
-        this.sel = this.fullRecord(r.unitId) || r; this.ctripInput = {}; this.confirming = false; this.reopening = false; this.overrideReason = ''; this.selOpen = true; window.scrollTo(0, 0);
+        this.sel = this.fullRecord(r.unitId) || r; this.ctripInput = {}; this.confirming = false; this.reopening = false; this.overrideReason = ''; this.selOpen = true; this.toTop();
       } catch (e) { this.error = friendlyError(e, 'open the statement'); }
       this.busy = false;
     },
@@ -544,6 +576,95 @@ export default {
       return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.propertyId === this.propertyId);
     },
 
+    // ---- Cleaning fee inside the site's commission, per booking ----
+    async saveCleaning(l, on) {
+      if (this.locked(this.sel)) return;
+      const id = l.id || l.reservationNo;
+      this.busy = true; this.error = '';
+      try {
+        const b = writeBatch(db);
+        const unitId = this.sel.unitId, full = this.unitFull[unitId];
+        b.set(doc(db, 'bookings', id), { cleaningInCommission: !!on }, { merge: true });
+        markDirty(b, this.propertyId, this.month, [unitId]);
+        audit(b, me, { action: 'booking.cleaningInCommission', entity: `bookings/${id}`, propertyId: this.propertyId, month: this.month,
+          changes: [{ field: 'cleaningInCommission', old: !on, new: !!on }] });
+        await b.commit();
+        const bk = full?.bookings.find(x => x.id === id); if (bk) bk.cleaningInCommission = !!on;
+        await this.refreshKeepingUnit(unitId);
+      } catch (e) { this.error = friendlyError(e, 'save the cleaning fee setting'); }
+      this.busy = false;
+    },
+
+    // ---- Edit all: any value in the bookings table (ARR-14) ----
+    startEdit() {
+      const d = {};
+      for (const l of this.sel.lines) d[l.id || l.reservationNo] = {
+        reservationNo: l.reservationNo, source: l.source, arrival: l.arrival || '', departure: l.departure || '', nights: l.nights,
+        guestPaid: l.guestPaid == null ? '' : r2(l.guestPaid), platform: l.platform == null ? '' : r2(l.platform), pto: r2(l.pto)
+      };
+      this.draft = d; this.draft0 = JSON.parse(JSON.stringify(d)); this.editReason = ''; this.error = ''; this.editing = true;
+    },
+    completeEdit() {
+      if (!this.changedBookings().length) { this.cancelEdit(); return; }
+      this.error = ''; this.editAsk = true; this.$nextTick(() => this.$refs.editWhy?.focus());
+    },
+    cancelEdit() { this.editAsk = false; this.editing = false; this.draft = {}; this.draft0 = {}; this.editReason = ''; },
+    async saveEdit() {
+      if (this.locked(this.sel)) return;
+      const why = this.editReason.trim();
+      if (!why) { this.error = 'Add a short reason. It goes in the audit log.'; return; }
+      const unitId = this.sel.unitId, full = this.unitFull[unitId];
+      const writes = this.changedBookings();
+      if (!writes.length) { this.cancelEdit(); return; }
+      this.busy = true; this.error = '';
+      try {
+        const b = writeBatch(db);
+        for (const w of writes) {
+          const bk = full?.bookings.find(x => x.id === w.id);
+          const merged = { ...(bk?.edits || {}), ...w.edits, editedBy: me.user.uid, editedByName: me.name, editReason: why };
+          b.set(doc(db, 'bookings', w.id), { edits: merged }, { merge: true });
+          audit(b, me, { action: 'booking.edit', entity: `bookings/${w.id}`, propertyId: this.propertyId, month: this.month, changes: w.changes, reason: why });
+        }
+        markDirty(b, this.propertyId, this.month, [unitId]);
+        await b.commit();
+        for (const w of writes) { const bk = full?.bookings.find(x => x.id === w.id); if (bk) bk.edits = { ...(bk.edits || {}), ...w.edits }; }
+        this.cancelEdit();
+        await this.refreshKeepingUnit(unitId);
+        this.toTop();
+        this.okMsg = `Saved ${writes.length} booking change${writes.length === 1 ? '' : 's'}.`;
+      } catch (e) { this.error = friendlyError(e, 'save the booking changes'); }
+      this.busy = false;
+    },
+    changedBookings() {
+      const NUM = { guestPaid: 'ovGuestPaid', platform: 'ovPlatform', pto: 'ovPto' };
+      const writes = [];
+      for (const [id, d] of Object.entries(this.draft)) {
+        const o = this.draft0[id], edits = {}, changes = [];
+        for (const k of ['reservationNo', 'source', 'arrival', 'departure']) {
+          if (String(d[k] ?? '').trim() !== String(o[k] ?? '').trim()) { edits[k] = String(d[k]).trim(); changes.push({ field: k, old: o[k], new: edits[k] }); }
+        }
+        if (edits.source !== undefined) edits.otaKey = otaKeyOf(edits.source);
+        if (Number(d.nights) !== Number(o.nights)) { edits.nights = Number(d.nights); changes.push({ field: 'nights', old: o.nights, new: edits.nights }); }
+        for (const [k, f] of Object.entries(NUM)) {
+          if (d[k] === '' || d[k] == null) continue;
+          if (Math.abs(Number(d[k]) - Number(o[k] === '' ? NaN : o[k])) > 0.004 || o[k] === '') { edits[f] = Number(d[k]); changes.push({ field: f, old: o[k] === '' ? null : o[k], new: edits[f] }); }
+        }
+        if (changes.length) writes.push({ id, edits, changes });
+      }
+      return writes;
+    },
+    // The page scrolls inside .main, not the window
+    toTop() { const go = () => { window.scrollTo(0, 0); document.querySelector('.main')?.scrollTo(0, 0); }; go(); this.$nextTick(go); setTimeout(go, 60); },
+    openCtrip(l) {
+      if (this.ctripKind[l.reservationNo] === undefined) this.ctripKind[l.reservationNo] = l.final ? 'owner' : '';
+      this.ctripInput[l.reservationNo] = '';
+      this.ctripEdit = l;
+    },
+    async saveCtripModal() {
+      const l = this.ctripEdit; if (!l) return;
+      await this.saveCtrip(l);
+      if (!this.error) this.ctripEdit = null;
+    },
     // ---- Ctrip amount typed per booking (ARR-13) ----
     async saveCtrip(l) {
       if (this.locked(this.sel)) return;
@@ -552,17 +673,18 @@ export default {
       this.busy = true; this.error = '';
       try {
         const b = writeBatch(db);
-        const ctrip = { guestPaid: v, enteredBy: me.user.uid, enteredByName: me.name, enteredAt: serverTimestamp() };
+        const owner = this.ctripKind[l.reservationNo] === 'owner';
+        const ctrip = { ...(owner ? { finalPto: v, guestPaid: null } : { guestPaid: v, finalPto: null }), enteredBy: me.user.uid, enteredByName: me.name, enteredAt: serverTimestamp() };
         const unitId = this.sel.unitId, full = this.unitFull[unitId];
         b.set(doc(db, 'bookings', l.reservationNo), { ctrip }, { merge: true });
         markDirty(b, this.propertyId, this.month, [unitId]);   // the unit's summary is worked out again
         audit(b, me, { action: 'ctrip.enter', entity: `bookings/${l.reservationNo}`, propertyId: this.propertyId, month: this.month,
-          changes: [{ field: 'ctrip.guestPaid', old: full?.bookings.find(x => x.id === l.reservationNo)?.ctrip?.guestPaid ?? null, new: v }] });
+          changes: [{ field: owner ? 'ctrip.finalPto' : 'ctrip.guestPaid', old: full?.bookings.find(x => x.id === l.reservationNo)?.ctrip?.guestPaid ?? null, new: v }] });
         await b.commit();
-        const bk = full?.bookings.find(x => x.id === l.reservationNo); if (bk) bk.ctrip = { guestPaid: v };
+        const bk = full?.bookings.find(x => x.id === l.reservationNo); if (bk) bk.ctrip = owner ? { finalPto: v } : { guestPaid: v };
         this.ctripInput[l.reservationNo] = '';
         await this.refreshKeepingUnit(unitId);
-        this.okMsg = `Trip.com amount saved for ${l.reservationNo}.`;
+        this.okMsg = owner ? `Owner share saved for ${l.reservationNo}.` : `Customer paid amount saved for ${l.reservationNo}.`;
       } catch (e) { this.error = friendlyError(e, 'save the Ctrip amount'); }
       this.busy = false;
     },
@@ -658,6 +780,7 @@ export default {
         this.okMsg = `${r.unitCode} sent for approval for ${monthName(this.month)}. Approve it on the Statement Approvals page.`;
         this.confirming = false; this.overrideReason = '';
         await this.reloadAt(r.unitId);
+        this.toTop();
       } catch (e) { this.error = e.code ? friendlyError(e, 'send the statement') : e.message; }
       this.busy = false;
     },
@@ -696,6 +819,7 @@ export default {
         this.pulling = false; this.pullReason = '';
         this.okMsg = `${r.unitCode} pulled back. You can edit it again.`;
         await this.reloadAt(r.unitId);
+        this.toTop();
       } catch (e) { this.error = friendlyError(e, 'pull the statement back'); }
       this.busy = false;
     },
@@ -809,8 +933,23 @@ export default {
     .stmt-page .table th, .stmt-page .table td { padding: 10px 9px; white-space: nowrap; }
     .stmt-page .table .tag-est { white-space: normal; max-width: 200px; }
     /* Trip.com amount: one compact box with its Save button (Khairul 27 Oct: the table was squashed) */
+    .ctrip-opts { display: grid; gap: 10px; margin: 12px 0 14px; }
+    .ctrip-opts label { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; cursor: pointer; }
+    .ctrip-opts .help { grid-column: 2; font-size: 12px; color: var(--text-2); }
+    .ctrip-btn { height: 28px; padding: 0 12px; font-size: 12px; margin-left: 8px; }
+    .edit-btns { display: inline-flex; gap: 8px; }
+    .cell-in { height: 32px; padding: 0 8px; font-size: 13px; min-width: 96px; }
+    .num-in { width: 92px; min-width: 0; text-align: right; }
+    .editing-row td { background: var(--accent-soft); }
+    .cl-in { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12.5px; }
     .ctrip-in { display: inline-flex; align-items: center; gap: 8px; }
     .ctrip-in .input { width: 104px; height: 32px; padding: 0 8px; text-align: center; appearance: textfield; -moz-appearance: textfield; }
+    .ctrip-combo { display: inline-flex; align-items: stretch; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface, #fff); overflow: hidden; }
+    .ctrip-combo:focus-within { border-color: var(--accent); }
+    .ctrip-combo select, .ctrip-combo input { border: 0; outline: 0; background: transparent; height: 100%; font: inherit; font-size: 12.5px; color: var(--text); }
+    .ctrip-combo select { padding: 0 4px 0 8px; border-right: 1px solid var(--border); cursor: pointer; }
+    .ctrip-combo input { width: 84px; padding: 0 8px; text-align: center; appearance: textfield; -moz-appearance: textfield; }
+    .ctrip-combo input::-webkit-inner-spin-button, .ctrip-combo input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     .ctrip-in .input::-webkit-inner-spin-button, .ctrip-in .input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     .ctrip-in .btn { height: 32px; padding: 0 12px; font-size: 12px; }
     .checks-rows { min-height: 292px; }

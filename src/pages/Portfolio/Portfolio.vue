@@ -319,10 +319,10 @@
     <div v-show="onProperty() && ptab === 'ota'" v-if="!viewOnly">
       <section class="card">
         <div class="card-head"><h2>OTA commission and payout type</h2><span class="help">{{ rates.current ? `In force for ${monthName(asOf)}` : '' }}</span></div>
-        <p class="card-intro">Net: the site pays Widebed after taking its commission. Gross: the site invoices its commission separately. Ctrip uses its rate only as an estimate until Finance types the Trip.com amount. Tick Include when the site's commission also applies to the cleaning fee (Finance did this for Expedia in some months); use Applies from to set the month.</p>
+        <p class="card-intro">Net: the site pays Widebed after taking its commission. Gross: the site invoices its commission separately. Ctrip uses its rate only as an estimate until Finance types the Trip.com amount.</p>
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Channel</th><th>Payout</th><th class="num">Commission %</th><th class="num">Payment fee %</th><th>Cleaning fee</th><th>How the guest price is worked out</th></tr></thead>
+            <thead><tr><th>Channel</th><th>Payout</th><th class="num">Commission %</th><th class="num">Payment fee %</th><th>How the guest price is worked out</th></tr></thead>
             <tbody>
               <template v-for="k in Object.keys(rates.form)" :key="k">
                 <tr>
@@ -330,8 +330,7 @@
                   <td><select class="input" style="height:34px;min-width:150px" v-model="rates.form[k].payout"><option value="net">Net</option><option value="gross">Gross</option></select></td>
                   <td class="num"><input class="input inline-input" type="number" step="0.01" v-model="rates.form[k].commission" :aria-label="`${rates.form[k].label} commission`"></td>
                   <td class="num"><input class="input inline-input" type="number" step="0.01" v-model="rates.form[k].paymentFee" v-show="rates.form[k].payout === 'gross'" :aria-label="`${rates.form[k].label} payment fee`"><span class="muted" v-show="rates.form[k].payout !== 'gross'">—</span></td>
-                  <td><label v-if="rates.form[k].payout === 'net'" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" v-model="rates.form[k].cleaningInCommission" :aria-label="`${rates.form[k].label} commission includes cleaning fee`"> Include</label><span class="muted" v-else>—</span></td>
-                  <td class="help">{{ rates.form[k].payout === 'net' ? `(room + SST${rates.form[k].cleaningInCommission ? ' + cleaning' : ''}) ÷ ${(100 - Number(rates.form[k].commission || 0)).toFixed(2)}%` : 'room + SST, less commission, payment fee and 8% SST on each' }}</td>
+                  <td class="help">{{ rates.form[k].payout === 'net' ? `(room + SST) ÷ ${(100 - Number(rates.form[k].commission || 0)).toFixed(2)}%` : 'room + SST, less commission, payment fee and 8% SST on each' }}</td>
                 </tr>
               </template>
             </tbody>
@@ -1150,7 +1149,7 @@ export default {
       const form = {};
       for (const [k, d] of Object.entries(DEFAULT_OTA)) {
         const v = { ...d, ...(cur?.ota?.[k] || {}) };
-        form[k] = { label: d.label, payout: v.payout, commission: +(v.commissionPct * 100).toFixed(4), paymentFee: +((v.paymentFeePct || 0) * 100).toFixed(4), sstPct: v.sstPct ?? 0.08, cleaningInCommission: !!v.cleaningInCommission };
+        form[k] = { label: d.label, payout: v.payout, commission: +(v.commissionPct * 100).toFixed(4), paymentFee: +((v.paymentFeePct || 0) * 100).toFixed(4), sstPct: v.sstPct ?? 0.08 };
       }
       this.rates = { form, effectiveFrom: this.asOf, reason: '', earlyToOwner: cur?.earlyCheckInToOwner !== false, tourismTax: cur?.tourismTaxPerNight ?? 10, current: cur };
     },
@@ -1161,7 +1160,7 @@ export default {
       for (const [k, f] of Object.entries(r.form)) {
         const c = Number(f.commission);
         if (!(c >= 0 && c < 100)) { this.error = `${f.label}: commission must be between 0 and 100%.`; return; }
-        ota[k] = { label: f.label, payout: f.payout, commissionPct: c / 100, ...(f.payout === 'net' && f.cleaningInCommission ? { cleaningInCommission: true } : {}), ...(f.payout === 'gross' ? { paymentFeePct: Number(f.paymentFee || 0) / 100, sstPct: f.sstPct } : {}) };
+        ota[k] = { label: f.label, payout: f.payout, commissionPct: c / 100, ...(f.payout === 'gross' ? { paymentFeePct: Number(f.paymentFee || 0) / 100, sstPct: f.sstPct } : {}) };
       }
       const tt = Number(r.tourismTax);
       if (!(tt >= 0)) { this.error = 'Tourism Tax must be 0 or more.'; return; }

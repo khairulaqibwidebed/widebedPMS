@@ -26,11 +26,7 @@
 
     <div class="toolbar" ref="list">
       <input class="input" type="search" placeholder="Search document no. or unit…" v-model="search" aria-label="Search">
-      <div class="pills">
-        <template v-for="f in FILTERS" :key="f.key">
-          <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ f.label }}</button>
-        </template>
-      </div>
+      <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: f.label }))" label="Document type" />
     </div>
 
     <section class="card">

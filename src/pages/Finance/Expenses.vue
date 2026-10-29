@@ -27,11 +27,7 @@
       <p class="card-intro">Add an expense or reimbursement on the day it happens, for any unit, fixed rent included. Expenses are deducted on the unit's statement; reimbursements are money back to the owner and are added. Lines can be edited with a reason until that unit's statement for the month is completed.</p>
       <div class="toolbar">
         <input class="input" type="search" placeholder="Search unit, e.g. DM 14-02" v-model="search" aria-label="Search" style="max-width:220px">
-        <div class="pills">
-          <template v-for="f in filters" :key="f.key">
-            <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ f.label }}</button>
-          </template>
-        </div>
+        <OptionPicker v-model="filter" :options="filters.map(f => ({ value: f.key, label: f.label }))" label="Type" />
       </div>
       <Paged :items="shown()" v-slot="{ pageRows }">
       <div class="table-wrap">
@@ -83,7 +79,7 @@
             </div>
             <div class="field">
               <label for="eUnit">Unit</label>
-              <OptionPicker class="unit-pick" v-model="panel.unitId" :options="unitOptions()" label="Unit" />
+              <OptionPicker class="unit-pick" searchable v-model="panel.unitId" :options="unitOptions()" label="Unit" />
             </div>
             <div class="grid-fields">
               <div class="field"><label for="eDate">Date</label><input class="input" id="eDate" type="date" v-model="panel.date" required></div>

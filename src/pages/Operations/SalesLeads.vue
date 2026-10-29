@@ -14,11 +14,7 @@
           </div>
         </div>
         <div class="pills-row" style="margin-bottom:16px">
-        <div class="pills brand count-pills">
-          <template v-for="f in FILTERS" :key="f.key">
-            <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ `${f.label} · ${count(f.key)}` }}</button>
-          </template>
-        </div>
+        <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: `${f.label} · ${count(f.key)}` }))" label="Status" />
         <button class="btn btn-primary" v-if="canLog" @click="go('new')">+ Log inquiry</button>
         </div>
         <section class="card">

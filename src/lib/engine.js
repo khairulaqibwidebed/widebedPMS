@@ -165,7 +165,7 @@ export function bookingPTO(b, rates) {
   const T = AU + AX + AG;                               // what the guest's booking total holds for the room
   const otaKey = v.otaKey || otaKeyOf(v.source);
   const longTerm = otaKey === 'direct' && (num(v.nights) >= 30 || /monthly|yearly/i.test(v.rateType || '') || rates.arrangement === 'longTermTenant');
-  let method, guestPaid = 0, platform = 0, pto, estimated = false, note = '';
+  let cleaningIn = false, method, guestPaid = 0, platform = 0, pto, estimated = false, note = '';
   const o = rates.ota[otaKey];
   let final = false;
   if (otaKey === 'ctrip' && v.ctrip?.finalPto != null) {
@@ -177,10 +177,12 @@ export function bookingPTO(b, rates) {
     platform = guestPaid - (AU + AX); pto = guestPaid / 1.08 - platform;
   } else if (o && o.payout === 'net') {
     method = otaKey === 'ctrip' ? 'Ctrip' : 'Net';
-    // 'Include cleaning fee' ticked: the site's commission also takes a cut of the cleaning fee (Finance did this for Expedia in some months).
-    const base = AU + AX + (o.cleaningInCommission ? AG : 0);
-    guestPaid = base / (1 - num(o.commissionPct));
-    platform = guestPaid - base; pto = guestPaid / 1.08 - platform;
+    // Ticked on the booking (Month-end > Cleaning fee): the site's commission also takes a cut of the cleaning fee (Finance did this for some Expedia months).
+    cleaningIn = !!v.cleaningInCommission && AG > 0;
+    // Matches Finance's Feb sheets (DM 1402): the cleaning fee's commission share costs the owner only its SST part (8/108).
+    guestPaid = (AU + AX) / (1 - num(o.commissionPct));
+    platform = guestPaid - (AU + AX); pto = guestPaid / 1.08 - platform;
+    if (cleaningIn) { const cut = AG * num(o.commissionPct) / (1 - num(o.commissionPct)) * (1 - 1 / 1.08); platform += cut; pto -= cut; }
     if (otaKey === 'ctrip') { estimated = true; note = `Estimated at ${+(o.commissionPct * 100).toFixed(2)}%. Type the Trip.com amount.`; }
   } else if (o && o.payout === 'gross') {
     method = 'Gross';
@@ -196,8 +198,13 @@ export function bookingPTO(b, rates) {
   }
   const early = rates.earlyCheckInToOwner && !final ? AK / 1.08 : 0;
   pto = r3(pto + early);
+  // Edit all (ARR-14): typed-over figures win over the worked-out ones
+  const ov = k => (v[k] != null && v[k] !== '' ? num(v[k]) : null);
+  if (ov('ovGuestPaid') != null) guestPaid = ov('ovGuestPaid');
+  if (ov('ovPlatform') != null) platform = ov('ovPlatform');
+  if (ov('ovPto') != null) pto = ov('ovPto');
   if (num(v.roomUpgrade)) note = (note ? note + ' ' : '') + 'Room Upgrade not paid to owner (rule not confirmed).';
-  return { method, otaKey, guestPaid, platform, early, pto, estimated, note, final, edited: !!b.edits };
+  return { cleaning: AG, cleaningIn, method, otaKey, guestPaid, platform, early, pto, estimated, note, final, edited: !!b.edits };
 }
 
 // ---------- One unit, one month ----------

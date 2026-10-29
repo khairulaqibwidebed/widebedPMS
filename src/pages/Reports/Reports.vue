@@ -28,9 +28,7 @@
         </div>
       </div>
       <div class="quick">
-        <template v-for="q in QUICK" :key="q.key">
-          <button type="button" class="pill-btn" :class="{ on: quickOn === q.key }" @click="pick(q.key)">{{ q.label }}</button>
-        </template>
+        <OptionPicker :model-value="quickOn || 'custom'" :options="[...QUICK.map(q => ({ value: q.key, label: q.label })), { value: 'custom', label: 'Custom range', disabled: true }]" label="Quick range" @change="v => v !== 'custom' && pick(v)" />
       </div>
       <p class="note" style="margin:10px 0 0" v-show="from && to && from > to">The From date is after the To date.</p>
     </section>

@@ -23,19 +23,9 @@
 
         <div class="iss-tools" ref="list">
           <input class="input" type="search" placeholder="Search ticket no., title or unit" v-model="search" aria-label="Search tickets">
-          <div class="pills brand">
-            <template v-for="f in FILTERS" :key="f.key">
-              <button class="pill-btn" :class="filter === f.key && 'on'" @click="filter = f.key">{{ f.label }}</button>
-            </template>
-          </div>
-          <select class="select" v-model="tagFilter" aria-label="Filter by team">
-            <option value="">All teams</option>
-            <template v-for="g in TAGS" :key="g"><option :value="g">{{ g }}</option></template>
-          </select>
-          <select class="select" v-model="unitFilter" aria-label="Filter by unit">
-            <option value="">All units</option>
-            <template v-for="un in unitList()" :key="un"><option :value="un">{{ un }}</option></template>
-          </select>
+          <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: f.label }))" label="Show" />
+          <OptionPicker v-model="tagFilter" :options="[{ value: '', label: 'All teams' }, ...TAGS.map(g => ({ value: g, label: g }))]" label="Filter by team" />
+          <OptionPicker v-model="unitFilter" searchable :options="[{ value: '', label: 'All units' }, ...unitList().map(un => ({ value: un, label: un }))]" label="Filter by unit" />
         </div>
 
         <Paged :items="shown()" v-slot="{ pageRows }">
@@ -75,18 +65,6 @@
             <a class="back-link" href="#" @click.prevent="back()">← All tickets</a>
             <h1>{{ ticket.id + ' · ' + ticket.title }}</h1>
             <div class="sub">{{ (ticket.property || 'Office') + (ticket.unit ? ' · ' + ticket.unit : '') + ' · Raised by ' + ticket.raisedBy + (showRole(ticket.raisedBy, ticket.raisedRole) ? ` (${ticket.raisedRole})` : '') + ' on ' + stamp(ticket.raisedAt) }}</div>
-          </div>
-          <div class="head-tools">
-            <div class="acts" v-if="(ticket.status !== 'done' && canUpdate()) || canDelete">
-              <button class="btn btn-primary" @click="menuOpen = !menuOpen" aria-haspopup="menu" :aria-expanded="String(menuOpen)">Actions
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
-              <div class="acts-back" v-if="menuOpen" @click="menuOpen = false"></div>
-              <div class="acts-menu" v-if="menuOpen" role="menu">
-                <button role="menuitem" v-show="ticket.status === 'open' && canUpdate()" @click="menuOpen = false; setProgress()" :disabled="busy">Mark in progress</button>
-                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; confirmDone = true; doneError = ''">Mark completed</button>
-                <button role="menuitem" class="danger" v-if="canDelete" @click="menuOpen = false; openDelete()">Delete ticket</button>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -134,15 +112,17 @@
               <div class="kv"><span>Raised on</span><span>{{ day(ticket.raisedAt) }}</span></div>
               <div class="kv"><span>Tagged</span><span><template v-for="g in ticket.tags" :key="g"><span class="tag">{{ g }}</span></template></span></div>
               <button class="btn" style="width:100%;margin-top:8px" v-show="ticket.status !== 'done' && canUpdate()" @click="openTags()">Edit Department Tags </button>
-              <div class="side-note">Who can see this: roles tagged above, the person who raised it, and Directors.</div>
-            </div>
-            <div class="card">
-              <div class="card-head"><h2>Audit log</h2></div>
-              <div class="audit-list">
-                <template v-for="a in ticket.audit" :key="a.at + a.text">
-                  <div><div class="when">{{ stamp(a.at) }}</div><div v-if="a.by"><b>{{ a.by }}</b><span class="tag role-tint" :style="roleTint(a.role)" v-if="showRole(a.by, a.role)">{{ a.role }}</span> {{ a.text }}</div><div v-else>{{ a.text }}</div></div>
-                </template>
+            <div class="acts acts-card" v-if="(ticket.status !== 'done' && canUpdate()) || canDelete">
+              <button class="btn btn-primary" @click="menuOpen = !menuOpen" aria-haspopup="menu" :aria-expanded="String(menuOpen)">Actions
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+              <div class="acts-back" v-if="menuOpen" @click="menuOpen = false"></div>
+              <div class="acts-menu" v-if="menuOpen" role="menu">
+                <button role="menuitem" v-show="ticket.status === 'open' && canUpdate()" @click="menuOpen = false; setProgress()" :disabled="busy">Mark in progress</button>
+                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; confirmDone = true; doneError = ''">Mark completed</button>
+                <button role="menuitem" class="danger" v-if="canDelete" @click="menuOpen = false; openDelete()">Delete ticket</button>
               </div>
+            </div>
+            <button class="btn" style="width:100%;margin-top:8px" @click="auditOpen = true">Audit log</button>
             </div>
             <div class="help">Mark completed locks the ticket and moves it to Completed. Nobody can comment or change tags after that.</div>
           </div>
@@ -213,6 +193,19 @@
       </template>
     </div>
 
+    <!-- Audit log -->
+    <div class="modal-back" v-if="auditOpen && ticket" @click.self="auditOpen = false" v-esc="() => { auditOpen = false }">
+      <div class="modal audit-modal" role="dialog" aria-modal="true" aria-label="Audit log" style="max-width:560px">
+        <h2>{{ 'Audit log · ' + ticket.id }}</h2>
+              <div class="audit-list">
+                <template v-for="a in ticket.audit" :key="a.at + a.text">
+                  <div><div class="when">{{ stamp(a.at) }}</div><div v-if="a.by"><b>{{ a.by }}</b><span class="tag role-tint" :style="roleTint(a.role)" v-if="showRole(a.by, a.role)">{{ a.role }}</span> {{ a.text }}</div><div v-else>{{ a.text }}</div></div>
+                </template>
+              </div>
+        <div class="modal-foot"><button class="btn" @click="auditOpen = false">Close</button></div>
+      </div>
+    </div>
+
     <!-- Confirm complete -->
     <div class="modal-back" v-show="confirmDone" @click.self="confirmDone = false">
       <div class="modal" role="dialog" aria-label="Mark completed" style="max-width:440px">
@@ -272,7 +265,7 @@ export default {
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
-      menuOpen: false, addPick: '', addPickR: '', tickets: [], ticket: null, replies: [], units: [], search: '', unitFilter: '',
+      menuOpen: false, auditOpen: false, addPick: '', addPickR: '', tickets: [], ticket: null, replies: [], units: [], search: '', unitFilter: '',
       // The dashboard links here with ?tag= (one team's tickets) and ?filter= (e.g. active = open or in progress).
       filter: FILTERS.some(f => f.key === this.$route.query.filter) ? this.$route.query.filter : (this.$route.query.tag ? 'active' : 'all'),
       tagFilter: TAGS.includes(this.$route.query.tag) ? this.$route.query.tag : '', okMsg: '', error: '', doneError: '',
@@ -431,15 +424,16 @@ export default {
       if (d.linkUrl.trim()) { this.addLink(d); if (d.error) return; }
       const text = d.text.trim(), links = [...d.links];
       if (!text && !links.length) return;
-      const h = this.entry(`commented` + (links.length ? ` and added ${links.length} Drive link${links.length > 1 ? 's' : ''}` : ''));
+      // Plain comments are already in the thread; only added Drive links go in the audit log
+      const h = links.length ? this.entry(`added ${links.length} Drive link${links.length > 1 ? 's' : ''}`) : null;
       this.busy = true; d.error = '';
       try {
         const b = writeBatch(db), ref = doc(db, 'issues', t.id);
         b.set(doc(collection(db, 'issues', t.id, 'replies')), { by: myLabel, byRole: myRole, byUid: me.user.uid, at: nowIso(), text, links, createdAt: serverTimestamp() });
-        b.update(ref, { replyCount: increment(1), linkCount: increment(links.length), lastBy: myLabel, audit: arrayUnion(h), updatedAt: serverTimestamp() });
+        b.update(ref, { replyCount: increment(1), linkCount: increment(links.length), lastBy: myLabel, ...(h ? { audit: arrayUnion(h) } : {}), updatedAt: serverTimestamp() });
         audit(b, me, { action: 'issue.comment', entity: `issues/${t.id}`, propertyId: t.propertyId || null, changes: links.length ? [{ field: 'links', old: null, new: links.length }] : [] });
         await b.commit();
-        t.replyCount = (t.replyCount || 0) + 1; t.linkCount = (t.linkCount || 0) + links.length; t.lastBy = myLabel; t.audit.push(h);
+        t.replyCount = (t.replyCount || 0) + 1; t.linkCount = (t.linkCount || 0) + links.length; t.lastBy = myLabel; if (h) t.audit.push(h);
         this.notify(t, { title: `New comment on ${t.id}`, message: `${myLabel} commented on "${t.title}".` });
         this.draft = this.newDraft();
         await this.loadReplies();
@@ -567,8 +561,11 @@ export default {
     .back-link:hover { text-decoration: underline; }
     .acts { position: relative; }
     .acts > .btn { display: inline-flex; align-items: center; gap: 6px; }
+    .acts-card { margin-top: 14px; }
+    .acts-card > .btn { width: 100%; justify-content: center; }
+    .acts-card .acts-menu { top: auto; bottom: calc(100% + 6px); left: 0; right: 0; width: auto; }
     .acts-back { position: fixed; inset: 0; z-index: 20; }
-    .acts-menu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 0; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
+    .acts-menu { position: absolute; left: auto; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 100%; width: max-content; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
     .acts-menu button { text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; }
     .acts-menu button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
     .acts-menu button.danger { color: var(--danger); }
@@ -604,6 +601,11 @@ export default {
     a.file-chip { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
     a.file-chip:hover { text-decoration: underline; }
     .audit-list { display: grid; gap: 10px; font-size: 12px; }
+    .audit-modal .audit-list { gap: 0; font-size: 14px; line-height: 1.5; max-height: 55vh; overflow-y: auto; margin: 4px -4px 0; padding: 0 4px; }
+    .audit-modal .audit-list > div { padding: 12px 0 12px 14px; border-left: 3px solid var(--accent-soft); margin-left: 4px; position: relative; }
+    .audit-modal .audit-list > div + div { border-top: 1px solid var(--border); border-top-left-radius: 0; }
+    .audit-modal .audit-list .when { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+    .audit-modal .audit-list .tag { font-size: 12px; margin: 0 6px; }
     .audit-list .when { color: var(--muted); font-size: 11px; }
     .checks { display: flex; gap: 16px; flex-wrap: wrap; margin: 6px 0 4px; font-size: 13px; }
     .checks label { display: inline-flex; align-items: center; gap: 6px; }
