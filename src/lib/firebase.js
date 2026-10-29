@@ -23,23 +23,30 @@ export const ROLE_LABEL = { director: 'Director', finance: 'Finance', it: 'IT', 
 
 // A person's role lives on their staff record, users/{uid} (set on the Staff accounts page).
 // The security rules read the same record, so the role here and in the rules always match.
+// perms = the pages ticked on Staff accounts (lib/access.js), or null = their role's usual pages. Turned off = none.
 export async function profileOf(user) {
   try {
     const snap = await getDoc(doc(db, 'users', user.uid));
-    if (!snap.exists()) return { role: null, name: user.email };
+    if (!snap.exists()) return { role: null, perms: [], name: user.email };
     const p = snap.data();
-    return { role: p.active === false ? null : (p.role || null), name: p.displayName || user.email, active: p.active !== false };
+    const active = p.active !== false;
+    return {
+      role: active ? (p.role || null) : null,
+      perms: !active ? [] : Array.isArray(p.perms) ? p.perms : null,
+      name: p.displayName || user.email,
+      active
+    };
   } catch (_) {
-    return { role: null, name: user.email };
+    return { role: null, perms: [], name: user.email };
   }
 }
 
-// Resolves once with { user, role, name } (user = null when signed out).
+// Resolves once with { user, role, perms, name } (user = null when signed out).
 export function whoAmI() {
   return new Promise(resolve => {
     const stop = onAuthStateChanged(auth, async user => {
       stop();
-      if (!user) return resolve({ user: null, role: null });
+      if (!user) return resolve({ user: null, role: null, perms: [] });
       resolve({ user, ...(await profileOf(user)) });
     });
   });

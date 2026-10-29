@@ -1,6 +1,10 @@
 // Sidebar per role. Folding groups: only the group of the current page is open (agreed 19 Oct for all roles).
 // to = null means the page is not built yet. icon = key from components/navIcons.js.
 // P = a page (label, route, icon). G = a department group (label, icon, pages); the group icon is what shows in the collapsed rail.
+// The sidebar a person actually sees comes from navFor() at the bottom: their role's list, minus pages they
+// were unticked from, plus pages they were ticked for on Staff accounts (lib/access.js).
+import { can, pageKeyFor } from './lib/access.js';
+
 const P = (label, to = null, icon = 'dot') => ({ label, to, icon });
 const G = (label, icon, items) => ({ label, icon, items });
 
@@ -85,4 +89,29 @@ export function homeFor(role) {
   if (pages.some(it => it.to === '/Dashboard')) return '/Dashboard';
   if (pages.length) return pages[0].to;
   return '/Dashboard';
+}
+
+// The sidebar for one person. Starts from their role's list (so the order they know stays), takes out tickable pages
+// they can't view, then adds tickable pages they were given from the full (Director) sidebar: into the group with the
+// same name, or as a new group just above My Account. NAV itself is never changed.
+export function navFor(me) {
+  const role = (me && me.role) || '';
+  if (role === 'director') return NAV.director;
+  const allowed = it => { const key = pageKeyFor(it.to); return !key || can(me, key + '.view'); };
+
+  const out = (NAV[role] || []).map(g => ({ ...g, items: g.items.filter(allowed) })).filter(g => g.items.length);
+  const seen = new Set(out.flatMap(g => g.items.map(it => it.to)));
+
+  for (const group of NAV.director) {
+    for (const it of group.items) {
+      const key = pageKeyFor(it.to);
+      if (!key || seen.has(it.to) || !can(me, key + '.view')) continue;
+      seen.add(it.to);
+      const same = out.find(g => g.label && g.label === group.label);
+      if (same) { same.items.push(it); continue; }
+      const myAccount = out.findIndex(g => g.label === 'My Account');
+      out.splice(myAccount === -1 ? out.length : myAccount, 0, { ...group, items: [it] });
+    }
+  }
+  return out;
 }
