@@ -46,7 +46,7 @@
       <template v-if="stage === 4 && auto && !done">
         <div>
           <div class="notice" style="margin-top:0">{{ `This file has ${auto.groups.length} building${auto.groups.length === 1 ? '' : 's'}. Check where each one goes, then press Check.` }}</div>
-          <div class="table-wrap">
+          <div class="table-wrap" :style="checks.length ? null : { minHeight: Math.min(360, 150 + targetOptions(auto.groups[0]).length * 38) + 'px' }">
             <table class="table">
               <thead><tr><th>Building in the file</th><th class="num">Bookings</th><th class="num">Units</th><th>Goes to</th><th v-show="checks.length">Result</th></tr></thead>
               <tbody>
@@ -332,15 +332,22 @@ export default {
         if (this.propertyId === '__auto') { await this.startAuto(parsed, changes); this.working = false; return; }
         // 2. Extracting numbers
         this.stage = 2;
-        const prop = this.property();
+        let prop = this.property();
         const codes = {}; parsed.records.forEach(r => { if (r.propertyCode) codes[r.propertyCode] = (codes[r.propertyCode] || 0) + 1; });
-        const code = prop ? prop.code : Object.keys(codes).sort((a, b) => codes[b] - codes[a])[0];
+        let code = prop ? prop.code : Object.keys(codes).sort((a, b) => codes[b] - codes[a])[0];
         if (prop && !codes[prop.code]) {
           // Not this property's file: switch to sorting by building instead of refusing
           if (!Object.keys(codes).length) throw new Error(`This file has no ${prop.name} rooms (rooms starting with ${prop.code}) and no recognisable rooms. Pick the right property.`);
-          changes.push({ what: 'Property', from: prop.name, to: 'Multi-Properties' });
-          this.propertyId = '__auto';
-          await this.startAuto(parsed, changes); this.working = false; return;
+          // One building in the file that we already know: go straight to that property
+          const only = Object.keys(codes).length === 1 ? this.properties.find(p => String(p.code).toUpperCase() === Object.keys(codes)[0].toUpperCase()) : null;
+          if (only) {
+            changes.push({ what: 'Property', from: prop.name, to: only.name });
+            this.propertyId = only.id; prop = only; code = only.code;
+          } else {
+            changes.push({ what: 'Property', from: prop.name, to: 'Multi-Properties' });
+            this.propertyId = '__auto';
+            await this.startAuto(parsed, changes); this.working = false; return;
+          }
         }
         const mine = parsed.records.filter(r => !r.propertyCode || r.propertyCode === code);
         let inMonth = mine.filter(r => r.departureMonth === this.month);

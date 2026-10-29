@@ -321,7 +321,6 @@ const ms = t => dateOf(t)?.getTime() || 0;
 // Quick actions per role dashboard; the first is the main button. Shown at the bottom of the left column (IT: right; HR: full width under both).
 const QUICK = {
   operations: [{ label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
-    { label: 'New booking', to: '/Operations/offline-inquiries?newBooking=1', desc: 'Save an offline booking from an inquiry', icon: 'M12 5v14M5 12h14' },
     { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' }],
   it: [{ label: 'Open Issues', to: '/Operations/issues', desc: 'See every ticket tagged IT', icon: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01' },
     { label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }],

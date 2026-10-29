@@ -141,11 +141,10 @@
       </section>
       <section class="card">
         <div class="card-head"><h2>Offline bookings</h2>
-          <div class="head-tools" v-if="canLogInquiry || canBook">
-            <RouterLink class="btn" :class="{ 'btn-primary': !canBook }" v-if="canLogInquiry" to="/Operations/offline-inquiries?new=1">Log inquiry</RouterLink>
-            <RouterLink class="btn btn-primary" v-if="canBook" to="/Operations/offline-inquiries?newBooking=1">+ New booking</RouterLink>
+          <div class="head-tools" v-if="canLogInquiry">
+            <RouterLink class="btn" :class="{ 'btn-primary': true }" v-if="canLogInquiry" to="/Operations/offline-inquiries?new=1">Log inquiry</RouterLink>
           </div></div>
-        <p class="card-intro">Stays not booked through eZee, e.g. long-term tenants. They are made from Offline inquiries with Create booking, or with + New booking for a stay with no inquiry; this list is read-only. Each one is keyed into eZee to block the room; month-end pays the owner from the eZee booking, so these are never counted twice.</p>
+        <p class="card-intro">Stays not booked through eZee, e.g. long-term tenants. They are made from Offline inquiries with Create booking; this list is read-only. Each one is keyed into eZee to block the room; month-end pays the owner from the eZee booking, so these are never counted twice.</p>
         <div class="toolbar" ref="bookList">
           <input class="input" type="search" placeholder="Search booking no., unit or tenant ID" v-model="bookingSearch" aria-label="Search booking">
         </div>
@@ -167,7 +166,7 @@
                   <td class="num" v-if="canOpenInquiry"><RouterLink class="navlink" v-if="bkRow.inquiryId" :to="`/Operations/offline-inquiries?id=${bkRow.inquiryId}`">View</RouterLink><span class="muted" v-else>—</span></td>
                 </tr>
               </template>
-              <tr v-show="!shownBookings().length"><td :colspan="9 - (viewOnly ? 1 : 0) - (canOpenInquiry ? 0 : 1)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : bookingSearch.trim() ? 'No bookings match.' : 'No offline bookings yet. They are made from Offline inquiries with Create booking, or with + New booking.' }}</td></tr>
+              <tr v-show="!shownBookings().length"><td :colspan="9 - (viewOnly ? 1 : 0) - (canOpenInquiry ? 0 : 1)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : bookingSearch.trim() ? 'No bookings match.' : 'No offline bookings yet. They are made from Offline inquiries with Create booking.' }}</td></tr>
             </tbody>
           </table>
         </div>

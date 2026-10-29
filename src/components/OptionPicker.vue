@@ -45,7 +45,8 @@ export default {
       const pop = this.$refs.pop, root = this.$refs.root;
       if (!pop || !root) return;
       const r = root.getBoundingClientRect(), h = Math.min(pop.scrollHeight + 14, 340);
-      this.up = r.bottom + 6 + h > window.innerHeight - 8 && r.top > window.innerHeight - r.bottom;
+      const clip = root.closest('.table-wrap'), above = clip ? r.top - clip.getBoundingClientRect().top : r.top;   // a table clips the list, so only flip up when it fits inside
+      this.up = r.bottom + 6 + h > window.innerHeight - 8 && r.top > window.innerHeight - r.bottom && above >= h;
     },
     enter() { if (!this.open) { this.toggle(); return; } const o = this.list[this.hot]; if (o && !o.disabled) this.pick(o.value); },
     typeAhead(e) {

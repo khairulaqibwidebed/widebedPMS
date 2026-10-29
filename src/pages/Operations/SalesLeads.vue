@@ -267,6 +267,10 @@
                 <div class="field"><label for="bEmail">Email</label><input class="input" id="bEmail" type="email" v-model="bk.email"></div>
                 <div class="field"><label for="bIc">IC / Passport</label><input class="input" id="bIc" v-model="bk.icPassport"></div>
                 <div class="field"><label for="bNat">Nationality</label><input class="input" id="bNat" v-model="bk.nationality" placeholder="e.g. Malaysian"></div>
+                <div class="field"><label for="bDob">Date of birth</label><input class="input" id="bDob" type="date" v-model="bk.dob"></div>
+                <div class="field"><label for="bGender">Gender</label>
+                  <OptionPicker class="fld-pick" v-model="bk.gender" :options="GENDERS" label="Gender" /></div>
+                <div class="field" v-if="bk.gender === 'Other'"><label for="bGenderOther">If other, type</label><input class="input" id="bGenderOther" v-model="bk.genderOther"></div>
               </div>
             </section>
             <section class="card">
@@ -282,20 +286,30 @@
               <p class="help" v-if="nights > 0">{{ `${nights} night${nights === 1 ? '' : 's'} · ${longTerm ? 'Long-term lease (30 nights or more)' : 'Short stay (29 nights or less)'}` }}</p>
             </section>
             <section class="card">
-              <h2>Payment</h2>
+              <h2>Booking details</h2>
               <div class="grid-fields">
-                <template v-if="longTerm">
-                  <div class="field"><label for="bRent">Monthly rent (RM)</label><input class="input" id="bRent" type="number" min="0" step="0.01" v-model="bk.monthlyRent"></div>
-                  <div class="field"><label>Deposit (2 months, required)</label><div class="input readonly">{{ rm(deposit) }}</div></div>
-                </template>
-                <div class="field" v-else><label for="bAmt">Total paid (RM)</label><input class="input" id="bAmt" type="number" min="0" step="0.01" v-model="bk.amount"></div>
-                <div class="field"><label for="bEzee">eZee reservation no. (optional)</label><input class="input" id="bEzee" v-model="bk.ezeeNo" placeholder="Add once it is keyed into eZee"></div>
-                <div class="field"><label for="bRef">Payment reference</label><input class="input" id="bRef" v-model="bk.paymentRef" placeholder="e.g. bank transfer ref or receipt no."></div>
+                <div class="field"><label for="bRentType">Type of rent</label>
+                  <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" /></div>
+                <div class="field" v-if="longTerm"><label for="bRent">Rental (RM)</label><input class="input" id="bRent" type="number" min="0" step="0.01" v-model="bk.monthlyRent"></div>
+                <div class="field" v-else><label for="bRental">Rental (RM)</label><input class="input" id="bRental" type="number" min="0" step="0.01" v-model="bk.rental"></div>
+                <div class="field" v-if="longTerm"><label>Security deposit (2 months, required)</label><div class="input readonly">{{ rm(deposit) }}</div></div>
+                <div class="field" v-else><label for="bSec">Security deposit (RM)</label><input class="input" id="bSec" type="number" min="0" step="0.01" v-model="bk.securityDeposit"></div>
+                <div class="field" v-for="f in FEES" :key="f.key"><label :for="'bf' + f.key">{{ f.label }} (RM)</label><input class="input" :id="'bf' + f.key" type="number" min="0" step="0.01" v-model="bk[f.key]"></div>
+                <div class="field" v-if="+bk.othersFee > 0"><label for="bOthersNote">Others: what is it for?</label><input class="input" id="bOthersNote" v-model="bk.othersNote"></div>
               </div>
             </section>
             <section class="card">
-              <h2>Note</h2>
-              <textarea class="input" style="height:70px" v-model="bk.note" placeholder="e.g. Paid in full by bank transfer" aria-label="Note"></textarea>
+              <h2>Payment details</h2>
+              <div class="grid-fields">
+                <div class="field"><label for="bAmt">{{ longTerm ? 'Amount paid (RM, optional)' : 'Amount (RM)' }}</label><input class="input" id="bAmt" type="number" min="0" step="0.01" v-model="bk.amount"></div>
+                <div class="field"><label for="bMode">Mode of payment</label>
+                  <OptionPicker class="fld-pick" v-model="bk.payMode" :options="PAY_MODES" label="Mode of payment" /></div>
+                <div class="field"><label for="bPayDate">Date</label><input class="input" id="bPayDate" type="date" v-model="bk.payDate"></div>
+                <div class="field"><label for="bRef">Reference numbers</label><input class="input" id="bRef" v-model="bk.paymentRef" placeholder="e.g. bank transfer ref or receipt no."></div>
+                <div class="field"><label for="bEzee">eZee reservation no. (optional)</label><input class="input" id="bEzee" v-model="bk.ezeeNo" placeholder="Add once it is keyed into eZee"></div>
+              </div>
+              <div class="field" style="margin-top:12px"><label for="bNote">Remarks</label>
+                <textarea class="input" id="bNote" style="height:70px" v-model="bk.note" placeholder="e.g. Paid in full by bank transfer"></textarea></div>
             </section>
           </div>
           <section class="card next-list">
@@ -353,6 +367,12 @@ const num = (prefix, n) => `${prefix}-${String(n).padStart(4, '0')}`;
 const phoneKey = p => { const n = String(p || '').replace(/\D/g, ''); return n.startsWith('0') ? '6' + n : n; };
 const searchWords = name => [...new Set(String(name || '').toLowerCase().split(/\s+/).filter(Boolean)
   .flatMap(w => Array.from({ length: Math.max(0, w.length - 1) }, (_, i) => w.slice(0, i + 2))))];
+const GENDERS = ['Male', 'Female', 'Other'].map(x => ({ value: x, label: x })); GENDERS.unshift({ value: '', label: 'Not set' });
+const RENT_TYPES = ['Daily', 'Monthly', 'Yearly'].map(x => ({ value: x, label: x }));
+const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); PAY_MODES.unshift({ value: '', label: 'Choose mode' });
+const FEES = [{ key: 'utilityDeposit', label: 'Utility deposit' }, { key: 'internetFee', label: 'Internet fees' }, { key: 'carparkFee', label: 'Carpark fees' },
+  { key: 'cleaningFee', label: 'Cleaning fees' }, { key: 'taFee', label: 'Tenancy agreement fees' }, { key: 'taStampFee', label: 'Tenancy agreement stamping fees' }, { key: 'othersFee', label: 'Others' }];
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const toCents = v => Math.round((+v || 0) * 100) / 100;
 const emailOk = e => !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const stop = msg => Object.assign(new Error(msg), { plain: true });
@@ -372,7 +392,7 @@ export default {
   components: { OptionPicker },
   data() {
     return {
-      nextOpen: false, histOpen: false, STATUS, FILTERS, SOURCES, PICKABLE,
+      nextOpen: false, histOpen: false, STATUS, FILTERS, GENDERS, RENT_TYPES, PAY_MODES, FEES, SOURCES, PICKABLE,
       leads: [], staff: [], tenant: null, booking: null, tenantStays: 0, known: null,
       view: 'list', lead: null, filter: 'all', okMsg: '', formError: '', error: '', loading: true, busy: false,
       direct: false, form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}, bk: {}, properties: [], units: []
@@ -381,7 +401,6 @@ export default {
   async mounted() {
     const q = this.$route.query;
     if ('new' in q) await this.show('new');
-    else if ('newBooking' in q) await this.show('direct');
     else if (q.id && 'book' in q) await this.show('book', q.id);
     else if (q.id) await this.show('lead', q.id);
     else { this.okMsg = history.state?.okMsg || ''; await this.show('list'); }
@@ -706,7 +725,9 @@ export default {
     bookBack() { if (this.direct) this.$router.push('/Portfolio/bookings'); else this.go('lead', this.lead.id); },
     async startBooking() {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
-      this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', existing: null,
+      this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', existing: null,
+        rentType: 'Daily', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', othersFee: '', othersNote: '',
+        payMode: '', payDate: today(),
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
       await this.refill();
       try { this.properties = await loadProperties(); } catch { this.properties = []; this.formError = 'Could not load the property list. Check your connection and reload.'; }
@@ -716,12 +737,22 @@ export default {
       const t = this.lead?.tenantId ? this.tenant : await findTenant(phone).catch(() => null);
       if (typed && this.bk.phone !== phone) return;
       this.bk.existing = t || null;
-      if (t) Object.assign(this.bk, { name: t.name || this.bk.name, email: t.email || this.bk.email, icPassport: t.icPassport || '', nationality: t.nationality || this.bk.nationality });
+      if (t) Object.assign(this.bk, { name: t.name || this.bk.name, email: t.email || this.bk.email, icPassport: t.icPassport || '', nationality: t.nationality || this.bk.nationality,
+        dob: t.dob || this.bk.dob, gender: t.gender || this.bk.gender, genderOther: t.genderOther || this.bk.genderOther });
     },
     async loadUnitList() {
       this.bk.unitId = ''; this.units = [];
       if (!this.bk.propertyId) return;
       try { this.units = await loadUnits(this.bk.propertyId); } catch { this.formError = 'Could not load the units. Check your connection and try again.'; }
+    },
+    // Booking details and payment details that are saved on every offline booking
+    extra() {
+      const b = this.bk;
+      return { rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
+        securityDeposit: this.longTerm ? this.deposit : toCents(b.securityDeposit),
+        utilityDeposit: toCents(b.utilityDeposit), internetFee: toCents(b.internetFee), carparkFee: toCents(b.carparkFee), cleaningFee: toCents(b.cleaningFee),
+        taFee: toCents(b.taFee), taStampFee: toCents(b.taStampFee), othersFee: toCents(b.othersFee), othersNote: +b.othersFee > 0 ? b.othersNote.trim() : '',
+        payment: { amount: toCents(b.amount), mode: b.payMode, date: b.payDate || '', reference: b.paymentRef.trim(), remarks: b.note.trim() } };
     },
     async saveBooking() {
       const b = this.bk, ld = this.lead;
@@ -729,19 +760,21 @@ export default {
         : phoneKey(b.phone).length < 9 ? 'Add a full phone number. It is how a returning tenant is recognised.'
         : !emailOk(b.email.trim()) ? 'That email address doesn\'t look right.'
         : !b.icPassport.trim() ? 'Add the IC or passport number.'
+        : b.gender === 'Other' && !b.genderOther.trim() ? 'Type the gender, or pick another option.'
         : !b.unitId ? 'Choose the property and unit.'
         : !b.arrival || !b.departure ? 'Add the check-in and check-out dates.'
         : this.nights <= 0 ? 'Check-out must be after check-in.'
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent. The 2-month deposit is worked out from it.'
-        : !this.longTerm && !(+b.amount > 0) ? 'Add the total paid.' : '';
+        : !this.longTerm && !(+b.amount > 0) ? 'Add the amount paid.'
+        : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.' : '';
       if (err) { this.formError = err; window.scrollTo(0, 0); return; }
-      if (this.direct) return this.saveDirect();
 
       this.busy = true; this.formError = '';
       try {
         const prop = this.properties.find(p => p.id === b.propertyId), unit = this.units.find(u => u.id === b.unitId);
         const details = { kind: 'tenant', name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(),
-          icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name) };
+          icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name),
+          dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
         const known = this.lead.tenantId ? this.tenant : await findTenant(b.phone);
         const bookingId = `offline_${ld.id}`, unitCode = unit?.unitCode || '';
         const lRef = doc(db, 'offlineInquiries', ld.id), bRef = doc(db, 'offlineBookings', bookingId), cRef = doc(db, 'counters', 'tenants');
@@ -767,7 +800,7 @@ export default {
             propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
             amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
-            paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), status: 'active',
+            paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(), status: 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           const h = this.entry(`Paid and booked: ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. `
             + `${!known ? `Saved as new tenant ${details.name} (${tenantId}).` : `Added to existing tenant ${details.name} (${tenantId}).`}${b.note.trim() ? ' ' + b.note.trim() : ''}`);
@@ -803,58 +836,6 @@ export default {
       this.busy = false;
     },
 
-    async saveDirect() {
-      const b = this.bk;
-      this.busy = true; this.formError = '';
-      try {
-        const prop = this.properties.find(p => p.id === b.propertyId), unit = this.units.find(u => u.id === b.unitId);
-        const details = { kind: 'tenant', name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(),
-          icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name) };
-        const known = await findTenant(b.phone), unitCode = unit?.unitCode || '';
-        const bcRef = doc(db, 'counters', 'offlineBookings'), tcRef = doc(db, 'counters', 'tenants');
-        const res = await runTransaction(db, async tx => {
-          const bc = await tx.get(bcRef), bn = bc.exists() ? bc.data().next || 1 : 1, bookingId = `offline_${num('BK', bn)}`;
-          const bRef = doc(db, 'offlineBookings', bookingId);
-          if ((await tx.get(bRef)).exists()) throw stop(`${bookingId} already exists. Ask a Director to check counters/offlineBookings.`);
-          let tenantId = known?.id, n = 0;
-          if (!known) {
-            const c = await tx.get(tcRef);
-            n = c.exists() ? c.data().next || 1 : 1; tenantId = num('TEN', n);
-            if ((await tx.get(doc(db, 'tenants', tenantId))).exists()) throw stop(`${tenantId} already exists. Ask a Director to check counters/tenants.`);
-          }
-          const tRef = doc(db, 'tenants', tenantId);
-          tx.set(bcRef, { next: bn + 1 });
-          if (known) tx.update(tRef, { status: 'active', lastBookingId: bookingId, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
-          else {
-            tx.set(tcRef, { next: n + 1 });
-            tx.set(tRef, { status: 'active', firstInquiryId: null, lastBookingId: bookingId, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
-          }
-          tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
-          tx.set(bRef, { source: 'direct', inquiryId: null, tenantId,
-            propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
-            arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
-            amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
-            paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), note: b.note.trim(), status: 'active',
-            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
-          audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
-            changes: [{ field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
-          return { isNew: !known, bookingId };
-        });
-
-        const okMsg = `${res.bookingId} saved. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`} Key it into eZee to block the room.`;
-
-        this.notify({
-          roles: ['finance', 'director'],
-          title: 'New offline booking',
-          refId: res.bookingId,
-          message: `${res.bookingId}: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
-          link: '/Portfolio/bookings'
-        });
-
-        this.$router.push({ path: '/Portfolio/bookings', state: { okMsg } });
-      } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
-      this.busy = false;
-    }
   }
 };
 </script>
