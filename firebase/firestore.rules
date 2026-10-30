@@ -1,6 +1,7 @@
 rules_version = '2';
 // Widebed PMS Firestore rules. Draft 0.16, 30 Oct 2026: Draft 0.14 plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
 // and Operations editing booking details (reservationLodgments rules removed).
+// Offline payments: Operations may view the page (preset) and fill in a payment with status Unknown, which becomes Edited; an Offline Payments View tick no longer opens the other finance data.
 // Draft 0.14, 30 Oct 2026: Draft 0.13 plus Agreements (forms, templates, records, views,
 // generated PDFs). Every staff member fills in agreement forms and reads every record. Forms and templates change only with
 // the "Agreement Setup" tick (Directors always). Files (PDFs, IC copies) are in Google Drive, not Firestore.
@@ -51,7 +52,7 @@ service cloud.firestore {
         'finance': ['reports.view', 'reports.edit', 'ezeeUpload.view', 'ezeeUpload.edit', 'expenses.view', 'expenses.edit',
           'monthEnd.view', 'monthEnd.edit', 'invoices.view', 'invoices.edit', 'offlinePayments.view', 'offlinePayments.edit',
           'portfolio.view', 'portfolio.edit', 'bulkUpload.view', 'bulkUpload.edit', 'offlineInquiries.view', 'offlineInquiries.edit'],
-        'operations': ['portfolio.view', 'offlineInquiries.view', 'offlineInquiries.edit', 'bookingForms.view', 'newOwnerListings.view'],
+        'operations': ['portfolio.view', 'offlineInquiries.view', 'offlineInquiries.edit', 'bookingForms.view', 'newOwnerListings.view', 'offlinePayments.view'],
         'it': [],
         'hr': ['playbook.edit', 'sops.edit'],
         'procurement': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'procurementForms.view'],
@@ -64,7 +65,7 @@ service cloud.firestore {
 
     // Finance data: any Finance page lets them read it; any Finance page ticked for Edit lets them change it.
     function finEdit()    { return isDirector() || myPerms().hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit']); }
-    function finView()    { return finEdit() || myPerms().hasAny(['reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view', 'offlinePayments.view']); }
+    function finView()    { return finEdit() || myPerms().hasAny(['reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view']); }
     function finOrDir()   { return finEdit(); }
     function isFinance()  { return finEdit(); }
     // Finance-data readers, plus IT (view-only on everything, as before).
@@ -506,6 +507,13 @@ service cloud.firestore {
       allow read: if can('offlinePayments.view') || can('offlinePayments.edit');
       allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
       allow update: if can('offlinePayments.edit');
+      // The Booking Form saves the booking's payment here (Pending), in the same write as the booking itself.
+      allow create: if (isOps() || finOrDir()) && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'Pending'
+        && request.resource.data.bookingId is string && !exists(docPath('offlineBookings', request.resource.data.bookingId))
+        && existsAfter(docPath('offlineBookings', request.resource.data.bookingId));
+      // Operations fill in a payment that has no receipt (status Unknown): saving it makes it Edited, and Finance is told.
+      allow update: if role() == 'operations' && can('offlinePayments.view') && resource.data.status == 'Unknown' && request.resource.data.status == 'Edited'
+        && !changed().hasAny(['createdBy', 'createdAt', 'submittedByName', 'verifiedByName', 'verifiedDate', 'remarks']);
       allow delete: if false;
     }
     // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.

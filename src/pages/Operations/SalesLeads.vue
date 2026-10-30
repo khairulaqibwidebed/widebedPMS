@@ -157,8 +157,8 @@
                 <div class="kv"><span>Monthly rent</span><span>{{ rm(booking.monthlyRent) }}</span></div>
                 <div class="kv"><span>Deposit (2 months)</span><span>{{ rm(booking.deposit) }}</span></div>
               </template>
-              <div class="kv" v-else><span>Total paid</span><span>{{ rm(booking.amount) }}</span></div>
-              <div class="kv"><span>Payment reference</span><span>{{ booking.paymentRef || '—' }}</span></div>
+              <div class="kv" v-else-if="booking.amount"><span>Total paid</span><span>{{ rm(booking.amount) }}</span></div>
+              <div class="kv"><span>Payments</span><span>Finance › Offline Payments</span></div>
               <div class="kv" v-if="booking.ezeeReservationNo"><span>eZee reservation no.</span><span>{{ booking.ezeeReservationNo }}</span></div>
               <div class="ezee-add" v-else>
                 <label for="addEzee">eZee reservation no. (not added yet)</label>
@@ -309,8 +309,8 @@
                 <div class="field" v-if="longTerm"><label for="bRent">Rental (RM)</label><input class="input" id="bRent" type="number" min="0" step="0.01" v-model="bk.monthlyRent"></div>
                 <div class="field" v-else><label for="bRental">Rental (RM)</label><input class="input" id="bRental" type="number" min="0" step="0.01" v-model="bk.rental"></div>
                 <div class="field" v-if="longTerm"><label>Security deposit (2 months, required)</label><div class="input readonly">{{ rm(deposit) }}</div></div>
-                <div class="field" v-else><label for="bSec">Security deposit (RM)</label><input class="input" id="bSec" type="number" min="0" step="0.01" v-model="bk.securityDeposit"></div>
-                <div class="field" v-for="f in FEES" :key="f.key"><label :for="'bf' + f.key">{{ f.label }} (RM)</label><input class="input" :id="'bf' + f.key" type="number" min="0" step="0.01" v-model="bk[f.key]"></div>
+                <div class="field" v-else><label for="bSec">Security deposit (RM) <span class="muted">(optional)</span></label><input class="input" id="bSec" type="number" min="0" step="0.01" v-model="bk.securityDeposit"></div>
+                <div class="field" v-for="f in FEES" :key="f.key"><label :for="'bf' + f.key">{{ f.label }} (RM) <span class="muted">(optional)</span></label><input class="input" :id="'bf' + f.key" type="number" min="0" step="0.01" v-model="bk[f.key]"></div>
                 <div class="field" v-if="+bk.othersFee > 0"><label for="bOthersNote">Others: what is it for?</label><input class="input" id="bOthersNote" v-model="bk.othersNote"></div>
               </div>
             </section>
@@ -326,6 +326,9 @@
               </div>
               <div class="field" style="margin-top:12px"><label for="bNote">Remarks</label>
                 <textarea class="input" id="bNote" style="height:70px" v-model="bk.note" placeholder="e.g. Paid in full by bank transfer"></textarea></div>
+              <div class="field" style="margin-top:12px"><label>Receipt <span class="muted">(required: upload at least one file)</span></label>
+                <DriveFiles kind="offline-payments" :record-id="bk.payId" :label="payLabel()" :list-on-load="false" @folder="l => bk.docsLink = l" /></div>
+              <p class="help">The payment is saved under Finance › Offline Payments (status Pending), not on the booking. Finance checks it there.</p>
             </section>
             <section class="card">
               <h2>Door access and passcodes</h2>
@@ -369,6 +372,7 @@ import { collection, collectionGroup, doc, getDoc, getDocs, query, where, orderB
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import DriveFiles from '@/components/DriveFiles.vue';
 import { idPrefix } from '@/lib/lodgment.js';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
 // Direct service connection matching Issues.vue
@@ -421,7 +425,7 @@ async function findTenant(phone) {
 const privateOf = async ref => { const s = await getDoc(doc(ref, 'private', 'main')); return s.exists() ? s.data() : {}; };
 
 export default {
-  components: { OptionPicker },
+  components: { OptionPicker, DriveFiles },
   data() {
     return {
       nextOpen: false, histOpen: false, STATUS, FILTERS, GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, PAY_MODES, FEES, SOURCES, PICKABLE,
@@ -763,7 +767,7 @@ export default {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
       this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null,
         rentType: 'Daily', bookingSource: '', rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', othersFee: '', othersNote: '',
-        payMode: '', payDate: today(),
+        payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
       await this.refill();
       try { this.properties = await loadProperties(); } catch { this.properties = []; this.formError = 'Could not load the property list. Check your connection and reload.'; }
@@ -832,8 +836,16 @@ export default {
         passwordStatus: b.mainPasscode.trim() && b.currentExpiry ? 'Ready_to_Send' : '', rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
         securityDeposit: this.longTerm ? this.deposit : toCents(b.securityDeposit),
         utilityDeposit: toCents(b.utilityDeposit), internetFee: toCents(b.internetFee), carparkFee: toCents(b.carparkFee), cleaningFee: toCents(b.cleaningFee),
-        taFee: toCents(b.taFee), taStampFee: toCents(b.taStampFee), othersFee: toCents(b.othersFee), othersNote: +b.othersFee > 0 ? b.othersNote.trim() : '',
-        payment: { amount: toCents(b.amount), mode: b.payMode, date: b.payDate || '', reference: b.paymentRef.trim(), remarks: b.note.trim() } };
+        taFee: toCents(b.taFee), taStampFee: toCents(b.taStampFee), othersFee: toCents(b.othersFee), othersNote: +b.othersFee > 0 ? b.othersNote.trim() : ''};
+    },
+    payLabel() { const b = this.bk; return [b.payDate, this.units.find(u => u.id === b.unitId)?.unitCode, b.name].filter(Boolean).join(' '); },
+    // The payment is saved in the Offline Payments collection (what Finance checks), inside the same write as the booking
+    payRecord(prop, unitCode, bookingId, bookingNo) {
+      const b = this.bk;
+      return { date: b.payDate || today(), amount: toCents(b.amount), mode: b.payMode, propertyId: b.propertyId, propertyName: prop?.name || '', unitCode,
+        guest: b.name.trim(), purpose: b.note.trim() || `Booking ${bookingNo}`, bankRef: b.paymentRef.trim(), docsLink: b.docsLink || '', remarks: '',
+        status: 'Pending', verifiedByName: '', verifiedDate: '', bookingId, bookingNo,
+        createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name };
     },
     async saveBooking() {
       const b = this.bk, ld = this.lead;
@@ -850,6 +862,7 @@ export default {
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent. The 2-month deposit is worked out from it.'
         : !this.longTerm && !(+b.amount > 0) ? 'Add the amount paid.'
         : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
+        : +b.amount > 0 && !b.docsLink ? 'Upload at least one receipt for the payment.'
         : b.mainPasscode.trim() && !b.currentExpiry ? 'Add the expiry date of the main door passcode.'
         : b.nextPasscode.trim() && !b.nextExpiry ? 'Add the expiry date of the next door passcode.' : this.coError();
       if (err) { this.formError = err; window.scrollTo(0, 0); return; }
@@ -889,10 +902,11 @@ export default {
           tx.set(bRef, { source: 'offline', inquiryId: ld.id, bookingNo, tenantId,
             propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
-            amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
-            paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
+            monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
+            ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
+          if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), this.payRecord(prop, unitCode, bookingId, bookingNo));
           const h = this.entry(`Paid and booked: ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. `
             + `${!known ? `Saved as new tenant ${details.name} (${tenantId}).` : `Added to existing tenant ${details.name} (${tenantId}).`}${b.note.trim() ? ' ' + b.note.trim() : ''}`);
           tx.update(lRef, { status: 'booked', tenantId, bookingId, updatedAt: serverTimestamp(), history: arrayUnion(h) });
@@ -962,10 +976,11 @@ export default {
           tx.set(bRef, { source: 'direct', inquiryId: null, bookingNo, tenantId,
             propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
-            amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
-            paymentRef: b.paymentRef.trim(), ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), note: b.note.trim(), status: 'active',
+            monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
+            ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
+          if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), this.payRecord(prop, unitCode, bookingId, bookingNo));
           audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
             changes: [{ field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
           return { isNew: !known, bookingId, bookingNo };

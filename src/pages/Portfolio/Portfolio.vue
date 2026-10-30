@@ -158,7 +158,7 @@
                   <td class="nw">{{ dmy(bkRow.arrival) }}</td>
                   <td class="nw">{{ dmy(bkRow.departure) }}</td>
                   <td class="nw">{{ bkRow.longTerm ? 'Long-term lease' : 'Short stay' }}</td>
-                  <td class="num nw" v-if="!viewOnly">{{ bkRow.longTerm ? `${amt(bkRow.monthlyRent)} /M` : amt(bkRow.amount) }}</td>
+                  <td class="num nw" v-if="!viewOnly">{{ bkRow.longTerm ? `${amt(bkRow.monthlyRent)} /M` : paidOf(bkRow) }}</td>
                   <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="openBooking(bkRow)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
                 </tr>
               </template>
@@ -187,7 +187,7 @@
           <div class="form-sec">Stay</div>
           <div class="field"><label>Check in</label><input class="input" type="date" v-model="bk.f.arrival" :disabled="!bkEdit"></div>
           <div class="field"><label>Check out</label><input class="input" type="date" v-model="bk.f.departure" :disabled="!bkEdit"></div>
-          <div class="field"><label>{{ bkLong() ? 'Monthly rent (RM)' : 'Amount paid (RM)' }}</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.rent" :disabled="!bkEdit"></div>
+          <div class="field" v-if="bkLong()"><label>Monthly rent (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.rent" :disabled="!bkEdit"></div>
           <div class="field"><label>Deposit (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.deposit" :disabled="!bkEdit"></div>
           <div class="field"><label>Booking source</label><input class="input" v-model="bk.f.bookingSource" :disabled="!bkEdit"></div>
           <div class="field"><label>Rental status</label><input class="input" v-model="bk.f.rentalStatus" :disabled="!bkEdit"></div>
@@ -200,6 +200,13 @@
             <div class="field"><label>Next passcode</label><input class="input" v-model="bk.f.nextDoorPasscode" :disabled="!bkEdit"></div>
             <div class="field"><label>Next expires</label><input class="input" type="date" v-model="bk.f.nextExpiryDate" :disabled="!bkEdit"></div>
           </template>
+          <div class="form-sec">Payments <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· from Finance › Offline Payments</span></div>
+          <template v-if="bk.payments">
+            <p class="help" v-if="!bk.payments.length">{{ bk.amount ? `No payment records. Older booking: RM ${amt(bk.amount)} paid.` : 'No payment recorded yet.' }}</p>
+            <div class="pay-row" v-for="x in bk.payments" :key="x.id"><span>{{ `${dmy(x.date)}${x.mode ? ' · ' + x.mode : ''}${x.bankRef ? ' · ' + x.bankRef : ''}` }}</span><b>{{ `RM ${amt(x.amount)}` }}</b><span class="tag">{{ x.status }}</span></div>
+            <p class="help" v-if="bk.payments.length > 1">{{ `Total RM ${amt(bk.payments.reduce((a, x) => a + (Number(x.amount) || 0), 0))}` }}</p>
+          </template>
+          <p class="help" v-else>Payments are visible to Finance, Directors and Operations.</p>
           <div class="form-sec">Utility bill</div>
           <p class="help">{{ bk.bill ? `${dmy(bk.bill.periodFrom)} to ${dmy(bk.bill.periodTo)} · RM ${amt(bk.bill.total)} (electricity ${amt(bk.bill.electricity)}, water ${amt(bk.bill.water)}, sewerage ${amt(bk.bill.sewerage)})` : 'No utility bill saved yet. Add it on Operations > Booking Forms > Utility Lodgment Form.' }}</p>
           <div class="field" v-if="bkEdit"><label>Reason for the change (audit log)</label><input class="input" v-model="bk.reason" placeholder="e.g. Guest extended by two nights"></div>
@@ -643,7 +650,7 @@ export default {
       canLogInquiry: me.role === 'director',   // logging inquiries is Directors only for now
       viewOnly: VIEWERS.includes(me.role),
       isDirector: me.role === 'director',
-      bkOpen: false, bk: null, bkNames: {}, bkAsked: new Set(), bkEdit: ['director', 'finance', 'operations'].includes(me.role),
+      bkPaid: {}, bkOpen: false, bk: null, bkNames: {}, bkAsked: new Set(), bkEdit: ['director', 'finance', 'operations'].includes(me.role),
       canOpenInquiry: ['director', 'finance', 'operations'].includes(me.role),   // who may open Offline inquiries
       canAdd: ADDERS.includes(me.role),    // + Add property / unit / owner
       // Marketing also open and edit properties, units and owners (Khairul 27 Oct): details and contact only, no money,
@@ -1298,6 +1305,14 @@ export default {
           : query(col, where('propertyId', '==', this.propertyId), limit(300)));
         this.offlineBookings = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => x.status !== 'cancelled')
           .sort((a, b) => (b.arrival || '').localeCompare(a.arrival || ''));
+        // What was paid comes from Finance's Offline Payments only (the booking itself keeps no payment data)
+        this.bkPaid = null;
+        try {
+          const pc = collection(db, 'offlinePayments'), ps = await getDocs(this.propertyId === 'all' ? query(pc, orderBy('createdAt', 'desc'), limit(500)) : query(pc, where('propertyId', '==', this.propertyId), limit(500)));
+          const paid = {};
+          ps.docs.forEach(d => { const x = d.data(); if (x.bookingId) paid[x.bookingId] = (paid[x.bookingId] || 0) + (Number(x.amount) || 0); });
+          this.bkPaid = paid;
+        } catch (e) { /* no access to payments: the amount shows a dash */ }
       } catch (e) { this.error = friendlyError(e, 'load the offline bookings'); }
       this.bookingsLoading = false;
     },
@@ -1316,16 +1331,22 @@ export default {
       }
       return r.tenantId || '—';
     },
+    paidOf(r) {
+      if (this.bkPaid && r.id in this.bkPaid) return amt(this.bkPaid[r.id]);
+      return r.amount ? amt(r.amount) : '—';   // older bookings made before payments moved to Offline Payments
+    },
     bkLong() { const b = this.bk; return b && Math.round((new Date(b.f.departure) - new Date(b.f.arrival)) / 86400000) >= 30; },
     async openBooking(r) {
       const rm = c => (c ? Number(c).toFixed(2) : '');
       const f = { name: '', phone: '', email: '', icPassport: '', mainDoorPasscode: '', currentExpiryDate: '', nextDoorPasscode: '', nextExpiryDate: '',
-        arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : r.amount), deposit: rm(r.deposit),
+        arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : ''), deposit: rm(r.deposit),
         bookingSource: r.bookingSource || '', rentalStatus: r.rentalStatus || '', ezeeReservationNo: r.ezeeReservationNo || '', remark: r.remark || '' };
       this.bk = { ...r, f, hasPrivate: false, bill: null, reason: '', error: '', busy: false };
       this.bkOpen = true;
       try {
-        const [p, u] = await Promise.all([getDoc(doc(db, 'offlineBookings', r.id, 'private', 'main')).catch(() => null), getDoc(doc(db, 'utilityBills', r.id)).catch(() => null)]);
+        const [p, u, pay] = await Promise.all([getDoc(doc(db, 'offlineBookings', r.id, 'private', 'main')).catch(() => null), getDoc(doc(db, 'utilityBills', r.id)).catch(() => null),
+          getDocs(query(collection(db, 'offlinePayments'), where('bookingId', '==', r.id))).catch(() => null)]);
+        this.bk.payments = pay ? pay.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.date).localeCompare(String(b.date))) : null;
         if (p) { this.bk.hasPrivate = true; Object.assign(this.bk.f, p.exists() ? p.data() : {}); }
         this.bk.orig = { ...this.bk.f };
         this.bk.bill = u?.exists?.() ? u.data() : null;
@@ -1339,7 +1360,7 @@ export default {
       if (!b.reason.trim()) { b.error = 'Add a reason for the change.'; return; }
       const nights = Math.max(1, Math.round((new Date(f.departure) - new Date(f.arrival)) / 86400000)), longTerm = nights >= 30;
       const c = x => Math.round((Number(x) || 0) * 100) / 100;
-      const main = { arrival: f.arrival, departure: f.departure, nights, longTerm, amount: longTerm ? 0 : c(f.rent), monthlyRent: longTerm ? c(f.rent) : 0, deposit: c(f.deposit),
+      const main = { arrival: f.arrival, departure: f.departure, nights, longTerm, monthlyRent: longTerm ? c(f.rent) : 0, deposit: c(f.deposit),
         bookingSource: f.bookingSource.trim(), rentalStatus: f.rentalStatus.trim(), ezeeReservationNo: f.ezeeReservationNo.trim(), remark: f.remark.trim() };
       const changes = Object.keys(main).filter(k => (b[k] ?? '') !== main[k]).map(k => ({ field: k, old: b[k] ?? '', new: main[k] }));
       const priv = ['name', 'phone', 'email', 'icPassport', 'mainDoorPasscode', 'currentExpiryDate', 'nextDoorPasscode', 'nextExpiryDate'];
@@ -1373,6 +1394,7 @@ export default {
 
 <style scoped>
     .page-head .head-tools { margin-left: auto; }
+    .pay-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
     .eye-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; }
     .eye-btn svg { width: 20px; height: 20px; fill: var(--accent); }
     .eye-btn:hover { background: var(--accent-soft); }
