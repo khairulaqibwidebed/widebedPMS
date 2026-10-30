@@ -547,3 +547,7 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+/* A drop-down that fills its form column (OptionPicker in a field) */
+.full-pick { display: block; width: 100%; }
+.full-pick .op-btn, .full-pick .op-input { width: 100%; min-height: 44px; }
+.full-pick .op-pop { max-width: none; width: 100%; }

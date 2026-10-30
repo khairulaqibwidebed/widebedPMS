@@ -143,7 +143,7 @@
           </div>
           <div class="head-tools">
             <span class="pill" :class="STATUS[lead.status][1]">{{ STATUS[lead.status][0] }}</span>
-            <button class="btn btn-primary" v-if="canBook(lead)" @click="go('book', lead.id)">Create booking</button>
+            <button class="btn btn-primary" v-if="canBook(lead)" @click="$router.push({ path: '/Operations/booking-forms', query: { lead: lead.id } })">Create booking</button>
           </div>
         </div>
         <div class="side-grid">
@@ -269,7 +269,7 @@
                 <div class="field"><label for="bNat">Nationality</label><input class="input" id="bNat" v-model="bk.nationality" placeholder="e.g. Malaysian"></div>
                 <div class="field"><label for="bDob">Date of birth</label><input class="input" id="bDob" type="date" v-model="bk.dob"></div>
                 <div class="field"><label for="bGender">Gender</label>
-                  <OptionPicker class="fld-pick" v-model="bk.gender" :options="GENDERS" label="Gender" /></div>
+                  <OptionPicker class="fld-pick" v-model="bk.gender" :options="GENDERS" label="Gender" placeholder="Not set" /></div>
                 <div class="field" v-if="bk.gender === 'Other'"><label for="bGenderOther">If other, type</label><input class="input" id="bGenderOther" v-model="bk.genderOther"></div>
               </div>
             </section>
@@ -282,7 +282,7 @@
                 <div class="field"><label :for="'cIc' + ci">IC / Passport</label><input class="input" :id="'cIc' + ci" v-model="c.icPassport"></div>
                 <div class="field"><label :for="'cNat' + ci">Nationality</label><input class="input" :id="'cNat' + ci" v-model="c.nationality"></div>
                 <div class="field"><label :for="'cDob' + ci">Date of birth</label><input class="input" :id="'cDob' + ci" type="date" v-model="c.dob"></div>
-                <div class="field"><label>Gender</label><OptionPicker class="fld-pick" v-model="c.gender" :options="GENDERS" :label="`Gender of tenant ${ci + 2}`" /></div>
+                <div class="field"><label>Gender</label><OptionPicker class="fld-pick" v-model="c.gender" :options="GENDERS" placeholder="Not set" :label="`Gender of tenant ${ci + 2}`" /></div>
                 <div class="field" v-if="c.gender === 'Other'"><label :for="'cGo' + ci">If other, type</label><input class="input" :id="'cGo' + ci" v-model="c.genderOther"></div>
               </div>
             </section>
@@ -291,9 +291,9 @@
               <h2>Stay</h2>
               <div class="grid-fields">
                 <div class="field"><label for="bProp">Property</label>
-                  <OptionPicker class="fld-pick" v-model="bk.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" @change="loadUnitList()" /></div>
+                  <OptionPicker class="fld-pick" v-model="bk.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList()" /></div>
                 <div class="field"><label for="bUnit">Unit</label>
-                  <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="[{ value: '', label: bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" /></div>
+                  <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="[{ value: '', label: bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
                 <div class="field"><label for="bIn">Check-in</label><input class="input" id="bIn" type="date" v-model="bk.arrival"></div>
                 <div class="field"><label for="bOut">Check-out</label><input class="input" id="bOut" type="date" v-model="bk.departure"></div>
               </div>
@@ -396,7 +396,7 @@ const num = (prefix, n) => `${prefix}-${String(n).padStart(4, '0')}`;
 const phoneKey = p => { const n = String(p || '').replace(/\D/g, ''); return n.startsWith('0') ? '6' + n : n; };
 const searchWords = name => [...new Set(String(name || '').toLowerCase().split(/\s+/).filter(Boolean)
   .flatMap(w => Array.from({ length: Math.max(0, w.length - 1) }, (_, i) => w.slice(0, i + 2))))];
-const GENDERS = ['Male', 'Female', 'Other'].map(x => ({ value: x, label: x })); GENDERS.unshift({ value: '', label: 'Not set' });
+const GENDERS = ['Male', 'Female', 'Other'].map(x => ({ value: x, label: x }));
 const SOURCES_BK = [{ value: '', label: 'Choose source…' }, ...['Offline', 'Website', 'Agent', 'OTA'].map(x => ({ value: x, label: x }))];
 const RENTAL_STATUSES = [{ value: '', label: 'Choose status…' }, { value: 'Paid', label: 'Paid' }, { value: 'Unpaid', label: 'Unpaid' }];
 const RENT_TYPES = ['Daily', 'Monthly', 'Yearly'].map(x => ({ value: x, label: x }));
@@ -429,14 +429,14 @@ export default {
       direct: false, form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}, bk: {}, properties: [], units: []
     };
   },
-  props: { embedded: { type: Boolean, default: false } },   // inside Operations > Booking Forms: only the new-booking form, no page navigation
+  props: { embedded: { type: Boolean, default: false }, leadId: { type: String, default: '' } },   // inside Operations > Booking Forms: only the new-booking form, no page navigation
   emits: ['close', 'saved'],
   async mounted() {
-    if (this.embedded) { await this.show('direct'); this.loading = false; return; }
+    if (this.embedded) { await this.show(this.leadId ? 'book' : 'direct', this.leadId); this.loading = false; return; }
     const q = this.$route.query;
     if ('new' in q) await this.show('new');
     else if ('newBooking' in q) await this.show('direct');
-    else if (q.id && 'book' in q) await this.show('book', q.id);
+    else if (q.id && 'book' in q) { this.$router.replace({ path: '/Operations/booking-forms', query: { lead: q.id } }); return; }   // old link: bookings are made on Booking Forms now
     else if (q.id) await this.show('lead', q.id);
     else { this.okMsg = history.state?.okMsg || ''; await this.show('list'); }
     this.loading = false;
@@ -918,6 +918,7 @@ export default {
           link: `/Operations/offline-inquiries?id=${ld.id}`
         });
 
+        if (this.embedded) { this.$emit('saved', this.okMsg); this.$emit('close'); this.busy = false; return; }
         this.go('lead', ld.id);
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
       this.busy = false;

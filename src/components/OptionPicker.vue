@@ -2,7 +2,7 @@
   <div class="op" ref="root">
     <input v-if="searchable && open" ref="q" type="text" class="select op-input" v-model="q" :placeholder="current || 'Type to search'" :aria-label="label" aria-expanded="true" autocomplete="off" @input="hot = 0" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown.esc.stop.prevent="open = false">
     <button type="button" class="select op-btn" :class="{ searching: searchable && open }" :disabled="disabled" :aria-expanded="String(open)" aria-haspopup="listbox" :aria-label="label" @click="toggle" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown="typeAhead">
-      <span class="op-val">{{ current }}</span>
+      <span class="op-val" :class="{ ph: !current && placeholder }">{{ current || placeholder }}</span>
     </button>
     <ul class="op-pop" :class="{ up }" ref="pop" v-if="open" role="listbox" :aria-label="label" @keydown.esc="open = false">
       <li v-if="!list.length" class="op-none" role="presentation">No match</li>
@@ -13,6 +13,13 @@
           <svg v-if="o.value === modelValue" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
         </li>
       </template>
+      <li v-if="addLabel" class="op-addrow" role="presentation" @mousedown.stop>
+        <div class="op-addform" v-if="adding">
+          <input ref="addq" class="input" type="text" maxlength="60" v-model="newText" :placeholder="`Name of the new ${addLabel.toLowerCase()}`" @keydown.enter.prevent="submitAdd" @keydown.esc.stop.prevent="adding = false">
+          <button type="button" class="btn btn-primary" @click="submitAdd">Add</button>
+        </div>
+        <button type="button" class="op-addbtn" v-else @click="startAdd">+ Add {{ addLabel.toLowerCase() }}</button>
+      </li>
     </ul>
   </div>
 </template>
@@ -21,9 +28,9 @@
 // A drop-down in the theme colour (a native <select> list can't be styled).
 //   <OptionPicker v-model="propertyId" :options="[{ value: 'all', label: 'All properties' }, ...]" label="Property" @change="load()" />
 export default {
-  props: { modelValue: { type: String, required: true }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false } },
-  emits: ['update:modelValue', 'change'],
-  data() { return { open: false, hot: 0, q: '', up: false }; },
+  props: { modelValue: { type: String, required: true }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' } },
+  emits: ['update:modelValue', 'change', 'add'],
+  data() { return { open: false, hot: 0, q: '', up: false, adding: false, newText: '' }; },
   computed: {
     list() {
       const k = this.norm(this.q);
@@ -36,7 +43,7 @@ export default {
   methods: {
     norm(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]/g, ''); },
     toggle() {
-      this.open = !this.open; this.q = ''; this.up = false;
+      this.open = !this.open; this.q = ''; this.up = false; this.adding = false;
       if (this.open) this.$nextTick(() => this.place());
       if (this.open) { this.hot = Math.max(0, this.options.findIndex(o => o.value === this.modelValue)); if (this.searchable) this.$nextTick(() => this.$refs.q?.focus()); }
     },
@@ -56,6 +63,8 @@ export default {
       this.q += e.key; this.hot = 0;
       this.$nextTick(() => this.$refs.q?.focus());
     },
+    startAdd() { this.adding = true; this.newText = this.q.trim(); this.$nextTick(() => this.$refs.addq?.focus()); },
+    submitAdd() { const t = this.newText.trim(); if (!t) return; this.$emit('add', t); this.adding = false; this.open = false; this.q = ''; },
     away(e) { if (this.open && !this.$refs.root.contains(e.target)) this.open = false; },
     move(d) {
       if (!this.open) { this.toggle(); return; }
@@ -83,6 +92,13 @@ export default {
 .op-input { z-index: 1; position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; margin: 0; font: inherit; font-weight: 600; font-size: 13px; outline: 0; border-color: var(--accent); background-color: var(--surface); }
 .op-btn.searching .op-val { visibility: hidden; }
 .op-input::placeholder { color: var(--text); opacity: 1; font-weight: 600; }
+.op-addrow { position: sticky; bottom: -6px; background: var(--surface); border-top: 1px solid var(--line); margin-top: 4px; padding: 6px 0 2px; }
+.op-addbtn { width: 100%; text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--accent); cursor: pointer; }
+.op-addbtn:hover { background: var(--accent-soft); }
+.op-addform { display: flex; gap: 8px; padding: 2px 4px; }
+.op-addform .input { flex: 1; min-width: 0; height: 36px; }
+.op-addform .btn { height: 36px; }
+.op-val.ph { color: var(--muted); font-weight: 400; }
 .op-none { padding: 9px 12px; font-size: 13px; color: var(--muted); }
 .op-item.off { color: var(--muted); opacity: .6; cursor: not-allowed; }
 .op-item.hot { background: var(--accent-soft); color: var(--accent); }

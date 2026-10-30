@@ -1047,7 +1047,7 @@ export default {
     .inbox-text { display: grid; gap: 2px; min-width: 0; flex: 1 1 240px; font-size: 13px; }
     .inbox-text small { color: var(--muted); font-size: 12px; }
     .inbox-text span { color: var(--text-2); overflow-wrap: anywhere; }
-    .nol-tools .input { flex: 1 1 220px; }
+    .nol-tools .input { flex: 0 1 360px; max-width: 360px; min-width: 260px; }
     .nol-steps { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
     .step { display: flex; gap: 8px; align-items: flex-start; text-align: left; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 12px; min-width: 0; cursor: pointer; }
     .step b { display: block; font-size: 13px; color: var(--text); font-weight: 600; }

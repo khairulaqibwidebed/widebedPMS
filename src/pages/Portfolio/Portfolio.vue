@@ -140,11 +140,8 @@
         <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; kpiGo('bookList')"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: offlineBookings.filter(x => !x.ezeeReservationNo).length }">{{ offlineBookings.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></button>
       </section>
       <section class="card">
-        <div class="card-head"><h2>Offline bookings</h2>
-          <div class="head-tools" v-if="canLogInquiry">
-            <RouterLink class="btn" :class="{ 'btn-primary': true }" v-if="canLogInquiry" to="/Operations/offline-inquiries?new=1">Log inquiry</RouterLink>
-          </div></div>
-        <p class="card-intro">Stays not booked through eZee, e.g. long-term tenants. They are made from Offline inquiries with Create booking, or with + New booking for a stay with no inquiry; this list is read-only. Each one is keyed into eZee to block the room; month-end pays the owner from the eZee booking, so these are never counted twice.</p>
+        <div class="card-head"><h2>Offline bookings</h2></div>
+        <p class="card-intro">Stays made outside eZee, such as long-term tenants.</p>
         <div class="toolbar" ref="bookList">
           <input class="input" type="search" placeholder="Search booking no., unit or tenant ID" v-model="bookingSearch" aria-label="Search booking">
         </div>
@@ -383,15 +380,11 @@
             <div class="field"><label for="uAlias">Other eZee names for this unit</label>
               <input class="input" id="uAlias" v-model="u.aliases" placeholder="e.g. DM 1509-2"><span class="help">Comma between names. Bookings under these names count for this unit on the next upload.</span></div>
             <div class="field"><label for="uOwner">Owner</label>
-              <select class="input" id="uOwner" v-model="u.ownerId" :disabled="viewOnly && !u.isNew">
-                <option value="">No owner linked</option>
-                <template v-for="own in owners.filter(x => x.active !== false || x.id === u.ownerId)" :key="own.id"><option :value="own.id" :selected="own.id === u.ownerId">{{ ownerLabel(own.id) }}</option></template>
-              </select>
+              <OptionPicker class="full-pick" v-model="u.ownerId" :options="ownerOptions(u)" label="Owner" searchable :disabled="viewOnly && !u.isNew" />
               <span class="help">{{ viewOnly && !u.isNew ? 'A change of owner is made by Finance or a Director.' : 'Not in the list? Add them on the Owners tab first.' }}</span></div>
             <div class="form-sec">Unit details</div>
             <div class="field"><label for="uType">Unit type</label>
-              <select class="input" id="uType" v-model="u.info.type"><option value="">Choose</option>
-                <template v-for="t in UNIT_TYPES" :key="t"><option :value="t" :selected="t === u.info.type">{{ t }}</option></template></select></div>
+              <OptionPicker class="full-pick" v-model="u.info.type" :options="unitTypeOptions" label="Unit type" searchable add-label="Type" @add="addUnitType" /></div>
             <div class="grid-fields">
               <div class="field"><label for="uBed">Bedrooms</label><input class="input" id="uBed" type="number" min="0" v-model="u.info.bedrooms"></div>
               <div class="field"><label for="uBath">Bathrooms</label><input class="input" id="uBath" type="number" min="0" v-model="u.info.bathrooms"></div>
@@ -409,10 +402,7 @@
             <template v-if="!viewOnly">
             <hr class="divider">
             <div class="field"><label for="uArr">Arrangement</label>
-              <select class="input" id="uArr" v-model="u.arrangement">
-                <option value="">Not set up</option>
-                <template v-for="(a, k) in ARRANGEMENTS" :key="k"><option :value="k" :selected="k === u.arrangement">{{ a.label }}</option></template>
-              </select></div>
+              <OptionPicker class="full-pick" v-model="u.arrangement" :options="arrangementOptions" label="Arrangement" searchable /></div>
             <div class="switch" style="border-top:0;margin-top:-6px"><span>Fixed rent</span>
               <button type="button" class="toggle" :class="{ on: u.arrangement === 'fixedRent' }" style="border:0" @click="u.arrangement = u.arrangement === 'fixedRent' ? '' : 'fixedRent'" aria-label="Fixed rent"></button></div>
             <div class="field" v-show="u.arrangement === 'fixedRent'"><label for="uFix">Fixed rent a month (RM)</label><input class="input" id="uFix" type="number" step="0.01" v-model="u.fixedRentAmount"></div>
@@ -562,7 +552,7 @@
 
 <script>
 import { markRaw } from 'vue';
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { ARRANGEMENTS, DEFAULT_OTA, DM_STARTER, unitIdOf } from '@/lib/engine.js';
 import { loadProperties, loadUnits, loadSetup, latestVersion, audit, friendlyError } from '@/lib/finance-data.js';
@@ -627,7 +617,7 @@ export default {
       ptab: params.get('ptab') || 'units',
       properties: [], propertyId: params.get('property') || (this.$route.meta.section === 'properties' ? 'all' : lastProperty(true)) || 'all', asOf: params.get('month') || monthOffset(0),
       months: Array.from({ length: 25 }, (_, i) => monthOffset(1 - i)),
-      allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [], auditLast: null, auditMore: false, auditBusy: false,
+      customTypes: [], allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [], auditLast: null, auditMore: false, auditBusy: false,
       offlineBookings: [], bookingsLoading: false,
       search: '', filter: 'all', propSearch: '', ownerSearch: '', showInactive: false, bookingSearch: '', bookingKind: 'all', propAttn: false,
       filters: [{ key: 'all', label: 'All' }, { key: 'none', label: 'Not set up' }, { key: 'share', label: 'Profit share' }, { key: 'fixed', label: 'Fixed rent' }, { key: 'long', label: 'Long-term' }],
@@ -656,12 +646,22 @@ export default {
     }
   },
   async mounted() {
+    // Unit types people added with "+ Add type" (shared by everyone)
+    getDoc(doc(db, 'config', 'unitTypes')).then(s => { if (s.exists()) this.customTypes = s.data().list || []; }).catch(() => {});
     if (!this.months.includes(this.asOf)) this.months.push(this.asOf);
     if (!this.PTABS.some(t => t.key === this.ptab)) this.ptab = 'units';
     await this.go();
     await this.pickUpHandoff();
   },
   computed: {
+    unitTypeOptions() {
+      const seen = new Set(), out = [];
+      for (const t of [...UNIT_TYPES.filter(x => x !== 'Other'), ...this.customTypes, ...this.allUnits.map(x => x.info?.type), this.u?.info?.type, 'Other']) {
+        const k = String(t || '').trim(); if (!k || seen.has(k.toLowerCase())) continue; seen.add(k.toLowerCase()); out.push({ value: k, label: k });
+      }
+      return [{ value: '', label: 'Choose' }, ...out];
+    },
+    arrangementOptions() { return [{ value: '', label: 'Not set up' }, ...Object.entries(ARRANGEMENTS).map(([k, a]) => ({ value: k, label: a.label }))]; },
     propertyOptions() { return [...this.properties.map(p => ({ value: p.id, label: p.name }))]; },
     propertyOptionsAll() { return [{ value: 'all', label: 'All properties' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))]; }
   },
@@ -898,6 +898,16 @@ export default {
     // ---- owners ----
     ownerName(id) { const x = this.owners.find(y => y.id === id); return x ? (x.private?.fullName || x.name || '') : ''; },
     // Owner codes (OWN-001) are for the system only; screens show the name. Roles that can't read names (PDPA) see "Owner linked".
+    ownerOptions(u) { return [{ value: '', label: 'No owner linked' }, ...this.owners.filter(x => x.active !== false || x.id === u.ownerId).map(o => ({ value: o.id, label: this.ownerLabel(o.id) }))]; },
+    async addUnitType(name) {
+      const t = name.trim().replace(/\s+/g, ' '), u = this.u;
+      if (!t || !u) return;
+      const same = this.unitTypeOptions.find(o => o.value && o.value.toLowerCase() === t.toLowerCase());
+      if (same) { u.info.type = same.value; return; }
+      this.customTypes = [...this.customTypes, t]; u.info.type = t;
+      try { await setDoc(doc(db, 'config', 'unitTypes'), { list: arrayUnion(t) }, { merge: true }); }
+      catch { /* kept on this unit; it still appears for the next unit through the units already saved */ }
+    },
     ownerLabel(id) { const x = this.owners.find(y => y.id === id); if (!x) return ''; return this.ownerName(id) || (this.viewOnly ? 'Owner linked' : 'No name saved'); },
     ownerUnits(id) { return this.allUnits.filter(x => x.ownerId === id); },
     carried(id) { const ids = this.ownerUnits(id).map(x => x.id); return -this.bfLines.filter(e => ids.includes(e.unitId)).reduce((s, e) => s + (Number(e.amount) || 0), 0); },

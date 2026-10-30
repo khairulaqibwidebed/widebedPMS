@@ -14,7 +14,7 @@
         </button>
         <div class="form-frame booking-embed" v-if="bookingOpen">
           <div class="notice ok" v-show="bookedMsg">{{ bookedMsg }}</div>
-          <BookingForm embedded @close="bookingOpen = false" @saved="m => bookedMsg = m" />
+          <BookingForm embedded :lead-id="leadId" :key="leadId" @close="bookingOpen = false" @saved="m => bookedMsg = m" />
         </div>
         <button type="button" class="form-row" :aria-expanded="String(utilityOpen)" @click="utilityOpen = !utilityOpen">
           <div><b>Utility Lodgment Form</b><span>Log utility invoices to an active booking.</span></div>
@@ -48,7 +48,7 @@ const BookingForm = defineAsyncComponent(() => import('./SalesLeads.vue'));
 
 export default {
   components: { BookingForm, UtilityForm },
-  data() { return { LINKS, openName: '', bookingOpen: false, utilityOpen: false, bookedMsg: '' }; },
+  data() { return { LINKS, leadId: this.$route.query.lead || '', openName: '', bookingOpen: !!this.$route.query.lead, utilityOpen: false, bookedMsg: '' }; },
   methods: {
     toggle(f) {
       this.openName = this.openName === f.name ? '' : f.name;
@@ -67,6 +67,11 @@ export default {
     .form-frame iframe { display: block; width: 100%; height: 1100px; border: 0; background: #fff; }
 .soon { padding: 14px 16px; }
     .booking-embed { padding: 14px; }
-    .booking-embed :deep(.content) { padding: 0; max-width: none; }
+    .form-card { background: var(--surface); }
+    .booking-embed { background: var(--surface); }
+    .booking-embed :deep(.content), .booking-embed :deep(main) { padding: 0; max-width: none; width: auto; min-height: 0; background: transparent; }
+    .booking-embed :deep(.form-card) { gap: 14px; background: transparent; }
+    .booking-embed :deep(.bottom-actions) { padding-bottom: 4px; }
+    .booking-embed :deep(.card) { background: var(--surface); }
     .page-note { color: var(--muted); font-size: 12px; margin-top: 14px; }
 </style>
