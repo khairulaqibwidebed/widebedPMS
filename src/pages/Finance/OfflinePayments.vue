@@ -269,7 +269,7 @@ export default {
 .fld-pick :deep(.op-pop) { max-width: none; width: 100%; }
 .table-wrap { min-height: 260px; }
 .modal { max-width: 920px; width: min(920px, 100%); }
-.modal { padding: 18px 24px 0; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.modal { padding: 18px 24px 0; }
 .modal .modal-foot { position: sticky; bottom: 0; background: var(--surface); padding: 12px 0 16px; margin-top: 8px; }
 .modal .field { margin-bottom: 0; }
 .modal .field label { margin-bottom: 4px; }

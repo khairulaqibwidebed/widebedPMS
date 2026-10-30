@@ -93,7 +93,7 @@
               </div>
               <div class="notice error" v-show="draft.error">{{ draft.error }}</div>
               <div class="composer-row">
-                <UploadFile kind="issues" @done="f => addUploaded(draft, f)" />
+                <UploadFile kind="issues" :record-id="ticket.id" :folder-label="ticket.title" @done="f => addUploaded(draft, f)" />
                 <button class="btn" type="button" @click="draft.adding = !draft.adding">🔗 Add Drive link</button>
                 <span class="help">Upload a photo, PDF or video, or paste a Drive link</span>
                 <button class="btn btn-primary" @click="postComment()" :disabled="busy || (!draft.text.trim() && !draft.links.length)">Post comment</button>
@@ -153,7 +153,7 @@
               <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
               <input class="input" v-model="raise.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(raise)">
               <button class="btn" type="button" @click="addLink(raise)">Add</button>
-              <UploadFile kind="issues" @done="f => addUploaded(raise, f)" />
+              <UploadFile kind="issues" :record-id="raise.rid" :folder-label="raise.title" @done="f => addUploaded(raise, f)" />
             </div>
             <div class="help">Files stay in the company Google Drive; the ticket keeps only the link.</div></div>
           <div class="files" v-show="raise.links.length"><template v-for="(l, i) in raise.links" :key="l.url + i"><span class="file-chip"><span>{{ icon(l.name) + ' ' + l.name }}</span><button type="button" @click="raise.links.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
@@ -379,7 +379,7 @@ export default {
     },
 
     openRaise() {
-      this.raise = { title: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
+      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), title: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
       this.$nextTick(() => this.$refs.rTitle?.focus());
       this.units4raise();
     },

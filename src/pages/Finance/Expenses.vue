@@ -116,7 +116,7 @@
             </div>
             <div class="field">
               <label for="eFile">Receipt (optional)</label>
-              <div class="file-row"><UploadFile kind="expenses" :multiple="false" label="⬆ Upload receipt" @done="f => panel.fileLink = f[0].url" />
+              <div class="file-row"><UploadFile kind="expenses" :record-id="panel.id || panel.rid" :folder-label="`${panel.date} ${panel.description || panel.type}`" :multiple="false" label="⬆ Upload receipt" @done="f => panel.fileLink = f[0].url" />
                 <a v-if="panel.fileLink" :href="panel.fileLink" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: 'Receipt', url: panel.fileLink, kind: 'expenses' })">View receipt</a><button type="button" class="editlink" v-if="panel.fileLink" @click="panel.fileLink = ''">Remove</button></div>
               <div class="help">Receipts are saved to the company Google Drive; the PMS keeps only the link.</div>
             </div>
@@ -228,7 +228,7 @@ export default {
     openAdd() {
       this.okMsg = '';
       const today = dayOffset(0);
-      this.panel = { id: null, kind: 'expense', unitId: '', date: today.slice(0, 7) === this.month ? today : `${this.month}-01`, month: this.month,
+      this.panel = { id: null, rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), kind: 'expense', unitId: '', date: today.slice(0, 7) === this.month ? today : `${this.month}-01`, month: this.month,
         type: 'maintenance', description: '', cost: '', marginType: 'pct', marginValue: '', fileLink: '', reason: '', busy: false, error: '' };
       this.panelOpen = true;
     },

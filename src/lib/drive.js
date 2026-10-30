@@ -40,11 +40,11 @@ export async function fileBlob(kind, fileId) {
   return URL.createObjectURL(await r.blob());
 }
 
-// Uploads files into this month's folder of this kind and gives back [{ name, url }] for pages that keep links.
-export async function uploadForLink(kind, files, onProgress = () => {}) {
+// Uploads files into this month's folder of this kind (inside a record folder when recordId is given) and gives back [{ name, url }] for pages that keep links.
+export async function uploadForLink(kind, files, onProgress = () => {}, recordId = '', label = '') {
   const out = [];
   for (const [i, f] of files.entries()) {
-    const r = await uploadFile(kind, '', f, p => onProgress((i + p) / files.length));
+    const r = await uploadFile(kind, recordId, f, p => onProgress((i + p) / files.length), label);
     out.push({ name: r.file?.name || f.name, url: r.file?.webViewLink || String(r), id: r.file?.id || '', mimeType: r.file?.mimeType || f.type });
   }
   return out;

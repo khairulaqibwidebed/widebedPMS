@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="modal-back" v-if="file" @click.self="close" v-esc="close">
+    <div class="modal-back fv-back" v-if="file" @click.self="close" v-esc="close">
       <div class="modal vwr" role="dialog" :aria-label="file.name">
         <div class="vwr-head"><b>{{ file.name }}</b><span><a class="btn" v-if="file.url" :href="file.url" target="_blank" rel="noopener">Open in Drive</a> <button type="button" class="btn" @click="close">Close</button></span></div>
         <div class="vwr-body">
@@ -45,6 +45,13 @@ export default {
 };
 </script>
 
+<style>
+/* Beside a side panel: sit to its left so the panel never covers the file */
+@media (min-width: 1000px) {
+  body:has(.drawer) .fv-back { justify-content: flex-start; padding-right: 460px; }
+  body:has(.drawer.wide) .fv-back { padding-right: 900px; }
+}
+</style>
 <style scoped>
 .vwr { max-width: 960px; width: 100%; padding: 14px 18px; }
 .vwr-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }

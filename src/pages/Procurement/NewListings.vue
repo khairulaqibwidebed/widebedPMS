@@ -202,7 +202,7 @@
                 <input class="input" v-model="linkAdd.label" placeholder="Label, e.g. Before photos" aria-label="Link label">
                 <input class="input" v-model="linkAdd.url" placeholder="https://drive.google.com/…" aria-label="Drive link">
                 <button class="btn" @click="addLink()">Add link</button>
-                <UploadFile kind="listings" label="⬆ Upload photos / videos" @done="f => addUploaded(f)" />
+                <UploadFile kind="listings" :record-id="l.id" :folder-label="`${d.property} ${d.unit}`" label="⬆ Upload photos / videos" @done="f => addUploaded(f)" />
               </div>
 
               <div class="grid-fields notes">
@@ -267,7 +267,7 @@
               <div class="card-head"><h2>4. Final quotation &amp; payment</h2><span class="pill" :class="d.payment.confirmed ? 'green' : 'grey'">{{ d.payment.confirmed ? 'Payment confirmed' : 'Waiting for payment' }}</span></div>
               <template v-for="k in PAY_LINKS" :key="k[0]">
                 <div class="field" v-if="canEdit"><label :for="'pay_' + k[0]">{{ `${k[1]} (Google Drive link)` }}</label><input class="input" :id="'pay_' + k[0]" v-model="d.payment[k[0]]" placeholder="https://drive.google.com/…">
-                  <div style="margin-top:6px"><UploadFile kind="listings" :multiple="false" accept="image/*,application/pdf" @done="f => d.payment[k[0]] = f[0].url" /></div></div>
+                  <div style="margin-top:6px"><UploadFile kind="listings" :record-id="l.id" :folder-label="`${d.property} ${d.unit}`" :multiple="false" accept="image/*,application/pdf" @done="f => d.payment[k[0]] = f[0].url" /></div></div>
                 <div class="kv" v-else><span>{{ k[1] }}</span><span><a v-if="d.payment[k[0]]" :href="d.payment[k[0]]" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: k[1], url: d.payment[k[0]], kind: 'listings' })">Open</a><template v-else>—</template></span></div>
               </template>
               <div class="totals quote">

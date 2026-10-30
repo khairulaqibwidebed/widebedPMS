@@ -4,7 +4,7 @@
       <div><h1>{{ cfg.title }}</h1><div class="sub">{{ cfg.sub }}</div></div>
       <div class="head-tools">
         <span class="chip" v-show="!canEdit">View only</span>
-        <template v-if="canEdit"><label class="btn btn-outline-brand" :class="{ disabled: busy || loading }">Upload document<input type="file" hidden @change="upload($event)"></label></template>
+        <template v-if="canEdit"><label class="btn btn-outline-brand" :class="{ disabled: busy || loading }">{{ up.on ? `Uploading ${up.pct}%` : 'Upload document' }}<input type="file" hidden @change="upload($event)"></label></template>
         <button class="btn btn-primary" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit SOP</button>
       </div>
     </div>
@@ -46,7 +46,8 @@
             <div class="empty" v-show="!data.docs.length">No documents yet.</div>
           </div>
           <template v-if="canEdit">
-            <label class="filedrop sop-drop"><input type="file" hidden @change="upload($event)"><b>Upload document</b>PDF, Word, Excel or images, up to 4 MB · staff can download</label>
+            <div class="sop-prog" v-if="up.on"><div class="sop-prog-top"><b>{{ up.pct < 100 ? 'Uploading' : 'Saving' }} {{ up.name }}</b><span>{{ up.pct }}%</span></div><div class="sop-bar"><span :style="{ width: up.pct + '%' }"></span></div><small>Please keep this page open until it finishes.</small></div>
+            <label v-else class="filedrop sop-drop" :class="{ drag: up.drag }" @dragover.prevent="up.drag = true" @dragleave.self="up.drag = false" @drop.prevent="up.drag = false; upload({ target: { files: $event.dataTransfer.files, value: '' } })"><input type="file" hidden @change="upload($event)"><b>Upload document</b>PDF, Word, Excel or images, up to 4 MB · drop a file here or click · staff can download</label>
           </template>
           <p class="help" style="margin:10px 0 0">Files are saved to the company Google Drive (up to 4 MB each); the PMS keeps only the link.</p>
         </section>
@@ -88,7 +89,7 @@ export default {
     const cfg = SOPS[key];
     // Starter content until HR saves the SOP for the first time.
     const seed = { steps: [...cfg.steps], editedBy: '', editedOn: '', log: [], docs: cfg.docs.map(([name, on]) => ({ name, on, by: 'HR' })) };
-    return { key, cfg, data: seed, saved: false, loading: true, loadErr: '', busy: false,
+    return { key, cfg, data: seed, saved: false, loading: true, loadErr: '', busy: false, up: { on: false, pct: 0, name: '', drag: false },
       canEdit: ['director', 'hr'].includes(me.role), editing: false, draft: [], reason: '', err: '' };
   },
   async mounted() {
@@ -134,12 +135,13 @@ export default {
       const f = e.target.files[0]; e.target.value = '';
       if (!f || this.busy) return;
       if (f.size > 4 * 1024 * 1024) return toast('Files must be 4 MB or less.');
-      this.busy = true;
+      this.busy = true; this.up = { on: true, pct: 0, name: f.name, drag: false };
       let up;
-      try { [up] = await uploadForLink('sops', [f]); } catch (err) { this.busy = false; return toast(err.message); }
-      this.busy = false;
+      try { [up] = await uploadForLink('sops', [f], p => { this.up.pct = Math.round(p * 100); }, this.$route.meta.sop, this.cfg.title); } catch (err) { this.busy = false; this.up.on = false; return toast(err.message); }
+      this.up.pct = 100; this.busy = false;
       const docs = [{ name: f.name, on: today(), by: me.name, fileId: up.id, url: up.url }, ...this.data.docs];
       if (await this.save(`Added ${f.name}`, 'sop.docAdd', { steps: this.data.steps, docs })) toast(`${f.name} added.`);
+      this.up.on = false;
     },
     async download(d) {
       if (!d.fileId) return toast('This starter file has no upload yet. HR can upload it above.');
@@ -155,6 +157,12 @@ export default {
 </script>
 
 <style scoped>
+.sop-prog { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--accent-soft); font-size: 13px; }
+.sop-prog-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; overflow-wrap: anywhere; }
+.sop-bar { height: 8px; border-radius: 8px; background: var(--surface); overflow: hidden; }
+.sop-bar span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.sop-prog small { display: block; margin-top: 8px; color: var(--muted); }
+.sop-drop.drag { border-color: var(--accent); background: var(--accent-soft); }
     .btn-outline-brand { border: 1.5px solid var(--accent); color: var(--accent); cursor: pointer; }
     .btn-outline-brand:hover { background: var(--accent-soft); }
   .sop-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
