@@ -43,6 +43,13 @@ const routes = [
   { path: '/Procurement/new-listings', redirect: to => ({ path: '/Procurement/new-owner-listings', query: to.query }) },
   ticked('/Procurement/forms', () => import('./pages/Procurement/Forms.vue'), 'Forms', 'procurementForms', { title: 'Procurement forms' }),
 
+  // Agreements: every role fills in forms and sees records. Setup (forms, formulas, templates, designer) needs its tick.
+  page('/Agreements', () => import('./pages/Agreements/Records.vue'), 'Agreements', ALL),
+  page('/Agreements/record/:id', () => import('./pages/Agreements/RecordEdit.vue'), 'Agreements', ALL, { title: 'Agreement' }),
+  ticked('/Agreements/setup', () => import('./pages/Agreements/Setup.vue'), 'Agreement Setup', 'agreementSetup'),
+  ticked('/Agreements/setup/form/:id', () => import('./pages/Agreements/FormBuilder.vue'), 'Agreement Setup', 'agreementSetup', { title: 'Form builder' }),
+  ticked('/Agreements/setup/template/:id', () => import('./pages/Agreements/Designer.vue'), 'Agreement Setup', 'agreementSetup', { title: 'Place fields' }),
+
   page('/Playbook/onboarding', () => import('./pages/Playbook/Onboarding.vue'), 'Onboarding', ALL),
   page('/Playbook/business-model', () => import('./pages/Playbook/BusinessModel.vue'), 'Business Model', ALL),
 

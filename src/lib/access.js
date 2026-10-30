@@ -23,14 +23,16 @@ export const PAGES = [
   { key: 'newOwnerListings', label: 'New Owner Listings',            group: 'Procurement', to: ['/Procurement/new-owner-listings'] },
   { key: 'procurementForms', label: 'Forms',                         group: 'Procurement', to: ['/Procurement/forms'], viewOnly: true },
   { key: 'playbook',         label: 'Playbook (Onboarding, Business Model)', group: 'Content', to: [], editOnly: true },
-  { key: 'sops',             label: 'HR SOP pages',                  group: 'Content',     to: [], editOnly: true }
+  { key: 'sops',             label: 'HR SOP pages',                  group: 'Content',     to: [], editOnly: true },
+  { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Agreements', to: ['/Agreements/setup'], viewOnly: true }
 ];
 
 // One line under some groups in the tick table, so it's clear what a tick really gives.
 export const GROUP_NOTES = {
   Finance: 'Any Finance page lets them read the finance data. Any Finance Edit lets them change it.',
   Portfolio: 'Edit includes owners\' bank details and unit terms.',
-  Content: 'Everyone can read these. Edit lets them change the text.'
+  Content: 'Everyone can read these. Edit lets them change the text.',
+  Agreements: 'Everyone can fill in agreements and see the records. This tick lets them change forms, formulas, templates and where fields print.'
 };
 
 const both = key => [key + '.view', key + '.edit'];

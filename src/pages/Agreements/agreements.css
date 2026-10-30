@@ -1,0 +1,61 @@
+/* Agreements module. Built on app.css (cards, buttons, inputs, tables, modals) and its colour theme. */
+
+/* ---------- Form fields ---------- */
+.ag-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 20px; align-items: start; }
+.ag-form .ag-field { align-content: start; }
+.ag-form .ag-section, .ag-form .ag-field.wide { grid-column: 1 / -1; }
+@media (max-width: 720px) { .ag-form { grid-template-columns: minmax(0, 1fr); } }
+.ag-section { grid-column: 1 / -1; margin: 18px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--accent); }
+.ag-section:first-child { margin-top: 0; }
+.ag-field .req { color: var(--red); }
+.ag-field.has-error .input { border-color: var(--red); }
+.ag-error { color: var(--red); font-size: 12px; }
+.ag-num { position: relative; display: flex; align-items: center; }
+.ag-num .ag-prefix { position: absolute; left: 12px; color: var(--muted); font-size: 13px; pointer-events: none; }
+.ag-num .ag-prefix + .input { padding-left: 40px; }
+.ag-other { margin-top: 6px; }
+.ag-radios { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; min-height: 40px; }
+.ag-radio, .ag-check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.ag-radio input, .ag-check input { width: 17px; height: 17px; accent-color: var(--accent); }
+.ag-check { min-height: 40px; }
+.ag-upload { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ag-upload .filedrop { flex: 1; }
+.ag-upload .filedrop.off { opacity: .6; pointer-events: none; }
+.ag-formula { min-height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent);
+  font-weight: 600; font-variant-numeric: tabular-nums; }
+.ag-formula small { color: var(--red); font-weight: 400; }
+.ag-formula.err { background: var(--red-soft); color: var(--red); }
+
+/* ---------- Page chrome ---------- */
+.ag-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ag-bar .grow { flex: 1; }
+.ag-save { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ag-save.error { color: var(--red); }
+.ag-crumb { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.ag-crumb a { color: var(--accent); }
+.ag-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.ag-empty { text-align: center; padding: 48px 16px; color: var(--muted); }
+.ag-empty b { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+.ag-kbd { font-family: inherit; font-size: 11px; background: var(--chip); border-radius: 4px; padding: 1px 5px; }
+
+/* Three-column editors (form builder, designer). The side columns stack under the middle one on small screens. */
+.ag-three { display: grid; grid-template-columns: 250px minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.ag-side { position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow-y: auto; }
+@media (max-width: 1180px) { .ag-three { grid-template-columns: 220px minmax(0, 1fr); } .ag-three > .ag-right { grid-column: 1 / -1; position: static; max-height: none; } }
+@media (max-width: 760px) { .ag-three { grid-template-columns: minmax(0, 1fr); } .ag-side { position: static; max-height: none; } }
+.ag-side h3 { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.ag-list { display: grid; gap: 4px; }
+.ag-chipbtn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+  color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: grab; transition: border-color var(--fast, .15s), background var(--fast, .15s); }
+.ag-chipbtn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ag-chipbtn.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.ag-chipbtn small { margin-left: auto; color: var(--muted); font-size: 11px; }
+.ag-chipbtn.on small { color: #fff; opacity: .85; }
+.ag-props { display: grid; gap: 2px; }
+.ag-props .field { margin-bottom: 12px; }
+.ag-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ag-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ag-inline .input { flex: 1; min-width: 80px; }
+.ag-check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 10px; cursor: pointer; }
+.ag-check-row input { width: 16px; height: 16px; accent-color: var(--accent); }

@@ -1,5 +1,8 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.13, 29 Oct 2026: Draft 0.12 (page access, Neo) plus utilityBills and booking door passcodes.
+// Widebed PMS Firestore rules. Draft 0.13, 30 Oct 2026: Agreements (forms, templates, records, views, generated PDFs).
+// Every staff member fills in agreement forms and reads every record. Forms and templates change only with the
+// "Agreement Setup" tick (Directors always). Files (PDFs, IC copies) are in Google Drive, not Firestore.
+// Draft 0.12, 29 Oct 2026: page access.
 // users/{uid}.perms (ticked on Staff accounts) lists the pages a person may view or edit: '<page>.view' / '<page>.edit'.
 // No perms saved = the role's preset (presetFor below), so accounts that were never changed behave as in Draft 0.10.
 // Data is protected per area: any Finance page opens the finance data, Portfolio Edit opens owners/units/terms, and so on.
@@ -8,7 +11,7 @@ rules_version = '2';
 // Draft 0.10, 27 Oct 2026: (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
 // (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
 // 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
-// History: 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
+// History: 0.13 Agreements. 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
 // 0.7 month summaries (unitMonths, months.summary).
 // 0.6 every role signs in; Portfolio for Operations/Procurement/Marketing; direct bookings. 0.5 offline inquiries,
 // tenants, offline bookings, Issues, SOPs, complaints, Playbook, brand logos. 0.4 month-end completion is per unit.
@@ -163,12 +166,6 @@ service cloud.firestore {
     match /config/{docId} {
       allow read: if staff();
       allow write: if isDirector();
-    }
-
-    // Unit types added with "+ Add type" on Add unit: anyone who can add or edit units may add to the list.
-    match /config/unitTypes {
-      allow write: if (portfolioEditor() || portfolioAdder() || isMkt())
-        && request.resource.data.keys().hasOnly(['list']) && request.resource.data.list is list && request.resource.data.list.size() < 100;
     }
 
     // Numbered IDs (LD-, TEN-, IS-, BK-, CP-, DC-, NL-): taken one at a time inside a transaction.
@@ -495,22 +492,6 @@ service cloud.firestore {
       }
     }
 
-    // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
-    match /offlinePayments/{id} {
-      allow read: if finOrDir();
-      allow create: if finOrDir() && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
-      allow update: if finOrDir();
-      allow delete: if false;
-    }
-    // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
-    match /utilityBills/{bookingId} {
-      allow read: if finOrDir() || isOps();
-      allow create: if (finOrDir() || isOps()) && request.resource.data.createdBy == request.auth.uid
-        && exists(docPath('offlineBookings', bookingId));
-      allow update: if finOrDir();
-      allow delete: if false;
-    }
-
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
     // offline_{inquiryId} from Create booking, or offline_BK-0001 for a direct booking (no inquiry).
     match /offlineBookings/{bookingId} {
@@ -532,13 +513,6 @@ service cloud.firestore {
         && request.resource.data.tenantId is string
         && getAfter(docPath('tenants', request.resource.data.tenantId)) != null;
       allow delete: if false;
-      // Door passcodes for the booking (Booking Form).
-      match /private/{doc} {
-        allow read: if finOrDir() || isOps();
-        allow create: if (finOrDir() || isOps()) && existsAfter(docPath('offlineBookings', bookingId));
-        allow update: if finOrDir();
-        allow delete: if false;
-      }
     }
 
     // Issues: seen by the tagged roles, the person who raised it and Directors. Every role raises tickets.
@@ -692,6 +666,53 @@ service cloud.firestore {
         allow read: if (listingEditor() || (opsRole() && listingViewer())) && docId == 'main';
         allow write: if listingEditor() && docId == 'main';
       }
+    }
+
+    // ================= Agreements (Draft 0.13) =================
+    function agreementAdmin() { return can('agreementSetup.view'); }
+
+    // Form fields, formulas and column-only fields. Archived, never deleted.
+    match /agreementForms/{id} {
+      allow read: if anyStaff();
+      allow create: if agreementAdmin() && request.resource.data.name is string && request.resource.data.fields is list
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if agreementAdmin() && request.resource.data.fields is list && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // Uploaded agreement PDFs (the file itself is in Drive), their versions and where each field prints.
+    match /agreementTemplates/{id} {
+      allow read: if anyStaff();
+      allow create: if agreementAdmin() && request.resource.data.formId is string && request.resource.data.mappings is list
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if agreementAdmin() && request.resource.data.mappings is list
+        && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // One record per filled-in form. Everyone reads and writes; the form and the creator never change. Archived, never deleted.
+    match /agreementRecords/{id} {
+      allow read: if anyStaff();
+      allow create: if anyStaff() && request.resource.data.formId is string && request.resource.data.values is map
+        && request.resource.data.status in ['draft', 'completed', 'archived'] && request.resource.data.createdBy == request.auth.uid;
+      allow update: if anyStaff() && request.resource.data.values is map
+        && request.resource.data.status in ['draft', 'completed', 'archived']
+        && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // Saved table layouts (columns, widths, filters). Shared by everyone.
+    match /agreementViews/{id} {
+      allow read, delete: if anyStaff();
+      allow create, update: if anyStaff() && request.resource.data.formId is string && request.resource.data.view is map;
+    }
+
+    // History of generated PDFs. Written once by the person who made it.
+    match /generatedAgreements/{id} {
+      allow read: if anyStaff();
+      allow create: if anyStaff() && request.resource.data.by == request.auth.uid && request.resource.data.recordId is string
+        && request.resource.data.fileId is string;
+      allow update, delete: if false;
     }
 
   }
