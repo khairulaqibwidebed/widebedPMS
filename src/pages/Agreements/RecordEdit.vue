@@ -1,92 +1,115 @@
 <template>
   <main class="content">
     <div class="loading-bar" v-show="loading"></div>
-    <div class="ag-crumb"><RouterLink :to="{ path: '/Agreements', query: form ? { form: form.id } : {} }">Agreements</RouterLink><span>›</span><span>{{ form ? form.name : '' }}</span></div>
-    <div class="page-head" v-if="form">
-      <div>
-        <h1>{{ isNew ? 'New ' + form.name : title }}</h1>
-        <div class="sub">
-          <span class="pill" :class="STATUS_PILL[status]">{{ STATUS[status] }}</span>
-          <span v-if="!isNew" class="ag-save" :class="{ error: autosave.status.value === 'error' }"> · {{ autosave.label.value }}</span>
-          <span v-else> · Not saved yet</span>
+    <div class="ag-crumb"><button class="link" @click="back">← {{ form ? form.name : 'Agreements' }}</button></div>
+    <div class="notice error" v-if="error">{{ error }}</div>
+
+    <!-- New record: step by step, then a thank-you page -->
+    <template v-if="form && isNew">
+      <ThankYou v-if="done" :title="done.status === 'completed' ? 'Saved and completed' : 'Draft saved'" :reference="'AGR-' + done.id.slice(0, 6).toUpperCase()"
+        :message="`${done.title} is saved in ${form.name}. What would you like to do next?`">
+        <button class="btn btn-primary" @click="router.replace('/Agreements/record/' + done.id + '?then=generate')" :disabled="!templates.length">Generate agreement</button>
+        <button class="btn" @click="router.replace('/Agreements/record/' + done.id + '?then=link')">Send to fill in & sign</button>
+        <button class="btn" @click="again">Fill in another</button>
+        <button class="btn" @click="back">Back to the list</button>
+      </ThankYou>
+      <FillWizard v-else v-model="values" :fields="form.fields" :title="'New ' + form.name" :busy="busy"
+        draft-label="Save draft" submit-label="Save as completed" @draft="saveNew('draft')" @submit="saveNew('completed')" />
+    </template>
+
+    <!-- An existing record: everything on one page -->
+    <template v-else-if="form">
+      <div class="page-head">
+        <div>
+          <h1>{{ title }}</h1>
+          <div class="sub">
+            <span class="pill" :class="STATUS_PILL[status]">{{ STATUS[status] }}</span>
+            <span class="ag-save" :class="{ error: autosave.status.value === 'error' }"> · {{ autosave.label.value }}</span>
+          </div>
         </div>
-      </div>
-      <div class="head-tools">
-        <template v-if="isNew">
-          <button class="btn" :disabled="busy" @click="saveNew('draft')">Save draft</button>
-          <button class="btn btn-primary" :disabled="busy" @click="saveNew('completed')">Save as completed</button>
-        </template>
-        <template v-else>
+        <div class="head-tools">
+          <button class="btn" :disabled="busy" @click="saveNow">Save</button>
+          <button class="btn" :disabled="busy" @click="links = true">Send to fill in & sign</button>
           <button class="btn" :disabled="busy" @click="duplicate">Duplicate</button>
           <button class="btn" v-if="status === 'archived'" :disabled="busy" @click="changeStatus('draft')">Restore</button>
           <button class="btn" v-else :disabled="busy" @click="changeStatus('archived')">Archive</button>
           <button class="btn" v-if="status === 'completed'" :disabled="busy" @click="changeStatus('draft')">Back to draft</button>
-          <button class="btn" v-else :disabled="busy" @click="changeStatus('completed')">Mark completed</button>
+          <button class="btn" v-else :disabled="busy" @click="changeStatus('completed')">{{ status === 'submitted' ? 'Checked: mark completed' : 'Mark completed' }}</button>
           <button class="btn btn-primary" :disabled="busy" @click="openGenerate">Generate agreement</button>
-        </template>
-      </div>
-    </div>
-
-    <div class="notice error" v-if="error">{{ error }}</div>
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
-    <div class="notice warn" v-if="errorCount">{{ errorCount }} field{{ errorCount > 1 ? 's need' : ' needs' }} attention before this can be completed.</div>
-
-    <div class="rec-layout" v-if="form">
-      <div class="card">
-        <form class="ag-form" @submit.prevent novalidate>
-          <FieldInput v-for="f in shownFields" :key="f.id" :field="f" :disabled="busy"
-            :model-value="f.type === 'formula' ? computed_[f.id] : values[f.id]" :error="errors[f.id] || ''"
-            @update:model-value="v => setValue(f, v)" />
-        </form>
-        <p class="empty" v-if="!shownFields.length">This form has no fields yet.</p>
-      </div>
-
-      <aside class="card rec-side" v-if="!isNew">
-        <h2>Agreement history</h2>
-        <p class="help" v-if="!history.length">PDFs made with "Generate agreement" are kept here.</p>
-        <div class="rows">
-          <div class="row" v-for="h in history" :key="h.id">
-            <span><b>{{ h.templateName }}</b> <small class="muted">v{{ h.templateVersion }}</small><br><small class="muted">{{ when(h.at) }} · {{ h.byName }}</small></span>
-            <button class="btn btn-sm" :disabled="h.loading" @click="download(h)">{{ h.loading ? '…' : 'Download' }}</button>
-          </div>
         </div>
-        <hr class="divider">
-        <div class="kv"><span>Created</span><span>{{ when(record.createdAt) }} · {{ record.createdByName }}</span></div>
-        <div class="kv"><span>Last changed</span><span>{{ when(record.updatedAt) }} · {{ record.updatedByName }}</span></div>
-      </aside>
-    </div>
+      </div>
+
+      <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
+      <div class="notice warn" v-if="errorCount">{{ errorCount }} field{{ errorCount > 1 ? 's need' : ' needs' }} attention before this can be completed.</div>
+      <div class="notice info rec-ext" v-if="record.source === 'external'">
+        Sent in through the fill-in link <b>/f/{{ record.linkSlug }}</b>{{ record.submittedAt ? ' on ' + when(record.submittedAt) : '' }}.
+        {{ status === 'submitted' ? 'Check the answers, then mark it completed.' : '' }}
+      </div>
+
+      <div class="rec-layout">
+        <div class="card">
+          <form class="ag-form" @submit.prevent novalidate>
+            <FieldInput v-for="f in shownFields" :key="f.id" :field="f" :disabled="busy"
+              :model-value="f.type === 'formula' ? computed_[f.id] : values[f.id]" :error="errors[f.id] || ''"
+              @update:model-value="v => setValue(f, v)" />
+          </form>
+          <p class="empty" v-if="!shownFields.length">This form has no fields yet.</p>
+        </div>
+
+        <aside class="card rec-side">
+          <h2>Agreement history</h2>
+          <p class="help" v-if="!history.length">PDFs made with "Generate agreement" or sent in through a link are kept here.</p>
+          <div class="rows">
+            <div class="row" v-for="h in history" :key="h.id">
+              <span><b>{{ h.templateName || 'Agreement' }}</b> <small class="muted" v-if="h.templateVersion">v{{ h.templateVersion }}</small><br><small class="muted">{{ when(h.at) }} · {{ h.byName }}</small></span>
+              <button class="btn btn-sm" :disabled="h.loading" @click="download(h)">{{ h.loading ? '…' : 'Download' }}</button>
+            </div>
+          </div>
+          <hr class="divider">
+          <div class="kv"><span>Created</span><span>{{ when(record.createdAt) }} · {{ record.createdByName }}</span></div>
+          <div class="kv"><span>Last changed</span><span>{{ when(record.updatedAt) }} · {{ record.updatedByName }}</span></div>
+        </aside>
+      </div>
+    </template>
 
     <GenerateDialog v-if="gen" :form="form" :record="gen" :templates="templates" @close="gen = null" @generated="loadHistory" />
+    <LinksDialog v-if="links" :form="form" :templates="templates" :record="{ id: record.id, title }" :is-admin="isAdmin" @close="links = false" />
   </main>
 </template>
 
 <script setup>
-// One agreement record: the form, live formula answers, auto-save, completing, and its PDF history.
+// One agreement record. New: step-by-step form and a thank-you page. Existing: one page with auto-save,
+// completing, sending a fill-in link, and its PDF history.
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import FieldInput from '@/components/agreements/FieldInput.vue';
+import FillWizard from '@/components/agreements/FillWizard.vue';
+import ThankYou from '@/components/agreements/ThankYou.vue';
 import GenerateDialog from '@/components/agreements/GenerateDialog.vue';
+import LinksDialog from '@/components/agreements/LinksDialog.vue';
 import { getForm, getRecord, createRecord, updateRecord, listTemplates, listGenerated, audit, millis } from '@/lib/agreements/data.js';
 import { computeValues } from '@/lib/agreements/formula.js';
-import { defaultValues, isShown, validate, recordTitle, hasValue } from '@/lib/agreements/fields.js';
+import { defaultValues, isShown, validate, recordTitle, hasValue, STATUS, STATUS_PILL } from '@/lib/agreements/fields.js';
 import { useAutosave } from '@/lib/agreements/history.js';
 import { loadFile } from '@/lib/agreements/drive.js';
 import { downloadBytes } from '@/lib/agreements/bytes.js';
+import { can } from '@/lib/access.js';
+import { useSession } from '@/stores/session.js';
 import './agreements.css';
 
-const STATUS = { draft: 'Draft', completed: 'Completed', archived: 'Archived' };
-const STATUS_PILL = { draft: 'amber', completed: 'green', archived: 'grey' };
-const route = useRoute(), router = useRouter();
+const route = useRoute(), router = useRouter(), session = useSession();
+const isAdmin = computed(() => can(session, 'agreementSetup.view'));
 const isNew = computed(() => route.params.id === 'new');
 
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
 const form = ref(null), record = ref({}), values = ref({}), status = ref('draft');
-const templates = ref([]), history = ref([]), errors = ref({}), gen = ref(null), touched = ref(false);
+const templates = ref([]), history = ref([]), errors = ref({}), gen = ref(null), links = ref(false), done = ref(null), touched = ref(false);
 
 const computed_ = computed(() => (form.value ? computeValues(form.value.fields, values.value) : {}));
 const title = computed(() => (form.value ? recordTitle(form.value.fields, values.value) : ''));
 const errorCount = computed(() => Object.keys(errors.value).length);
-const when = t => { const ms = millis(t); return ms ? new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; };
+const when = t => { const ms = millis(t) || (typeof t === 'string' ? Date.parse(t) : 0); return ms ? new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; };
+const back = () => router.push({ path: '/Agreements', query: form.value ? { form: form.value.id } : {} });
 
 // Fields that show right now; a section heading shows only when something under it does.
 const shownFields = computed(() => {
@@ -116,6 +139,8 @@ onMounted(async () => {
       loadHistory();
     }
     templates.value = await listTemplates(form.value.id);
+    if (route.query.then === 'generate') openGenerate();
+    if (route.query.then === 'link') links.value = true;
   } catch (e) { error.value = e.message; }
   loading.value = false;
 });
@@ -123,19 +148,33 @@ async function loadHistory() {
   try { history.value = await listGenerated(record.value.id); } catch (e) { console.warn(e); }
 }
 
-// ---- Typing and saving ----
+// ---- New record ----
+watch(values, () => { if (isNew.value && !loading.value) touched.value = true; }, { deep: true });
+async function saveNew(s) {
+  busy.value = true; error.value = '';
+  try {
+    const clean = Object.fromEntries(form.value.fields.filter(f => hasValue(f) && f.type !== 'formula').map(f => [f.id, values.value[f.id] ?? '']));
+    const id = await createRecord(form.value.id, clean, { status: s, title: title.value });
+    audit('agreement.record.create', `agreementRecords/${id}`, `${form.value.name}: ${title.value}`);
+    touched.value = false;
+    done.value = { id, status: s, title: title.value };
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (e) { error.value = 'Could not save: ' + e.message; }
+  busy.value = false;
+}
+function again() { done.value = null; values.value = defaultValues(form.value.fields); touched.value = false; }
+
+// ---- Existing record ----
 const autosave = useAutosave(async () => {
-  const t = title.value;
-  await updateRecord(record.value.id, { values: values.value, title: t });
+  await updateRecord(record.value.id, { values: values.value, title: title.value });
   record.value.updatedAt = Date.now();
 }, 1200);
 function setValue(f, v) {
   values.value = { ...values.value, [f.id]: v };
-  touched.value = true;
   if (errors.value[f.id]) { const e = { ...errors.value }; delete e[f.id]; errors.value = e; }
-  if (!isNew.value) autosave.touch();
+  autosave.touch();
 }
-// Completing checks required fields; drafts can be saved half-filled.
+async function saveNow() { await autosave.flush(); if (autosave.status.value === 'saved') { okMsg.value = 'Saved.'; } }
 function check() {
   errors.value = validate(form.value.fields, values.value);
   if (errorCount.value) {
@@ -144,17 +183,6 @@ function check() {
     return false;
   }
   return true;
-}
-async function saveNew(s) {
-  if (s === 'completed' && !check()) return;
-  busy.value = true; error.value = '';
-  try {
-    const clean = Object.fromEntries(form.value.fields.filter(f => hasValue(f) && f.type !== 'formula').map(f => [f.id, values.value[f.id] ?? '']));
-    const id = await createRecord(form.value.id, clean, { status: s, title: title.value });
-    audit('agreement.record.create', `agreementRecords/${id}`, `${form.value.name}: ${title.value}`);
-    touched.value = false;
-    router.replace('/Agreements/record/' + id);
-  } catch (e) { error.value = 'Could not save: ' + e.message; busy.value = false; }
 }
 async function changeStatus(s) {
   if (s === 'completed' && !check()) return;
@@ -191,7 +219,7 @@ async function download(h) {
 
 watch(okMsg, m => { if (m) setTimeout(() => { if (okMsg.value === m) okMsg.value = ''; }, 3500); });
 onBeforeRouteLeave(async () => {
-  if (isNew.value && touched.value && !busy.value) return window.confirm('Leave without saving this new record?');
+  if (isNew.value && touched.value && !busy.value && !done.value) return window.confirm('Leave without saving this new record?');
   await autosave.flush();
   return true;
 });
@@ -201,6 +229,7 @@ onBeforeRouteLeave(async () => {
 .rec-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
 .rec-side { position: sticky; top: 76px; }
 .rec-side h2 { font-size: 15px; margin: 0 0 10px; }
+.rec-ext { background: var(--blue-soft); color: var(--blue); }
 .page-head .sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 @media (max-width: 1000px) { .rec-layout { grid-template-columns: minmax(0, 1fr); } .rec-side { position: static; } }
 </style>

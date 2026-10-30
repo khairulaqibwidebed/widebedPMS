@@ -1,14 +1,16 @@
 <template>
   <main class="content">
     <div class="loading-bar" v-show="loading"></div>
+    <div class="ag-crumb" v-if="form"><button class="link" @click="openForm('')">← All agreements</button></div>
     <div class="page-head">
       <div>
-        <h1>Agreements</h1>
-        <div class="sub">Fill in agreement forms, keep every record in one table, and make the finished PDF.</div>
+        <h1>{{ form ? form.name : 'Agreements' }}</h1>
+        <div class="sub">{{ form ? 'Every record of this agreement. Open one to edit it or make its PDF.' : 'Pick an agreement to see its records, fill in a new one or send a fill-in link.' }}</div>
       </div>
       <div class="head-tools">
-        <RouterLink v-if="isAdmin" class="btn" to="/Agreements/setup">Setup</RouterLink>
-        <button class="btn btn-primary" :disabled="!form" @click="newRecord">+ New {{ form ? form.name : 'record' }}</button>
+        <RouterLink v-if="isAdmin && !form" class="btn" to="/Agreements/setup">Setup</RouterLink>
+        <button v-if="form && isAdmin" class="btn" @click="links = form">Fill-in links</button>
+        <button v-if="form" class="btn btn-primary" @click="newRecord(form.id)">+ New {{ form.name }}</button>
       </div>
     </div>
 
@@ -21,10 +23,28 @@
       <div v-if="isAdmin" style="margin-top: 14px"><RouterLink class="btn btn-primary" to="/Agreements/setup">Open Setup</RouterLink></div>
     </div>
 
-    <template v-else-if="form">
-      <div class="pills brand ag-tabs" role="tablist" aria-label="Forms">
-        <button v-for="f in forms" :key="f.id" class="pill-btn" role="tab" :aria-selected="String(f.id === formId)" :class="{ on: f.id === formId }" @click="formId = f.id">{{ f.name }}</button>
-      </div>
+    <!-- All agreements -->
+    <div v-else-if="!form" class="ag-cards">
+      <article v-for="f in forms" :key="f.id" class="card ag-card" tabindex="0" @click="openForm(f.id)" @keydown.enter.self="openForm(f.id)">
+        <div class="ag-card-top">
+          <span class="ag-card-icon" aria-hidden="true">📄</span>
+          <div class="ag-card-name"><b>{{ f.name }}</b><small>{{ (templatesAll.filter(t => t.formId === f.id).length) }} template(s)</small></div>
+          <span class="pill blue" v-if="counts[f.id]?.submitted" title="Sent in through a link, waiting for a check">{{ counts[f.id].submitted }} to check</span>
+        </div>
+        <div class="ag-card-stats">
+          <span><b>{{ counts[f.id]?.all ?? '…' }}</b> records</span>
+          <span><b>{{ counts[f.id]?.draft ?? '…' }}</b> draft</span>
+          <span><b>{{ counts[f.id]?.completed ?? '…' }}</b> completed</span>
+        </div>
+        <div class="ag-card-acts" @click.stop>
+          <button class="btn btn-sm" @click="openForm(f.id)">Open records</button>
+          <button class="btn btn-sm btn-primary" @click="newRecord(f.id)">+ Fill in</button>
+          <button v-if="isAdmin" class="btn btn-sm" @click="links = f">Fill-in links</button>
+        </div>
+      </article>
+    </div>
+
+    <template v-else>
 
       <div class="card rec-card">
         <div class="ag-bar rec-bar">
@@ -61,6 +81,7 @@
     </template>
 
     <GenerateDialog v-if="gen" :form="form" :record="gen" :templates="templates" @close="gen = null" />
+    <LinksDialog v-if="links" :form="links" :templates="templatesAll.filter(t => t.formId === links.id)" :is-admin="isAdmin" @close="links = null" />
 
     <NameDialog v-if="ask && ask.kind === 'viewName'" :title="ask.title" label="View name" :value="ask.value" confirm="Save view" @close="ask = null" @done="createView" />
     <NameDialog v-if="ask && ask.kind === 'addColumn'" title="Add a column" label="Column name" :value="ask.value" confirm="Add column"
@@ -101,9 +122,10 @@ import RecordGrid from '@/components/agreements/RecordGrid.vue';
 import GenerateDialog from '@/components/agreements/GenerateDialog.vue';
 import NameDialog from '@/components/agreements/NameDialog.vue';
 import ConfirmDialog from '@/components/agreements/ConfirmDialog.vue';
-import { listForms, listRecords, listTemplates, listViews, saveView, deleteView, updateRecord, createRecord, createRecords, saveForm, audit, millis } from '@/lib/agreements/data.js';
+import LinksDialog from '@/components/agreements/LinksDialog.vue';
+import { listForms, listRecords, listTemplates, listViews, saveView, deleteView, updateRecord, createRecord, createRecords, saveForm, audit, millis, countRecords } from '@/lib/agreements/data.js';
 import { computeValues, refsIn } from '@/lib/agreements/formula.js';
-import { FIELD_TYPES, newField, recordTitle, labelProblem, hasOptions } from '@/lib/agreements/fields.js';
+import { FIELD_TYPES, newField, recordTitle, labelProblem, hasOptions, STATUS } from '@/lib/agreements/fields.js';
 import { tableRows, exportFile, readTableFile, importPlan } from '@/lib/agreements/table-io.js';
 import { can } from '@/lib/access.js';
 import { useSession } from '@/stores/session.js';
@@ -111,30 +133,45 @@ import './agreements.css';
 
 const route = useRoute(), router = useRouter(), session = useSession();
 const isAdmin = computed(() => can(session, 'agreementSetup.view'));
-const STATUS_TABS = [{ key: 'active', label: 'Open' }, { key: 'draft', label: 'Draft' }, { key: 'completed', label: 'Completed' }, { key: 'archived', label: 'Archived' }];
+const STATUS_TABS = [{ key: 'active', label: 'All open' }, { key: 'submitted', label: 'To check' }, { key: 'draft', label: 'Draft' }, { key: 'completed', label: 'Completed' }, { key: 'archived', label: 'Archived' }];
 const COLUMN_TYPES = FIELD_TYPES.filter(t => ['text', 'textarea', 'number', 'currency', 'date', 'dropdown', 'checkbox', 'email', 'phone'].includes(t.type));
 const blankView = () => ({ order: [], hidden: [], widths: {}, sort: null, filters: [], search: '' });
 
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
 const forms = ref([]), formId = ref(''), records = ref([]), templates = ref([]), views = ref([]);
 const viewId = ref(''), view = ref(blankView()), selected = ref([]), status = ref('active');
-const gen = ref(null), ask = ref(null), importing = ref(null), grid = ref(null);
+const gen = ref(null), ask = ref(null), importing = ref(null), grid = ref(null), links = ref(null);
+const templatesAll = ref([]), counts = ref({});
 const form = computed(() => forms.value.find(f => f.id === formId.value) || null);
 
 const flash = msg => { okMsg.value = msg; error.value = ''; setTimeout(() => { if (okMsg.value === msg) okMsg.value = ''; }, 4000); };
 const fail = (e, what) => { console.error(e); error.value = e.code === 'permission-denied' ? `You don't have permission to ${what}.` : `Could not ${what}: ${e.message || e}`; };
 
 // ---- Loading ----
+// No ?form= : the list of agreements. ?form=<id> : that agreement's records only.
 onMounted(async () => {
   try {
-    forms.value = await listForms();
-    formId.value = forms.value.some(f => f.id === route.query.form) ? route.query.form : forms.value[0]?.id || '';
-    if (!formId.value) loading.value = false;
+    [forms.value, templatesAll.value] = await Promise.all([listForms(), listTemplates()]);
+    formId.value = forms.value.some(f => f.id === route.query.form) ? route.query.form : '';
+    if (!formId.value) { loading.value = false; loadCounts(); }
   } catch (e) { fail(e, 'load the forms'); loading.value = false; }
 });
+function openForm(id) {
+  router.push({ query: id ? { form: id } : {} });
+}
+watch(() => route.query.form, id => { if (forms.value.length) formId.value = forms.value.some(f => f.id === id) ? id : ''; });
+// Counts cost one read each (no records are downloaded).
+async function loadCounts() {
+  for (const f of forms.value) {
+    if (counts.value[f.id]) continue;
+    try {
+      const [all, archived, submitted, draft, completed] = await Promise.all([undefined, 'archived', 'submitted', 'draft', 'completed'].map(s => countRecords(f.id, s)));
+      counts.value = { ...counts.value, [f.id]: { all: all - archived, submitted, draft, completed } };
+    } catch (e) { console.warn('count', e); }
+  }
+}
 watch(formId, async id => {
-  if (!id) return;
-  if (route.query.form !== id) router.replace({ query: { ...route.query, form: id } });
+  if (!id) { loadCounts(); return; }
   loading.value = true; selected.value = [];
   try {
     [records.value, templates.value, views.value] = await Promise.all([listRecords(id), listTemplates(id), listViews(id)]);
@@ -240,7 +277,7 @@ function removeView() {
 }
 
 // ---- Record actions ----
-const newRecord = () => router.push({ path: '/Agreements/record/new', query: { form: formId.value } });
+const newRecord = id => router.push({ path: '/Agreements/record/new', query: { form: id } });
 function openGenerate() {
   const r = records.value.find(x => x.id === selected.value[0]);
   gen.value = { id: r.id, title: r.title, values: r.values || {} };
@@ -293,7 +330,6 @@ async function runImport() {
   } catch (e) { fail(e, 'import'); }
   busy.value = false;
 }
-const STATUS = { draft: 'Draft', completed: 'Completed', archived: 'Archived' };
 async function exportAs(kind) {
   const { cols, rows: list } = grid.value.exportRows();
   const columns = cols.map(c => (c.field ? c : { ...c, plain: r => (c.key === '_status' ? STATUS[r.record.status] : millis(r.record.updatedAt) ? new Date(millis(r.record.updatedAt)).toLocaleString('en-GB') : '') }));
@@ -303,6 +339,17 @@ async function exportAs(kind) {
 </script>
 
 <style scoped>
+.ag-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.ag-card { cursor: pointer; display: grid; gap: 14px; transition: border-color var(--fast, .15s), box-shadow var(--fast, .15s), transform var(--fast, .15s); }
+.ag-card:hover, .ag-card:focus-visible { border-color: var(--accent); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 14%, transparent); transform: translateY(-1px); }
+.ag-card-top { display: flex; align-items: center; gap: 12px; }
+.ag-card-icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); font-size: 20px; flex: none; }
+.ag-card-name { flex: 1; min-width: 0; display: grid; }
+.ag-card-name b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-card-name small { color: var(--muted); font-size: 12px; }
+.ag-card-stats { display: flex; gap: 16px; font-size: 13px; color: var(--muted); }
+.ag-card-stats b { color: var(--text); font-size: 16px; margin-right: 2px; font-variant-numeric: tabular-nums; }
+.ag-card-acts { display: flex; gap: 6px; flex-wrap: wrap; cursor: default; }
 .rec-card { padding: 16px; }
 .rec-bar { margin-bottom: 10px; }
 .rec-note { margin: 10px 0 0; }
