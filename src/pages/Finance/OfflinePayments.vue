@@ -27,17 +27,18 @@
           <OptionPicker v-model="status" :options="STATUS_OPTS" label="Status" /></div>
       </div>
       <p class="help">{{ loading ? 'Loading…' : `${shown.length} record${shown.length === 1 ? '' : 's'}` }}</p>
-      <Paged :items="shown" v-slot="{ pageRows }">
+      <Paged :items="shown" :size="15" v-slot="{ pageRows }">
         <div class="table-wrap" :style="pageRows.length ? null : { minHeight: '0' }"><table class="table op-table">
-          <thead><tr><th>Date</th><th>Property</th><th>Unit</th><th>Guest</th><th class="num">Amount (RM)</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Property</th><th>Unit</th><th>Guest</th><th>Purpose</th><th class="num">Amount (RM)</th><th>Status</th><th>Submitted by</th><th></th></tr></thead>
           <tbody>
             <tr v-for="r in pageRows" :key="r.id">
-              <td>{{ r.date }}</td><td>{{ r.propertyName || '—' }}</td><td>{{ r.unitCode || '—' }}</td><td>{{ r.guest }}</td>
+              <td>{{ r.date }}</td><td>{{ r.propertyName || '—' }}</td><td>{{ r.unitCode || '—' }}</td><td>{{ r.guest }}</td><td class="purpose-cell"><span class="clamp" :title="r.purpose">{{ r.purpose || '—' }}</span></td>
               <td class="num">{{ Number(r.amount || 0).toFixed(2) }}</td>
               <td><span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span></td>
+              <td>{{ r.submittedByName || '—' }}</td>
               <td class="num"><button type="button" class="btn" @click="view = r; editing = false">View</button></td>
             </tr>
-            <tr v-if="!pageRows.length"><td colspan="7" class="muted empty">{{ loading ? 'Loading…' : 'No offline payments found.' }}</td></tr>
+            <tr v-if="!pageRows.length"><td colspan="9" class="muted empty">{{ loading ? 'Loading…' : 'No offline payments found.' }}</td></tr>
           </tbody>
         </table></div>
       </Paged>
@@ -55,7 +56,7 @@
             <div class="v-item"><span>Property</span><b>{{ view.propertyName || '—' }}</b></div>
             <div class="v-item"><span>Unit</span><b>{{ view.unitCode || '—' }}</b></div>
             <div class="v-item"><span>Guest / tenant</span><b>{{ view.guest }}</b></div>
-            <div class="v-item"><span>Purpose</span><b>{{ view.purpose }}</b></div>
+            <div class="v-item v-purpose"><span>Purpose</span><b>{{ view.purpose }}</b></div>
             <div class="v-item"><span>Bank reference</span><b>{{ view.bankRef || '—' }}</b></div>
             <div class="v-item"><span>Documents</span><b><a v-if="view.docsLink" :href="view.docsLink" target="_blank" rel="noopener">Open link</a><template v-else>None</template></b></div>
             <div class="v-item"><span>Verified by</span><b>{{ view.verifiedByName || '—' }}</b></div>
@@ -70,7 +71,7 @@
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="ed.unitCode" :disabled="!ed.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
             <div class="field"><label>Guest / tenant name</label><input class="input" v-model="ed.guest"></div>
-            <div class="field"><label>Purpose</label><input class="input" v-model="ed.purpose"></div>
+            <div class="field wide"><label>Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
             <div class="field"><label>Bank reference</label><input class="input" v-model="ed.bankRef"></div>
           </div>
           <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :label="nameOf(view)" :key="view.id" @folder="l => saveFolder(view, l)" />
@@ -104,7 +105,7 @@
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="f.unitCode" :disabled="!f.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
             <div class="field"><label>Guest / tenant name</label><input class="input" v-model="f.guest"></div>
-            <div class="field"><label>Purpose</label><input class="input" v-model="f.purpose" placeholder="e.g. Rental, security deposit"></div>
+            <div class="field wide"><label>Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
             <div class="field"><label>Bank reference</label><input class="input" v-model="f.bankRef"></div>
             
           <div class="field"><label>Status <span class="muted">(Unknown = no receipt)</span></label>
@@ -126,6 +127,7 @@
 import { collection, doc, getDocs, limit, orderBy, query, updateDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
+import { toast } from '@/lib/toast.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import Paged from '@/components/Paged.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
@@ -177,7 +179,7 @@ export default {
           status: f.status, verifiedByName: f.status === 'Pending' ? '' : me.name, verifiedDate: f.status === 'Pending' ? '' : today(), createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name });
         audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${ref.id}`, propertyId: f.propertyId, changes: [{ field: 'amount', old: null, new: +f.amount }] });
         await batch.commit();
-        this.open = false; this.done = 'Offline payment submitted as ' + f.status + '.'; await this.load();
+        this.open = false; toast('Changes saved'); this.done = 'Offline payment submitted as ' + f.status + '.'; await this.load();
       } catch (e) { this.formError = e.code === 'permission-denied' ? 'Firestore refused this. The latest security rules (offlinePayments) need to be published first.' : friendlyError(e, 'save the payment'); }
       this.busy = false;
     },
@@ -213,7 +215,7 @@ export default {
         const me = useSession(), batch = writeBatch(db);
         batch.update(doc(db, 'offlinePayments', r.id), data);
         audit(batch, me, { action: 'offlinePayment.update', entity: `offlinePayments/${r.id}`, propertyId: data.propertyId || null, changes });
-        await batch.commit(); Object.assign(r, data); this.editing = false;
+        await batch.commit(); Object.assign(r, data); this.editing = false; toast('Changes saved');
       } catch (err) { this.formError = friendlyError(err, 'save the changes'); }
       this.busy = false;
     },
@@ -224,7 +226,7 @@ export default {
         const batch = writeBatch(db);
         batch.update(doc(db, 'offlinePayments', r.id), data);
         audit(batch, me, { action: 'offlinePayment.update', entity: `offlinePayments/${r.id}`, propertyId: r.propertyId || null, changes: [{ field, old: was, new: data[field] }] });
-        await batch.commit(); Object.assign(r, data);
+        await batch.commit(); Object.assign(r, data); toast('Changes saved');
       } catch (e) { this.error = friendlyError(e, 'save the change'); }
     },
     setStatus(r, v) {
@@ -238,11 +240,16 @@ export default {
 </script>
 
 <style scoped>
+.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
+.v-purpose { grid-column: 1 / -1; }
+.v-purpose b { white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 600; line-height: 1.5; }
+.purpose-box { min-height: 84px !important; resize: vertical; line-height: 1.5; padding-top: 10px; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 8px; }
 .filters .grow { flex: 1; min-width: 220px; }
 .field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
 .op-table td, .op-table th { white-space: nowrap; }
+.op-table td.purpose-cell { white-space: normal; width: 30%; min-width: 180px; }
 .op-table .num { text-align: right; }
 .op-table .empty { text-align: center; padding: 28px 16px; }
 .op-table td :deep(.op-btn) { min-width: 110px; }
@@ -270,7 +277,7 @@ export default {
 .table-wrap { min-height: 260px; }
 .modal { max-width: 920px; width: min(920px, 100%); }
 .modal { padding: 18px 24px 0; }
-.modal .modal-foot { position: sticky; bottom: 0; background: var(--surface); padding: 12px 0 16px; margin-top: 8px; }
+.modal .modal-foot { padding: 12px 0 18px; margin-top: 8px; }
 .modal .field { margin-bottom: 0; }
 .modal .field label { margin-bottom: 4px; }
 .modal .input { min-height: 44px; font-size: 15px; }

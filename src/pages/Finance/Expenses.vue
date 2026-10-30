@@ -116,8 +116,13 @@
             </div>
             <div class="field">
               <label for="eFile">Receipt (optional)</label>
-              <div class="file-row"><UploadFile kind="expenses" :record-id="panel.id || panel.rid" :folder-label="`${panel.date} ${panel.description || panel.type}`" :multiple="false" label="⬆ Upload receipt" @done="f => panel.fileLink = f[0].url" />
-                <a v-if="panel.fileLink" :href="panel.fileLink" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: 'Receipt', url: panel.fileLink, kind: 'expenses' })">View receipt</a><button type="button" class="editlink" v-if="panel.fileLink" @click="panel.fileLink = ''">Remove</button></div>
+              <div class="rcpt" v-for="(fl, fi) in panel.files" :key="fl.link">
+                <span class="rcpt-ico">📎</span>
+                <div class="rcpt-name"><b>{{ fl.name || 'Receipt' }}</b><small>Saved in Google Drive</small></div>
+                <button type="button" class="ico-btn" title="View receipt" aria-label="View receipt" @click="$refs.viewer.open({ name: fl.name || 'Receipt', url: fl.link, kind: 'expenses' })"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                <button type="button" class="ico-btn danger" title="Remove receipt" aria-label="Remove receipt" @click="panel.files.splice(fi, 1)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+              </div>
+              <UploadFile kind="expenses" :record-id="panel.id || panel.rid" :folder-label="`${panel.date} ${panel.description || panel.type}`" :label="panel.files.length ? '＋ Add another receipt' : '⬆ Upload receipt'" @done="f => addReceipts(f)" />
               <div class="help">Receipts are saved to the company Google Drive; the PMS keeps only the link.</div>
             </div>
             <template v-if="panel.id">
@@ -225,17 +230,18 @@ export default {
     },
     canEdit(e) { return !this.completed && !this.unitDone(e.unitId) && !e.auto; },
 
+    addReceipts(list) { for (const f of list) if (!this.panel.files.some(x => x.link === f.url)) this.panel.files.push({ name: f.name, link: f.url }); },
     openAdd() {
       this.okMsg = '';
       const today = dayOffset(0);
       this.panel = { id: null, rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), kind: 'expense', unitId: '', date: today.slice(0, 7) === this.month ? today : `${this.month}-01`, month: this.month,
-        type: 'maintenance', description: '', cost: '', marginType: 'pct', marginValue: '', fileLink: '', reason: '', busy: false, error: '' };
+        type: 'maintenance', description: '', cost: '', marginType: 'pct', marginValue: '', files: [], reason: '', busy: false, error: '' };
       this.panelOpen = true;
     },
     openEdit(e) {
       this.okMsg = '';
       this.panel = { id: e.id, original: e, kind: e.kind, unitId: e.unitId, date: e.date, month: e.month, type: e.type, description: e.description || '',
-        cost: e.cost ?? e.amount, marginType: e.marginType || 'pct', marginValue: e.marginValue ?? '', fileLink: e.files?.[0]?.link || '', reason: '', busy: false, error: '' };
+        cost: e.cost ?? e.amount, marginType: e.marginType || 'pct', marginValue: e.marginValue ?? '', files: (e.files || []).map(x => ({ name: x.name, link: x.link })), reason: '', busy: false, error: '' };
       this.panelOpen = true;
     },
     close() { if (!this.panel.busy) this.panelOpen = false; },
@@ -252,13 +258,13 @@ export default {
       const data = { propertyId: this.propertyId, unitId: p.unitId, date: p.date, month: p.month, kind: p.kind, type: p.type,
         description: p.description.trim(), amount,
         cost: Math.round(Number(p.cost) * 100) / 100, marginType: p.marginType, marginValue: Number(p.marginValue) || 0 };
-      const link = p.fileLink.trim();
+      const keep = p.files.map(x => ({ name: x.name || 'Receipt', link: x.link, addedBy: me.name, addedAt: dayOffset(0) }));
       p.busy = true;
       try {
         const b = writeBatch(db);
         if (!p.id) {
           const ref = doc(collection(db, 'expenses'));
-          b.set(ref, { ...data, auto: false, sourceStatementId: null, files: link ? [{ name: 'Receipt', link, addedBy: me.name, addedAt: dayOffset(0) }] : [], deleted: false,
+          b.set(ref, { ...data, auto: false, sourceStatementId: null, files: keep, deleted: false,
             createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
           audit(b, me, { action: 'expense.create', entity: `expenses/${ref.id}`, propertyId: this.propertyId, month: p.month,
             changes: [{ field: 'amount', old: null, new: amount }] });
@@ -266,8 +272,12 @@ export default {
         } else {
           const o = { ...p.original, cost: p.original.cost ?? p.original.amount, marginType: p.original.marginType || 'pct', marginValue: p.original.marginValue ?? 0 };
           const changes = Object.keys(data).filter(k => String(o[k] ?? '') !== String(data[k] ?? '')).map(k => ({ field: k, old: o[k] ?? null, new: data[k] }));
-          const oldLink = o.files?.[0]?.link || '';
-          if (link !== oldLink) { data.files = link ? [{ name: 'Receipt', link, addedBy: me.name, addedAt: dayOffset(0) }] : []; changes.push({ field: 'files', old: oldLink || null, new: link || null }); }
+          const oldLinks = (o.files || []).map(x => x.link), newLinks = keep.map(x => x.link);
+          if (oldLinks.join('|') !== newLinks.join('|')) {
+            // Files already saved keep who added them and when; only new ones get stamped now
+            data.files = keep.map(x => (o.files || []).find(y => y.link === x.link) || x);
+            changes.push({ field: 'files', old: oldLinks.join(', ') || null, new: newLinks.join(', ') || null });
+          }
           if (!changes.length) { p.busy = false; this.panelOpen = false; return; }
           if (!p.reason.trim()) { p.busy = false; return p.error = 'Add a short reason. It goes in the audit log.'; }
           b.update(doc(db, 'expenses', p.id), { ...data, updatedBy: me.user.uid, updatedByName: me.name, updatedAt: serverTimestamp() });
@@ -321,5 +331,13 @@ export default {
     .seg.mini button { height: 34px; width: 40px; }
     .input.readonly { background: var(--chip); color: var(--text); font-weight: 600; cursor: default; }
     .drawer .seg { margin-bottom: 18px; }
+.rcpt { margin-bottom: 8px; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.rcpt-ico { width: 32px; height: 32px; border-radius: 8px; background: var(--accent-soft); display: grid; place-items: center; flex: none; }
+.rcpt-name { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
+.rcpt-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rcpt-name small { color: var(--muted); }
+.ico-btn { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--accent); cursor: pointer; flex: none; }
+.ico-btn.danger { color: var(--muted); }
+@media (hover: hover) { .ico-btn:hover { background: var(--accent-soft); border-color: var(--accent); } .ico-btn.danger:hover { color: #c0392b; border-color: #c0392b; background: #fdecea; } }
 .file-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 </style>

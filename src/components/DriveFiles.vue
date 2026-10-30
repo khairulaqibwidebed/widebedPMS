@@ -10,7 +10,7 @@
     <p class="help" v-if="loading">Loading files…</p>
     <ul class="d-list" v-else-if="files.length">
       <li v-for="f in files" :key="f.id"><span class="d-ico">{{ icon(f) }}</span><span class="d-name">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
-        <button type="button" class="btn" @click="view(f)">View</button></li>
+        <button type="button" class="ico-btn" title="View" aria-label="View" @click="view(f)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></li>
     </ul>
     <p class="help" v-else>No files yet.</p>
     <Teleport to="body">
@@ -81,6 +81,8 @@ export default {
 .d-prog { height: 4px; border-radius: 4px; background: var(--line); margin-bottom: 8px; overflow: hidden; }
 .d-prog span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
 .d-folder { display: inline-block; margin-top: 4px; color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.ico-btn { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--accent); cursor: pointer; flex: none; }
+@media (hover: hover) { .ico-btn:hover { background: var(--accent-soft); border-color: var(--accent); } }
 .d-ico { width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); display: grid; place-items: center; flex: none; }
 .d-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .d-title { font-size: 14px; font-weight: 600; }

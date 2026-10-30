@@ -39,9 +39,14 @@
             <div class="doc-row" v-for="(d, i) in data.docs" :key="d.name + i">
               <span class="doc-badge">{{ ext(d.name) }}</span>
               <div class="doc-name"><b>{{ d.name }}</b><small>{{ `Added by ${d.by} · ${d.on}` }}</small></div>
-              <button class="editlink" v-if="d.fileId" @click="$refs.viewer.open({ name: d.name, id: d.fileId, url: d.url, kind: 'sops' })">View</button>
-              <button class="editlink" @click="download(d)">Download</button>
-              <button class="doc-remove" v-show="canEdit" :disabled="busy" @click="removeDoc(i)">Remove</button>
+              <div class="act" @keydown.esc="menu = -1">
+                <button class="ico-btn" title="Actions" aria-label="Actions" :aria-expanded="menu === i" @click.stop="menu = menu === i ? -1 : i"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
+                <div class="act-menu" v-if="menu === i" @click.stop>
+                  <button v-if="d.fileId" @click="menu = -1; $refs.viewer.open({ name: d.name, id: d.fileId, url: d.url, kind: 'sops' })"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>View</button>
+                  <button @click="menu = -1; download(d)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg>Download</button>
+                  <button class="danger" v-show="canEdit" :disabled="busy" @click="menu = -1; removeDoc(i)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>Remove</button>
+                </div>
+              </div>
             </div>
             <div class="empty" v-show="!data.docs.length">No documents yet.</div>
           </div>
@@ -89,10 +94,12 @@ export default {
     const cfg = SOPS[key];
     // Starter content until HR saves the SOP for the first time.
     const seed = { steps: [...cfg.steps], editedBy: '', editedOn: '', log: [], docs: cfg.docs.map(([name, on]) => ({ name, on, by: 'HR' })) };
-    return { key, cfg, data: seed, saved: false, loading: true, loadErr: '', busy: false, up: { on: false, pct: 0, name: '', drag: false },
+    return { key, cfg, data: seed, saved: false, loading: true, loadErr: '', busy: false, menu: -1, up: { on: false, pct: 0, name: '', drag: false },
       canEdit: ['director', 'hr'].includes(me.role), editing: false, draft: [], reason: '', err: '' };
   },
+  beforeUnmount() { document.removeEventListener('click', this.closeMenu); },
   async mounted() {
+    document.addEventListener('click', this.closeMenu);
     try {
       const snap = await getDoc(doc(db, 'sops', this.key));
       if (snap.exists()) {
@@ -105,6 +112,7 @@ export default {
     this.loading = false;
   },
   methods: {
+    closeMenu() { this.menu = -1; },
     toast,
     ext(n) { return (n.split('.').pop() || '').toUpperCase().slice(0, 4); },
     // Writes the whole SOP (the first save creates sops/{key}) with its audit entry. Returns true when saved.
@@ -157,6 +165,15 @@ export default {
 </script>
 
 <style scoped>
+.ico-btn { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--accent); cursor: pointer; flex: none; }
+.act { position: relative; flex: none; }
+.act-menu { position: absolute; right: 0; top: 38px; z-index: 20; min-width: 140px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.14); padding: 6px; display: flex; flex-direction: column; }
+.act-menu button { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: 0; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-weight: 500; color: var(--text); cursor: pointer; }
+.act-menu button.danger { color: #c0392b; }
+@media (hover: hover) { .act-menu button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); } .act-menu button.danger:hover:not(:disabled) { background: #fdecea; color: #c0392b; } }
+.ico-btn.danger { color: var(--muted); }
+@media (hover: hover) { .ico-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); } .ico-btn.danger:hover:not(:disabled) { color: #c0392b; border-color: #c0392b; background: #fdecea; } }
+.ico-btn:disabled { opacity: .5; }
 .sop-prog { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--accent-soft); font-size: 13px; }
 .sop-prog-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; overflow-wrap: anywhere; }
 .sop-bar { height: 8px; border-radius: 8px; background: var(--surface); overflow: hidden; }
