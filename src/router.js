@@ -49,6 +49,9 @@ const routes = [
   ticked('/Agreements/setup', () => import('./pages/Agreements/Setup.vue'), 'Agreement Setup', 'agreementSetup'),
   ticked('/Agreements/setup/form/:id', () => import('./pages/Agreements/FormBuilder.vue'), 'Agreement Setup', 'agreementSetup', { title: 'Form builder' }),
   ticked('/Agreements/setup/template/:id', () => import('./pages/Agreements/Designer.vue'), 'Agreement Setup', 'agreementSetup', { title: 'Place fields' }),
+  ticked('/Agreements/setup/master/:id', () => import('./pages/Agreements/MasterFile.vue'), 'Agreement Setup', 'agreementSetup', { title: 'Master file' }),
+  // Fill-in page for tenants and landlords: no sign-in. The Apps Script checks the link's password.
+  { path: '/f/:slug', component: () => import('./pages/Agreements/PublicForm.vue'), meta: { public: true, title: 'Agreement form' } },
 
   page('/Playbook/onboarding', () => import('./pages/Playbook/Onboarding.vue'), 'Onboarding', ALL),
   page('/Playbook/business-model', () => import('./pages/Playbook/BusinessModel.vue'), 'Business Model', ALL),

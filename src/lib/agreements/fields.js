@@ -24,6 +24,10 @@ export const RESULT_TYPES = [
   { value: 'text', label: 'Text' }, { value: 'boolean', label: 'Yes / No' }
 ];
 
+// Record statuses. "submitted" = sent in through a fill-in link, waiting for staff to check.
+export const STATUS = { draft: 'Draft', submitted: 'To check', completed: 'Completed', archived: 'Archived' };
+export const STATUS_PILL = { draft: 'amber', submitted: 'blue', completed: 'green', archived: 'grey' };
+
 export const hasValue = f => f.type !== 'section';
 // Can be placed on an agreement page (attachments are kept with the record, not printed).
 export const placeable = f => hasValue(f) && f.type !== 'file';

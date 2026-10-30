@@ -116,7 +116,7 @@
 // Column layout lives in `view` (saved as a table view); rows are { id, record, values } with formulas worked out.
 import { ref, computed, nextTick } from 'vue';
 import { formatValue, valueType, parseInput } from '@/lib/agreements/format.js';
-import { hasValue, hasOptions, isEditableInGrid, TYPE_LABEL } from '@/lib/agreements/fields.js';
+import { hasValue, hasOptions, isEditableInGrid, TYPE_LABEL, STATUS, STATUS_PILL } from '@/lib/agreements/fields.js';
 import { millis } from '@/lib/agreements/data.js';
 
 const props = defineProps({
@@ -128,8 +128,6 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:view', 'update:selected', 'edit', 'open', 'column']);
 
-const STATUS = { draft: 'Draft', completed: 'Completed', archived: 'Archived' };
-const STATUS_PILL = { draft: 'amber', completed: 'green', archived: 'grey' };
 const OPS = { contains: 'contains', equals: 'is', notEquals: 'is not', gt: 'more than', lt: 'less than', empty: 'is empty', notEmpty: 'is not empty' };
 const CHANGEABLE = ['text', 'textarea', 'email', 'phone', 'number', 'currency', 'date', 'dropdown', 'radio', 'checkbox'];
 const BUILTIN = [{ key: '_status', label: 'Status' }, { key: '_updated', label: 'Last updated' }];

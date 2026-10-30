@@ -7,6 +7,7 @@
     <template v-if="tpl && form">
       <!-- Toolbar -->
       <div class="ag-bar ds-top card">
+        <button class="btn btn-sm" @click="leave">← Back</button>
         <div class="ds-title">
           <b>{{ tpl.name }}</b>
           <small>{{ form.name }} · {{ tpl.fileName }} <span class="tag">v{{ tpl.version }}</span></small>
@@ -32,7 +33,9 @@
           <option value="">Sample data</option>
           <option v-for="r in records" :key="r.id" :value="r.id">{{ r.title || 'Untitled' }}</option>
         </select>
-        <label class="btn btn-sm" :class="{ disabled: busy }">Replace PDF<input type="file" hidden accept="application/pdf,.pdf,.doc,.docx" @change="replaceFile"></label>
+        <button v-if="tpl.masterId" class="btn btn-sm" :disabled="busy" title="Use the latest wording of the master file" @click="fromMaster">Update from master</button>
+        <label class="btn btn-sm" :class="{ disabled: busy }">Replace PDF<input type="file" hidden accept="application/pdf,.pdf" @change="replaceFile"></label>
+        <button class="btn btn-sm" :disabled="autosave.status.value === 'saving'" @click="saveNow">Save</button>
         <button class="btn btn-sm btn-primary" @click="openGenerate">{{ previewRecord ? 'Generate agreement' : 'Preview PDF' }}</button>
       </div>
 
@@ -178,12 +181,12 @@ import { useRoute, useRouter } from 'vue-router';
 import PdfPage from '@/components/agreements/PdfPage.vue';
 import NameDialog from '@/components/agreements/NameDialog.vue';
 import GenerateDialog from '@/components/agreements/GenerateDialog.vue';
-import { getTemplate, getForm, saveTemplate, saveForm, listTemplates, listRecords, addTemplateVersion, restoreTemplateVersion } from '@/lib/agreements/data.js';
+import { getTemplate, getForm, getMaster, saveTemplate, saveForm, listTemplates, listRecords, addTemplateVersion, restoreTemplateVersion } from '@/lib/agreements/data.js';
 import { FIELD_TYPES, newField, newId, placeable, hasOptions, labelProblem, sampleValues } from '@/lib/agreements/fields.js';
 import { computeValues } from '@/lib/agreements/formula.js';
 import { FONTS, LINE, openPdf, mappingText } from '@/lib/agreements/pdf.js';
 import { loadFile } from '@/lib/agreements/drive.js';
-import { uploadTemplateFile, offPage } from '@/lib/agreements/templates.js';
+import { uploadTemplateFile, templateFromMaster, offPage } from '@/lib/agreements/templates.js';
 import { useUndo, useAutosave } from '@/lib/agreements/history.js';
 import './agreements.css';
 
@@ -427,6 +430,19 @@ async function replaceFile(e) {
   } catch (err) { error.value = err.message; }
   busy.value = false;
 }
+async function fromMaster() {
+  busy.value = true; error.value = '';
+  try {
+    await autosave.flush();
+    const master = await getMaster(tpl.value.masterId);
+    if (!master) throw new Error('The master file was archived or deleted.');
+    tpl.value = await addTemplateVersion(tpl.value, await templateFromMaster(master));
+    await loadPdf();
+  } catch (err) { error.value = 'Could not update from the master file: ' + err.message; }
+  busy.value = false;
+}
+async function saveNow() { await autosave.flush(); }
+async function leave() { await autosave.flush(); router.push('/Agreements/setup'); }
 async function restore(v) {
   busy.value = true;
   try { tpl.value = await restoreTemplateVersion(tpl.value, v); await loadPdf(); }

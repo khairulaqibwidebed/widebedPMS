@@ -6,6 +6,7 @@
 
     <template v-if="form">
       <div class="ag-bar fb-top">
+        <button class="btn btn-sm" @click="leave">← Back</button>
         <input class="input fb-name" v-model="name" aria-label="Form name" maxlength="120">
         <span class="ag-save" :class="{ error: autosave.status.value === 'error' }">{{ autosave.label.value }}</span>
         <span class="grow"></span>
@@ -15,6 +16,7 @@
           <button role="tab" :class="{ on: tab === 'fields' }" :aria-selected="String(tab === 'fields')" @click="tab = 'fields'">Fields</button>
           <button role="tab" :class="{ on: tab === 'preview' }" :aria-selected="String(tab === 'preview')" @click="tab = 'preview'">Try the form</button>
         </div>
+        <button class="btn btn-sm btn-primary" :disabled="autosave.status.value === 'saving'" @click="saveNow">Save</button>
       </div>
 
       <div class="ag-three">
@@ -40,7 +42,8 @@
                   <b>{{ f.label }}</b>
                   <small>
                     {{ TYPE_LABEL[f.type] }}<template v-if="f.required"> · required</template><template v-if="f.onForm === false"> · table only</template>
-                    <template v-if="f.showIf && f.showIf.fieldId"> · shown only when {{ labelOf(f.showIf.fieldId) }} {{ COND[f.showIf.op || 'equals'] }} {{ f.showIf.op === 'filled' ? '' : condText(f.showIf) }}</template>
+                    <template v-if="f.internalOnly"> · staff only</template>
+                  <template v-if="f.showIf && f.showIf.fieldId"> · shown only when {{ labelOf(f.showIf.fieldId) }} {{ COND[f.showIf.op || 'equals'] }} {{ f.showIf.op === 'filled' ? '' : condText(f.showIf) }}</template>
                   </small>
                   <code v-if="f.type === 'formula'" class="fb-fx" :class="{ bad: plan.errors.has(f.id) || !!sampleOut[f.id]?.error }">= {{ toDisplay(f.expr, fields) || '(empty)' }}</code>
                 </div>
@@ -115,6 +118,7 @@
               <label class="ag-check-row"><input type="checkbox" v-model="sel.required"> Required to complete</label>
             </template>
             <label class="ag-check-row"><input type="checkbox" :checked="sel.onForm !== false" @change="sel.onForm = $event.target.checked"><span>Show on the form<br><small class="help">Off = a table column only</small></span></label>
+            <label class="ag-check-row" v-if="sel.onForm !== false"><input type="checkbox" v-model="sel.internalOnly"><span>Staff only<br><small class="help">Hidden on fill-in links for tenants and landlords</small></span></label>
 
             <!-- Show only when -->
             <div class="field" v-if="sel.onForm !== false">
@@ -184,7 +188,7 @@
 <script setup>
 // Form builder: fields, their order, choices, formulas and "show only when" rules. Saves itself; undo/redo.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import FieldInput from '@/components/agreements/FieldInput.vue';
 import FormulaEditor from '@/components/agreements/FormulaEditor.vue';
 import ConfirmDialog from '@/components/agreements/ConfirmDialog.vue';
@@ -196,7 +200,7 @@ import { useUndo, useAutosave } from '@/lib/agreements/history.js';
 import './agreements.css';
 
 const COND = { equals: 'is', notEquals: 'is not', filled: 'is filled in' };
-const route = useRoute();
+const route = useRoute(), router = useRouter();
 const loading = ref(true), error = ref(''), form = ref(null), name = ref(''), fields = ref([]);
 const selectedId = ref(''), tab = ref('fields'), drag = ref(null), dropAt = ref(-1), ask = ref(null), templates = ref([]);
 const sample = ref({});
@@ -231,6 +235,10 @@ watch([name, fields], () => {
   autosave.touch();
   clearTimeout(commitTimer); commitTimer = setTimeout(undo.commit, 350);
 }, { deep: true });
+
+// Save now (changes also save by themselves) and Back to Agreement Setup.
+async function saveNow() { await autosave.flush(); }
+async function leave() { await autosave.flush(); router.push('/Agreements/setup'); }
 
 function onKey(e) {
   if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' && e.key.toLowerCase() !== 'y') return;

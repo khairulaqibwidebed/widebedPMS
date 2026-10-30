@@ -15,7 +15,33 @@
 
     <section class="card setup-card">
       <div class="card-head">
-        <h2>1. Forms</h2>
+        <h2>1. Master files <small class="muted">Word / Google Docs</small></h2>
+        <button class="btn btn-primary btn-sm" :disabled="!driveReady()" @click="addMaster = { source: 'word', name: '', file: null, url: '', error: '' }">+ Add master file</button>
+      </div>
+      <p class="card-intro">Your original agreements, kept in the Drive folder "Master File (DO NOT EDIT)". Edit them through a working copy in Google Docs, then turn them into templates.</p>
+      <div class="table-wrap">
+        <table class="table hover-rows">
+          <thead><tr><th>Master file</th><th class="num">Templates</th><th>Status</th><th>Last changed</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="m in masters" :key="m.id">
+              <td><RouterLink class="setup-name" :to="'/Agreements/setup/master/' + m.id">{{ m.name }}</RouterLink></td>
+              <td class="num">{{ templates.filter(t => t.masterId === m.id).length }}</td>
+              <td><span class="pill" :class="m.editing ? 'amber' : 'green'">{{ m.editing ? 'Being edited by ' + m.editing.byName : 'Ready' }}</span></td>
+              <td class="muted">{{ when(m.updatedAt) }}</td>
+              <td class="setup-acts">
+                <RouterLink class="act-pill" :to="'/Agreements/setup/master/' + m.id">Open / edit</RouterLink>
+                <button class="act-pill danger" @click="archive('master', m)">Archive</button>
+              </td>
+            </tr>
+            <tr v-if="!loading && !masters.length"><td colspan="5" class="muted">No master files yet. Add a Word file or a Google Docs link.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card setup-card">
+      <div class="card-head">
+        <h2>2. Forms</h2>
         <button class="btn btn-primary btn-sm" @click="ask = { kind: 'newForm', starter: '' }">+ New form</button>
       </div>
       <p class="card-intro">The questions staff answer. Each form has its own records table and can have several templates.</p>
@@ -44,10 +70,10 @@
 
     <section class="card setup-card">
       <div class="card-head">
-        <h2>2. Agreement templates</h2>
-        <button class="btn btn-primary btn-sm" :disabled="!forms.length || !driveReady()" @click="upload = { name: '', formId: forms[0]?.id, file: null, error: '' }">+ Upload template</button>
+        <h2>3. Agreement templates</h2>
+        <button class="btn btn-primary btn-sm" :disabled="!forms.length || !driveReady()" @click="upload = { source: masters.length ? 'master' : 'pdf', masterId: masters[0]?.id || '', name: masters[0]?.name || '', formId: forms[0]?.id, file: null, error: '' }">+ New template</button>
       </div>
-      <p class="card-intro">Your own agreement as a PDF. Open it in the designer and drag the form's fields onto the page. Word files: save them as PDF first.</p>
+      <p class="card-intro">The agreement as a PDF (from a master file or an uploaded PDF). Open it and drag the form's fields onto the page.</p>
       <div class="table-wrap">
         <table class="table hover-rows">
           <thead><tr><th>Template</th><th>Form</th><th>File</th><th class="num">Pages</th><th class="num">Fields placed</th><th>Last changed</th><th></th></tr></thead>
@@ -55,7 +81,7 @@
             <tr v-for="t in templates" :key="t.id">
               <td><RouterLink class="setup-name" :to="'/Agreements/setup/template/' + t.id">{{ t.name }}</RouterLink></td>
               <td>{{ formName(t.formId) }}</td>
-              <td class="muted">{{ t.fileName }} <span class="tag">v{{ t.version }}</span></td>
+              <td class="muted">{{ t.masterId ? '📄 ' + masterName(t.masterId) : t.fileName }} <span class="tag">v{{ t.version }}</span></td>
               <td class="num">{{ t.pages.length }}</td>
               <td class="num">{{ (t.mappings || []).length }}</td>
               <td class="muted">{{ when(t.updatedAt) }}</td>
@@ -76,9 +102,10 @@
       <h2>How it works</h2>
       <ol>
         <li><b>Form:</b> add the questions (text, money, dates, dropdowns, signatures…) and formulas such as <code>[Monthly Rental] * 2</code>.</li>
-        <li><b>Template:</b> upload the agreement PDF and link it to the form.</li>
+        <li><b>Master file:</b> add your Word / Google Docs agreement. Edit its wording any time in Google Docs.</li>
+        <li><b>Template:</b> make a template from the master file (or upload a PDF) and link it to the form.</li>
         <li><b>Place fields:</b> drag each field onto the page where its answer should print. Formula answers can be placed too.</li>
-        <li><b>Fill in:</b> staff fill the form under Agreements; each one becomes a row in the table.</li>
+        <li><b>Fill in:</b> staff fill the form under Agreements, or send a fill-in link so tenants and landlords fill in and sign it themselves.</li>
         <li><b>Generate:</b> pick a record and a template to download the finished PDF. A copy is kept in Google Drive.</li>
       </ol>
     </section>
@@ -100,12 +127,24 @@
     <!-- Upload a template -->
     <div class="modal-back" v-if="upload" @click.self="!busy && (upload = null)">
       <form class="modal" role="dialog" aria-label="Upload template" @submit.prevent="doUpload">
-        <h2>Upload an agreement template</h2>
+        <h2>New agreement template</h2>
         <div class="notice error" v-if="upload.error">{{ upload.error }}</div>
-        <div class="field">
+        <div class="seg" role="radiogroup" aria-label="Where the template comes from">
+          <button type="button" :class="{ on: upload.source === 'master' }" @click="upload.source = 'master'">Use a master file</button>
+          <button type="button" :class="{ on: upload.source === 'pdf' }" @click="upload.source = 'pdf'">Upload a PDF</button>
+        </div>
+        <div class="field" v-if="upload.source === 'master'">
+          <label for="tplMaster">Master file</label>
+          <select id="tplMaster" class="input select" v-model="upload.masterId" required>
+            <option v-for="m in masters" :key="m.id" :value="m.id">{{ m.name }}</option>
+          </select>
+          <span class="help" v-if="!masters.length">No master files yet. Add one in section 1 first.</span>
+          <span class="help" v-else>The master's current wording is turned into a PDF. Update it later from the master file page.</span>
+        </div>
+        <div class="field" v-else>
           <label for="tplFile">PDF file</label>
-          <input id="tplFile" class="input" type="file" accept="application/pdf,.pdf,.doc,.docx" @change="pickFile" required>
-          <span class="help">Up to 15 MB. Word files: in Word choose File → Save As → PDF first.</span>
+          <input id="tplFile" class="input" type="file" accept="application/pdf,.pdf" @change="pickFile" required>
+          <span class="help">Up to 15 MB. For a Word file, add it as a master file instead.</span>
         </div>
         <div class="field">
           <label for="tplName">Template name</label>
@@ -117,7 +156,37 @@
         </div>
         <div class="modal-foot">
           <button type="button" class="btn" :disabled="busy" @click="upload = null">Cancel</button>
-          <button type="submit" class="btn btn-primary" :disabled="busy || !upload.file || !upload.name.trim()">{{ busy ? 'Uploading…' : 'Upload and place fields' }}</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy || (upload.source === 'pdf' ? !upload.file : !upload.masterId) || !upload.name.trim()">{{ busy ? 'Preparing…' : 'Create and place fields' }}</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Add a master file -->
+    <div class="modal-back" v-if="addMaster" @click.self="!busy && (addMaster = null)">
+      <form class="modal" role="dialog" aria-label="Add master file" @submit.prevent="doAddMaster">
+        <h2>Add a master file</h2>
+        <div class="notice error" v-if="addMaster.error">{{ addMaster.error }}</div>
+        <div class="seg" role="radiogroup" aria-label="Source">
+          <button type="button" :class="{ on: addMaster.source === 'word' }" @click="addMaster.source = 'word'">Upload a Word file</button>
+          <button type="button" :class="{ on: addMaster.source === 'gdoc' }" @click="addMaster.source = 'gdoc'">Google Docs link</button>
+        </div>
+        <div class="field" v-if="addMaster.source === 'word'">
+          <label for="mWord">Word file (.docx)</label>
+          <input id="mWord" class="input" type="file" accept=".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword" @change="pickWord" required>
+          <span class="help">It becomes a Google Doc so it can be edited online. Up to 15 MB.</span>
+        </div>
+        <div class="field" v-else>
+          <label for="mUrl">Google Docs link</label>
+          <input id="mUrl" class="input" v-model="addMaster.url" placeholder="https://docs.google.com/document/d/…" required>
+          <span class="help">Share the document with the company Google account first. A copy is made; the original stays where it is.</span>
+        </div>
+        <div class="field">
+          <label for="mName">Name</label>
+          <input id="mName" class="input" v-model="addMaster.name" required placeholder="e.g. General Tenancy Agreement">
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn" :disabled="busy" @click="addMaster = null">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy || !addMaster.name.trim() || (addMaster.source === 'word' ? !addMaster.file : !addMaster.url.trim())">{{ busy ? 'Adding…' : 'Add master file' }}</button>
         </div>
       </form>
     </div>
@@ -130,16 +199,17 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import NameDialog from '@/components/agreements/NameDialog.vue';
 import ConfirmDialog from '@/components/agreements/ConfirmDialog.vue';
-import { listForms, listTemplates, createForm, saveForm, createTemplate, saveTemplate, audit, millis } from '@/lib/agreements/data.js';
+import { listForms, listTemplates, createForm, saveForm, createTemplate, saveTemplate, audit, millis, listMasters, createMaster, saveMaster } from '@/lib/agreements/data.js';
 import { STARTERS, starterFields } from '@/lib/agreements/starters.js';
-import { uploadTemplateFile } from '@/lib/agreements/templates.js';
-import { driveReady } from '@/lib/agreements/drive.js';
+import { uploadTemplateFile, templateFromMaster } from '@/lib/agreements/templates.js';
+import { driveReady, importMaster } from '@/lib/agreements/drive.js';
 import { newId } from '@/lib/agreements/fields.js';
 import './agreements.css';
 
 const router = useRouter();
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
-const forms = ref([]), templates = ref([]), ask = ref(null), upload = ref(null);
+const forms = ref([]), templates = ref([]), masters = ref([]), ask = ref(null), upload = ref(null), addMaster = ref(null);
+const masterName = id => masters.value.find(m => m.id === id)?.name || 'Master file';
 const when = t => { const ms = millis(t); return ms ? new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; };
 const formName = id => forms.value.find(f => f.id === id)?.name || 'Archived form';
 const starterName = key => STARTERS.find(s => s.key === key)?.name || 'New form';
@@ -147,7 +217,7 @@ const flash = m => { okMsg.value = m; error.value = ''; setTimeout(() => { if (o
 const fail = (e, what) => { console.error(e); error.value = e.code === 'permission-denied' ? `You don't have permission to ${what}.` : `Could not ${what}: ${e.message}`; };
 
 async function load() {
-  try { [forms.value, templates.value] = await Promise.all([listForms(), listTemplates()]); }
+  try { [forms.value, templates.value, masters.value] = await Promise.all([listForms(), listTemplates(), listMasters()]); }
   catch (e) { fail(e, 'load the setup'); }
   loading.value = false;
 }
@@ -182,12 +252,14 @@ async function rename(kind, item, name) {
   } catch (e) { fail(e, 'rename'); }
 }
 function archive(kind, item) {
-  const records = kind === 'form' ? ' Its records and templates are kept but hidden.' : ' Agreements already made from it are kept.';
+  const records = kind === 'form' ? ' Its records and templates are kept but hidden.' : kind === 'master' ? ' The Google Doc stays in Drive and templates made from it keep working.' : ' Agreements already made from it are kept.';
+  const col = { form: 'agreementForms', template: 'agreementTemplates', master: 'agreementMasters' }[kind];
+  const save = { form: saveForm, template: saveTemplate, master: saveMaster }[kind];
   ask.value = { kind: 'confirm', title: `Archive "${item.name}"?`, text: 'It disappears from the lists.' + records, confirm: 'Archive',
     run: async () => {
       try {
-        await (kind === 'form' ? saveForm(item.id, { archived: true }) : saveTemplate(item.id, { archived: true }));
-        audit(`agreement.${kind}.archive`, `${kind === 'form' ? 'agreementForms' : 'agreementTemplates'}/${item.id}`, item.name);
+        await save(item.id, { archived: true });
+        audit(`agreement.${kind}.archive`, `${col}/${item.id}`, item.name);
         await load(); flash('Archived.');
       } catch (e) { fail(e, 'archive'); }
     } };
@@ -198,12 +270,33 @@ function pickFile(e) {
   upload.value.file = file || null; upload.value.error = '';
   if (file && !upload.value.name.trim()) upload.value.name = file.name.replace(/\.[^.]+$/, '');
 }
+function pickWord(e) {
+  const file = e.target.files[0];
+  addMaster.value.file = file || null; addMaster.value.error = '';
+  if (file && !addMaster.value.name.trim()) addMaster.value.name = file.name.replace(/\.[^.]+$/, '');
+}
+async function doAddMaster() {
+  const a = addMaster.value;
+  busy.value = true; a.error = '';
+  try {
+    let r;
+    if (a.source === 'word') {
+      if (!/\.docx?$/i.test(a.file.name)) throw new Error('Choose a Word file (.docx).');
+      const bytes = new Uint8Array(await a.file.arrayBuffer());
+      const mime = /\.doc$/i.test(a.file.name) ? 'application/msword' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      r = await importMaster({ name: a.name.trim(), bytes, mime });
+    } else r = await importMaster({ name: a.name.trim(), docUrl: a.url.trim() });
+    const id = await createMaster({ name: a.name.trim(), docId: r.docId, url: r.url, source: a.source === 'word' ? a.file.name : 'Google Docs link' });
+    router.push('/Agreements/setup/master/' + id);
+  } catch (e) { a.error = e.message; busy.value = false; }
+}
 async function doUpload() {
   const u = upload.value;
   busy.value = true; u.error = '';
   try {
-    const file = await uploadTemplateFile(u.file);
-    const id = await createTemplate({ name: u.name.trim(), formId: u.formId, file });
+    const master = u.source === 'master' ? masters.value.find(m => m.id === u.masterId) : null;
+    const file = master ? await templateFromMaster(master) : await uploadTemplateFile(u.file);
+    const id = await createTemplate({ name: u.name.trim(), formId: u.formId, file, masterId: master?.id || '' });
     router.push('/Agreements/setup/template/' + id);
   } catch (e) { u.error = e.message; busy.value = false; }
 }

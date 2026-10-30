@@ -43,7 +43,8 @@
 
     <div v-else-if="field.type === 'image' || field.type === 'file'" class="ag-upload">
       <template v-if="modelValue && modelValue.id">
-        <button type="button" class="link" @click="download">{{ modelValue.name }}</button>
+        <button v-if="!uploader" type="button" class="link" @click="download">{{ modelValue.name }}</button>
+        <span v-else class="ag-file">📎 {{ modelValue.name }}</span>
         <button type="button" class="btn btn-sm" :disabled="disabled" @click="set('')">Remove</button>
       </template>
       <label v-else class="filedrop" :class="{ off: disabled || busy }">
@@ -74,7 +75,9 @@ const props = defineProps({
   field: { type: Object, required: true },
   modelValue: { default: '' },
   error: { type: String, default: '' },
-  disabled: Boolean
+  disabled: Boolean,
+  // The public fill-in page uploads through its link instead of a staff sign-in: (bytes, name, mime) => { id, name, mime }.
+  uploader: { type: Function, default: null }
 });
 const emit = defineEmits(['update:modelValue']);
 const id = computed(() => 'fld-' + props.field.id);
@@ -107,7 +110,7 @@ async function upload(e) {
       if (mime !== 'application/pdf') throw new Error('Choose a PDF or a photo.');
     }
     const name = safeFileName(file.name.replace(/\.[^.]+$/, '') + (mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : '.jpg'));
-    set(await uploadBytes('attachments', bytes, name, mime));
+    set(await (props.uploader ? props.uploader(bytes, name, mime) : uploadBytes('attachments', bytes, name, mime)));
   } catch (err) { upErr.value = err.message; }
   busy.value = false;
 }
