@@ -69,14 +69,20 @@ async function folder(tok, parent, name) {
 // Month folder name in Malaysia time, e.g. "2026-10 October", so folders sort by month
 const monthName = () => { const d = new Date(Date.now() + 8 * 3600e3); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${['January','February','March','April','May','June','July','August','September','October','November','December'][d.getUTCMonth()]}`; };
 // Root / Page / Month / [record]. Pages that keep one folder per record (recordId) get it inside the month; the others put files straight in the month.
-async function recordFolder(tok, kind, recordId) {
+async function recordFolder(tok, kind, recordId, label = '') {
   const root = process.env.DRIVE_ROOT_FOLDER_ID;
   if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
   if (!KINDS[kind]) throw new HttpError(400, 'Unknown folder type.');
   if (recordId && !SAFE.test(recordId)) throw new HttpError(400, 'Bad record id.');
   const kindId = await folder(tok, root, KINDS[kind]);
   const monthId = await folder(tok, kindId, monthName());
-  return recordId ? folder(tok, monthId, recordId) : monthId;
+  if (!recordId) return monthId;
+  // Named "<label> (<last 5 of id>)"; found again by the id part so a changed label never makes a second folder
+  const tag = recordId.slice(-5), clean = String(label || '').replace(/[\\/'"]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const url = `${API}/files?q=${encodeURIComponent(`'${monthId}' in parents and name contains '(${tag})' and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const found = (await (await g(url, tok)).json()).files?.[0];
+  if (found) return found.id;
+  return folder(tok, monthId, `${clean || kind} (${tag})`);
 }
 
 export default async function handler(req, res) {
@@ -109,7 +115,7 @@ export default async function handler(req, res) {
       for (const name of Object.values(KINDS)) await folder(tok, await folder(tok, root, name), monthName());
       return res.status(200).json({ ok: true });
     }
-    const folderId = await recordFolder(tok, b.kind, b.recordId);
+    const folderId = await recordFolder(tok, b.kind, b.recordId, b.label);
     const folderLink = `https://drive.google.com/drive/folders/${folderId}`;
     if (b.action === 'session') {
       const name = String(b.name || 'file').replace(/[\\/]/g, '_').slice(0, 200);

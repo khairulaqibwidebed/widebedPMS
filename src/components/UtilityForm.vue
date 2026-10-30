@@ -32,7 +32,7 @@
       </div>
       <div class="field"><label>Utility bills <span class="muted">(photos or PDFs, saved to Google Drive)</span></label>
         <p class="help" v-if="!bookingId">Choose a booking first.</p>
-        <DriveFiles v-else :key="bookingId" kind="utility-bills" :record-id="bookingId" @folder="l => f.invoiceLink = l" /></div>
+        <DriveFiles v-else :key="bookingId" kind="utility-bills" :record-id="bookingId" :label="`${picked?.unitCode || ''} ${bookingId}`" @folder="l => f.invoiceLink = l" /></div>
       <p class="total">Total utility amount: <b>{{ rm(total) }}</b></p>
     </section>
 

@@ -28,7 +28,7 @@
         </div>
       </div>
     </Teleport>
-    <a class="help" v-if="folderLink" :href="folderLink" target="_blank" rel="noopener">Open the Drive folder</a>
+    <a class="d-folder" v-if="folderLink" :href="folderLink" target="_blank" rel="noopener">Open the Drive folder</a>
   </div>
 </template>
 
@@ -37,7 +37,7 @@ import { ensureFolders, listFiles, uploadFile, fileBlob } from '@/lib/drive.js';
 
 // Lists a record's Drive folder and uploads into it. The folder is created on the first upload.
 export default {
-  props: { kind: { type: String, required: true }, recordId: { type: String, required: true }, listOnLoad: { type: Boolean, default: true } },
+  props: { kind: { type: String, required: true }, recordId: { type: String, required: true }, label: { type: String, default: '' }, listOnLoad: { type: Boolean, default: true } },
   emits: ['folder'],
   data() { return { drag: false, files: [], folderLink: '', loading: false, viewing: null, url: '', vLoading: false, vError: '', busy: false, pct: 0, error: '' }; },
   mounted() { ensureFolders(); if (this.listOnLoad) this.load(); },
@@ -55,7 +55,7 @@ export default {
     size(n) { return !n ? '' : n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`; },
     async load() {
       this.loading = true; this.error = '';
-      try { const r = await listFiles(this.kind, this.recordId); this.files = r.files; this.folderLink = r.folderLink; }
+      try { const r = await listFiles(this.kind, this.recordId, this.label); this.files = r.files; this.folderLink = r.folderLink; }
       catch (e) { this.error = e.message; }
       this.loading = false;
     },
@@ -65,7 +65,7 @@ export default {
       if (!list.length || this.busy) return;
       this.busy = true; this.error = '';
       try {
-        for (const [i, file] of list.entries()) this.folderLink = String(await uploadFile(this.kind, this.recordId, file, p => { this.pct = Math.round(((i + p) / list.length) * 100); }));
+        for (const [i, file] of list.entries()) this.folderLink = String(await uploadFile(this.kind, this.recordId, file, p => { this.pct = Math.round(((i + p) / list.length) * 100); }, this.label));
         this.$emit('folder', this.folderLink);
         await this.load();
       } catch (err) { this.error = err.message; }
@@ -80,6 +80,7 @@ export default {
 .drive.drag { border-color: var(--accent); background: var(--accent-soft); }
 .d-prog { height: 4px; border-radius: 4px; background: var(--line); margin-bottom: 8px; overflow: hidden; }
 .d-prog span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.d-folder { display: inline-block; margin-top: 4px; color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .d-ico { width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); display: grid; place-items: center; flex: none; }
 .d-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .d-title { font-size: 14px; font-weight: 600; }

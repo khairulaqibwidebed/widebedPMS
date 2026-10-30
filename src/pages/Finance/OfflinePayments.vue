@@ -73,7 +73,7 @@
             <div class="field"><label>Purpose</label><input class="input" v-model="ed.purpose"></div>
             <div class="field"><label>Bank reference</label><input class="input" v-model="ed.bankRef"></div>
           </div>
-          <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :key="view.id" @folder="l => saveFolder(view, l)" />
+          <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :label="nameOf(view)" :key="view.id" @folder="l => saveFolder(view, l)" />
           <div class="v-edit">
             <div class="field"><label>Status</label>
               <OptionPicker class="fld-pick" :model-value="view.status" :options="STATUSES.map(s => ({ value: s, label: s }))" label="Status" @update:modelValue="v => setStatus(view, v)" /></div>
@@ -110,7 +110,7 @@
           <div class="field"><label>Status <span class="muted">(Unknown = no receipt)</span></label>
             <OptionPicker class="fld-pick" v-model="f.status" :options="STATUSES.map(s => ({ value: s, label: s }))" label="Status" /></div>
           <div class="field wide"><label>Remarks</label><input class="input" v-model="f.remarks"></div>
-            <div class="field wide"><label>Receipts / documents <span class="muted">(optional)</span></label><DriveFiles kind="offline-payments" :record-id="newId" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
+            <div class="field wide"><label>Receipts / documents <span class="muted">(optional)</span></label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
           </div>
           <div class="modal-foot">
             <button type="button" class="btn" @click="open = false">Cancel</button>
@@ -182,6 +182,7 @@ export default {
       this.busy = false;
     },
     // The Drive folder link is kept on the record so the table's Documents shows it
+    nameOf(r) { return [r.date, r.unitCode, r.guest].filter(Boolean).join(' '); },
     saveFolder(r, link) { if (link && link !== r.docsLink) this.patch(r, { docsLink: link }, 'docsLink', r.docsLink || ''); },
     async startEdit() {
       const r = this.view;
