@@ -1,14 +1,15 @@
 <template>
-  <div class="drive">
+  <div class="drive" :class="{ drag }" @dragover.prevent="drag = true" @dragleave.self="drag = false" @drop.prevent="drop">
     <div class="d-head">
-      <span class="d-title">Files <span class="muted">(photos, PDFs, videos)</span></span>
+      <span class="d-title">Files <span class="muted">(photos, PDFs, videos) · drop files here</span></span>
       <label class="btn" :class="{ off: busy }">{{ busy ? `Uploading ${pct}%` : '+ Upload' }}
         <input type="file" multiple hidden :disabled="busy" accept="image/*,application/pdf,video/*" @change="pick"></label>
     </div>
+    <div class="d-prog" v-if="busy"><span :style="{ width: pct + '%' }"></span></div>
     <div class="notice error" v-show="error">{{ error }}</div>
     <p class="help" v-if="loading">Loading files…</p>
     <ul class="d-list" v-else-if="files.length">
-      <li v-for="f in files" :key="f.id"><span class="d-name">{{ icon(f) }} {{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
+      <li v-for="f in files" :key="f.id"><span class="d-ico">{{ icon(f) }}</span><span class="d-name">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
         <button type="button" class="btn" @click="view(f)">View</button></li>
     </ul>
     <p class="help" v-else>No files yet.</p>
@@ -32,14 +33,14 @@
 </template>
 
 <script>
-import { listFiles, uploadFile, fileBlob } from '@/lib/drive.js';
+import { ensureFolders, listFiles, uploadFile, fileBlob } from '@/lib/drive.js';
 
 // Lists a record's Drive folder and uploads into it. The folder is created on the first upload.
 export default {
   props: { kind: { type: String, required: true }, recordId: { type: String, required: true }, listOnLoad: { type: Boolean, default: true } },
   emits: ['folder'],
-  data() { return { files: [], folderLink: '', loading: false, viewing: null, url: '', vLoading: false, vError: '', busy: false, pct: 0, error: '' }; },
-  mounted() { if (this.listOnLoad) this.load(); },
+  data() { return { drag: false, files: [], folderLink: '', loading: false, viewing: null, url: '', vLoading: false, vError: '', busy: false, pct: 0, error: '' }; },
+  mounted() { ensureFolders(); if (this.listOnLoad) this.load(); },
   methods: {
     kindOf(f) { const m = f.mimeType || ''; return m.startsWith('image/') ? 'image' : m.startsWith('video/') ? 'video' : m === 'application/pdf' ? 'pdf' : 'other'; },
     async view(f) {
@@ -58,9 +59,10 @@ export default {
       catch (e) { this.error = e.message; }
       this.loading = false;
     },
-    async pick(e) {
-      const list = [...e.target.files]; e.target.value = '';
-      if (!list.length) return;
+    pick(e) { const l = [...e.target.files]; e.target.value = ''; return this.send(l); },
+    drop(e) { this.drag = false; return this.send([...e.dataTransfer.files]); },
+    async send(list) {
+      if (!list.length || this.busy) return;
       this.busy = true; this.error = '';
       try {
         for (const [i, file] of list.entries()) this.folderLink = String(await uploadFile(this.kind, this.recordId, file, p => { this.pct = Math.round(((i + p) / list.length) * 100); }));
@@ -74,12 +76,16 @@ export default {
 </script>
 
 <style scoped>
-.drive { border: 1px dashed var(--border); border-radius: 12px; padding: 12px 14px; }
+.drive { border: 1.5px dashed var(--border); border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--accent-soft) 25%, var(--surface)); transition: border-color .15s, background .15s; }
+.drive.drag { border-color: var(--accent); background: var(--accent-soft); }
+.d-prog { height: 4px; border-radius: 4px; background: var(--line); margin-bottom: 8px; overflow: hidden; }
+.d-prog span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.d-ico { width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); display: grid; place-items: center; flex: none; }
 .d-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .d-title { font-size: 14px; font-weight: 600; }
 .btn.off { opacity: .6; pointer-events: none; }
 .d-list { list-style: none; margin: 0 0 6px; padding: 0; }
-.d-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.d-list li { display: flex; gap: 10px; padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 13px; }
 .d-list li { align-items: center; }
 .d-name { flex: 1; overflow-wrap: anywhere; }
 .vwr { max-width: 960px; width: 100%; padding: 14px 18px; }

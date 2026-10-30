@@ -66,13 +66,17 @@ async function folder(tok, parent, name) {
     body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] }) });
   return (await made.json()).id;
 }
+// Month folder name in Malaysia time, e.g. "2026-10 October", so folders sort by month
+const monthName = () => { const d = new Date(Date.now() + 8 * 3600e3); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${['January','February','March','April','May','June','July','August','September','October','November','December'][d.getUTCMonth()]}`; };
+// Root / Page / Month / [record]. Pages that keep one folder per record (recordId) get it inside the month; the others put files straight in the month.
 async function recordFolder(tok, kind, recordId) {
   const root = process.env.DRIVE_ROOT_FOLDER_ID;
   if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
   if (!KINDS[kind]) throw new HttpError(400, 'Unknown folder type.');
-  if (!SAFE.test(recordId || '')) throw new HttpError(400, 'Bad record id.');
+  if (recordId && !SAFE.test(recordId)) throw new HttpError(400, 'Bad record id.');
   const kindId = await folder(tok, root, KINDS[kind]);
-  return folder(tok, kindId, recordId);
+  const monthId = await folder(tok, kindId, monthName());
+  return recordId ? folder(tok, monthId, recordId) : monthId;
 }
 
 export default async function handler(req, res) {
@@ -88,12 +92,22 @@ export default async function handler(req, res) {
       if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
       const kindId = await folder(tok, root, KINDS[b.kind]);
       const meta = await (await g(`${API}/files/${b.fileId}?fields=name,mimeType,size,parents&supportsAllDrives=true`, tok)).json();
-      const parent = meta.parents?.[0] ? await (await g(`${API}/files/${meta.parents[0]}?fields=parents&supportsAllDrives=true`, tok)).json() : {};
-      if (!(meta.parents || []).includes(kindId) && !(parent.parents || []).includes(kindId)) throw new HttpError(403, 'That file is not in this area.');
+      let ok = false, ids = meta.parents || [];
+      for (let depth = 0; depth < 3 && !ok && ids.length; depth++) {
+        ok = ids.includes(kindId);
+        if (!ok) ids = (await (await g(`${API}/files/${ids[0]}?fields=parents&supportsAllDrives=true`, tok)).json()).parents || [];
+      }
+      if (!ok) throw new HttpError(403, 'That file is not in this area.');
       if (+meta.size > 4 * 1024 * 1024) throw new HttpError(413, 'Too large to preview here. Open it in Drive.');
       const data = Buffer.from(await (await g(`${API}/files/${b.fileId}?alt=media&supportsAllDrives=true`, tok)).arrayBuffer());
       res.setHeader('Content-Type', meta.mimeType || 'application/octet-stream');
       return res.status(200).send(data);
+    }
+    if (b.action === 'setup') { // makes every page folder and this month's folder inside it
+      const root = process.env.DRIVE_ROOT_FOLDER_ID;
+      if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
+      for (const name of Object.values(KINDS)) await folder(tok, await folder(tok, root, name), monthName());
+      return res.status(200).json({ ok: true });
     }
     const folderId = await recordFolder(tok, b.kind, b.recordId);
     const folderLink = `https://drive.google.com/drive/folders/${folderId}`;

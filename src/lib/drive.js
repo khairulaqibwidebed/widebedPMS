@@ -11,6 +11,9 @@ async function call(body) {
   return j;
 }
 
+// Makes every page folder (with this month inside) once per visit
+let setUp = false;
+export const ensureFolders = () => { if (!setUp) { setUp = true; call({ action: 'setup' }).catch(() => { setUp = false; }); } };
 export const listFiles = (kind, recordId) => call({ action: 'list', kind, recordId });
 
 // Sends one file straight from the browser to Drive. onProgress gets 0..1.
@@ -37,13 +40,12 @@ export async function fileBlob(kind, fileId) {
   return URL.createObjectURL(await r.blob());
 }
 
-// Uploads files into a fresh folder of this kind and gives back [{ name, url }] for pages that keep links.
+// Uploads files into this month's folder of this kind and gives back [{ name, url }] for pages that keep links.
 export async function uploadForLink(kind, files, onProgress = () => {}) {
-  const folder = (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 24);
   const out = [];
   for (const [i, f] of files.entries()) {
-    const r = await uploadFile(kind, folder, f, p => onProgress((i + p) / files.length));
-    out.push({ name: r.file?.name || f.name, url: r.file?.webViewLink || String(r), id: r.file?.id || '', folder, mimeType: r.file?.mimeType || f.type });
+    const r = await uploadFile(kind, '', f, p => onProgress((i + p) / files.length));
+    out.push({ name: r.file?.name || f.name, url: r.file?.webViewLink || String(r), id: r.file?.id || '', mimeType: r.file?.mimeType || f.type });
   }
   return out;
 }
