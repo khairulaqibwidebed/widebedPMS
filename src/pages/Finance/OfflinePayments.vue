@@ -5,7 +5,7 @@
         <h1>Offline payments</h1>
         <div class="sub">Cash and bank transfers received outside the booking sites. Check each one against the bank and mark it Checked, Pending or Unknown.</div>
       </div>
-      <button type="button" class="btn btn-primary" @click="openForm">+ New offline payment</button>
+      <button type="button" class="btn btn-primary" v-if="canEdit" @click="openForm">+ New offline payment</button>
     </div>
 
     <div class="notice error" v-show="error">{{ error }}</div>
@@ -74,15 +74,16 @@
             <div class="field wide"><label>Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
             <div class="field"><label>Bank reference</label><input class="input" v-model="ed.bankRef"></div>
           </div>
-          <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :label="nameOf(view)" :key="view.id" @folder="l => saveFolder(view, l)" />
-          <div class="v-edit">
+          <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :label="nameOf(view)" :readonly="!canEdit" :key="view.id" @folder="l => saveFolder(view, l)" />
+          <div class="v-item" v-if="!canEdit" style="margin-top:10px"><span>Remarks</span><b>{{ view.remarks || '—' }}</b></div>
+          <div class="v-edit" v-if="canEdit">
             <div class="field"><label>Status</label>
               <OptionPicker class="fld-pick" :model-value="view.status" :options="STATUSES.map(s => ({ value: s, label: s }))" label="Status" @update:modelValue="v => setStatus(view, v)" /></div>
             <div class="field"><label>Remarks</label><input class="input" :value="view.remarks" placeholder="Add remarks" @change="e => setRemarks(view, e.target.value)"></div>
           </div>
           <div class="modal-foot" v-if="!editing">
             <button type="button" class="btn" @click="view = null">Close</button>
-            <button type="button" class="btn btn-primary" @click="startEdit">Edit details</button>
+            <button type="button" class="btn btn-primary" v-if="canEdit" @click="startEdit">Edit details</button>
           </div>
           <div class="modal-foot" v-else>
             <button type="button" class="btn" @click="editing = false">Discard changes</button>
@@ -127,6 +128,7 @@
 import { collection, doc, getDocs, limit, orderBy, query, updateDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
+import { can } from '@/lib/access.js';
 import { toast } from '@/lib/toast.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import Paged from '@/components/Paged.vue';
@@ -142,6 +144,8 @@ export default {
   components: { OptionPicker, Paged, DriveFiles },
   data() { return { STATUSES, STATUS_OPTS, rows: [], loading: true, q: '', from: '', to: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   computed: {
+    // View and Edit are separate ticks on Staff accounts: View reads the page, Edit also creates and changes payments
+    canEdit() { return can(useSession(), 'offlinePayments.edit'); },
     shown() {
       const q = this.q.trim().toLowerCase();
       return this.rows.filter(r => (!this.status || r.status === this.status) && (!this.from || r.date >= this.from) && (!this.to || r.date <= this.to)

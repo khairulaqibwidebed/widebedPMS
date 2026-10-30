@@ -26,11 +26,33 @@ export const PAGES = [
   { key: 'sops',             label: 'HR SOP pages',                  group: 'Content',     to: [], editOnly: true }
 ];
 
+// What Staff accounts shows: one tick per row, giving both View and Edit of the pages in it (each page has its own row).
+// Content rows only have an Edit tick (everyone can read them). The saved ticks still use the '<key>.view' / '<key>.edit' names above,
+// so the security rules and the sidebar work as before.
+export const ACCESS_ROWS = [
+  { id: 'reports', label: 'Reports', group: 'Finance', keys: ['reports'] },
+  { id: 'ezeeUpload', label: 'Upload eZee Report', group: 'Finance', keys: ['ezeeUpload'] },
+  { id: 'expenses', label: 'Expenses & Others', group: 'Finance', keys: ['expenses'] },
+  { id: 'monthEnd', label: 'Month-End Payout', group: 'Finance', keys: ['monthEnd'] },
+  { id: 'invoices', label: 'Invoices & Receipts', group: 'Finance', keys: ['invoices'] },
+  { id: 'offlinePayments', label: 'Offline Payments', group: 'Finance', keys: ['offlinePayments'] },
+  { id: 'portfolio', label: 'Owners, Properties & Bookings', group: 'Portfolio', keys: ['portfolio'] },
+  { id: 'bulkUpload', label: 'Bulk Upload', group: 'Portfolio', keys: ['bulkUpload'] },
+  { id: 'offlineInquiries', label: 'Offline Inquiries', group: 'Operations', keys: ['offlineInquiries'] },
+  { id: 'bookingForms', label: 'Booking Forms', group: 'Operations', keys: ['bookingForms'] },
+  { id: 'newOwnerListings', label: 'New Owner Listings', group: 'Procurement', keys: ['newOwnerListings'] },
+  { id: 'procurementForms', label: 'Forms', group: 'Procurement', keys: ['procurementForms'] },
+  { id: 'playbook', label: 'Playbook (Onboarding, Business Model)', group: 'Content', keys: ['playbook'], editOnly: true },
+  { id: 'sops', label: 'HR SOP pages', group: 'Content', keys: ['sops'], editOnly: true }
+];
+// Every permission name a row stands for.
+export const rowPerms = row => row.keys.flatMap(k => { const p = PAGES.find(x => x.key === k); return p.viewOnly ? [k + '.view'] : p.editOnly ? [k + '.edit'] : [k + '.view', k + '.edit']; });
+
 // One line under some groups in the tick table, so it's clear what a tick really gives.
 export const GROUP_NOTES = {
-  Finance: 'Any Finance page lets them read the finance data. Any Finance Edit lets them change it.',
-  Portfolio: 'Edit includes owners\' bank details and unit terms.',
-  Content: 'Everyone can read these. Edit lets them change the text.'
+  Finance: 'Each page has its own tick. Any Finance tick lets them read the finance data (the rules share it).',
+  Portfolio: 'Includes owners\' bank details and unit terms.',
+  Content: 'Everyone can read these. The tick lets them change the text.'
 };
 
 const both = key => [key + '.view', key + '.edit'];

@@ -1,5 +1,5 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.12, 29 Oct 2026: page access.
+// Widebed PMS Firestore rules. Draft 0.13, 29 Oct 2026: Draft 0.12 (page access, Neo) plus utilityBills and booking door passcodes.
 // users/{uid}.perms (ticked on Staff accounts) lists the pages a person may view or edit: '<page>.view' / '<page>.edit'.
 // No perms saved = the role's preset (presetFor below), so accounts that were never changed behave as in Draft 0.10.
 // Data is protected per area: any Finance page opens the finance data, Portfolio Edit opens owners/units/terms, and so on.
@@ -163,6 +163,12 @@ service cloud.firestore {
     match /config/{docId} {
       allow read: if staff();
       allow write: if isDirector();
+    }
+
+    // Unit types added with "+ Add type" on Add unit: anyone who can add or edit units may add to the list.
+    match /config/unitTypes {
+      allow write: if (portfolioEditor() || portfolioAdder() || isMkt())
+        && request.resource.data.keys().hasOnly(['list']) && request.resource.data.list is list && request.resource.data.list.size() < 100;
     }
 
     // Numbered IDs (LD-, TEN-, IS-, BK-, CP-, DC-, NL-): taken one at a time inside a transaction.
@@ -489,6 +495,22 @@ service cloud.firestore {
       }
     }
 
+    // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
+    match /offlinePayments/{id} {
+      allow read: if finOrDir();
+      allow create: if finOrDir() && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
+      allow update: if finOrDir();
+      allow delete: if false;
+    }
+    // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
+    match /utilityBills/{bookingId} {
+      allow read: if finOrDir() || isOps();
+      allow create: if (finOrDir() || isOps()) && request.resource.data.createdBy == request.auth.uid
+        && exists(docPath('offlineBookings', bookingId));
+      allow update: if finOrDir();
+      allow delete: if false;
+    }
+
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
     // offline_{inquiryId} from Create booking, or offline_BK-0001 for a direct booking (no inquiry).
     match /offlineBookings/{bookingId} {
@@ -510,6 +532,13 @@ service cloud.firestore {
         && request.resource.data.tenantId is string
         && getAfter(docPath('tenants', request.resource.data.tenantId)) != null;
       allow delete: if false;
+      // Door passcodes for the booking (Booking Form).
+      match /private/{doc} {
+        allow read: if finOrDir() || isOps();
+        allow create: if (finOrDir() || isOps()) && existsAfter(docPath('offlineBookings', bookingId));
+        allow update: if finOrDir();
+        allow delete: if false;
+      }
     }
 
     // Issues: seen by the tagged roles, the person who raised it and Directors. Every role raises tickets.

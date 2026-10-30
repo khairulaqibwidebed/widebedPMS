@@ -496,18 +496,20 @@ service cloud.firestore {
     }
 
     // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
+    // View and Edit are separate ticks: Offline Payments View reads; Offline Payments Edit creates and changes.
     match /offlinePayments/{id} {
-      allow read: if finOrDir();
-      allow create: if finOrDir() && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
-      allow update: if finOrDir();
+      allow read: if can('offlinePayments.view') || can('offlinePayments.edit');
+      allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
+      allow update: if can('offlinePayments.edit');
       allow delete: if false;
     }
     // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
     match /utilityBills/{bookingId} {
-      allow read: if finOrDir() || isOps();
-      allow create: if (finOrDir() || isOps()) && request.resource.data.createdBy == request.auth.uid
+      // Booking Forms View is the only tick that page has, so it gives the form (read, save and update a bill).
+      allow read: if finOrDir() || isOps() || can('bookingForms.view');
+      allow create: if (finOrDir() || isOps() || can('bookingForms.view')) && request.resource.data.createdBy == request.auth.uid
         && exists(docPath('offlineBookings', bookingId));
-      allow update: if finOrDir();
+      allow update: if finOrDir() || can('bookingForms.view');
       allow delete: if false;
     }
 
