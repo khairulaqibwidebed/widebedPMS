@@ -154,28 +154,23 @@
               <span class="help" v-show="!panel.isMe && !canSignIn(panel.role)">This role can't sign in yet. Its pages come in a later increment.</span>
             </div>
 
-            <!-- Page access: View / Edit ticks per page, starting from the role's usual pages -->
+            <!-- Page access: one tick per page, starting from the role's usual pages -->
             <div class="field" v-if="panel.role !== 'director'">
               <div class="perm-top">
                 <label>Page access</label>
                 <button type="button" class="link" @click="resetPerms()" :disabled="cantEdit || !panelCustom">Reset to {{ ROLE_LABEL[panel.role] }} defaults</button>
               </div>
-              <span class="help">Starts with the role's usual pages. Edit includes View. Changing the role resets these ticks.</span>
+              <span class="help">Starts with the role's usual pages. A tick gives full access to that page. Changing the role resets these ticks.</span>
               <div class="perm-wrap">
                 <table class="perm-table">
-                  <thead><tr><th>Page</th><th>View</th><th>Edit</th></tr></thead>
+                  <thead><tr><th>Page</th><th>Access</th></tr></thead>
                   <tbody>
                     <template v-for="grp in pageGroups" :key="grp.name">
-                      <tr class="perm-grp"><td colspan="3">{{ grp.name }}<small v-if="GROUP_NOTES[grp.name]">{{ GROUP_NOTES[grp.name] }}</small></td></tr>
-                      <tr v-for="pg in grp.pages" :key="pg.key" :class="{ on: has(pg.key + '.view') || has(pg.key + '.edit') }">
-                        <td>{{ pg.label }}</td>
+                      <tr class="perm-grp"><td colspan="2">{{ grp.name }}<small v-if="GROUP_NOTES[grp.name]">{{ GROUP_NOTES[grp.name] }}</small></td></tr>
+                      <tr v-for="row in grp.pages" :key="row.id" :class="{ on: rowState(row) !== 'off' }">
+                        <td>{{ row.label }}<small class="muted" v-if="rowState(row) === 'some'"> · some pages only (tick to give all)</small></td>
                         <td>
-                          <span v-if="pg.editOnly" class="muted" title="Everyone can view this">✓</span>
-                          <input v-else type="checkbox" :checked="has(pg.key + '.view')" :disabled="cantEdit" :aria-label="'View ' + pg.label" @change="tick(pg, 'view', $event.target.checked)">
-                        </td>
-                        <td>
-                          <span v-if="pg.viewOnly" class="muted" title="Nothing to change on this page">—</span>
-                          <input v-else type="checkbox" :checked="has(pg.key + '.edit')" :disabled="cantEdit" :aria-label="'Edit ' + pg.label" @change="tick(pg, 'edit', $event.target.checked)">
+                          <input type="checkbox" :checked="rowState(row) !== 'off'" :indeterminate.prop="rowState(row) === 'some'" :disabled="cantEdit" :aria-label="row.label" @change="tickRow(row, $event.target.checked)">
                         </td>
                       </tr>
                     </template>
@@ -222,7 +217,7 @@ import { firebaseConfig } from '@/firebase-config.js';
 import { when } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
-import { PAGES, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel } from '@/lib/access.js';
+import { PAGES, ACCESS_ROWS, rowPerms, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel } from '@/lib/access.js';
 
 const me = useSession();
 
@@ -282,7 +277,7 @@ export default {
     // The tick table, one heading per group (Finance, Portfolio…).
     pageGroups() {
       const groups = [];
-      for (const pg of PAGES) {
+      for (const pg of ACCESS_ROWS) {
         let g = groups.find(x => x.name === pg.group);
         if (!g) groups.push(g = { name: pg.group, pages: [] });
         g.pages.push(pg);
@@ -328,6 +323,16 @@ export default {
 
     // Tick table helpers. Ticking Edit also ticks View; unticking View also unticks Edit.
     has(perm) { return (this.panel.perms || []).includes(perm); },
+    // 'on' = every permission of the row is ticked, 'some' = a few (an older custom set), 'off' = none
+    rowState(row) {
+      const all = rowPerms(row), have = all.filter(p => this.has(p)).length;
+      return have === all.length ? 'on' : have ? 'some' : 'off';
+    },
+    tickRow(row, on) {
+      const set = new Set(this.panel.perms || []);
+      for (const p of rowPerms(row)) on ? set.add(p) : set.delete(p);
+      this.panel.perms = cleanPerms([...set]);
+    },
     tick(pg, level, on) {
       const set = new Set(this.panel.perms || []);
       const view = pg.key + '.view', edit = pg.key + '.edit';

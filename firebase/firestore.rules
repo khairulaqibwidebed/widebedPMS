@@ -492,6 +492,22 @@ service cloud.firestore {
       }
     }
 
+    // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
+    match /offlinePayments/{id} {
+      allow read: if finOrDir();
+      allow create: if finOrDir() && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
+      allow update: if finOrDir();
+      allow delete: if false;
+    }
+    // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
+    match /utilityBills/{bookingId} {
+      allow read: if finOrDir() || isOps();
+      allow create: if (finOrDir() || isOps()) && request.resource.data.createdBy == request.auth.uid
+        && exists(docPath('offlineBookings', bookingId));
+      allow update: if finOrDir();
+      allow delete: if false;
+    }
+
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
     // offline_{inquiryId} from Create booking, or offline_BK-0001 for a direct booking (no inquiry).
     match /offlineBookings/{bookingId} {

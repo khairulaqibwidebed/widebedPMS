@@ -2,7 +2,7 @@
   <div class="drive" :class="{ drag }" @dragover.prevent="drag = true" @dragleave.self="drag = false" @drop.prevent="drop">
     <div class="d-head">
       <span class="d-title">Files <span class="muted">(photos, PDFs, videos) · drop files here</span></span>
-      <label class="btn" :class="{ off: busy }">{{ busy ? `Uploading ${pct}%` : '+ Upload' }}
+      <label class="btn" v-if="!readonly" :class="{ off: busy }">{{ busy ? `Uploading ${pct}%` : '+ Upload' }}
         <input type="file" multiple hidden :disabled="busy" accept="image/*,application/pdf,video/*" @change="pick"></label>
     </div>
     <div class="d-prog" v-if="busy"><span :style="{ width: pct + '%' }"></span></div>
@@ -37,7 +37,7 @@ import { ensureFolders, listFiles, uploadFile, fileBlob } from '@/lib/drive.js';
 
 // Lists a record's Drive folder and uploads into it. The folder is created on the first upload.
 export default {
-  props: { kind: { type: String, required: true }, recordId: { type: String, required: true }, label: { type: String, default: '' }, listOnLoad: { type: Boolean, default: true } },
+  props: { kind: { type: String, required: true }, recordId: { type: String, required: true }, label: { type: String, default: '' }, listOnLoad: { type: Boolean, default: true }, readonly: { type: Boolean, default: false } },
   emits: ['folder'],
   data() { return { drag: false, files: [], folderLink: '', loading: false, viewing: null, url: '', vLoading: false, vError: '', busy: false, pct: 0, error: '' }; },
   mounted() { ensureFolders(); if (this.listOnLoad) this.load(); },
