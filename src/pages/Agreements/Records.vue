@@ -24,8 +24,15 @@
     </div>
 
     <!-- All agreements -->
-    <div v-else-if="!form" class="ag-cards">
-      <article v-for="f in forms" :key="f.id" class="card ag-card" tabindex="0" @click="openForm(f.id)" @keydown.enter.self="openForm(f.id)">
+    <template v-else-if="!form">
+     <section class="card ag-group" v-for="g in groups" :key="g.name">
+      <button class="group-head" type="button" @click="toggleGroup(g.name)" :aria-expanded="String(isOpenGroup(g.name))">
+        <span class="chev" :class="{ open: isOpenGroup(g.name) }">›</span>
+        <b>{{ g.name }}</b>
+        <span class="count">{{ g.forms.length }}</span>
+      </button>
+      <div class="ag-cards" v-show="isOpenGroup(g.name)">
+      <article v-for="f in g.forms" :key="f.id" class="card ag-card" tabindex="0" @click="openForm(f.id)" @keydown.enter.self="openForm(f.id)">
         <div class="ag-card-top">
           <span class="ag-card-icon" aria-hidden="true">📄</span>
           <div class="ag-card-name"><b>{{ f.name }}</b><small>{{ (templatesAll.filter(t => t.formId === f.id).length) }} template(s)</small></div>
@@ -42,7 +49,9 @@
           <button v-if="isAdmin" class="btn btn-sm" @click="links = f">Fill-in links</button>
         </div>
       </article>
-    </div>
+      </div>
+     </section>
+    </template>
 
     <template v-else>
 
@@ -143,6 +152,25 @@ const viewId = ref(''), view = ref(blankView()), selected = ref([]), status = re
 const gen = ref(null), ask = ref(null), importing = ref(null), grid = ref(null), links = ref(null);
 const templatesAll = ref([]), counts = ref({});
 const form = computed(() => forms.value.find(f => f.id === formId.value) || null);
+
+// Agreements grouped by the category set in the form builder (none = General). Open groups are remembered in this browser.
+const GROUP_KEY = 'wb.agreementGroupsClosed';
+const groups = computed(() => {
+  const by = new Map();
+  for (const f of forms.value) {
+    const name = (f.category || '').trim() || 'General';
+    if (!by.has(name)) by.set(name, []);
+    by.get(name).push(f);
+  }
+  return [...by].sort(([a], [b]) => (a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b)))
+    .map(([name, list]) => ({ name, forms: list.sort((a, b) => a.name.localeCompare(b.name)) }));
+});
+const closedGroups = ref((() => { try { const v = JSON.parse(localStorage.getItem(GROUP_KEY)); return Array.isArray(v) ? v : []; } catch (_) { return []; } })());
+const isOpenGroup = name => !closedGroups.value.includes(name);
+function toggleGroup(name) {
+  closedGroups.value = isOpenGroup(name) ? [...closedGroups.value, name] : closedGroups.value.filter(x => x !== name);
+  try { localStorage.setItem(GROUP_KEY, JSON.stringify(closedGroups.value)); } catch (_) {}
+}
 
 const flash = msg => { okMsg.value = msg; error.value = ''; setTimeout(() => { if (okMsg.value === msg) okMsg.value = ''; }, 4000); };
 const fail = (e, what) => { console.error(e); error.value = e.code === 'permission-denied' ? `You don't have permission to ${what}.` : `Could not ${what}: ${e.message || e}`; };
@@ -340,6 +368,19 @@ async function exportAs(kind) {
 
 <style scoped>
 .ag-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+/* Category drop-downs: same look as Procurement → Forms */
+.ag-group + .ag-group { margin-top: 14px; }
+.ag-group { transition: background .15s, border-color .15s, box-shadow .15s; }
+.ag-group:has(> .group-head:hover), .ag-group:has(> .group-head:focus-visible) { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: inset 4px 0 0 var(--accent); }
+.group-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 2px 4px; border: 0; background: none; color: var(--text); font: inherit; font-size: 15px; cursor: pointer; text-align: left; }
+.group-head:hover b { color: var(--accent); }
+.group-head:focus-visible { outline: none; }
+.group-head .chev { display: inline-block; width: 14px; font-size: 18px; line-height: 1; color: var(--muted); transition: transform .2s; }
+.group-head .chev.open { transform: rotate(90deg); color: var(--accent); }
+.group-head:hover .chev, .group-head:focus-visible .chev { color: var(--accent); }
+.group-head .count { margin-left: auto; min-width: 24px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; text-align: center; transition: background .15s, color .15s; }
+.group-head:hover .count, .group-head:focus-visible .count { background: var(--accent); color: #fff; }
+.ag-group .ag-cards { margin-top: 14px; }
 .ag-card { cursor: pointer; display: grid; gap: 14px; transition: border-color var(--fast, .15s), box-shadow var(--fast, .15s), transform var(--fast, .15s); }
 .ag-card:hover, .ag-card:focus-visible { border-color: var(--accent); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 14%, transparent); transform: translateY(-1px); }
 .ag-card-top { display: flex; align-items: center; gap: 12px; }

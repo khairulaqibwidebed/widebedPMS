@@ -8,6 +8,11 @@
       <div class="ag-bar fb-top">
         <button class="btn btn-sm" @click="leave">← Back</button>
         <input class="input fb-name" v-model="name" aria-label="Form name" maxlength="120">
+        <label class="fb-cat" title="Agreements are grouped by category on the Agreements page">
+          <span>Category</span>
+          <input class="input" v-model="category" list="fbCats" maxlength="40" placeholder="General">
+          <datalist id="fbCats"><option v-for="c in categories" :key="c" :value="c" /></datalist>
+        </label>
         <span class="ag-save" :class="{ error: autosave.status.value === 'error' }">{{ autosave.label.value }}</span>
         <span class="grow"></span>
         <button class="btn btn-sm" :disabled="!undo.canUndo.value" title="Undo (Ctrl+Z)" @click="undo.undo()">↶ Undo</button>
@@ -192,7 +197,7 @@ import { useRoute, useRouter } from 'vue-router';
 import FieldInput from '@/components/agreements/FieldInput.vue';
 import FormulaEditor from '@/components/agreements/FormulaEditor.vue';
 import ConfirmDialog from '@/components/agreements/ConfirmDialog.vue';
-import { getForm, saveForm, listTemplates } from '@/lib/agreements/data.js';
+import { getForm, saveForm, listTemplates, listForms } from '@/lib/agreements/data.js';
 import { FIELD_TYPES, TYPE_LABEL, RESULT_TYPES, newField, newId, hasOptions, hasValue, labelProblem, sampleValues, isShown } from '@/lib/agreements/fields.js';
 import { computeValues, formulaPlan, toDisplay, refsIn } from '@/lib/agreements/formula.js';
 import { DATE_FORMATS, valueType } from '@/lib/agreements/format.js';
@@ -201,7 +206,7 @@ import './agreements.css';
 
 const COND = { equals: 'is', notEquals: 'is not', filled: 'is filled in' };
 const route = useRoute(), router = useRouter();
-const loading = ref(true), error = ref(''), form = ref(null), name = ref(''), fields = ref([]);
+const loading = ref(true), error = ref(''), form = ref(null), name = ref(''), category = ref(''), categories = ref([]), fields = ref([]);
 const selectedId = ref(''), tab = ref('fields'), drag = ref(null), dropAt = ref(-1), ask = ref(null), templates = ref([]);
 const sample = ref({});
 
@@ -214,23 +219,25 @@ const sampleOut = computed(() => computeValues(fields.value, sample.value));
 const previewFields = computed(() => fields.value.filter(f => f.type === 'section' || isShown(f, sample.value)));
 
 // ---- Load, auto-save, undo ----
-const undo = useUndo(() => ({ name: name.value, fields: fields.value }), s => { name.value = s.name; fields.value = s.fields; });
-const autosave = useAutosave(() => saveForm(form.value.id, { name: name.value.trim() || 'Untitled form', fields: fields.value }));
+const undo = useUndo(() => ({ name: name.value, category: category.value, fields: fields.value }), s => { name.value = s.name; category.value = s.category; fields.value = s.fields; });
+const autosave = useAutosave(() => saveForm(form.value.id, { name: name.value.trim() || 'Untitled form', category: category.value.trim(), fields: fields.value }));
 onMounted(async () => {
   try {
     form.value = await getForm(route.params.id);
     if (!form.value) throw new Error('This form no longer exists.');
     name.value = form.value.name;
+    category.value = form.value.category || '';
     fields.value = form.value.fields || [];
     sample.value = sampleValues(fields.value);
     selectedId.value = fields.value.find(hasValue)?.id || '';
     undo.reset();
     templates.value = await listTemplates(form.value.id);
+    listForms().then(all => { categories.value = [...new Set(all.map(f => (f.category || '').trim()).filter(Boolean))].sort(); }).catch(() => {});
   } catch (e) { error.value = e.message; }
   loading.value = false;
 });
 let commitTimer = null;
-watch([name, fields], () => {
+watch([name, category, fields], () => {
   if (loading.value) return;
   autosave.touch();
   clearTimeout(commitTimer); commitTimer = setTimeout(undo.commit, 350);
@@ -318,6 +325,8 @@ const condText = c => (c.value === 'true' ? 'ticked' : c.value === 'false' ? 'no
 
 <style scoped>
 .fb-top { margin-bottom: 14px; }
+.fb-cat { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.fb-cat .input { width: 160px; height: 36px; }
 .fb-name { max-width: 420px; font-size: 18px; font-weight: 700; height: 42px; }
 .fb-seg { margin: 0; min-width: 220px; }
 .fb-tip { margin: 0 0 10px; }
