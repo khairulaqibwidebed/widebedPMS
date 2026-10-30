@@ -1,5 +1,5 @@
 <template>
-  <form class="util" @submit.prevent="save(false)" novalidate>
+  <form class="util" @submit.prevent="save()" novalidate>
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="done">{{ done }}</div>
 
@@ -11,7 +11,8 @@
         <button type="button" class="btn" :disabled="!picked" @click="details = !details">{{ details ? 'Hide booking details' : 'View booking details' }}</button>
       </div>
       <p class="help" v-if="loading">Loading bookings…</p>
-      <p class="help" v-else-if="!bookings.length">No bookings are waiting for a utility bill.</p>
+      <p class="help" v-else-if="!bookings.length">No bookings found.</p>
+      <p class="help ok-note" v-else-if="existing">A bill is already saved for this booking and has been filled in below. Change anything and press Save to update it.</p>
       <div class="kvs" v-if="details && picked">
         <div class="kv"><span>Property</span><span>{{ picked.propertyName || '—' }}</span></div>
         <div class="kv"><span>Unit</span><span>{{ picked.unitCode || '—' }}</span></div>
@@ -37,9 +38,10 @@
     </section>
 
     <div class="bottom-actions">
+      <button type="button" class="btn mail-btn" :disabled="busy || !tenant.email" :title="tenant.email ? 'Opens Gmail with the bill filled in' : 'This tenant has no email on file'" @click="emailTenant()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>Email tenant</button>
+      <span class="spacer"></span>
       <button type="button" class="btn" @click="$emit('close')">Cancel</button>
-      <button type="submit" class="btn" :class="{ 'btn-primary': !tenant.email }" :disabled="busy">{{ busy ? 'Saving…' : 'Commit utility adjustments' }}</button>
-      <button type="button" class="btn btn-primary" v-if="tenant.email" :disabled="busy" @click="save(true)">Save and email tenant</button>
+      <button type="submit" class="btn btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save' }}</button>
     </div>
   </form>
 </template>
@@ -51,6 +53,8 @@ import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import { audit, friendlyError } from '@/lib/finance-data.js';
+import { askConfirm } from '@/lib/confirm.js';
+import { toast } from '@/lib/toast.js';
 
 const KINDS = [{ key: 'electricity', label: 'Electricity' }, { key: 'water', label: 'Water' }, { key: 'sewerage', label: 'Sewerage' }];
 const blank = () => ({ from: '', to: '', electricity: '', water: '', sewerage: '', invoiceLink: '' });
@@ -59,18 +63,22 @@ const cents = v => Math.round((+v || 0) * 100) / 100;
 export default {
   components: { OptionPicker, DriveFiles },
   emits: ['close', 'saved'],
-  data() { return { KINDS, f: blank(), bookings: [], bookingId: '', details: false, loading: true, tenant: {}, tenantLoaded: false, busy: false, error: '', done: '' }; },
+  data() { return { KINDS, f: blank(), bookings: [], bills: {}, bookingId: '', details: false, loading: true, tenant: {}, tenantLoaded: false, busy: false, error: '', done: '' }; },
   computed: {
     bookingOptions() {
-      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => ({ value: b.id, label: `${b.id} · ${b.unitCode || 'unit'} · ${b.arrival || ''} to ${b.departure || ''}` }))];
+      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => ({ value: b.id, label: `${b.id} · ${b.unitCode || 'unit'} · ${b.arrival || ''} to ${b.departure || ''}${this.bills[b.id] ? ' · bill saved' : ''}` }))];
     },
+    existing() { return this.bookingId ? this.bills[this.bookingId] || null : null; },
     picked() { return this.bookings.find(b => b.id === this.bookingId) || null; },
     total() { return cents(this.f.electricity) + cents(this.f.water) + cents(this.f.sewerage); }
   },
   watch: {
     // The tenant's name and email come from their tenant record (private details)
     async bookingId() {
-      this.tenant = {}; this.tenantLoaded = false;
+      this.tenant = {}; this.tenantLoaded = false; this.error = ''; this.done = '';
+      // A saved bill fills the form; a booking with none starts empty
+      const old = this.existing;
+      this.f = old ? { from: old.periodFrom || '', to: old.periodTo || '', electricity: old.electricity || '', water: old.water || '', sewerage: old.sewerage || '', invoiceLink: old.invoiceLink || '' } : blank();
       const b = this.picked;
       if (!b || !b.tenantId) { this.tenantLoaded = !!b; return; }
       try {
@@ -83,13 +91,13 @@ export default {
   async mounted() { await this.load(); },
   methods: {
     rm(n) { return `RM ${Number(n || 0).toFixed(2)}`; },
-    // Bookings that have no utility bill yet (a booking drops out of the list once its bill is saved)
+    // Every booking is listed; ones with a saved bill are marked and fill the form when picked
     async load() {
       this.loading = true;
       try {
         const [bs, us] = await Promise.all([getDocs(query(collection(db, 'offlineBookings'), limit(300))), getDocs(query(collection(db, 'utilityBills'), limit(500)))]);
-        const done = new Set(us.docs.map(d => d.id));
-        this.bookings = bs.docs.filter(d => !done.has(d.id) && d.data().status !== 'cancelled').map(d => ({ id: d.id, ...d.data() }))
+        this.bills = Object.fromEntries(us.docs.map(d => [d.id, d.data()]));
+        this.bookings = bs.docs.filter(d => d.data().status !== 'cancelled').map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => String(b.arrival || '').localeCompare(String(a.arrival || '')));
       } catch (e) { this.error = friendlyError(e, 'load the bookings'); }
       this.loading = false;
@@ -111,30 +119,42 @@ export default {
         + `\nTotal: ${this.rm(this.total)}\n` + (f.invoiceLink.trim() ? `\nInvoice: ${f.invoiceLink.trim()}\n` : '') + '\nThank you.\nWidebed';
       return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(this.tenant.email)}&su=${encodeURIComponent(`Utility bill - ${b.unitCode || ''}`.trim())}&body=${encodeURIComponent(body)}`;
     },
-    async save(email = false) {
+    emailTenant() {
       this.error = this.check(); this.done = '';
       if (this.error) return;
-      const f = this.f, me = useSession(), b = this.picked;
-      // Open the tab now, while the click still counts (browsers block tabs opened after a wait), and point it at Gmail once the bill is saved
-      const tab = email && this.tenant.email ? window.open('about:blank', '_blank') : null;
+      if (!this.tenant.email) { this.error = 'This tenant has no email address saved.'; return; }
+      window.open(this.mailLink(this.picked, this.f), '_blank');
+    },
+    async save() {
+      this.error = this.check(); this.done = '';
+      if (this.error) return;
+      const f = this.f, me = useSession(), b = this.picked, old = this.existing;
+      const data = { periodFrom: f.from, periodTo: f.to, electricity: cents(f.electricity), water: cents(f.water), sewerage: cents(f.sewerage), total: this.total, invoiceLink: f.invoiceLink.trim() };
+      const changes = old ? Object.keys(data).filter(k => (old[k] ?? '') !== data[k]).map(k => ({ field: k, old: old[k] ?? '', new: data[k] })) : [];
+      if (old) {
+        if (!changes.length) { this.done = 'Nothing has changed.'; return; }
+        const yes = await askConfirm({ title: 'Update this utility bill?', message: `${b.id} already has a saved bill. Saving replaces it with the new amounts (${this.rm(this.total)} in total). The change is recorded in the audit log.`, confirmText: 'Yes, update' });
+        if (!yes) return;
+      }
       this.busy = true;
       try {
         const batch = writeBatch(db);
-        batch.set(doc(db, 'utilityBills', b.id), {
-          bookingId: b.id, propertyId: b.propertyId || '', propertyName: b.propertyName || '', unitCode: b.unitCode || '',
-          periodFrom: f.from, periodTo: f.to, electricity: cents(f.electricity), water: cents(f.water), sewerage: cents(f.sewerage),
-          total: this.total, invoiceLink: f.invoiceLink.trim(), utilityStatus: 'Ready_to_Send',
-          createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
-        audit(batch, me, { action: 'utilityBill.create', entity: `utilityBills/${b.id}`, propertyId: b.propertyId || null,
-          changes: [{ field: 'total', old: null, new: this.total }] });
-        const link = email && this.tenant.email ? this.mailLink(b, f) : '';
+        if (old) {
+          batch.update(doc(db, 'utilityBills', b.id), { ...data, updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name });
+          audit(batch, me, { action: 'utilityBill.update', entity: `utilityBills/${b.id}`, propertyId: b.propertyId || null, changes });
+        } else {
+          batch.set(doc(db, 'utilityBills', b.id), {
+            bookingId: b.id, propertyId: b.propertyId || '', propertyName: b.propertyName || '', unitCode: b.unitCode || '', ...data,
+            utilityStatus: 'Ready_to_Send', createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+          audit(batch, me, { action: 'utilityBill.create', entity: `utilityBills/${b.id}`, propertyId: b.propertyId || null,
+            changes: [{ field: 'total', old: null, new: this.total }] });
+        }
         await batch.commit();
-        this.done = `Utility bill saved for ${b.id}: ${this.rm(this.total)}.` + (link ? ' Gmail is open in a new tab with the message ready to send.' : '');
-        this.bookings = this.bookings.filter(x => x.id !== b.id);
-        this.bookingId = ''; this.f = blank(); this.details = false;
+        this.bills = { ...this.bills, [b.id]: { ...(old || {}), ...data } };   // the form stays on this booking, now in "saved" mode
+        toast('Changes saved');
+        this.done = `Utility bill ${old ? 'updated' : 'saved'} for ${b.id}: ${this.rm(this.total)}.`;
         this.$emit('saved');
-        if (link && tab) tab.location.href = link;
-      } catch (e) { if (tab) tab.close(); this.error = e.code === 'permission-denied' ? 'Firestore refused this. The latest security rules (utilityBills) need to be published first.' : friendlyError(e, 'save the utility bill'); }
+      } catch (e) { this.error = e.code === 'permission-denied' ? (old ? 'Only Finance or a Director can change a saved bill.' : 'Firestore refused this. The latest security rules (utilityBills) need to be published first.') : friendlyError(e, 'save the utility bill'); }
       this.busy = false;
     }
   }
@@ -156,11 +176,14 @@ export default {
 .period .input { flex: 1; min-width: 0; }
 .field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
 .kvs { margin-top: 12px; }
+.ok-note { color: var(--accent); }
 .warn { color: var(--danger, #c0392b); }
 .total { margin: 12px 0 0; font-size: 14px; }
 .fld-pick { display: block; width: 100%; }
 .fld-pick :deep(.op-btn), .fld-pick :deep(.op-input) { width: 100%; min-height: 40px; }
 .fld-pick :deep(.op-pop) { max-width: none; width: 100%; }
+.mail-btn { display: inline-flex; align-items: center; gap: 8px; }
+.spacer { flex: 1; }
 .bottom-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; padding: 14px 0 20px; }
 @media (max-width: 640px) { .rows { grid-template-columns: minmax(0, 1fr); } }
 </style>
