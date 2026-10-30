@@ -344,7 +344,7 @@
           <section class="card next-list" v-if="!embedded">
             <div class="card-head"><h2>When you save</h2></div>
             <p>{{ bk.existing ? `- The booking is added to tenant ${bk.existing.id}.` : '- The customer is saved as a new tenant.' }}</p>
-            <p v-if="direct">- The booking gets the next number, offline_BK-0001 and up, and shows under Portfolio > Bookings.</p>
+            <p v-if="direct">- The booking gets the next booking no. for its property (like DM-014, shared with the Reservation Lodgment form), and shows under Portfolio > Bookings.</p>
             <template v-else>
               <p>{{ `- The booking is saved as offline_${lead.id}, so it can't be made twice.` }}</p>
               <p>{{ `- ${lead.id} is marked Paid · Booked.` }}</p>
@@ -369,6 +369,7 @@ import { collection, collectionGroup, doc, getDoc, getDocs, query, where, orderB
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import { idPrefix } from '@/lib/lodgment.js';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
@@ -867,6 +868,8 @@ export default {
         
         const res = await runTransaction(db, async tx => {
           if ((await tx.get(bRef)).exists()) throw stop(`${ld.id} already has a booking.`);
+          // Booking no. in the Reservation Lodgment style (DM-014); the counter is shared with the lodgment form
+          const lcRef = doc(db, 'lodgmentCounters', idPrefix(prop?.name)), lc = await tx.get(lcRef), ln = lc.exists() ? lc.data().next || 1 : 1, bookingNo = `${idPrefix(prop?.name)}-${String(ln).padStart(3, '0')}`;
           const ls = await tx.get(lRef);
           if (!ls.exists() || ls.data().bookingId) throw stop(`${ld.id} already has a booking.`);
           let tenantId = known?.id, n = 0;
@@ -882,7 +885,8 @@ export default {
             tx.set(tRef, { status: 'active', firstInquiryId: ld.id, lastInquiryId: ld.id, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           }
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
-          tx.set(bRef, { source: 'offline', inquiryId: ld.id, tenantId,
+          tx.set(lcRef, { next: ln + 1 });
+          tx.set(bRef, { source: 'offline', inquiryId: ld.id, bookingNo, tenantId,
             propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
             amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
@@ -895,17 +899,17 @@ export default {
           tx.set(doc(lRef, 'private', 'main'), { contactName: details.name, phone: details.phone, phoneKey: details.phoneKey, email: details.email }, { merge: true });
           audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
             changes: [{ field: 'status', old: ld.status, new: 'booked' }, { field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
-          return { isNew: !known };
+          return { isNew: !known, bookingNo };
         });
 
-        this.okMsg = `${ld.id} booked. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`}`;
+        this.okMsg = `${ld.id} booked as ${res.bookingNo}. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`}`;
 
         // Notify Finance and Directors to key the booking into eZee
         this.notify({
           roles: ['finance', 'director'],
           title: 'New offline booking',
           refId: bookingId,
-          message: `${ld.id} booked: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
+          message: `${ld.id} booked as ${res.bookingNo}: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
           link: `/Operations/offline-inquiries?id=${ld.id}`
         });
 
@@ -938,6 +942,7 @@ export default {
         const res = await runTransaction(db, async tx => {
           const bc = await tx.get(bcRef), bn = bc.exists() ? bc.data().next || 1 : 1, bookingId = `offline_${num('BK', bn)}`;
           const bRef = doc(db, 'offlineBookings', bookingId);
+          const lcRef = doc(db, 'lodgmentCounters', idPrefix(prop?.name)), lc = await tx.get(lcRef), ln = lc.exists() ? lc.data().next || 1 : 1, bookingNo = `${idPrefix(prop?.name)}-${String(ln).padStart(3, '0')}`;
           if ((await tx.get(bRef)).exists()) throw stop(`${bookingId} already exists. Ask a Director to check counters/offlineBookings.`);
           let tenantId = known?.id, n = 0;
           if (!known) {
@@ -953,7 +958,8 @@ export default {
             tx.set(tRef, { status: 'active', firstInquiryId: null, lastBookingId: bookingId, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           }
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
-          tx.set(bRef, { source: 'direct', inquiryId: null, tenantId,
+          tx.set(lcRef, { next: ln + 1 });
+          tx.set(bRef, { source: 'direct', inquiryId: null, bookingNo, tenantId,
             propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
             amount: this.longTerm ? 0 : toCents(b.amount), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
@@ -962,16 +968,16 @@ export default {
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
           audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
             changes: [{ field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
-          return { isNew: !known, bookingId };
+          return { isNew: !known, bookingId, bookingNo };
         });
 
-        const okMsg = `${res.bookingId} saved. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`} Key it into eZee to block the room.`;
+        const okMsg = `${res.bookingNo} saved. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`} Key it into eZee to block the room.`;
 
         this.notify({
           roles: ['finance', 'director'],
           title: 'New offline booking',
           refId: res.bookingId,
-          message: `${res.bookingId}: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
+          message: `${res.bookingNo}: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
           link: '/Portfolio/bookings'
         });
 

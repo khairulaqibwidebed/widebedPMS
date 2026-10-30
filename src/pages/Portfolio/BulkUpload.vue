@@ -23,6 +23,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5z"/></svg>
         <span><b>Unit owners</b><small>Owners with their units, one unit per row</small></span>
       </button>
+      <button type="button" class="bu-kind" :class="{ on: kind === 'bookings' }" :disabled="saving" @click="setKind('bookings')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2zm-2 8h14v10H5z"/></svg>
+        <span><b>Booking details</b><small>Willow "Booking Details" sheet · saved as Offline bookings</small></span>
+      </button>
     </div>
 
     <!-- Unit owners: which property the units belong to (one property per upload) -->
@@ -72,9 +76,9 @@
     <label class="dropzone" :class="{ over: dragging }" v-show="!rows.length && !loading"
            @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dragging = false; pick($event.dataTransfer.files)">
       <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l7 7h-4.5v6h-5v-6H5z"/></svg>
-      <b>{{ allMode ? 'Drag all the property files here, or' : `Drag the ${kind === 'properties' ? 'properties' : 'unit owners'} file here, or` }}</b>
+      <b>{{ allMode ? 'Drag all the property files here, or' : `Drag the ${{ properties: 'properties', owners: 'unit owners', bookings: 'booking details' }[kind]} file here, or` }}</b>
       <span class="btn">{{ allMode ? 'Choose files' : 'Choose file' }}</span>
-      <small>{{ kind === 'properties' ? '.xlsx or .csv · one property per row' : allMode ? '.xlsx or .csv · select several files at once (Ctrl+A in the folder) · one property per file or sheet' : '.xlsx or .csv · one unit per row · Finance\'s Owner List works as it is (pick the sheet after)' }}</small>
+      <small>{{ kind === 'bookings' ? '.xlsx or .csv · Willow Booking Details sheet · one booking per row (leave ID empty for a new one)' : kind === 'properties' ? '.xlsx or .csv · one property per row' : allMode ? '.xlsx or .csv · select several files at once (Ctrl+A in the folder) · one property per file or sheet' : '.xlsx or .csv · one unit per row · Finance\'s Owner List works as it is (pick the sheet after)' }}</small>
       <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" :multiple="allMode" hidden @change="pick($event.target.files); $event.target.value = ''">
     </label>
 
@@ -118,8 +122,9 @@
                 <td class="num">{{ r.line }}</td>
                 <template v-for="c in previewCols" :key="c.key"><td>{{ show(r, c.key) }}</td></template>
                 <td>
-                  <span class="pill" :class="{ ok: 'green', skip: 'amber', error: 'red' }[r.status]">{{ r.status === 'ok' ? (kind === 'owners' ? (r.newOwner ? 'New owner' : 'Existing owner') : 'New') : { skip: 'Skipped', error: 'Problem' }[r.status] }}</span>
+                  <span class="pill" :class="{ ok: 'green', skip: 'amber', error: 'red' }[r.status]">{{ r.status === 'ok' ? (kind === 'owners' ? (r.newOwner ? 'New owner' : 'Existing owner') : kind === 'bookings' ? r.id : 'New') : { skip: 'Skipped', error: 'Problem' }[r.status] }}</span>
                   <div class="help" v-show="r.note">{{ r.note }}</div>
+                  <button type="button" class="btn btn-sm fix-btn" v-if="r.fixable && !saving" @click="openFix(r)">Fix this</button>
                 </td>
               </tr>
             </template>
@@ -133,6 +138,24 @@
         <button type="button" class="btn btn-primary" :disabled="saving || !count('ok') || !!blocker" :title="blocker" @click="save()">{{ saving ? `Saving… ${savedSoFar} of ${count('ok')}` : 'Confirm & Upload to Database' }}</button>
       </div>
     </section>
+
+    <!-- Fix a booking row that has a problem -->
+    <div class="modal-back" v-if="fix" @click.self="fix = null">
+      <div class="modal" role="dialog" aria-label="Fix this row">
+        <h2 style="margin:0 0 4px">{{ `Fix row ${fix.row.line}` }}</h2>
+        <p class="help" style="margin:0 0 14px">{{ fix.row.note }}</p>
+        <div class="fix-grid">
+          <div class="field"><label>Guest name</label><input class="input" v-model="fix.d.name"></div>
+          <div class="field"><label>Email</label><input class="input" v-model="fix.d.email"></div>
+          <div class="field"><label>Property</label><OptionPicker v-model="fix.d.propertyId" :options="propertyChoices(false).filter(o => !o.value.startsWith('__'))" label="Property" searchable @change="fixProperty()" /></div>
+          <div class="field"><label>Unit</label><OptionPicker v-model="fix.d.unitNumber" :options="fix.unitOptions" label="Unit" searchable placeholder="Choose a unit" /></div>
+          <div class="field"><label>Check in</label><input class="input" type="date" v-model="fix.d.checkIn"></div>
+          <div class="field"><label>Check out</label><input class="input" type="date" v-model="fix.d.checkOut"></div>
+        </div>
+        <p class="help" v-if="fix.error" style="color:var(--red)">{{ fix.error }}</p>
+        <div class="actions"><button type="button" class="btn" @click="fix = null">Cancel</button><button type="button" class="btn btn-primary" :disabled="fix.busy" @click="applyFix()">Apply fix</button></div>
+      </div>
+    </div>
   </main>
 </template>
 
@@ -140,12 +163,13 @@
 import { markRaw } from 'vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { idPrefix } from '@/lib/lodgment.js';
 import { db } from '@/lib/firebase.js';
 import { clearCache } from '@/lib/cache.js';
 import { ARRANGEMENTS, DEFAULT_OTA, unitIdOf } from '@/lib/engine.js';
 import { markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
-import { audit, friendlyError, loadXlsxLib, loadProperties } from '@/lib/finance-data.js';
+import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
@@ -169,8 +193,47 @@ const FILE_LAYOUT = {
   properties: { headerHas: '', stopAt: '' },                          // TODO when the properties file arrives
   // Finance's "LATEST Owner List 2022 - 2026" (one sheet per property, e.g. DM).
   // Terminated units are listed below "TERMINATED UNIT"; their owners are past owners, so they are left out.
-  owners: { headerHas: 'Owner Name 1', stopAt: 'TERMINATED UNIT' }
+  owners: { headerHas: 'Owner Name 1', stopAt: 'TERMINATED UNIT' },
+  // Willow 4.0 (N8N) "Booking Details" sheet; the header row is the first row
+  bookings: { headerHas: 'Unit Number', stopAt: '' }
 };
+
+// A date cell -> 'yyyy-mm-dd' ('' when it can't be read). The file is read with dateNF yyyy-mm-dd, so real dates arrive in that form;
+// typed text like 3/1/2026 or 3-Jan-2026 is read day first (Malaysia).
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+function toIso(v) {
+  const t = String(v ?? '').trim(); if (!t) return '';
+  const pad = n => String(n).padStart(2, '0'), year = y => (y < 100 ? 2000 + y : y);
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+  m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if (m) return `${year(+m[3])}-${pad(m[2])}-${pad(m[1])}`;
+  m = t.match(/^(\d{1,2})[ -]([A-Za-z]{3})[a-z]*[ -,]*(\d{2,4})/);
+  if (m && MONTHS.includes(m[2].toLowerCase())) return `${year(+m[3])}-${pad(MONTHS.indexOf(m[2].toLowerCase()) + 1)}-${pad(m[1])}`;
+  return '';
+}
+const money = v => { const n = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+
+// One row of the Booking Details sheet -> a reservationLodgments record (same field names as the Reservation Lodgment form).
+function mapBookingRow(row) {
+  const unit = col(row, 'Unit Number'), property = col(row, 'Property Name');
+  if (!unit && !property && !col(row, 'Name')) return null;           // blank lines
+  const checkIn = toIso(col(row, 'Check in')), checkOut = toIso(col(row, 'Check out'));
+  return {
+    bookingId: col(row, 'ID').toUpperCase(),
+    name: col(row, 'Name'), icPassport: col(row, 'IC/passport number', 'IC / Passport'), phone: col(row, 'Phone/WhatsApp', 'Phone'), email: col(row, 'Email'),
+    bookingSource: col(row, 'Booking source'), propertyName: property, unitNumber: unit,
+    checkIn, checkOut, rawIn: col(row, 'Check in'), rawOut: col(row, 'Check out'),
+    rentalAmount: money(col(row, 'Rental amount')), renewalDate: toIso(col(row, 'Renewal Date')) || checkOut, rentalStatus: col(row, 'Rental Status'),
+    depositAmount: money(col(row, 'Amount of deposit')), ownerEmail: col(row, 'Owner Email'),
+    moveInStatus: col(row, 'Move_In_Status') || 'Ready_to_Send', moveOutStatus: col(row, 'Move_Out_Status') || 'Ready_to_Send',
+    mainDoorPasscode: col(row, 'Main Door Passcode'), currentExpiryDate: toIso(col(row, 'Current Expiry Date')),
+    nextDoorPasscode: col(row, 'Next Door Passcode'), nextExpiryDate: toIso(col(row, 'Next Expiry Date')),
+    passwordStatus: col(row, 'Password Status'), whatsappGroupLink: col(row, 'Whatsapp Group Link'), remark: col(row, 'Remark'),
+    electricity: money(col(row, 'Electricity')), water: money(col(row, 'Water')), sewerage: money(col(row, 'Sewerage')),
+    billPeriod: col(row, 'Electric Bill Period', 'Water Bill Period', 'Sewerage Bill Period'), invoiceBill: col(row, 'Invoice Bill')
+  };
+}
 
 // One row of the Properties file -> the fields saved on properties/{id}.
 function mapPropertyRow(row) {
@@ -266,14 +329,15 @@ const ROWS_PER_BATCH = 50;   // up to 8 writes per unit-owner row (owner, privat
 
 const COLS = {
   properties: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }],
-  owners: [{ key: 'unit', label: 'Unit' }, { key: 'fullName', label: 'Full name' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'feeLabel', label: 'Fee' }]
+  owners: [{ key: 'unit', label: 'Unit' }, { key: 'fullName', label: 'Full name' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'feeLabel', label: 'Fee' }],
+  bookings: [{ key: 'name', label: 'Name' }, { key: 'propertyName', label: 'Property' }, { key: 'unitNumber', label: 'Unit' }, { key: 'checkIn', label: 'Check in' }, { key: 'checkOut', label: 'Check out' }, { key: 'rentalAmount', label: 'Rental' }]
 };
 
 export default {
   components: { OptionPicker },
   data() {
     return { kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
-      properties: [], propertyId: '', newProp: { name: '', code: '' }, sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {} };
+      properties: [], propertyId: '', newProp: { name: '', code: '' }, sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {}, fix: null, bkCtx: null };
   },
   computed: {
     previewCols() { return COLS[this.kind]; },
@@ -320,7 +384,7 @@ export default {
     setKind(k) { if (k !== this.kind) { this.kind = k; this.clear(); this.done = ''; } },
     clear() { Object.assign(this, { rows: [], columns: [], fileName: '', error: '', sheetsNote: '', sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {} }); },
     count(s) { return this.rows.filter(r => r.status === s).length; },
-    show(r, key) { return r.data[key] || '—'; },
+    show(r, key) { const v = r.data[key]; return v || v === 0 ? v : '—'; },
 
     // 1. Read the file and build the preview
     // files: a FileList or array. Several files only in "All properties" mode; otherwise the first is read.
@@ -347,7 +411,7 @@ export default {
         }
         for (const { ws, label: sheet } of sheetsIn) {
           if (this.parsed[sheet]) { unused.push(`${sheet} (same name twice)`); continue; }
-          const grid = X.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, blankrows: true });
+          const grid = X.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, blankrows: true, dateNF: 'yyyy-mm-dd' });
           const h = headerHas ? grid.findIndex(r => hasCell(r, headerHas)) : (grid.length ? 0 : -1);
           if (h < 0) { unused.push(sheet); continue; }
           used.push(sheet);
@@ -374,6 +438,7 @@ export default {
         this.sheetsNote = many || unused.length ? `Read ${used.length} ${used.length === 1 ? 'sheet' : 'sheets'}: ${used.join(', ')}.` + (unused.length ? ` Left out (no "${headerHas}" column): ${unused.join(', ')}.` : '') : '';
         if (!lines.length) throw new Error('The file has no rows under the header row.');
         if (this.kind === 'properties') this.rows = await this.checkProperties(lines);
+        else if (this.kind === 'bookings') this.rows = await this.checkBookings(lines);
         else if (this.allMode) {
           this.sheets = used; this.sheet = used[0]; this.matchSheets();
           this.sheetsNote = `Read ${used.length} ${used.length === 1 ? 'file or sheet' : 'files or sheets'}.` + (unused.length ? ` Left out (no "${headerHas}" column): ${unused.join(', ')}.` : '');
@@ -405,6 +470,86 @@ export default {
         if (status === 'ok') { seenIds.add(id); seenCodes.add(data.code); }
         return { line, data, id: status === 'ok' ? id : '', status, note };
       });
+    },
+
+    // Booking details (Willow) are saved as Offline bookings: guest details in the private part, utility amounts as a utility bill.
+    // An ID already in the PMS is skipped; a row with no ID gets the next one for its property (DM-012 ...), shared with the lodgment form.
+    async checkBookings(lines) {
+      const [snap, cSnap] = await Promise.all([getDocs(collection(db, 'offlineBookings')), getDocs(collection(db, 'lodgmentCounters'))]);
+      const have = new Set(snap.docs.map(d => String(d.data().bookingNo || d.id.replace(/^offline_/, '')).toUpperCase()));
+      const next = {}; cSnap.docs.forEach(d => { next[d.id] = d.data().next || 1; });
+      const rows = lines.map(({ r, line }) => ({ line, data: mapBookingRow(r) })).filter(x => x.data)
+        .map(({ line, data }) => ({ line, data, id: '', status: 'ok', note: '', fixable: false }));
+      const used = {};   // typed IDs move the counter on, so new IDs never clash with them
+      for (const r of rows) { const m = r.data.bookingId.match(/^(.*)-(\d+)$/); if (m) used[m[1]] = Math.max(used[m[1]] || 0, +m[2]); }
+      this.bkCtx = markRaw({ have, next, used, seen: new Map(), units: {} });
+      for (const r of rows) await this.checkBookingRow(r);
+      return rows;
+    },
+    async unitsOf(pid) {
+      const c = this.bkCtx;
+      if (!c.units[pid]) {
+        const m = new Map();
+        for (const u of await loadUnits(pid)) for (const k of [u.unitCode, u.ezeeRoomMatch, ...(u.aliases || [])]) if (k) m.set(norm(k), u);
+        c.units[pid] = m;
+      }
+      return c.units[pid];
+    },
+    // Checks one booking row. A problem that can be corrected in the row itself is marked fixable (the Fix this button).
+    async checkBookingRow(row) {
+      const c = this.bkCtx, d = row.data;
+      const bad = (note, fixable = true) => Object.assign(row, { status: 'error', note, fixable });
+      row.fixable = false;
+      if (!d.name) return bad('Needs the guest\'s name.');
+      if (!d.propertyName && !d.propertyId) return bad('Needs the property name.');
+      if (!d.checkIn || !d.checkOut) return bad(`Check-in or check-out date can't be read (${d.rawIn || 'empty'} / ${d.rawOut || 'empty'}).`);
+      if (d.checkOut < d.checkIn) return bad('Check-out is before check-in.');   // same day is allowed (1 day stay)
+      if (d.email && !/^\S+@\S+\.\S+$/.test(d.email)) return bad('The email doesn\'t look right.');
+      // Property: the one picked in Fix, else the one named like the file's Property Name
+      const k = norm(d.propertyName);
+      const prop = d.propertyId ? this.properties.find(p => p.id === d.propertyId)
+        : this.properties.find(p => norm(p.name) === k) || this.properties.find(p => k.length >= 3 && (norm(p.name).includes(k) || k.includes(norm(p.name)))) || null;
+      if (!prop) return bad(`"${d.propertyName}" isn't a property in the PMS. Pick the right one, or add it on Portfolio first.`);
+      d.propertyId = prop.id;
+      if (!d.unitNumber) return bad('Needs the unit number.');
+      const unit = (await this.unitsOf(prop.id)).get(norm(d.unitNumber));
+      if (!unit) return bad(`Unit ${d.unitNumber} isn't under ${prop.name}. Pick the right unit, or add it on Portfolio first.`);
+      Object.assign(row, { pid: prop.id, propertyName: prop.name, unitId: unit.id, unitCode: unit.unitCode });
+      // ID
+      if (d.bookingId) {
+        if (c.have.has(d.bookingId)) return Object.assign(row, { id: d.bookingId, status: 'skip', note: `${d.bookingId} is already in the PMS.`, fixable: false });
+        if (c.seen.has(d.bookingId) && c.seen.get(d.bookingId) !== row.line) return Object.assign(row, { id: d.bookingId, status: 'skip', note: `${d.bookingId} is listed twice in this file.`, fixable: false });
+        row.id = d.bookingId;
+      } else if (!row.id) {
+        const prefix = idPrefix(prop.name), n = Math.max(c.next[prefix] || 1, (c.used[prefix] || 0) + 1);
+        c.used[prefix] = n; row.id = `${prefix}-${String(n).padStart(3, '0')}`;
+      }
+      c.seen.set(row.id, row.line);
+      d.nights = Math.max(1, Math.round((new Date(d.checkOut) - new Date(d.checkIn)) / 86400000));
+      Object.assign(row, { status: 'ok', note: d.bookingId ? '' : 'New booking no.' });
+      return row;
+    },
+    async openFix(r) {
+      const d = { ...r.data };
+      this.fix = { row: r, d, unitOptions: [], error: '', busy: false };
+      if (!d.propertyId) { const k = norm(d.propertyName); const p = this.properties.find(x => norm(x.name) === k); if (p) d.propertyId = p.id; }
+      await this.fixProperty(true);
+    },
+    async fixProperty(keep) {
+      const f = this.fix; if (!f) return;
+      if (!keep) f.d.unitNumber = '';
+      if (!f.d.propertyId) { f.unitOptions = []; return; }
+      const list = await loadUnits(f.d.propertyId);
+      f.unitOptions = list.map(u => ({ value: u.unitCode, label: u.unitCode }));
+    },
+    async applyFix() {
+      const f = this.fix; f.busy = true; f.error = '';
+      try {
+        const r = f.row; Object.assign(r.data, f.d, { propertyName: this.properties.find(p => p.id === f.d.propertyId)?.name || f.d.propertyName });
+        await this.checkBookingRow(r);
+        if (r.status === 'error') f.error = r.note; else this.fix = null;
+      } catch (e) { f.error = friendlyError(e, 'check the row'); }
+      if (this.fix) f.busy = false;
     },
 
     propCode() {
@@ -515,11 +660,28 @@ export default {
         const made = new Set();   // owners created in this upload (a later row of the same owner only links its unit)
         for (let i = 0; i < ready.length; i += ROWS_PER_BATCH) {
           const b = writeBatch(db);
-          for (const r of ready.slice(i, i + ROWS_PER_BATCH)) this.kind === 'properties' ? this.writeProperty(b, r) : this.writeUnitOwner(b, r, made);
+          for (const r of ready.slice(i, i + ROWS_PER_BATCH)) this.kind === 'properties' ? this.writeProperty(b, r) : this.kind === 'bookings' ? this.writeBooking(b, r) : this.writeUnitOwner(b, r, made);
           await b.commit(); clearCache();
           this.savedSoFar = Math.min(i + ROWS_PER_BATCH, ready.length);
         }
-        if (this.kind === 'properties') this.done = `Saved ${ready.length} ${ready.length === 1 ? 'property' : 'properties'} from ${this.fileName}. Add their units on Portfolio, or upload their eZee report.`;
+        if (this.kind === 'bookings') {
+          // Move each property's counter past the highest number now in use
+          const top = {};
+          for (const r of ready) { const m = r.id.match(/^(.*)-(\d+)$/); if (m) top[m[1]] = Math.max(top[m[1]] || 0, +m[2]); }
+          const cur = await getDocs(collection(db, 'lodgmentCounters'));
+          const now = Object.fromEntries(cur.docs.map(d => [d.id, d.data().next || 1]));
+          const cb = writeBatch(db);
+          for (const [p, n] of Object.entries(top)) if (n + 1 > (now[p] || 1)) cb.set(doc(db, 'lodgmentCounters', p), { next: n + 1 });
+          await cb.commit();
+          // Utility bills go in after the bookings (the rules need the booking to exist first)
+          const bills = ready.filter(r => r.data.electricity || r.data.water || r.data.sewerage);
+          for (let i = 0; i < bills.length; i += 200) {
+            const ub = writeBatch(db);
+            for (const r of bills.slice(i, i + 200)) this.writeBill(ub, r);
+            await ub.commit();
+          }
+          this.done = `Saved ${ready.length} ${ready.length === 1 ? 'booking' : 'bookings'} from ${this.fileName} as Offline bookings (see Portfolio > Bookings)` + (bills.length ? `, with ${bills.length} utility ${bills.length === 1 ? 'bill' : 'bills'}.` : '.');
+        } else if (this.kind === 'properties') this.done = `Saved ${ready.length} ${ready.length === 1 ? 'property' : 'properties'} from ${this.fileName}. Add their units on Portfolio, or upload their eZee report.`;
         else if (this.allMode) {
           const n = new Set(ready.map(r => r.sheet)).size;
           this.done = `Saved ${ready.length} ${ready.length === 1 ? 'unit' : 'units'} under ${n} ${n === 1 ? 'property' : 'properties'} (${this.newUnits} new units, ${this.newOwners} new owners, ${this.newFees} fees). Units the file had no clear fee for still need theirs set on Portfolio.`;
@@ -533,6 +695,31 @@ export default {
         this.error = friendlyError(e, 'save') + (this.savedSoFar ? ` ${this.savedSoFar} rows were saved before this. Choose the file again to save the rest.` : '');
       }
       this.saving = false;
+    },
+    writeBooking(b, r) {
+      const d = r.data, id = `offline_${r.id}`, ref = doc(db, 'offlineBookings', id), c = x => Math.round((Number(x) || 0) * 100) / 100;
+      const longTerm = d.nights >= 30;
+      b.set(ref, { source: 'import', inquiryId: null, bookingNo: r.id, tenantId: null,
+        propertyId: r.pid, propertyName: r.propertyName, unitId: r.unitId, unitCode: r.unitCode,
+        arrival: d.checkIn, departure: d.checkOut, nights: d.nights, longTerm,
+        amount: longTerm ? 0 : c(d.rentalAmount), monthlyRent: longTerm ? c(d.rentalAmount) : 0, deposit: c(d.depositAmount),
+        paymentRef: '', ezeeReservationNo: '', status: 'active',
+        bookingSource: d.bookingSource, rentalStatus: d.rentalStatus, renewalDate: d.renewalDate, ownerEmail: d.ownerEmail,
+        moveInStatus: d.moveInStatus, moveOutStatus: d.moveOutStatus, passwordStatus: d.passwordStatus,
+        whatsappGroupLink: d.whatsappGroupLink, remark: d.remark, importedFrom: this.fileName,
+        createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+      b.set(doc(ref, 'private', 'main'), { name: d.name, icPassport: d.icPassport, phone: d.phone, email: d.email,
+        mainDoorPasscode: d.mainDoorPasscode, currentExpiryDate: d.currentExpiryDate, nextDoorPasscode: d.nextDoorPasscode, nextExpiryDate: d.nextExpiryDate });
+      audit(b, me, { action: 'offlineBooking.create', entity: `offlineBookings/${id}`, propertyId: r.pid, reason: `Bulk upload (${this.fileName})` });
+    },
+    writeBill(b, r) {
+      const d = r.data, id = `offline_${r.id}`, c = x => Math.round((Number(x) || 0) * 100) / 100;
+      const dates = [...String(d.billPeriod).matchAll(/\d{4}-\d{2}-\d{2}|\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}/g)].map(m => toIso(m[0])).filter(Boolean);
+      const total = c(d.electricity) + c(d.water) + c(d.sewerage);
+      b.set(doc(db, 'utilityBills', id), { bookingId: id, propertyId: r.pid, propertyName: r.propertyName, unitCode: r.unitCode,
+        periodFrom: dates[0] || d.checkIn, periodTo: dates[1] || d.checkOut, electricity: c(d.electricity), water: c(d.water), sewerage: c(d.sewerage), total,
+        invoiceLink: /^https?:/i.test(d.invoiceBill) ? d.invoiceBill : '', utilityStatus: 'Ready_to_Send',
+        createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
     },
     writeProperty(b, r) {
       const d = r.data;
@@ -640,5 +827,8 @@ export default {
     .cols summary { cursor: pointer; color: var(--text-2); }
     .cols .help { margin: 6px 0 0; word-break: break-word; }
     tr.dim td { color: var(--muted); }
+    .fix-btn { margin-top: 6px; }
+    .fix-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+    .fix-grid :deep(.op), .fix-grid :deep(.op-btn) { display: block; width: 100%; }
     .actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 </style>

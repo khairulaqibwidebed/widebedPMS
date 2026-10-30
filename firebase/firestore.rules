@@ -1,8 +1,10 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.13, 30 Oct 2026: Agreements (forms, templates, records, views, generated PDFs).
-// Every staff member fills in agreement forms and reads every record. Forms and templates change only with the
-// "Agreement Setup" tick (Directors always). Files (PDFs, IC copies) are in Google Drive, not Firestore.
-// Draft 0.12, 29 Oct 2026: page access.
+// Widebed PMS Firestore rules. Draft 0.16, 30 Oct 2026: Draft 0.14 plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
+// and Operations editing booking details (reservationLodgments rules removed).
+// Draft 0.14, 30 Oct 2026: Draft 0.13 plus Agreements (forms, templates, records, views,
+// generated PDFs). Every staff member fills in agreement forms and reads every record. Forms and templates change only with
+// the "Agreement Setup" tick (Directors always). Files (PDFs, IC copies) are in Google Drive, not Firestore.
+// Draft 0.13, 29 Oct 2026: Draft 0.12 (page access, Neo) plus utilityBills and booking door passcodes.
 // users/{uid}.perms (ticked on Staff accounts) lists the pages a person may view or edit: '<page>.view' / '<page>.edit'.
 // No perms saved = the role's preset (presetFor below), so accounts that were never changed behave as in Draft 0.10.
 // Data is protected per area: any Finance page opens the finance data, Portfolio Edit opens owners/units/terms, and so on.
@@ -11,7 +13,7 @@ rules_version = '2';
 // Draft 0.10, 27 Oct 2026: (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
 // (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
 // 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
-// History: 0.13 Agreements. 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
+// History: 0.16 booking numbers, Willow booking import, Operations edit bookings (0.15 was never published). 0.14 Agreements. 0.13 utility bills, door passcodes, offline payments, unit types. 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
 // 0.7 month summaries (unitMonths, months.summary).
 // 0.6 every role signs in; Portfolio for Operations/Procurement/Marketing; direct bookings. 0.5 offline inquiries,
 // tenants, offline bookings, Issues, SOPs, complaints, Playbook, brand logos. 0.4 month-end completion is per unit.
@@ -166,6 +168,12 @@ service cloud.firestore {
     match /config/{docId} {
       allow read: if staff();
       allow write: if isDirector();
+    }
+
+    // Unit types added with "+ Add type" on Add unit: anyone who can add or edit units may add to the list.
+    match /config/unitTypes {
+      allow write: if (portfolioEditor() || portfolioAdder() || isMkt())
+        && request.resource.data.keys().hasOnly(['list']) && request.resource.data.list is list && request.resource.data.list.size() < 100;
     }
 
     // Numbered IDs (LD-, TEN-, IS-, BK-, CP-, DC-, NL-): taken one at a time inside a transaction.
@@ -493,18 +501,20 @@ service cloud.firestore {
     }
 
     // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
+    // View and Edit are separate ticks: Offline Payments View reads; Offline Payments Edit creates and changes.
     match /offlinePayments/{id} {
-      allow read: if finOrDir();
-      allow create: if finOrDir() && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
-      allow update: if finOrDir();
+      allow read: if can('offlinePayments.view') || can('offlinePayments.edit');
+      allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
+      allow update: if can('offlinePayments.edit');
       allow delete: if false;
     }
     // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
     match /utilityBills/{bookingId} {
-      allow read: if finOrDir() || isOps();
-      allow create: if (finOrDir() || isOps()) && request.resource.data.createdBy == request.auth.uid
+      // Booking Forms View is the only tick that page has, so it gives the form (read, save and update a bill).
+      allow read: if finOrDir() || isOps() || can('bookingForms.view');
+      allow create: if (finOrDir() || isOps() || can('bookingForms.view')) && request.resource.data.createdBy == request.auth.uid
         && exists(docPath('offlineBookings', bookingId));
-      allow update: if finOrDir();
+      allow update: if finOrDir() || can('bookingForms.view');
       allow delete: if false;
     }
 
@@ -522,13 +532,25 @@ service cloud.firestore {
       // ...and adding the eZee reservation no. later.
       allow update: if isOps() && assignedToMe(resource.data.inquiryId)
         && changed().hasOnly(['ezeeReservationNo', 'updatedAt', 'updatedBy']);
+      // Operations edit any booking's details (Portfolio > Bookings > open a booking); who, source and the inquiry link stay as they were.
+      allow update: if isOps() && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId']);
       // Direct booking (Portfolio > Bookings > + New booking).
       allow create: if (finOrDir() || isOps()) && bookingId.matches('offline_BK-[0-9]+')
         && request.resource.data.source == 'direct' && request.resource.data.inquiryId == null
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.tenantId is string
         && getAfter(docPath('tenants', request.resource.data.tenantId)) != null;
+      // Willow Booking Details bulk upload (Portfolio > Bulk Upload): Finance or a Director, offline_{booking no.} such as offline_DM-014.
+      allow create: if finOrDir() && bookingId.matches('offline_[A-Z0-9]+-[0-9]+') && request.resource.data.source == 'import'
+        && request.resource.data.createdBy == request.auth.uid;
       allow delete: if false;
+      // Door passcodes for the booking (Booking Form).
+      match /private/{doc} {
+        allow read: if finOrDir() || isOps();
+        allow create: if (finOrDir() || isOps()) && existsAfter(docPath('offlineBookings', bookingId));
+        allow update: if finOrDir() || isOps();
+        allow delete: if false;
+      }
     }
 
     // Issues: seen by the tagged roles, the person who raised it and Directors. Every role raises tickets.
@@ -684,7 +706,7 @@ service cloud.firestore {
       }
     }
 
-    // ================= Agreements (Draft 0.13) =================
+    // ================= Agreements (Draft 0.14) =================
     function agreementAdmin() { return can('agreementSetup.view'); }
 
     // Form fields, formulas and column-only fields. Archived, never deleted.
@@ -729,6 +751,15 @@ service cloud.firestore {
       allow create: if anyStaff() && request.resource.data.by == request.auth.uid && request.resource.data.recordId is string
         && request.resource.data.fileId is string;
       allow update, delete: if false;
+    }
+
+    // ================= Booking numbers (Booking Form, Create booking and the Willow Booking Details bulk upload) =================
+    // One counter per property prefix gives the next booking no. (DM-014). The Reservation Lodgment form is gone; offline bookings are the one booking record.
+    function lodgeStaff() { return finOrDir() || isOps() || can('bookingForms.view'); }
+    match /lodgmentCounters/{prefix} {
+      allow read: if lodgeStaff();
+      allow create, update: if lodgeStaff() && request.resource.data.next is int;
+      allow delete: if false;
     }
 
   }
