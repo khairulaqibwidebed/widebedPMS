@@ -47,6 +47,7 @@
 </template>
 
 <script>
+import { reactive } from 'vue';
 import { collection, doc, getDoc, getDocs, limit, query, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
@@ -58,15 +59,17 @@ import { toast } from '@/lib/toast.js';
 
 const KINDS = [{ key: 'electricity', label: 'Electricity' }, { key: 'water', label: 'Water' }, { key: 'sewerage', label: 'Sewerage' }];
 const blank = () => ({ from: '', to: '', electricity: '', water: '', sewerage: '', invoiceLink: '' });
+// Tenant names for the list, read once per visit (they sit in each tenant's private record)
+const nameCache = reactive({});
 const cents = v => Math.round((+v || 0) * 100) / 100;
 
 export default {
   components: { OptionPicker, DriveFiles },
   emits: ['close', 'saved'],
-  data() { return { KINDS, f: blank(), bookings: [], bills: {}, bookingId: '', details: false, loading: true, tenant: {}, tenantLoaded: false, busy: false, error: '', done: '' }; },
+  data() { return { KINDS, f: blank(), bookings: [], bills: {}, names: nameCache, bookingId: '', details: false, loading: true, tenant: {}, tenantLoaded: false, busy: false, error: '', done: '' }; },
   computed: {
     bookingOptions() {
-      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => ({ value: b.id, label: `${b.id} · ${b.unitCode || 'unit'} · ${b.arrival || ''} to ${b.departure || ''}${this.bills[b.id] ? ' · bill saved' : ''}` }))];
+      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => ({ value: b.id, label: `${this.names[b.tenantId] || b.id} - ${b.unitCode || 'unit'} - ${b.arrival || ''} to ${b.departure || ''}${this.bills[b.id] ? ' · bill saved' : ''}` }))];
     },
     existing() { return this.bookingId ? this.bills[this.bookingId] || null : null; },
     picked() { return this.bookings.find(b => b.id === this.bookingId) || null; },
@@ -95,12 +98,17 @@ export default {
     async load() {
       this.loading = true;
       try {
-        const [bs, us] = await Promise.all([getDocs(query(collection(db, 'offlineBookings'), limit(300))), getDocs(query(collection(db, 'utilityBills'), limit(500)))]);
+        const [bs, us] = await Promise.all([getDocs(query(collection(db, 'offlineBookings'), limit(100))), getDocs(query(collection(db, 'utilityBills'), limit(500)))]);
         this.bills = Object.fromEntries(us.docs.map(d => [d.id, d.data()]));
         this.bookings = bs.docs.filter(d => d.data().status !== 'cancelled').map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => String(b.arrival || '').localeCompare(String(a.arrival || '')));
       } catch (e) { this.error = friendlyError(e, 'load the bookings'); }
       this.loading = false;
+      // Names fill in as they arrive; the list shows the booking ID until then
+      const need = [...new Set(this.bookings.map(b => b.tenantId).filter(t => t && !(t in nameCache)))];
+      await Promise.all(need.map(async id => {
+        try { const sn = await getDoc(doc(db, 'tenants', id, 'private', 'main')); nameCache[id] = sn.exists() ? sn.data().name || '' : ''; } catch { /* keep the ID */ }
+      }));
     },
     check() {
       const f = this.f;
