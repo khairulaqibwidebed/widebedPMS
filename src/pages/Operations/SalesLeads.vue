@@ -326,8 +326,8 @@
               </div>
               <div class="field" style="margin-top:12px"><label for="bNote">Remarks</label>
                 <textarea class="input" id="bNote" style="height:70px" v-model="bk.note" placeholder="e.g. Paid in full by bank transfer"></textarea></div>
-              <div class="field" style="margin-top:12px"><label>Receipt <span class="muted">(required: upload at least one file)</span></label>
-                <DriveFiles kind="offline-payments" :record-id="bk.payId" :label="payLabel()" :list-on-load="false" @folder="l => bk.docsLink = l" /></div>
+              <div class="field" id="bReceipt" tabindex="-1" style="margin-top:12px"><label>Receipt <span class="muted">(required: upload at least one file)</span></label>
+                <DriveFiles kind="offline-payments" :key="bk.payId" :record-id="bk.payId" :label="payLabel()" :list-on-load="false" @folder="l => bk.docsLink = l" /></div>
               <p class="help">The payment is saved under Finance › Offline Payments (status Pending), not on the booking. Finance checks it there.</p>
             </section>
             <section class="card">
@@ -373,6 +373,7 @@ import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
+import { showNotice } from '@/lib/confirm.js';
 import { idPrefix } from '@/lib/lodgment.js';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
 // Direct service connection matching Issues.vue
@@ -838,11 +839,27 @@ export default {
         utilityDeposit: toCents(b.utilityDeposit), internetFee: toCents(b.internetFee), carparkFee: toCents(b.carparkFee), cleaningFee: toCents(b.cleaningFee),
         taFee: toCents(b.taFee), taStampFee: toCents(b.taStampFee), othersFee: toCents(b.othersFee), othersNote: +b.othersFee > 0 ? b.othersNote.trim() : ''};
     },
+    // The unit code for the booking, read from the unit itself when the loaded list doesn't have it
+    async unitCodeOf(unitId) { try { const u = await getDoc(doc(db, 'units', unitId)); return u.exists() ? u.data().unitCode || '' : ''; } catch { return ''; } },
+    // Scrolls to the field a validation message is about and puts the cursor there
+    focusFor(msg) {
+      const MAP = [[/^Add the tenant/, '#bName'], [/^Add a full phone/, '#bPhone'], [/email address/, '#bEmail'], [/^Add the IC/, '#bIc'], [/^Type the gender/, '#bGenderOther'],
+        [/^Choose the property and unit/, '[aria-label="Property"]'], [/^Choose the booking source/, '[aria-label="Booking source"]'], [/^Choose the rental status/, '[aria-label="Rental status"]'],
+        [/check-in and check-out|^Check-out must/, '#bIn'], [/^Add the monthly rent/, '#bRent'], [/^Add the amount paid/, '#bAmt'], [/^Choose the mode of payment/, '[aria-label="Mode of payment"]'],
+        [/receipt/, '#bReceipt'], [/main door passcode/, '#bExp'], [/next door passcode/, '#bNextExp']];
+      const sel = (MAP.find(([re]) => re.test(msg)) || [])[1];
+      this.$nextTick(() => {
+        const el = sel && document.querySelector(sel);
+        if (!el) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        setTimeout(() => el.focus && el.focus({ preventScroll: true }), 350);
+      });
+    },
     payLabel() { const b = this.bk; return [b.payDate, this.units.find(u => u.id === b.unitId)?.unitCode, b.name].filter(Boolean).join(' '); },
     // The payment is saved in the Offline Payments collection (what Finance checks), inside the same write as the booking
     payRecord(prop, unitCode, bookingId, bookingNo) {
       const b = this.bk;
-      return { date: b.payDate || today(), amount: toCents(b.amount), mode: b.payMode, propertyId: b.propertyId, propertyName: prop?.name || '', unitCode,
+      return { date: b.payDate || today(), amount: toCents(b.amount), mode: b.payMode, propertyId: b.propertyId, propertyName: prop?.name || '', unitCode: unitCode || b.unitId || '', unitId: b.unitId || '',
         guest: b.name.trim(), purpose: b.note.trim() || `Booking ${bookingNo}`, bankRef: b.paymentRef.trim(), docsLink: b.docsLink || '', remarks: '',
         status: 'Pending', verifiedByName: '', verifiedDate: '', bookingId, bookingNo,
         createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name };
@@ -865,7 +882,7 @@ export default {
         : +b.amount > 0 && !b.docsLink ? 'Upload at least one receipt for the payment.'
         : b.mainPasscode.trim() && !b.currentExpiry ? 'Add the expiry date of the main door passcode.'
         : b.nextPasscode.trim() && !b.nextExpiry ? 'Add the expiry date of the next door passcode.' : this.coError();
-      if (err) { this.formError = err; window.scrollTo(0, 0); return; }
+      if (err) { this.formError = err; this.focusFor(err); return; }
       if (this.direct) return this.saveDirect();
 
       this.busy = true; this.formError = '';
@@ -876,7 +893,7 @@ export default {
           dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
         const coIds = await this.saveCoTenants();
         const known = this.lead.tenantId ? this.tenant : await findTenant(b.phone);
-        const bookingId = `offline_${ld.id}`, unitCode = unit?.unitCode || '';
+        const bookingId = `offline_${ld.id}`, unitCode = unit?.unitCode || await this.unitCodeOf(b.unitId);
         const lRef = doc(db, 'offlineInquiries', ld.id), bRef = doc(db, 'offlineBookings', bookingId), cRef = doc(db, 'counters', 'tenants');
         
         const res = await runTransaction(db, async tx => {
@@ -936,7 +953,7 @@ export default {
           link: `/Operations/offline-inquiries?id=${ld.id}`
         });
 
-        if (this.embedded) { this.$emit('saved', this.okMsg); this.$emit('close'); this.busy = false; return; }
+        if (this.embedded) { this.$emit('saved', this.okMsg); this.$emit('close'); this.busy = false; showNotice('Booking saved', this.okMsg, 'ok'); return; }
         this.go('lead', ld.id);
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
       this.busy = false;
@@ -951,7 +968,7 @@ export default {
           icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name),
           dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
         const coIds = await this.saveCoTenants();
-        const known = await findTenant(b.phone), unitCode = unit?.unitCode || '';
+        const known = await findTenant(b.phone), unitCode = unit?.unitCode || await this.unitCodeOf(b.unitId);
         const bcRef = doc(db, 'counters', 'offlineBookings'), tcRef = doc(db, 'counters', 'tenants');
         const res = await runTransaction(db, async tx => {
           const bc = await tx.get(bcRef), bn = bc.exists() ? bc.data().next || 1 : 1, bookingId = `offline_${num('BK', bn)}`;
@@ -996,7 +1013,7 @@ export default {
           link: '/Portfolio/bookings'
         });
 
-        if (this.embedded) { this.$emit('saved', okMsg); await this.startBooking(); window.scrollTo(0, 0); }
+        if (this.embedded) { this.$emit('saved', okMsg); await this.startBooking(); window.scrollTo(0, 0); showNotice('Booking saved', okMsg, 'ok'); }
         else this.$router.push({ path: '/Portfolio/bookings', state: { okMsg } });
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
       this.busy = false;

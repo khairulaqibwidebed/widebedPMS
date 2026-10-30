@@ -1,5 +1,10 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.13, 29 Oct 2026: Draft 0.12 (page access, Neo) plus utilityBills and booking door passcodes.
+// Widebed PMS Firestore rules. Draft 0.15, 30 Oct 2026: master files (agreementMasters), fill-in links (agreementLinks) and the
+// 'submitted' record status. Fill-in links are served by the Apps Script as the company account: the public never reads Firestore.
+// Draft 0.14, 30 Oct 2026: Draft 0.13 plus Agreements (forms, templates, records, views,
+// generated PDFs). Every staff member fills in agreement forms and reads every record. Forms and templates change only with
+// the "Agreement Setup" tick (Directors always). Files (PDFs, IC copies) are in Google Drive, not Firestore.
+// Draft 0.13, 29 Oct 2026: Draft 0.12 (page access, Neo) plus utilityBills and booking door passcodes.
 // users/{uid}.perms (ticked on Staff accounts) lists the pages a person may view or edit: '<page>.view' / '<page>.edit'.
 // No perms saved = the role's preset (presetFor below), so accounts that were never changed behave as in Draft 0.10.
 // Data is protected per area: any Finance page opens the finance data, Portfolio Edit opens owners/units/terms, and so on.
@@ -8,7 +13,7 @@ rules_version = '2';
 // Draft 0.10, 27 Oct 2026: (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
 // (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
 // 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
-// History: 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
+// History: 0.15 master files, fill-in links. 0.14 Agreements. 0.13 utility bills, door passcodes, offline payments, unit types. 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
 // 0.7 month summaries (unitMonths, months.summary).
 // 0.6 every role signs in; Portfolio for Operations/Procurement/Marketing; direct bookings. 0.5 offline inquiries,
 // tenants, offline bookings, Issues, SOPs, complaints, Playbook, brand logos. 0.4 month-end completion is per unit.
@@ -496,18 +501,20 @@ service cloud.firestore {
     }
 
     // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
+    // View and Edit are separate ticks: Offline Payments View reads; Offline Payments Edit creates and changes.
     match /offlinePayments/{id} {
-      allow read: if finOrDir();
-      allow create: if finOrDir() && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
-      allow update: if finOrDir();
+      allow read: if can('offlinePayments.view') || can('offlinePayments.edit');
+      allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
+      allow update: if can('offlinePayments.edit');
       allow delete: if false;
     }
     // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
     match /utilityBills/{bookingId} {
-      allow read: if finOrDir() || isOps();
-      allow create: if (finOrDir() || isOps()) && request.resource.data.createdBy == request.auth.uid
+      // Booking Forms View is the only tick that page has, so it gives the form (read, save and update a bill).
+      allow read: if finOrDir() || isOps() || can('bookingForms.view');
+      allow create: if (finOrDir() || isOps() || can('bookingForms.view')) && request.resource.data.createdBy == request.auth.uid
         && exists(docPath('offlineBookings', bookingId));
-      allow update: if finOrDir();
+      allow update: if finOrDir() || can('bookingForms.view');
       allow delete: if false;
     }
 
@@ -692,6 +699,79 @@ service cloud.firestore {
         allow read: if (listingEditor() || (opsRole() && listingViewer())) && docId == 'main';
         allow write: if listingEditor() && docId == 'main';
       }
+    }
+
+    // ================= Agreements (Draft 0.14, 0.15) =================
+    function agreementAdmin() { return can('agreementSetup.view'); }
+
+    // Form fields, formulas and column-only fields. Archived, never deleted.
+    match /agreementForms/{id} {
+      allow read: if anyStaff();
+      allow create: if agreementAdmin() && request.resource.data.name is string && request.resource.data.fields is list
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if agreementAdmin() && request.resource.data.fields is list && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // Uploaded agreement PDFs (the file itself is in Drive), their versions and where each field prints.
+    match /agreementTemplates/{id} {
+      allow read: if anyStaff();
+      allow create: if agreementAdmin() && request.resource.data.formId is string && request.resource.data.mappings is list
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if agreementAdmin() && request.resource.data.mappings is list
+        && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // One record per filled-in form. Everyone reads and writes; the form and the creator never change. Archived, never deleted.
+    match /agreementRecords/{id} {
+      allow read: if anyStaff();
+      allow create: if anyStaff() && request.resource.data.formId is string && request.resource.data.values is map
+        && request.resource.data.status in ['draft', 'submitted', 'completed', 'archived'] && request.resource.data.createdBy == request.auth.uid;
+      allow update: if anyStaff() && request.resource.data.values is map
+        && request.resource.data.status in ['draft', 'submitted', 'completed', 'archived']
+        && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // Master files: Word / Google Docs kept in Drive ("Master File (DO NOT EDIT)"). Only the record of them is here.
+    match /agreementMasters/{id} {
+      allow read: if anyStaff();
+      allow create: if agreementAdmin() && request.resource.data.docId is string && request.resource.data.createdBy == request.auth.uid;
+      allow update: if agreementAdmin() && request.resource.data.docId is string && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // Fill-in links for outside people; the link name is the document id (/f/{slug}). Passwords are stored only as
+    // salt + SHA-256. "Anyone" links need Agreement Setup; any staff member may make a personal link for one record.
+    // Turned off, never deleted. The Apps Script records submissions (it writes as the company account).
+    match /agreementLinks/{slug} {
+      function linkOk() {
+        return slug.matches('[a-z0-9-]{3,60}') && request.resource.data.slug == slug
+          && request.resource.data.kind in ['open', 'personal'] && request.resource.data.formId is string
+          && request.resource.data.get('passHash', '') is string;
+      }
+      allow read: if anyStaff();
+      allow create: if anyStaff() && linkOk() && request.resource.data.createdBy == request.auth.uid
+        && (agreementAdmin() || (request.resource.data.kind == 'personal' && request.resource.data.recordId is string));
+      allow update: if anyStaff() && linkOk() && request.resource.data.kind == resource.data.kind
+        && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy
+        && (agreementAdmin() || resource.data.kind == 'personal');
+      allow delete: if false;
+    }
+
+    // Saved table layouts (columns, widths, filters). Shared by everyone.
+    match /agreementViews/{id} {
+      allow read, delete: if anyStaff();
+      allow create, update: if anyStaff() && request.resource.data.formId is string && request.resource.data.view is map;
+    }
+
+    // History of generated PDFs. Written once by the person who made it.
+    match /generatedAgreements/{id} {
+      allow read: if anyStaff();
+      allow create: if anyStaff() && request.resource.data.by == request.auth.uid && request.resource.data.recordId is string
+        && request.resource.data.fileId is string;
+      allow update, delete: if false;
     }
 
   }

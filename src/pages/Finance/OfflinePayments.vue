@@ -148,7 +148,7 @@
           <div class="field"><label>Status <span class="muted">(Unknown = no receipt)</span></label>
             <OptionPicker class="fld-pick" v-model="f.status" :options="statusOptions('')" label="Status" /></div>
           <div class="field wide"><label>Remarks</label><input class="input" v-model="f.remarks"></div>
-            <div class="field wide"><label>Receipts / documents <span class="muted">(optional)</span></label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
+            <div class="field wide"><label>Receipts / documents <span class="muted">{{ f.status === 'Unknown' ? '(optional for Unknown)' : '(required)' }}</span></label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
           </div>
           <div class="modal-foot">
             <button type="button" class="btn" @click="open = false">Cancel</button>
@@ -161,7 +161,7 @@
 </template>
 
 <script>
-import { collection, doc, getDocs, limit, orderBy, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { can } from '@/lib/access.js';
@@ -217,6 +217,15 @@ export default {
       try { this.rows = (await getDocs(query(collection(db, 'offlinePayments'), orderBy('createdAt', 'desc'), limit(500)))).docs.map(d => ({ id: d.id, ...d.data() })); }
       catch (e) { this.error = friendlyError(e, 'load the offline payments'); }
       this.loading = false;
+      this.fillUnits();
+    },
+    // Booking Form payments made before the unit was saved on them: read the unit from the booking
+    async fillUnits() {
+      const ids = [...new Set(this.rows.filter(r => !r.unitCode && r.bookingId).map(r => r.bookingId))];
+      if (!ids.length) return;
+      const found = {};
+      await Promise.all(ids.map(async id => { try { const b = await getDoc(doc(db, 'offlineBookings', id)); if (b.exists()) found[id] = b.data().unitCode || b.data().unitId || ''; } catch { /* leave blank */ } }));
+      this.rows = this.rows.map(r => (!r.unitCode && found[r.bookingId]) ? { ...r, unitCode: found[r.bookingId] } : r);
     },
     async openForm() {
       this.f = blank(); this.newId = doc(collection(db, 'offlinePayments')).id; this.units = []; this.formError = ''; this.open = true;
@@ -229,7 +238,11 @@ export default {
     },
     async submit() {
       const f = this.f, me = useSession();
-      this.formError = !f.date ? 'Choose the payment date.' : !(+f.amount > 0) ? 'Enter the amount.' : !f.propertyId ? 'Choose the property.' : !f.guest.trim() ? 'Enter the guest name.' : !f.purpose.trim() ? 'Enter the purpose.'
+      // Unknown only needs the date and amount; Pending and Checked need everything, including a receipt
+      const unk = f.status === 'Unknown';
+      this.formError = !f.date ? 'Choose the payment date.' : !(+f.amount > 0) ? 'Enter the amount.'
+        : unk ? '' : !f.propertyId ? 'Choose the property.' : !f.guest.trim() ? 'Enter the guest name.' : !f.purpose.trim() ? 'Enter the purpose.'
+        : !f.docsLink.trim() ? 'Upload the receipt. It is required unless the status is Unknown.'
         : (f.docsLink.trim() && !/^https?:\/\//i.test(f.docsLink.trim())) ? 'The documents link should start with https://' : '';
       if (this.formError) return;
       this.busy = true;
