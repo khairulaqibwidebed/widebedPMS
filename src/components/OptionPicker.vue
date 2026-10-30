@@ -52,7 +52,13 @@ export default {
       const pop = this.$refs.pop, root = this.$refs.root;
       if (!pop || !root) return;
       const r = root.getBoundingClientRect(), h = Math.min(pop.scrollHeight + 14, 340);
-      const clip = root.closest('.table-wrap'), above = clip ? r.top - clip.getBoundingClientRect().top : r.top;   // a table clips the list, so only flip up when it fits inside
+      // Any ancestor that clips (a table, a form card) would cut the list off, so only flip up when it fits inside that ancestor
+      let clipTop = 0;
+      for (let el = root.parentElement; el && el !== document.body; el = el.parentElement) {
+        const o = getComputedStyle(el);
+        if (/hidden|auto|scroll|clip/.test(o.overflowY)) { clipTop = el.getBoundingClientRect().top; break; }
+      }
+      const above = r.top - clipTop;
       this.up = r.bottom + 6 + h > window.innerHeight - 8 && r.top > window.innerHeight - r.bottom && above >= h;
     },
     enter() { if (!this.open) { this.toggle(); return; } const o = this.list[this.hot]; if (o && !o.disabled) this.pick(o.value); },
