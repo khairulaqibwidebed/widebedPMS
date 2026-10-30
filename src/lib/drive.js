@@ -14,6 +14,7 @@ async function call(body) {
 // Makes every page folder (with this month inside) once per visit
 let setUp = false;
 export const ensureFolders = () => { if (!setUp) { setUp = true; call({ action: 'setup' }).catch(() => { setUp = false; }); } };
+export const removeFile = (kind, fileId) => call({ action: 'remove', kind, fileId });
 export const listFiles = (kind, recordId, label = '') => call({ action: 'list', kind, recordId, label });
 
 // Sends one file straight from the browser to Drive. onProgress gets 0..1.

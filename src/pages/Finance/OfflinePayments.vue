@@ -41,7 +41,7 @@
               <td class="num">{{ Number(r.amount || 0).toFixed(2) }}</td>
               <td><span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span><div class="who" v-if="r.editedByName">{{ `by ${r.editedByName}` }}</div></td>
               <td>{{ r.submittedByName || '—' }}</td>
-              <td class="num"><button type="button" class="btn" @click="view = r; editing = false">View</button></td>
+              <td class="num"><button type="button" class="btn" @click="view = r; editing = false; pendingLink = ''">View</button></td>
             </tr>
             <tr v-if="!pageRows.length"><td colspan="10" class="muted empty">{{ loading ? 'Loading…' : 'No offline payments found.' }}</td></tr>
           </tbody>
@@ -54,43 +54,52 @@
         <div class="modal view-modal" role="dialog" aria-label="Offline payment details">
           <div class="v-head">
             <div><div class="v-title">Offline payment</div><div class="v-sub">{{ view.date }} · submitted by {{ view.submittedByName || '—' }}<template v-if="view.editedByName">{{ ` · edited by ${view.editedByName}${view.editedAt?.toDate ? ' on ' + view.editedAt.toDate().toLocaleDateString('en-GB') : ''}` }}</template></div></div>
-            <span class="tag" :class="'st-' + (view.status || '').toLowerCase()">{{ view.status }}</span>
+            <div class="v-status" v-if="canEdit"><OptionPicker class="fld-pick" :model-value="view.status" :options="statusOptions(view.status)" label="Status" @update:modelValue="v => setStatus(view, v)" /></div>
+            <span class="tag" v-else :class="'st-' + (view.status || '').toLowerCase()">{{ view.status }}</span>
           </div>
           <div class="notice" v-if="opsEdit(view) && !editing">This payment has no receipt. Add the missing details or the receipt, then save. It becomes Edited and Finance is told.</div>
           <div class="v-amount"><span>Amount</span><b>RM {{ Number(view.amount || 0).toFixed(2) }}</b></div>
           <div class="v-grid" v-if="!editing">
-            <div class="v-item" v-if="view.bookingNo"><span>Booking</span><b>{{ view.bookingNo }}</b></div>
-            <div class="v-item" v-if="view.mode"><span>Mode of payment</span><b>{{ view.mode }}</b></div>
             <div class="v-item"><span>Property</span><b>{{ view.propertyName || '—' }}</b></div>
             <div class="v-item"><span>Unit</span><b>{{ view.unitCode || '—' }}</b></div>
-            <div class="v-item"><span>Guest / tenant</span><b>{{ view.guest }}</b></div>
-            <div class="v-item v-purpose"><span>Purpose</span><b>{{ view.purpose }}</b></div>
+            <div class="v-item"><span>Guest / tenant</span><b>{{ view.guest || '—' }}</b></div>
+            <div class="v-item"><span>Payment method</span><b>{{ view.mode || '—' }}</b></div>
             <div class="v-item"><span>Bank reference</span><b>{{ view.bankRef || '—' }}</b></div>
             <div class="v-item"><span>Documents</span><b><a v-if="view.docsLink" :href="view.docsLink" target="_blank" rel="noopener">Open link</a><template v-else>None</template></b></div>
             <div class="v-item"><span>Verified by</span><b>{{ view.verifiedByName || '—' }}</b></div>
             <div class="v-item"><span>Verified date</span><b>{{ view.verifiedDate || '—' }}</b></div>
+            <div class="v-item v-purpose" v-if="view.bookingNo"><span>Booking</span><b>{{ view.bookingNo }}</b></div>
+            <div class="v-item v-purpose"><span>Purpose</span><b>{{ view.purpose || '—' }}</b></div>
+            <div class="v-item v-purpose"><span>Remarks</span><b>{{ view.remarks || '—' }}</b></div>
           </div>
           <div class="v-edit-grid" v-else>
             <div class="notice error" v-show="formError" style="grid-column: 1 / -1">{{ formError }}</div>
             <div class="field"><label>Payment date</label><input class="input" type="date" v-model="ed.date"></div>
             <div class="field"><label>Amount (RM)</label><input class="input" type="number" min="0" step="0.01" v-model="ed.amount"></div>
+            <div class="field"><label>Payment method</label>
+              <OptionPicker class="fld-pick" v-model="ed.mode" :options="MODES" label="Payment method" /></div>
+            <div class="field"><label>Bank reference</label><input class="input" v-model="ed.bankRef"></div>
             <div class="field"><label>Property</label>
               <OptionPicker class="fld-pick" v-model="ed.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="editProperty" /></div>
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="ed.unitCode" :disabled="!ed.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
             <div class="field"><label>Guest / tenant name</label><input class="input" v-model="ed.guest"></div>
+            <div class="field" v-if="canEdit"><label>Remarks</label><input class="input" v-model="ed.remarks" placeholder="Add remarks"></div>
             <div class="field wide"><label>Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
-            <div class="field"><label>Bank reference</label><input class="input" v-model="ed.bankRef"></div>
           </div>
           <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :label="nameOf(view)" :readonly="!(canEdit || opsEdit(view))" :key="view.id" @folder="l => saveFolder(view, l)" />
-          <div class="v-item" v-if="!canEdit" style="margin-top:10px"><span>Remarks</span><b>{{ view.remarks || '—' }}</b></div>
-          <div class="v-edit" v-if="canEdit">
-            <div class="field"><label>Status</label>
-              <OptionPicker class="fld-pick" :model-value="view.status" :options="statusOptions(view.status)" label="Status" @update:modelValue="v => setStatus(view, v)" /></div>
-            <div class="field"><label>Remarks</label><input class="input" :value="view.remarks" placeholder="Add remarks" @change="e => setRemarks(view, e.target.value)"></div>
+<div class="hist" v-if="hist.length && showHist">
+            <h4>Change history</h4>
+            <ul>
+              <li v-for="h in hist" :key="h.id">
+                <div class="h-top"><b>{{ h.what }}</b><span class="muted">{{ h.when }} · {{ h.userName }}{{ h.role ? ' (' + h.role + ')' : '' }}</span></div>
+                <div class="h-chg" v-for="(c, i) in h.changes" :key="i">{{ c.text }}</div>
+              </li>
+            </ul>
           </div>
           <div class="modal-foot" v-if="!editing">
             <button type="button" class="btn" @click="view = null">Close</button>
+            <button type="button" class="btn" v-if="hist.length" @click="showHist = !showHist">{{ showHist ? 'Hide history' : 'Change history' }}</button>
             <button type="button" class="btn btn-primary" v-if="canEdit || opsEdit(view)" @click="startEdit">{{ opsEdit(view) ? 'Add details' : 'Edit details' }}</button>
           </div>
           <div class="modal-foot" v-else>
@@ -135,20 +144,24 @@
           <div class="card-head"><h2 style="margin:0">New offline payment</h2></div>
           <div class="notice error" v-show="formError">{{ formError }}</div>
           <div class="grid">
+            <div class="field"><label>Status <span class="muted">(Unknown = no receipt)</span></label>
+              <OptionPicker class="fld-pick" v-model="f.status" :options="statusOptions('')" label="Status" /></div>
             <div class="field"><label>Payment date</label><input class="input" type="date" v-model="f.date"></div>
+            <p class="help wide" v-if="f.status === 'Unknown'">Unknown only needs the date and amount. Operations can fill in the rest later.</p>
             <div class="field"><label>Amount (RM)</label><input class="input" type="number" min="0" step="0.01" v-model="f.amount" placeholder="0.00"></div>
-            <div class="field"><label>Property</label>
-              <OptionPicker class="fld-pick" v-model="f.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList" /></div>
-            <div class="field"><label>Unit</label>
-              <OptionPicker class="fld-pick" v-model="f.unitCode" :disabled="!f.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-            <div class="field"><label>Guest / tenant name</label><input class="input" v-model="f.guest"></div>
-            <div class="field wide"><label>Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
-            <div class="field"><label>Bank reference</label><input class="input" v-model="f.bankRef"></div>
-            
-          <div class="field"><label>Status <span class="muted">(Unknown = no receipt)</span></label>
-            <OptionPicker class="fld-pick" v-model="f.status" :options="statusOptions('')" label="Status" /></div>
-          <div class="field wide"><label>Remarks</label><input class="input" v-model="f.remarks"></div>
-            <div class="field wide"><label>Receipts / documents <span class="muted">{{ f.status === 'Unknown' ? '(optional for Unknown)' : '(required)' }}</span></label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
+            <template v-if="f.status !== 'Unknown'">
+              <div class="field"><label>Payment method</label>
+                <OptionPicker class="fld-pick" v-model="f.mode" :options="MODES" label="Payment method" /></div>
+              <div class="field"><label>Property</label>
+                <OptionPicker class="fld-pick" v-model="f.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList" /></div>
+              <div class="field"><label>Unit</label>
+                <OptionPicker class="fld-pick" v-model="f.unitCode" :disabled="!f.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
+              <div class="field"><label>Guest / tenant name</label><input class="input" v-model="f.guest"></div>
+              <div class="field"><label>Bank reference</label><input class="input" v-model="f.bankRef"></div>
+              <div class="field wide"><label>Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
+              <div class="field wide"><label>Receipts / documents <span class="muted">(required)</span></label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
+              <div class="field wide"><label>Remarks <span class="muted">(optional)</span></label><input class="input" v-model="f.remarks"></div>
+            </template>
           </div>
           <div class="modal-foot">
             <button type="button" class="btn" @click="open = false">Cancel</button>
@@ -174,14 +187,16 @@ import MonthPicker from '@/components/MonthPicker.vue';
 import { notifyRole } from '@/services/notificationService.js';
 import { monthOffset } from '@/lib/format.js';
 
+const MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); MODES.unshift({ value: '', label: 'Choose method' });
 const STATUSES = ['Checked', 'Pending', 'Unknown', 'Edited'];   // Edited is set by saving an Unknown payment, never picked
 const STATUS_OPTS = [{ value: '', label: 'All' }, ...STATUSES.map(s => ({ value: s, label: s }))];
 const today = () => new Date().toISOString().slice(0, 10);
-const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', guest: '', purpose: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '' });
+const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '' });
 
 export default {
   components: { OptionPicker, Paged, DriveFiles, MonthPicker },
-  data() { return { STATUSES, STATUS_OPTS, rows: [], loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
+  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
+  watch: { view(r) { this.loadHistory(r); } },
   computed: {
     // View and Edit are separate ticks on Staff accounts: View reads the page, Edit also creates and changes payments
     canEdit() { return can(useSession(), 'offlinePayments.edit'); },
@@ -198,7 +213,7 @@ export default {
     // Pickers offer the three statuses people choose; Edited only shows when the payment already has it
     statusOptions(cur) { return [...STATUSES.slice(0, 3), ...(cur === 'Edited' ? ['Edited'] : [])].map(s => ({ value: s, label: s })); },
     // Operations can fill in a payment with no receipt (status Unknown)
-    opsEdit(r) { return !this.canEdit && useSession().role === 'operations' && r?.status === 'Unknown'; },
+    opsEdit(r) { return useSession().role === 'operations' && r?.status === 'Unknown'; },   // even with the Edit tick: an Operations fill-in always becomes Edited
     pickMonth() {
       if (!this.month) { this.from = ''; this.to = ''; return; }
       const [y, m] = this.month.split('-').map(Number);
@@ -206,11 +221,11 @@ export default {
     },
     async tellOperations(p) {
       try { await notifyRole({ recipientRole: 'operations', type: 'payment', refId: p.id, link: '/Finance/offline-payments', title: 'Offline payment with no receipt',
-        message: `RM ${Number(p.amount || 0).toFixed(2)} from ${p.guest}${p.unitCode ? ' (' + p.unitCode + ')' : ''} on ${p.date} has no receipt. Please add the details.` }); } catch { /* the payment is saved either way */ }
+        message: `RM ${Number(p.amount || 0).toFixed(2)} from ${p.guest}${p.unitCode ? ' (' + p.unitCode + ')' : ''} on ${p.date} has no receipt. Please add the details.` }); } catch (e) { console.error('Operations notification failed', e); }
     },
     async tellFinance(p, who) {
-      try { await notifyRole({ recipientRole: 'finance', type: 'payment', refId: p.id, link: '/Finance/offline-payments', title: 'Offline payment edited',
-        message: `${who} filled in the RM ${Number(p.amount || 0).toFixed(2)} payment from ${p.guest}${p.unitCode ? ' (' + p.unitCode + ')' : ''}. Please check it.` }); } catch { /* the edit is saved either way */ }
+      try { await notifyRole({ recipientRole: 'finance', type: 'payment', refId: p.id, link: '/Finance/offline-payments', title: 'Offline payment changed from Unknown to Edited',
+        message: `${who} filled in the details. Status changed from Unknown to Edited. RM ${Number(p.amount || 0).toFixed(2)} payment from ${p.guest}${p.unitCode ? ' (' + p.unitCode + ')' : ''}. Please check it.` }); } catch (e) { console.error('Finance notification failed', e); }
     },
     async load() {
       this.loading = true;
@@ -220,6 +235,22 @@ export default {
       this.fillUnits();
     },
     // Booking Form payments made before the unit was saved on them: read the unit from the booking
+    // What was added or changed on this payment, from the audit log (Finance and Director can read it)
+    async loadHistory(r) {
+      this.hist = []; this.showHist = false;
+      if (!r?.id) return;
+      try {
+        const snap = await getDocs(query(collection(db, 'auditLog'), where('entity', '==', `offlinePayments/${r.id}`), limit(50)));
+        const FIELD = { date: 'Date', amount: 'Amount', propertyId: 'Property', propertyName: 'Property', unitCode: 'Unit', guest: 'Guest', purpose: 'Purpose', bankRef: 'Bank reference', mode: 'Payment method', docsLink: 'Documents', status: 'Status', remarks: 'Remarks' };
+        const val = v => (v === '' || v == null) ? 'blank' : (v === true ? 'yes' : String(v));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0));
+        if (this.view?.id !== r.id) return;
+        this.hist = list.map(h => ({ id: h.id, userName: h.userName || '', role: h.role || '',
+          when: h.at?.toDate ? h.at.toDate().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '',
+          what: h.action === 'offlinePayment.create' ? 'Added' : 'Edited',
+          changes: (h.changes || []).filter(c => h.action === 'offlinePayment.create' || c.field !== 'propertyName').map(c => ({ text: h.action === 'offlinePayment.create' ? `${FIELD[c.field] || c.field}: ${val(c.new)}` : `${FIELD[c.field] || c.field}: ${val(c.old)} → ${val(c.new)}` })) }));
+      } catch { /* not allowed to read the audit log, or offline: the history stays hidden */ }
+    },
     async fillUnits() {
       const ids = [...new Set(this.rows.filter(r => !r.unitCode && r.bookingId).map(r => r.bookingId))];
       if (!ids.length) return;
@@ -242,6 +273,7 @@ export default {
       const unk = f.status === 'Unknown';
       this.formError = !f.date ? 'Choose the payment date.' : !(+f.amount > 0) ? 'Enter the amount.'
         : unk ? '' : !f.propertyId ? 'Choose the property.' : !f.guest.trim() ? 'Enter the guest name.' : !f.purpose.trim() ? 'Enter the purpose.'
+        : !f.mode ? 'Choose the payment method.'
         : !f.docsLink.trim() ? 'Upload the receipt. It is required unless the status is Unknown.'
         : (f.docsLink.trim() && !/^https?:\/\//i.test(f.docsLink.trim())) ? 'The documents link should start with https://' : '';
       if (this.formError) return;
@@ -249,9 +281,9 @@ export default {
       try {
         const prop = this.properties.find(p => p.id === f.propertyId), ref = doc(db, 'offlinePayments', this.newId), batch = writeBatch(db);
         batch.set(ref, { date: f.date, amount: Math.round(+f.amount * 100) / 100, propertyId: f.propertyId, propertyName: prop?.name || '', unitCode: f.unitCode,
-          guest: f.guest.trim(), purpose: f.purpose.trim(), bankRef: f.bankRef.trim(), docsLink: f.docsLink.trim(), remarks: f.remarks.trim(),
+          guest: f.guest.trim(), purpose: f.purpose.trim(), mode: f.mode, bankRef: f.bankRef.trim(), docsLink: f.docsLink.trim(), remarks: f.remarks.trim(),
           status: f.status, verifiedByName: f.status === 'Pending' ? '' : me.name, verifiedDate: f.status === 'Pending' ? '' : today(), createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name });
-        audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${ref.id}`, propertyId: f.propertyId, changes: [{ field: 'amount', old: null, new: +f.amount }] });
+        audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${ref.id}`, propertyId: f.propertyId, changes: [['amount', +f.amount], ['date', f.date], ['propertyName', prop?.name || ''], ['unitCode', f.unitCode], ['guest', f.guest.trim()], ['purpose', f.purpose.trim()], ['bankRef', f.bankRef.trim()], ['status', f.status]].filter(([, v]) => v !== '').map(([field, v]) => ({ field, old: null, new: v })) });
         await batch.commit();
         this.open = false; toast('Changes saved'); this.done = 'Offline payment submitted as ' + f.status + '.';
         if (f.status === 'Unknown') this.tellOperations({ id: ref.id, amount: +f.amount, guest: f.guest.trim(), unitCode: f.unitCode, date: f.date });
@@ -268,8 +300,8 @@ export default {
     },
     async startEdit() {
       const r = this.view;
-      this.ed = { date: r.date, amount: r.amount, propertyId: r.propertyId || '', unitCode: r.unitCode || '', guest: r.guest, purpose: r.purpose, bankRef: r.bankRef || '' };
-      this.formError = ''; this.editing = true; this.pendingLink = '';
+      this.ed = { date: r.date, amount: r.amount, propertyId: r.propertyId || '', unitCode: r.unitCode || '', guest: r.guest, purpose: r.purpose, mode: r.mode || '', bankRef: r.bankRef || '', remarks: r.remarks || '' };
+      this.formError = ''; this.editing = true;   // a receipt uploaded before pressing Add details is kept
       try {
         if (!this.properties.length) this.properties = await loadProperties();
         this.units = this.ed.propertyId ? await loadUnits(this.ed.propertyId) : [];
@@ -287,7 +319,7 @@ export default {
       if (this.formError) return;
       const prop = this.properties.find(p => p.id === e.propertyId);
       const data = { date: e.date, amount: Math.round(+e.amount * 100) / 100, propertyId: e.propertyId, propertyName: prop?.name || r.propertyName || '', unitCode: e.unitCode,
-        guest: String(e.guest).trim(), purpose: String(e.purpose).trim(), bankRef: String(e.bankRef).trim() };
+        guest: String(e.guest).trim(), purpose: String(e.purpose).trim(), mode: e.mode || '', bankRef: String(e.bankRef).trim(), ...(this.canEdit ? { remarks: String(e.remarks || '').trim() } : {}) };
       const ops = this.opsEdit(r);
       if (ops && this.pendingLink) data.docsLink = this.pendingLink;
       const changes = Object.keys(data).filter(k => (r[k] ?? '') !== data[k]).map(k => ({ field: k, old: r[k] ?? '', new: data[k] }));
@@ -346,17 +378,20 @@ export default {
         const head = ['', 'Payments', 'Total (RM)', ...STATUSES.map(s => `${s} (RM)`)];
         const sum = (rows) => ['Total', rows.reduce((a, r) => a + r[1], 0), ...head.slice(2).map((_, i) => money(rows.reduce((a, r) => a + r[2 + i], 0)))];
         const byProp = rowsOf(group(r => r.propertyName || '—')), byMonth = rowsOf(group(r => String(r.date).slice(0, 7)));
-        const payments = [['Date', 'Booking', 'Property', 'Unit', 'Guest', 'Purpose', 'Amount (RM)', 'Status', 'Bank reference', 'Submitted by', 'Verified by', 'Verified date', 'Edited by', 'Mode', 'Remarks', 'Documents'],
-          ...list.map(r => [r.date, r.bookingNo || '', r.propertyName || '', r.unitCode || '', r.guest || '', r.purpose || '', money(r.amount), r.status || '', r.bankRef || '', r.submittedByName || '', r.verifiedByName || '', r.verifiedDate || '', r.editedByName || '', r.mode || '', r.remarks || '', r.docsLink || ''])];
-        const title = [[`Offline payments · ${propName} · ${from} to ${to}`], []];
+        const when = t => t?.toDate ? t.toDate().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+        const hasReceipt = r => (r.docsLink ? 'Yes' : 'No');
+        const payHead = ['Date', 'Booking no.', 'Property', 'Unit', 'Guest / tenant', 'Purpose', 'Amount (RM)', 'Status', 'Payment mode', 'Bank reference', 'Receipt uploaded', 'Documents link', 'Submitted by', 'Submitted on', 'Verified by', 'Verified date', 'Edited by', 'Edited on', 'Remarks', 'Payment ID', 'Booking ID'];
+        const payRow = r => [r.date, r.bookingNo || '', r.propertyName || '', r.unitCode || '', r.guest || '', r.purpose || '', money(r.amount), r.status || '', r.mode || '', r.bankRef || '', hasReceipt(r), r.docsLink || '', r.submittedByName || '', when(r.createdAt), r.verifiedByName || '', r.verifiedDate || '', r.editedByName || '', when(r.editedAt), r.remarks || '', r.id, r.bookingId || ''];
+        const payments = [payHead, ...list.map(payRow)];
+        const title = [[`Offline payments · ${propName} · ${from} to ${to}`], [`Made ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })} by ${useSession().name || ''}`], []];
         const file = `Offline_payments_${propName.replace(/[^A-Za-z0-9]+/g, '_')}_${label}`;
         if (kind === 'csv') { download(`${file}.csv`, toCSV(payments), 'text/csv'); }
         else {
           const X = await loadXlsxLib(), wb = X.utils.book_new();
           const sheet = (rows, name, widths) => { const ws = X.utils.aoa_to_sheet(rows); ws['!cols'] = widths.map(w => ({ wch: w })); X.utils.book_append_sheet(wb, ws, name); };
-          sheet([...title, ['By property', ...head.slice(1)], ...byProp, sum(byProp)], 'Summary', [34, 12, 14, 14, 14, 14, 14]);
+          sheet([...title, ...overview, ['By status', 'Payments', 'Total (RM)', 'Share'], ...byStatus, [], ['By property', ...head.slice(1)], ...byProp, sum(byProp)], 'Summary', [34, 14, 16, 14, 14, 14, 14]);
           if (R.type !== 'monthly') sheet([...title, ['By month', ...head.slice(1)], ...byMonth, sum(byMonth)], 'By month', [14, 12, 14, 14, 14, 14, 14]);
-          sheet(payments, 'Payments', [12, 12, 28, 14, 24, 40, 14, 12, 18, 18, 18, 14, 18, 24, 30]);
+          sheet(payments, 'Payments', [12, 12, 28, 14, 24, 40, 14, 12, 14, 18, 12, 30, 18, 20, 18, 14, 18, 20, 30, 24, 24]);
           const out = X.write(wb, { type: 'array', bookType: 'xlsx' });
           download(`${file}.xlsx`, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
         }
@@ -370,7 +405,13 @@ export default {
 </script>
 
 <style scoped>
-.head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.head-actions { display: flex; gap: 8px; flex: none; margin-left: auto; }
+.page-head > div:first-child { flex: 1 1 320px; min-width: 0; }
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.kpis .kpi { padding: 12px 14px; }
+.kpis .kpi .label { font-size: 12px; }
+.kpis .kpi .value { font-size: 22px; margin-top: 2px; }
+@media (max-width: 800px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .head-actions { flex-wrap: wrap; } }
 .who { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .tag.st-edited { background: #E6EEFB; color: #2B5DB8; }
 .rep-modal { max-width: 640px; }
@@ -394,13 +435,21 @@ export default {
 .v-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .v-title { font-size: 18px; font-weight: 600; }
 .v-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-.v-amount { margin: 14px 0; padding: 14px 18px; border-radius: 12px; background: var(--accent-soft); display: flex; justify-content: space-between; align-items: baseline; }
+.v-status { width: 150px; flex: none; }
+.v-head > div:first-child { flex: 1; min-width: 0; }
+.v-amount { margin: 10px 0; padding: 8px 14px; border-radius: 10px; background: var(--accent-soft); display: flex; justify-content: space-between; align-items: baseline; }
 .v-amount span { font-size: 13px; color: var(--muted); }
-.v-amount b { font-size: 26px; }
+.v-amount b { font-size: 18px; }
 .v-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
-.v-item { padding: 10px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.v-item span { font-size: 12px; color: var(--muted); }
-.v-item b { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.hist { margin-top: 14px; }
+.hist h4 { margin: 0 0 6px; font-size: 13px; }
+.hist ul { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; }
+.hist li { padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.h-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.h-chg { color: var(--muted); overflow-wrap: anywhere; }
+.v-item { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.v-item span { font-size: 12px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .03em; }
+.v-item b { font-size: 15px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
 .wide { grid-column: 1 / -1; }
 .v-files { margin-top: 14px; }
 .v-edit-grid, .v-edit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin-top: 14px; }
