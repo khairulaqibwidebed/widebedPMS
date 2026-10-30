@@ -10,7 +10,8 @@
     <p class="help" v-if="loading">Loading files…</p>
     <ul class="d-list" v-else-if="files.length">
       <li v-for="f in files" :key="f.id"><span class="d-ico">{{ icon(f) }}</span><span class="d-name">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
-        <button type="button" class="ico-btn" title="View" aria-label="View" @click="view(f)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></li>
+        <button type="button" class="ico-btn" title="View" aria-label="View" @click="view(f)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        <button type="button" class="ico-btn x-btn" v-if="!readonly" title="Remove" aria-label="Remove" :disabled="busy" @click="remove(f)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>
     </ul>
     <p class="help" v-else>No files yet.</p>
     <Teleport to="body">
@@ -33,12 +34,13 @@
 </template>
 
 <script>
-import { ensureFolders, listFiles, uploadFile, fileBlob } from '@/lib/drive.js';
+import { ensureFolders, listFiles, uploadFile, fileBlob, removeFile } from '@/lib/drive.js';
+import { askConfirm } from '@/lib/confirm.js';
 
 // Lists a record's Drive folder and uploads into it. The folder is created on the first upload.
 export default {
   props: { kind: { type: String, required: true }, recordId: { type: String, required: true }, label: { type: String, default: '' }, listOnLoad: { type: Boolean, default: true }, readonly: { type: Boolean, default: false } },
-  emits: ['folder'],
+  emits: ['folder', 'removed'],
   data() { return { drag: false, files: [], folderLink: '', loading: false, viewing: null, url: '', vLoading: false, vError: '', busy: false, pct: 0, error: '' }; },
   mounted() { ensureFolders(); if (this.listOnLoad) this.load(); },
   methods: {
@@ -58,6 +60,14 @@ export default {
       try { const r = await listFiles(this.kind, this.recordId, this.label); this.files = r.files; this.folderLink = r.folderLink; }
       catch (e) { this.error = e.message; }
       this.loading = false;
+    },
+    async remove(f) {
+      const yes = await askConfirm({ title: 'Remove this file?', message: `${f.name} will be moved to the Drive trash and disappear from this list.`, confirmText: 'Remove', danger: true });
+      if (!yes) return;
+      this.busy = true; this.error = '';
+      try { await removeFile(this.kind, f.id); this.files = this.files.filter(x => x.id !== f.id); this.$emit('removed', f); }
+      catch (e) { this.error = e.message; }
+      this.busy = false;
     },
     pick(e) { const l = [...e.target.files]; e.target.value = ''; return this.send(l); },
     drop(e) { this.drag = false; return this.send([...e.dataTransfer.files]); },
@@ -81,6 +91,8 @@ export default {
 .d-prog { height: 4px; border-radius: 4px; background: var(--line); margin-bottom: 8px; overflow: hidden; }
 .d-prog span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
 .d-folder { display: inline-block; margin-top: 4px; color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.x-btn { color: var(--danger, #b3261e); }
+.x-btn:disabled { opacity: .5; }
 .ico-btn { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--accent); cursor: pointer; flex: none; }
 @media (hover: hover) { .ico-btn:hover { background: var(--accent-soft); border-color: var(--accent); } }
 .d-ico { width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); display: grid; place-items: center; flex: none; }

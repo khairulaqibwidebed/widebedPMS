@@ -91,6 +91,21 @@ export default async function handler(req, res) {
     await checkUser(req);
     const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const tok = await driveToken();
+    if (b.action === 'remove') {
+      // Moves one file to the Drive trash (restorable there). Only files inside <root>/<kind>/ can be removed.
+      if (!KINDS[b.kind] || !SAFE.test(b.fileId || '')) throw new HttpError(400, 'Bad request.');
+      const root = process.env.DRIVE_ROOT_FOLDER_ID;
+      if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
+      const kindId = await folder(tok, root, KINDS[b.kind]);
+      let ok = false, ids = (await (await g(`${API}/files/${b.fileId}?fields=parents&supportsAllDrives=true`, tok)).json()).parents || [];
+      for (let depth = 0; depth < 3 && !ok && ids.length; depth++) {
+        ok = ids.includes(kindId);
+        if (!ok) ids = (await (await g(`${API}/files/${ids[0]}?fields=parents&supportsAllDrives=true`, tok)).json()).parents || [];
+      }
+      if (!ok) throw new HttpError(403, 'That file is not in this area.');
+      await g(`${API}/files/${b.fileId}?supportsAllDrives=true`, tok, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
+      return res.status(200).json({ ok: true });
+    }
     if (b.action === 'file') {
       // One file back to a signed-in user (in-site viewer and downloads). Only files inside <root>/<kind>/ are served. Vercel caps a reply at ~4.5 MB.
       if (!KINDS[b.kind] || !SAFE.test(b.fileId || '')) throw new HttpError(400, 'Bad request.');

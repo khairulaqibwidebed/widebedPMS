@@ -65,7 +65,7 @@ const both = key => [key + '.view', key + '.edit'];
 export const PRESETS = {
   finance: [...both('reports'), ...both('ezeeUpload'), ...both('expenses'), ...both('monthEnd'), ...both('invoices'),
     ...both('offlinePayments'), ...both('portfolio'), ...both('bulkUpload'), ...both('offlineInquiries')],
-  operations: ['portfolio.view', ...both('offlineInquiries'), 'bookingForms.view', 'newOwnerListings.view'],
+  operations: ['portfolio.view', ...both('offlineInquiries'), 'bookingForms.view', 'newOwnerListings.view', 'offlinePayments.view'],
   it: [],
   hr: ['playbook.edit', 'sops.edit'],
   procurement: ['portfolio.view', ...both('newOwnerListings'), 'procurementForms.view'],

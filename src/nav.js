@@ -49,7 +49,7 @@ export const NAV = {
   operations: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO,
-    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard')]),
+    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'), P('Offline Payments', '/Finance/offline-payments', 'creditCard')]),
     NEW_LISTINGS, AGREEMENTS, PLAYBOOK, HR_STAFF,
     MY_ACCOUNT
   ],
