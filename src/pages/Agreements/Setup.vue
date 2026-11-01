@@ -13,11 +13,16 @@
     <div class="notice error" v-if="error">{{ error }}</div>
     <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
-    <section class="card setup-card">
-      <div class="card-head">
-        <h2>1. Master files <small class="muted">Word / Google Docs</small></h2>
+    <section class="card setup-card setup-group">
+<div class="group-row">
+        <button class="group-head" type="button" @click="toggle('masters')" :aria-expanded="String(isOpen('masters'))">
+          <span class="chev" :class="{ open: isOpen('masters') }">›</span>
+          <b>1. Master files</b> <small class="muted">Word / Google Docs</small>
+          <span class="count">{{ masters.length }}</span>
+        </button>
         <button class="btn btn-primary btn-sm" :disabled="!driveReady()" @click="addMaster = { source: 'word', name: '', file: null, url: '', error: '' }">+ Add master file</button>
       </div>
+      <div class="group-body" v-show="isOpen('masters')">
       <p class="card-intro">Your original agreements, kept in the Drive folder "Master File (DO NOT EDIT)". Edit them through a working copy in Google Docs, then turn them into templates.</p>
       <div class="table-wrap">
         <table class="table hover-rows">
@@ -37,13 +42,19 @@
           </tbody>
         </table>
       </div>
+      </div>
     </section>
 
-    <section class="card setup-card">
-      <div class="card-head">
-        <h2>2. Forms</h2>
+    <section class="card setup-card setup-group">
+<div class="group-row">
+        <button class="group-head" type="button" @click="toggle('forms')" :aria-expanded="String(isOpen('forms'))">
+          <span class="chev" :class="{ open: isOpen('forms') }">›</span>
+          <b>2. Forms</b>
+          <span class="count">{{ forms.length }}</span>
+        </button>
         <button class="btn btn-primary btn-sm" @click="ask = { kind: 'newForm', starter: '' }">+ New form</button>
       </div>
+      <div class="group-body" v-show="isOpen('forms')">
       <p class="card-intro">The questions staff answer. Each form has its own records table and can have several templates.</p>
       <div class="table-wrap">
         <table class="table hover-rows">
@@ -66,13 +77,19 @@
           </tbody>
         </table>
       </div>
+      </div>
     </section>
 
-    <section class="card setup-card">
-      <div class="card-head">
-        <h2>3. Agreement templates</h2>
+    <section class="card setup-card setup-group">
+<div class="group-row">
+        <button class="group-head" type="button" @click="toggle('templates')" :aria-expanded="String(isOpen('templates'))">
+          <span class="chev" :class="{ open: isOpen('templates') }">›</span>
+          <b>3. Agreement templates</b>
+          <span class="count">{{ templates.length }}</span>
+        </button>
         <button class="btn btn-primary btn-sm" :disabled="!forms.length || !driveReady()" @click="upload = { source: masters.length ? 'master' : 'pdf', masterId: masters[0]?.id || '', name: masters[0]?.name || '', formId: forms[0]?.id, file: null, error: '' }">+ New template</button>
       </div>
+      <div class="group-body" v-show="isOpen('templates')">
       <p class="card-intro">The agreement as a PDF (from a master file or an uploaded PDF). Open it and drag the form's fields onto the page.</p>
       <div class="table-wrap">
         <table class="table hover-rows">
@@ -96,11 +113,17 @@
           </tbody>
         </table>
       </div>
+      </div>
     </section>
 
-    <section class="card setup-card setup-help">
-      <h2>How it works</h2>
-      <ol>
+    <section class="card setup-card setup-group setup-help">
+      <div class="group-row">
+        <button class="group-head" type="button" @click="toggle('help')" :aria-expanded="String(isOpen('help'))">
+          <span class="chev" :class="{ open: isOpen('help') }">›</span>
+          <b>How it works</b>
+        </button>
+      </div>
+      <ol class="group-body" v-show="isOpen('help')">
         <li><b>Form:</b> add the questions (text, money, dates, dropdowns, signatures…) and formulas such as <code>[Monthly Rental] * 2</code>.</li>
         <li><b>Master file:</b> add your Word / Google Docs agreement. Edit its wording any time in Google Docs.</li>
         <li><b>Template:</b> make a template from the master file (or upload a PDF) and link it to the form.</li>
@@ -209,6 +232,14 @@ import './agreements.css';
 const router = useRouter();
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
 const forms = ref([]), templates = ref([]), masters = ref([]), ask = ref(null), upload = ref(null), addMaster = ref(null);
+// Which drop-down sections are open, remembered in this browser (all open at first).
+const OPEN_KEY = 'wb.agreementSetupClosed';
+const closed = ref((() => { try { const v = JSON.parse(localStorage.getItem(OPEN_KEY)); return Array.isArray(v) ? v : []; } catch (_) { return []; } })());
+const isOpen = k => !closed.value.includes(k);
+function toggle(k) {
+  closed.value = isOpen(k) ? [...closed.value, k] : closed.value.filter(x => x !== k);
+  try { localStorage.setItem(OPEN_KEY, JSON.stringify(closed.value)); } catch (_) {}
+}
 const masterName = id => masters.value.find(m => m.id === id)?.name || 'Master file';
 const when = t => { const ms = millis(t); return ms ? new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; };
 const formName = id => forms.value.find(f => f.id === id)?.name || 'Archived form';
@@ -303,11 +334,24 @@ async function doUpload() {
 </script>
 
 <style scoped>
-.setup-card { margin-bottom: 20px; }
+.setup-card { margin-bottom: 14px; }
+/* Drop-down sections: same look as Procurement → Forms */
+.setup-group { transition: background .15s, border-color .15s, box-shadow .15s; }
+.setup-group:has(> .group-row .group-head:hover), .setup-group:has(> .group-row .group-head:focus-visible) { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: inset 4px 0 0 var(--accent); }
+.group-row { display: flex; align-items: center; gap: 12px; }
+.group-head { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 2px 4px; border: 0; background: none; color: var(--text); font: inherit; font-size: 15px; cursor: pointer; text-align: left; }
+.group-head small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.group-head:hover b { color: var(--accent); }
+.group-head:focus-visible { outline: none; }
+.group-head .chev { display: inline-block; width: 14px; font-size: 18px; line-height: 1; color: var(--muted); transition: transform .2s; }
+.group-head .chev.open { transform: rotate(90deg); color: var(--accent); }
+.group-head:hover .chev, .group-head:focus-visible .chev { color: var(--accent); }
+.group-head .count { margin-left: auto; min-width: 24px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; text-align: center; transition: background .15s, color .15s; }
+.group-head:hover .count, .group-head:focus-visible .count { background: var(--accent); color: #fff; }
+.group-body { margin-top: 14px; }
 .setup-name { font-weight: 600; color: var(--text); }
 .setup-name:hover { color: var(--accent); }
 .setup-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; white-space: nowrap; }
-.setup-help h2 { font-size: 15px; margin: 0 0 8px; }
 .setup-help ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
 .setup-help code { background: var(--chip); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 </style>

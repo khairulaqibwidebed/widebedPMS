@@ -117,6 +117,11 @@ export async function createLink(slug, data) {
   audit('agreement.link.create', `agreementLinks/${slug}`, `${data.kind} link for ${data.formId}`);
 }
 export const saveLink = (slug, patch) => updateDoc(doc(db, 'agreementLinks', slug), { ...patch, ...stamp() });
+// Deleting a link only stops it working. Records already sent in through it stay.
+export async function deleteLink(slug) {
+  await deleteDoc(doc(db, 'agreementLinks', slug));
+  audit('agreement.link.delete', `agreementLinks/${slug}`, 'Fill-in link deleted');
+}
 
 // ---- Saved table views ----
 export const listViews = async formId => rows(await getDocs(query(collection(db, 'agreementViews'), where('formId', '==', formId)))).sort(byName);

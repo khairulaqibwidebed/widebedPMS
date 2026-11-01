@@ -19,8 +19,29 @@
         <div class="ag-bar">
           <button class="btn btn-sm btn-primary" @click="copy(shareText(created), 'Message copied')">Copy message with link & password</button>
           <button class="btn btn-sm" @click="copy(linkUrl(created.slug), 'Link copied')">Copy link only</button>
-          <a class="btn btn-sm" :href="whatsapp(created)" target="_blank" rel="noopener">Send by WhatsApp</a>
+          <button class="btn btn-sm btn-wa" @click="startWa(created)">Send by WhatsApp</button>
         </div>
+        <form class="lk-wa" v-if="wa && wa.c === created" @submit.prevent="sendWa">
+          <b>Send by WhatsApp · {{ wa.c.title }}</b>
+          <div class="field">
+            <label for="waPhone">Their WhatsApp number</label>
+            <input id="waPhone" class="input" type="tel" inputmode="tel" v-model="wa.phone" placeholder="e.g. 012-345 6789 or +65 9123 4567" autocomplete="off">
+            <span class="help">Leave empty to choose the chat in WhatsApp. Numbers starting with 0 are taken as Malaysian.</span>
+          </div>
+          <div class="field" v-if="!wa.c.password">
+            <label for="waPass">Password to put in the message (optional)</label>
+            <input id="waPass" class="input" v-model="wa.password" autocomplete="off" placeholder="Leave empty to send it separately" @input="wa.msg = shareText({ ...wa.c, password: wa.password })">
+            <span class="help">Old passwords aren't stored. Type it if you know it, or set a new one with Edit.</span>
+          </div>
+          <div class="field">
+            <label for="waMsg">Message</label>
+            <textarea id="waMsg" class="input" rows="6" v-model="wa.msg"></textarea>
+          </div>
+          <div class="ag-bar">
+            <button type="button" class="btn btn-sm" @click="wa = null">Cancel</button>
+            <button type="submit" class="btn btn-sm btn-wa">Open WhatsApp</button>
+          </div>
+        </form>
         <p class="help">The password is not shown again. You can set a new one with Edit.</p>
       </div>
 
@@ -65,6 +86,28 @@
         <span class="note" v-if="!record">Personal links for one record are made from the record (Send to fill in & sign).</span>
       </div>
 
+      <form class="lk-wa" v-if="wa && wa.c !== created" @submit.prevent="sendWa">
+          <b>Send by WhatsApp · {{ wa.c.title }}</b>
+          <div class="field">
+            <label for="waPhone">Their WhatsApp number</label>
+            <input id="waPhone" class="input" type="tel" inputmode="tel" v-model="wa.phone" placeholder="e.g. 012-345 6789 or +65 9123 4567" autocomplete="off">
+            <span class="help">Leave empty to choose the chat in WhatsApp. Numbers starting with 0 are taken as Malaysian.</span>
+          </div>
+          <div class="field" v-if="!wa.c.password">
+            <label for="waPass">Password to put in the message (optional)</label>
+            <input id="waPass" class="input" v-model="wa.password" autocomplete="off" placeholder="Leave empty to send it separately" @input="wa.msg = shareText({ ...wa.c, password: wa.password })">
+            <span class="help">Old passwords aren't stored. Type it if you know it, or set a new one with Edit.</span>
+          </div>
+          <div class="field">
+            <label for="waMsg">Message</label>
+            <textarea id="waMsg" class="input" rows="6" v-model="wa.msg"></textarea>
+          </div>
+          <div class="ag-bar">
+            <button type="button" class="btn btn-sm" @click="wa = null">Cancel</button>
+            <button type="submit" class="btn btn-sm btn-wa">Open WhatsApp</button>
+          </div>
+        </form>
+
       <div class="table-wrap" v-if="shown.length">
         <table class="table">
           <thead><tr><th>Link</th><th>Type</th><th>Status</th><th class="num">Sent in</th><th>Closes</th><th></th></tr></thead>
@@ -77,8 +120,14 @@
               <td class="muted">{{ l.expiresAt || '—' }}</td>
               <td class="lk-acts">
                 <button class="act-pill" @click="copy(linkUrl(l.slug), 'Link copied')">Copy link</button>
+                <button class="act-pill wa" @click="startWa(l)">WhatsApp</button>
                 <button class="act-pill" @click="startEdit(l)">Edit</button>
-                <button class="act-pill" :class="l.active === false ? 'good' : 'danger'" @click="toggle(l)">{{ l.active === false ? 'Turn on' : 'Turn off' }}</button>
+                <button class="act-pill good" v-if="l.active === false" @click="toggle(l)">Turn on</button>
+                <template v-if="deleting === l.slug">
+                  <button class="act-pill danger" :disabled="busy" @click="remove(l)">{{ busy ? 'Deleting…' : 'Yes, delete' }}</button>
+                  <button class="act-pill" @click="deleting = ''">Cancel</button>
+                </template>
+                <button class="act-pill danger" v-else-if="canDelete(l)" @click="deleting = l.slug">Delete</button>
               </td>
             </tr>
           </tbody>
@@ -92,8 +141,9 @@
 
 <script setup>
 // Fill-in links for outside people. "Anyone" links (one per form, Agreement Setup) and personal links (one record).
-import { ref, computed, onMounted } from 'vue';
-import { listLinks, getLink, createLink, saveLink } from '@/lib/agreements/data.js';
+import { ref, computed, onMounted, nextTick } from 'vue';
+import { listLinks, getLink, createLink, saveLink, deleteLink } from '@/lib/agreements/data.js';
+import { useSession } from '@/stores/session.js';
 import { slugify, SLUG_OK, linkUrl, hashPassword, makePassword, linkState } from '@/lib/agreements/links.js';
 
 const props = defineProps({
@@ -157,8 +207,47 @@ async function toggle(l) {
   catch (e) { error.value = 'Could not change the link: ' + e.message; }
 }
 
-const shareText = c => `Hi, please fill in and sign "${c.title}" here:\n${linkUrl(c.slug)}\nPassword: ${c.password}\n\nThank you,\nWidebed`;
-const whatsapp = c => 'https://wa.me/?text=' + encodeURIComponent(shareText(c));
+// The password is only known right after creating a link (it is saved scrambled), so older links say it comes separately.
+const shareText = c => `Hi, please fill in and sign "${c.title}" here:\n${linkUrl(c.slug)}\n` +
+  (c.password ? `Password: ${c.password}` : 'We will send you the password separately.') + '\n\nThank you,\nWidebed';
+
+// ---- Send by WhatsApp: type their number (or leave it empty to pick the chat in WhatsApp) ----
+const wa = ref(null);   // { c: the link, phone, msg }
+function startWa(c) {
+  wa.value = { c, phone: '', password: '', msg: shareText(c) };
+  nextTick(() => document.getElementById('waPhone')?.focus());
+}
+// 012-345 6789 → 60123456789 (Malaysia). +65 9123 4567 → 6591234567. Empty = no number.
+function waNumber(raw) {
+  let n = String(raw || '').replace(/[^\d+]/g, '');
+  if (n.startsWith('+')) return n.slice(1).replace(/\D/g, '');
+  if (n.startsWith('00')) return n.slice(2);
+  if (n.startsWith('0')) return '6' + n;
+  return n;
+}
+function sendWa() {
+  const num = waNumber(wa.value.phone);
+  if (wa.value.phone && num.length < 9) { error.value = 'That phone number looks too short.'; return; }
+  error.value = '';
+  window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(wa.value.msg), '_blank', 'noopener');
+  wa.value = null;
+}
+// ---- Delete: Agreement Setup can delete any link; others only the personal links they made (same as the rules) ----
+const session = useSession();
+const deleting = ref('');
+const canDelete = l => props.isAdmin || (l.kind === 'personal' && l.createdBy === session.user?.uid);
+async function remove(l) {
+  busy.value = true; error.value = '';
+  try {
+    await deleteLink(l.slug);
+    links.value = links.value.filter(x => x.slug !== l.slug);
+    if (created.value?.slug === l.slug) created.value = null;
+    if (wa.value?.c.slug === l.slug) wa.value = null;
+    toast.value = 'Link deleted. Records already sent in are kept.';
+    setTimeout(() => { toast.value = ''; }, 2500);
+  } catch (e) { error.value = e.code === 'permission-denied' ? 'You don\'t have permission to delete this link.' : 'Could not delete: ' + e.message; }
+  deleting.value = ''; busy.value = false;
+}
 async function copy(text, msg) {
   try { await navigator.clipboard.writeText(text); toast.value = msg; } catch (_) { toast.value = 'Copy did not work. Select the text and copy it.'; }
   setTimeout(() => { toast.value = ''; }, 2500);
@@ -179,4 +268,10 @@ async function copy(text, msg) {
 .lk-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .lk-toast { position: sticky; bottom: 0; margin-top: 12px; }
 code { font-size: 12px; }
+.lk-wa { display: grid; gap: 10px; background: var(--surface); border: 1px solid color-mix(in srgb, #25D366 45%, transparent); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; animation: rise var(--med, .2s) var(--ease, ease) both; }
+.lk-wa .field { margin: 0; }
+.lk-wa .ag-bar { justify-content: flex-end; }
+.btn-wa { background: #25D366; border-color: #25D366; color: #fff; }
+.btn-wa:hover { background: #1EBE5A; border-color: #1EBE5A; color: #fff; }
+.act-pill.wa { color: #128C7E; border-color: color-mix(in srgb, #25D366 45%, transparent); background: color-mix(in srgb, #25D366 10%, transparent); }
 </style>
