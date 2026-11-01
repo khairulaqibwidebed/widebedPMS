@@ -110,12 +110,12 @@
               </div>
             </div>
             <div class="field">
-              <label for="eAmt">Amount (RM)</label>
+              <label class="req" for="eAmt">Amount (RM)</label>
               <input class="input readonly" id="eAmt" :value="amountOf(panel) ? amt(amountOf(panel)) : ''" readonly tabindex="-1" placeholder="Cost + Margin">
               <div class="help">{{ amountOf(panel) ? `Cost ${amt(panel.cost)} + margin ${panel.marginType === 'pct' ? (Number(panel.marginValue) || 0) + '%' : 'RM ' + amt(panel.marginValue || 0)}. Shown on the statement as ${panel.kind === 'reimburse' ? '+' : '-'}${amt(amountOf(panel))}.` : 'Worked out from Cost + Margin; it can\'t be typed.' }}</div>
             </div>
             <div class="field">
-              <label for="eFile">Receipt (optional)</label>
+              <label for="eFile">Receipt</label>
               <div class="rcpt" v-for="(fl, fi) in panel.files" :key="fl.link">
                 <span class="rcpt-ico">📎</span>
                 <div class="rcpt-name"><b>{{ fl.name || 'Receipt' }}</b><small>Saved in Google Drive</small></div>

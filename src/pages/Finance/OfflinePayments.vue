@@ -70,22 +70,22 @@
             <div class="v-item"><span>Verified date</span><b>{{ view.verifiedDate || '—' }}</b></div>
             <div class="v-item v-purpose" v-if="view.bookingNo"><span>Booking</span><b>{{ view.bookingNo }}</b></div>
             <div class="v-item v-purpose"><span>Purpose</span><b>{{ view.purpose || '—' }}</b></div>
-            <div class="v-item v-purpose"><span>Remarks</span><b>{{ view.remarks || '—' }}</b></div>
+            <div class="v-item v-purpose"><span>Payment code</span><b>{{ view.remarks || '—' }}</b></div>
           </div>
           <div class="v-edit-grid" v-else>
             <div class="notice error" v-show="formError" style="grid-column: 1 / -1">{{ formError }}</div>
-            <div class="field"><label>Payment date</label><input class="input" type="date" v-model="ed.date"></div>
-            <div class="field"><label>Amount (RM)</label><input class="input" type="number" min="0" step="0.01" v-model="ed.amount"></div>
+            <div class="field"><label class="req">Payment date</label><input class="input" type="date" v-model="ed.date"></div>
+            <div class="field"><label class="req">Amount (RM)</label><input class="input" type="number" min="0" step="0.01" v-model="ed.amount"></div>
             <div class="field"><label>Payment method</label>
               <OptionPicker class="fld-pick" v-model="ed.mode" :options="MODES" label="Payment method" /></div>
             <div class="field"><label>Bank reference</label><input class="input" v-model="ed.bankRef"></div>
-            <div class="field"><label>Property</label>
+            <div class="field"><label class="req">Property</label>
               <OptionPicker class="fld-pick" v-model="ed.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="editProperty" /></div>
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="ed.unitCode" :disabled="!ed.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-            <div class="field"><label>Guest / tenant name</label><input class="input" v-model="ed.guest"></div>
-            <div class="field" v-if="canEdit"><label>Remarks</label><input class="input" v-model="ed.remarks" placeholder="Add remarks"></div>
-            <div class="field wide"><label>Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
+            <div class="field"><label class="req">Guest / tenant name</label><input class="input" v-model="ed.guest"></div>
+            <div class="field" v-if="canEdit"><label>Payment code</label><input class="input" v-model="ed.remarks" placeholder="Add payment code"></div>
+            <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
           </div>
           <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :label="nameOf(view)" :readonly="!(canEdit || opsEdit(view))" :key="view.id" @folder="l => saveFolder(view, l)" />
 <div class="hist" v-if="hist.length && showHist">
@@ -144,23 +144,23 @@
           <div class="card-head"><h2 style="margin:0">New offline payment</h2></div>
           <div class="notice error" v-show="formError">{{ formError }}</div>
           <div class="grid">
-            <div class="field"><label>Status <span class="muted">(Unknown = no receipt)</span></label>
+            <div class="field"><label class="req">Status <span class="muted">(Unknown = no receipt)</span></label>
               <OptionPicker class="fld-pick" v-model="f.status" :options="statusOptions('')" label="Status" /></div>
-            <div class="field"><label>Payment date</label><input class="input" type="date" v-model="f.date"></div>
+            <div class="field"><label class="req">Payment date</label><input class="input" type="date" v-model="f.date"></div>
             <p class="help wide" v-if="f.status === 'Unknown'">Unknown only needs the date and amount. Operations can fill in the rest later.</p>
-            <div class="field"><label>Amount (RM)</label><input class="input" type="number" min="0" step="0.01" v-model="f.amount" placeholder="0.00"></div>
+            <div class="field"><label class="req">Amount (RM)</label><input class="input" type="number" min="0" step="0.01" v-model="f.amount" placeholder="0.00"></div>
             <template v-if="f.status !== 'Unknown'">
-              <div class="field"><label>Payment method</label>
+              <div class="field"><label class="req">Payment method</label>
                 <OptionPicker class="fld-pick" v-model="f.mode" :options="MODES" label="Payment method" /></div>
-              <div class="field"><label>Property</label>
+              <div class="field"><label class="req">Property</label>
                 <OptionPicker class="fld-pick" v-model="f.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList" /></div>
-              <div class="field"><label>Unit</label>
+              <div class="field"><label class="req">Unit</label>
                 <OptionPicker class="fld-pick" v-model="f.unitCode" :disabled="!f.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-              <div class="field"><label>Guest / tenant name</label><input class="input" v-model="f.guest"></div>
+              <div class="field"><label class="req">Guest / tenant name</label><input class="input" v-model="f.guest"></div>
               <div class="field"><label>Bank reference</label><input class="input" v-model="f.bankRef"></div>
-              <div class="field wide"><label>Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
-              <div class="field wide"><label>Receipts / documents <span class="muted">(required)</span></label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
-              <div class="field wide"><label>Remarks <span class="muted">(optional)</span></label><input class="input" v-model="f.remarks"></div>
+              <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
+              <div class="field wide"><label class="req">Receipts / documents</label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
+              <div class="field wide"><label>Payment code</label><input class="input" v-model="f.remarks"></div>
             </template>
           </div>
           <div class="modal-foot">
@@ -241,7 +241,7 @@ export default {
       if (!r?.id) return;
       try {
         const snap = await getDocs(query(collection(db, 'auditLog'), where('entity', '==', `offlinePayments/${r.id}`), limit(50)));
-        const FIELD = { date: 'Date', amount: 'Amount', propertyId: 'Property', propertyName: 'Property', unitCode: 'Unit', guest: 'Guest', purpose: 'Purpose', bankRef: 'Bank reference', mode: 'Payment method', docsLink: 'Documents', status: 'Status', remarks: 'Remarks' };
+        const FIELD = { date: 'Date', amount: 'Amount', propertyId: 'Property', propertyName: 'Property', unitCode: 'Unit', guest: 'Guest', purpose: 'Purpose', bankRef: 'Bank reference', mode: 'Payment method', docsLink: 'Documents', status: 'Status', remarks: 'Payment code' };
         const val = v => (v === '' || v == null) ? 'blank' : (v === true ? 'yes' : String(v));
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0));
         if (this.view?.id !== r.id) return;
@@ -380,7 +380,7 @@ export default {
         const byProp = rowsOf(group(r => r.propertyName || '—')), byMonth = rowsOf(group(r => String(r.date).slice(0, 7)));
         const when = t => t?.toDate ? t.toDate().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '';
         const hasReceipt = r => (r.docsLink ? 'Yes' : 'No');
-        const payHead = ['Date', 'Booking no.', 'Property', 'Unit', 'Guest / tenant', 'Purpose', 'Amount (RM)', 'Status', 'Payment mode', 'Bank reference', 'Receipt uploaded', 'Documents link', 'Submitted by', 'Submitted on', 'Verified by', 'Verified date', 'Edited by', 'Edited on', 'Remarks', 'Payment ID', 'Booking ID'];
+        const payHead = ['Date', 'Booking no.', 'Property', 'Unit', 'Guest / tenant', 'Purpose', 'Amount (RM)', 'Status', 'Payment mode', 'Bank reference', 'Receipt uploaded', 'Documents link', 'Submitted by', 'Submitted on', 'Verified by', 'Verified date', 'Edited by', 'Edited on', 'Payment code', 'Payment ID', 'Booking ID'];
         const payRow = r => [r.date, r.bookingNo || '', r.propertyName || '', r.unitCode || '', r.guest || '', r.purpose || '', money(r.amount), r.status || '', r.mode || '', r.bankRef || '', hasReceipt(r), r.docsLink || '', r.submittedByName || '', when(r.createdAt), r.verifiedByName || '', r.verifiedDate || '', r.editedByName || '', when(r.editedAt), r.remarks || '', r.id, r.bookingId || ''];
         const payments = [payHead, ...list.map(payRow)];
         const title = [[`Offline payments · ${propName} · ${from} to ${to}`], [`Made ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })} by ${useSession().name || ''}`], []];

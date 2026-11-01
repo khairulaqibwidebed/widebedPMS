@@ -11,7 +11,7 @@
           <div class="field"><label>To</label><div><span class="tag">All Directors</span></div></div>
           <div class="field"><label for="dSubj">Subject</label><input class="input" id="dSubj" v-model="subject" placeholder="e.g. Repeated late salary for part-timers"></div>
           <div class="field"><label for="dDet">Details</label><textarea class="input" id="dDet" style="height:140px" v-model="details" placeholder="What happened and what you need from the Directors"></textarea></div>
-          <label class="filedrop"><input type="file" multiple hidden @change="files = [...$event.target.files].map(f => f.name)"><b>Upload document</b>Optional · supporting documents</label>
+          <label class="filedrop"><input type="file" multiple hidden @change="files = [...$event.target.files].map(f => f.name)"><b>Upload document</b>Supporting documents</label>
           <div class="file-names" v-show="files.length">{{ files.join(', ') }}</div>
           <div class="notice error" v-show="err" style="margin-top:12px">{{ err }}</div>
           <div class="actions" style="margin-top:14px"><button class="btn btn-primary" type="submit" :disabled="busy">{{ busy ? 'Sending…' : 'Send to Directors' }}</button><button class="btn" type="button" @click="clear()">Cancel</button></div>

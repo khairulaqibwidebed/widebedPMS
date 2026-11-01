@@ -92,14 +92,14 @@
         <div class="notice error" v-show="formError">{{ formError }}</div>
         <section class="card form-card" style="max-width:760px">
           <div class="grid-fields">
-            <div class="field"><label for="nProp">Property</label><select class="select" id="nProp" :value="propChoice(form, 'n')" @change="pickProp(form, 'n', $event.target.value)"><option value="">Choose a property…</option><template v-for="p in properties" :key="p.id"><option :value="p.name">{{ p.name }}</option></template><option value="__new">New property (not in Portfolio yet)…</option></select><input class="input prop-new" v-if="propChoice(form, 'n') === '__new'" v-model="form.property" placeholder="Name of the new property" aria-label="New property name"></div>
-            <div class="field"><label for="nUnit">Unit</label><input class="input" id="nUnit" v-model="form.unit" placeholder="e.g. DM 12-03"></div>
-            <div class="field"><label for="nOwner">Owner name</label><input class="input" id="nOwner" v-model="form.ownerName" placeholder="e.g. Owner A"></div>
-            <div class="field"><label for="nDue">Due date (optional)</label><input class="input" id="nDue" type="date" v-model="form.dueDate"></div>
-            <div class="field"><label for="nPhone">Owner phone (optional)</label><input class="input" id="nPhone" v-model="form.ownerPhone" inputmode="tel" placeholder="e.g. 012-345 6789"></div>
-            <div class="field"><label for="nEmail">Owner email (optional)</label><input class="input" id="nEmail" type="email" v-model="form.ownerEmail" placeholder="e.g. owner@example.com"></div>
+            <div class="field"><label class="req" for="nProp">Property</label><select class="select" id="nProp" :value="propChoice(form, 'n')" @change="pickProp(form, 'n', $event.target.value)"><option value="">Choose a property…</option><template v-for="p in properties" :key="p.id"><option :value="p.name">{{ p.name }}</option></template><option value="__new">New property (not in Portfolio yet)…</option></select><input class="input prop-new" v-if="propChoice(form, 'n') === '__new'" v-model="form.property" placeholder="Name of the new property" aria-label="New property name"></div>
+            <div class="field"><label class="req" for="nUnit">Unit</label><input class="input" id="nUnit" v-model="form.unit" placeholder="e.g. DM 12-03"></div>
+            <div class="field"><label class="req" for="nOwner">Owner name</label><input class="input" id="nOwner" v-model="form.ownerName" placeholder="e.g. Owner A"></div>
+            <div class="field"><label for="nDue">Due date</label><input class="input" id="nDue" type="date" v-model="form.dueDate"></div>
+            <div class="field"><label for="nPhone">Owner phone</label><input class="input" id="nPhone" v-model="form.ownerPhone" inputmode="tel" placeholder="e.g. 012-345 6789"></div>
+            <div class="field"><label for="nEmail">Owner email</label><input class="input" id="nEmail" type="email" v-model="form.ownerEmail" placeholder="e.g. owner@example.com"></div>
           </div>
-          <div class="field"><label for="nDesc">Description (optional)</label><textarea class="input" id="nDesc" v-model="form.description" placeholder="e.g. 2-bedroom unit, owner wants it live before December"></textarea></div>
+          <div class="field"><label for="nDesc">Description</label><textarea class="input" id="nDesc" v-model="form.description" placeholder="e.g. 2-bedroom unit, owner wants it live before December"></textarea></div>
         </section>
       </div>
     </template>

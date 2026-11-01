@@ -9,7 +9,7 @@
         <form @submit.prevent="send()">
           <div class="field"><label for="cSubj">Subject</label><input class="input" id="cSubj" v-model="subject" placeholder="e.g. Unfair shift changes without notice"></div>
           <div class="field"><label for="cDet">Details</label><textarea class="input" id="cDet" rows="6" style="height:140px" v-model="details" placeholder="What happened, when, and who was involved"></textarea></div>
-          <label class="filedrop"><input type="file" multiple hidden @change="pick($event)"><b>Upload document</b>Optional · photos or documents</label>
+          <label class="filedrop"><input type="file" multiple hidden @change="pick($event)"><b>Upload document</b>Photos or documents</label>
           <div class="file-names" v-show="files.length">{{ files.join(', ') }}</div>
           <label class="check"><input type="checkbox" v-model="anonymous"><span><b>Send anonymously</b><small>Your name is not saved anywhere, so HR cannot see it. It shows under My complaints on this browser only.</small></span></label>
           <div class="notice error" v-show="err">{{ err }}</div>

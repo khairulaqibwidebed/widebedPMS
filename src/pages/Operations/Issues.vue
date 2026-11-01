@@ -137,10 +137,10 @@
         <form class="modal" role="dialog" aria-label="Raise a ticket" @submit.prevent="saveRaise()">
           <h2>Raise a ticket</h2>
           <div class="notice error" v-show="raise.error">{{ raise.error }}</div>
-          <div class="field"><label for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
-          <div class="field"><label for="rUnit">Unit (optional)</label>
+          <div class="field"><label class="req" for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
+          <div class="field"><label for="rUnit">Unit</label>
             <ComboInput id="rUnit" v-model="raise.unit" :options="unitOptions()" placeholder="Choose a unit · leave blank for office issues" /></div>
-          <div class="field"><label for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
+          <div class="field"><label class="req" for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
           <div class="field" style="margin-bottom:8px"><label>Tag the roles who should handle it</label>
             <!-- Same chips + drop-down as Edit tags. Your own role is always tagged and has no × -->
             <div class="tag-pick">
@@ -148,7 +148,7 @@
               <span class="help" v-show="!raise.tags.length">No roles tagged</span>
             </div>
             <OptionPicker class="add-role" v-show="raise.tags.length < TAGS.length" v-model="addPickR" :options="addOptionsR()" label="Add a role" @change="addTagR($event)" /></div>
-          <div class="field" style="margin-bottom:6px"><label for="rLinkName">Add Drive link (optional)</label>
+          <div class="field" style="margin-bottom:6px"><label for="rLinkName">Add Drive link</label>
             <div class="link-add" style="margin-top:0">
               <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
               <input class="input" v-model="raise.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(raise)">
