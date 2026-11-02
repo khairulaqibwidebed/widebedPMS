@@ -226,6 +226,7 @@ export function bookingPTO(b, rates) {
   if (ov('ovGuestPaid') != null) guestPaid = ov('ovGuestPaid');
   if (ov('ovPlatform') != null) platform = ov('ovPlatform');
   if (ov('ovPto') != null) pto = ov('ovPto');
+  if (v.manual) { estimated = false; note = ''; }   // added by hand on Month-end: its figures are typed, never an estimate
   if (num(v.roomUpgrade)) note = (note ? note + ' ' : '') + 'Room Upgrade not paid to owner (rule not confirmed).';
   return { cleaning: AG, cleaningIn, method, otaKey, guestPaid, platform, early, pto, estimated, note, final, edited: !!b.edits };
 }

@@ -227,7 +227,7 @@
 // Completed tickets are locked by the rules too (no updates or replies once status is 'done').
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
-import { db, ROLE_LABEL } from '@/lib/firebase.js';
+import { db, ROLE_LABEL, CUSTOM_ROLES } from '@/lib/firebase.js';
 import ComboInput from '@/components/ComboInput.vue';
 import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
@@ -246,7 +246,8 @@ const myLabel = me.name || (isDirector ? 'Director' : `${myRole} user`);
 // Every role raises, comments on and works its own tickets. IT included (Khairul 21 Oct), though IT is view-only elsewhere.
 const canWrite = !!me.role;
 
-const TAGS = ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
+// Roles made on the Roles page can be tagged too (by name).
+const TAGS = ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing', ...Object.values(CUSTOM_ROLES).filter(r => r.active).map(r => r.name)];
 const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' }, deleted: { label: 'Deleted', cls: 'red' } };
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'active', label: 'Not completed' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];

@@ -36,13 +36,13 @@
               <thead><tr><th>Unit</th><th>Arrangement</th><th class="num">Total receivable</th><th class="num">Payout</th><th>Sent</th><th>Look at</th><th class="num"></th></tr></thead>
               <tbody>
                 <template v-for="a in g.items" :key="a.id">
-                  <tr class="clickable" @click="view(a)">
+                  <tr class="clickable" :class="{ 'hand-row': a.handChanges }" @click="view(a)">
                     <td><b>{{ a.unitCode }}</b></td>
                     <td>{{ a.snapshot?.arrangementLabel || '—' }}</td>
                     <td class="num">{{ amt(a.snapshot?.totals?.totalReceivable) }}</td>
                     <td class="num" :class="a.payout < 0 ? 'neg-amt' : ''"><b>{{ amt(a.payout) }}</b></td>
                     <td>{{ `${a.submittedByName || 'Finance'} · ${stamp(a.submittedAt)}` }}</td>
-                    <td><span class="pill red" v-if="a.payout < 0">Negative balance</span> <span class="pill amber" v-if="a.again">Revision after reopen</span></td>
+                    <td><span class="pill red" v-if="a.payout < 0">Negative balance</span> <span class="pill amber" v-if="a.again">Revision after reopen</span> <span class="pill amber hand-pill" v-if="a.handChanges">{{ handText(a.handChanges) }}</span></td>
                     <td class="num"><button class="editlink" @click.stop="view(a)">Review</button></td>
                   </tr>
                 </template>
@@ -98,13 +98,19 @@
             <template v-for="e in (s.expenseLines || [])" :key="e.expenseId"><div class="row sub"><span>{{ `${dmy(e.date)} · ${e.description}` }}</span><span>{{ amt(e.amount) }}</span></div></template>
             <div class="row total" :class="{ 'neg-amt': s.totals.payout < 0 }"><span>{{ s.totals.payout < 0 ? 'Payout (negative, carried forward)' : 'Payout to owner' }}</span><span>{{ 'RM ' + amt(s.totals.payout) }}</span></div>
           </div>
+          <div class="notice warn hand-note" v-if="sel.handChanges">
+            <b>Bookings were changed by hand on this unit. Look at them before approving.</b>
+            <div v-for="x in (sel.handChanges.added || [])" :key="'a' + x">{{ `Added: ${x}` }}</div>
+            <div v-for="x in (sel.handChanges.moved || [])" :key="'m' + x.reservationNo">{{ `Moved in: ${x.reservationNo} from ${x.from || 'another unit'}${x.reason ? ' (' + x.reason + ')' : ''}` }}</div>
+            <div v-for="x in (sel.handChanges.removed || [])" :key="'r' + x.reservationNo">{{ `Removed: ${x.reservationNo}${x.reason ? ' (' + x.reason + ')' : ''}` }}</div>
+          </div>
           <h3 class="t">{{ `Bookings · ${(s.lines || []).length}` }}</h3>
           <div class="table-wrap">
             <table class="table">
               <thead><tr><th>Reservation</th><th>Source</th><th>Check-in</th><th>Check-out</th><th class="num">Nights</th><th class="num">Guest paid</th><th class="num">Owner share</th></tr></thead>
               <tbody>
                 <template v-for="l in (s.lines || [])" :key="l.reservationNo">
-                  <tr><td>{{ l.reservationNo }}</td><td>{{ l.source }}</td><td>{{ dmy(l.arrival) }}</td><td>{{ dmy(l.departure) }}</td><td class="num">{{ l.nights }}</td><td class="num">{{ amt(l.guestPaid) }}</td><td class="num"><b>{{ amt(l.pto) }}</b></td></tr>
+                  <tr :class="{ 'hand-line': l.manual || l.moved }"><td>{{ l.reservationNo }} <span class="pill amber" v-if="l.manual">Manual</span> <span class="pill amber" v-if="l.moved">{{ 'Moved from ' + l.moved }}</span></td><td>{{ l.source }}</td><td>{{ dmy(l.arrival) }}</td><td>{{ dmy(l.departure) }}</td><td class="num">{{ l.nights }}</td><td class="num">{{ amt(l.guestPaid) }}</td><td class="num"><b>{{ amt(l.pto) }}</b></td></tr>
                 </template>
                 <tr v-show="!(s.lines || []).length"><td colspan="7" class="muted">No bookings checked out this month.</td></tr>
               </tbody>
@@ -179,6 +185,7 @@ export default {
   },
   async created() { await this.load(); },
   methods: {
+    handText(h) { return [h.added?.length ? `${h.added.length} added` : '', h.moved?.length ? `${h.moved.length} moved in` : '', h.removed?.length ? `${h.removed.length} removed` : ''].filter(Boolean).join(' · '); },
     propertyName(id) { return this.properties.find(p => p.id === id)?.name || id; },
     // On Waiting the month is an optional filter (all months until one is picked); on History it picks the month to read
     pickMonth(m) { if (this.tab === 'waiting') this.waitMonth = m; else { this.month = m; this.loadHistory(); } },
@@ -301,4 +308,9 @@ export default {
 .sa-sum .row.total { font-weight: 700; font-size: 15px; border-bottom: 0; }
 h3.t { font-size: 14px; margin: 4px 0 8px; }
 @media (max-width: 700px) { .sa-kpis { grid-template-columns: 1fr; } }
+  .hand-row td:first-child { box-shadow: inset 4px 0 0 #E8A100; }
+  .hand-pill { font-weight: 700; }
+  .hand-note { margin-bottom: 12px; }
+  .hand-note div { font-size: 13px; margin-top: 2px; }
+  .hand-line td { background: rgba(232, 161, 0, .12); }
 </style>

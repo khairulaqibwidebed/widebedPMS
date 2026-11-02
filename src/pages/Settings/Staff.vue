@@ -97,6 +97,7 @@
         <div><b>HR</b><span>SOP pages, complaints, Playbook, Staff accounts and Audit log, Issues.</span></div>
         <div><b>Procurement</b><span>The Fillout form links, Issues, Playbook and SOPs.</span></div>
         <div><b>Marketing</b><span>Issues, Playbook and SOPs for now. Own pages come later.</span></div>
+        <div v-for="r in Object.keys(CUSTOM_ROLES)" :key="r"><b>{{ CUSTOM_ROLES[r].name }}</b><span>{{ CUSTOM_ROLES[r].description || 'Made on the Roles page.' }}{{ CUSTOM_ROLES[r].active ? '' : ' (turned off)' }}</span></div>
         <div><b>Page access</b><span>Each role starts with its usual pages ticked. You can tick View or Edit on any other page, or untick a usual one. Statement Approvals, Brand Logos, Staff accounts, Audit log and complaints always follow the role.</span></div>
       </div>
         <div class="modal-foot"><button class="btn" @click="rolesOpen = false">Close</button></div>
@@ -212,7 +213,7 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, updateProfile, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { collection, doc, getDocs, serverTimestamp, writeBatch, query, where, limit, deleteField } from 'firebase/firestore';
 import { friendlyError } from '@/lib/finance-data.js';
-import { auth, db, ROLE_LABEL, ALLOWED_ROLES } from '@/lib/firebase.js';
+import { auth, db, ROLE_LABEL, ALLOWED_ROLES, BUILTIN_ROLES, CUSTOM_ROLES } from '@/lib/firebase.js';
 import { firebaseConfig } from '@/firebase-config.js';
 import { when } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
@@ -221,7 +222,6 @@ import { PAGES, ACCESS_ROWS, rowPerms, GROUP_NOTES, PRESETS, permsOf, cleanPerms
 
 const me = useSession();
 
-const ROLES = ['director', 'finance', 'it', 'operations', 'hr', 'procurement', 'marketing'];
 const AUTH_ERRORS = {
   'auth/email-already-in-use': 'This email already has a login. If the person is missing from this list, ask Khairul to add their staff record with tools/set-role.js.',
   'auth/invalid-email': 'That email address does not look right.',
@@ -263,7 +263,7 @@ export default {
   components: { OptionPicker },
   data() {
     return {
-      ROLES, ROLE_LABEL, GROUP_NOTES, when,
+      ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, when,
       myUid: me.user.uid,
       users: [], loading: true, error: '', okMsg: '',
       filter: 'all', roleFilter: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
@@ -272,8 +272,10 @@ export default {
     };
   },
   computed: {
-    roleOptions() { return [{ value: '', label: 'All roles' }, ...ROLES.map(r => ({ value: r, label: ROLE_LABEL[r] || r }))]; },
-    roleChoices() { return me.role === 'director' ? ROLES : ROLES.filter(r => r !== 'director'); },
+    // Built-in roles, then the ones made on the Roles page (turned-off roles left out).
+    ROLES() { return [...BUILTIN_ROLES, ...Object.keys(CUSTOM_ROLES).filter(r => CUSTOM_ROLES[r].active)]; },
+    roleOptions() { return [{ value: '', label: 'All roles' }, ...this.ROLES.map(r => ({ value: r, label: ROLE_LABEL[r] || r }))]; },
+    roleChoices() { return me.role === 'director' ? this.ROLES : this.ROLES.filter(r => r !== 'director'); },
     // The tick table, one heading per group (Finance, Portfolio…).
     pageGroups() {
       const groups = [];
