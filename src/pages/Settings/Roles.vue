@@ -150,9 +150,11 @@ export default {
       this.loading = true; this.error = '';
       try {
         await loadRoleRegistry(true);
-        const [rs, us] = await Promise.all([getDocs(collection(db, 'roles')), getDocs(collection(db, 'users'))]);
-        this.rolesDocs = Object.fromEntries(rs.docs.map(d => [d.id, d.data()]));
-        const n = {}; us.forEach(d => { const u = d.data(); if (u.active !== false && u.role) n[u.role] = (n[u.role] || 0) + 1; });
+        let rs = null, us = null;
+        try { rs = await getDocs(collection(db, 'roles')); } catch (e) { this.error = 'The roles collection was refused (' + (e.code || e.message) + '). The published security rules have no roles block that lets you read it.'; }
+        try { us = await getDocs(collection(db, 'users')); } catch (e) { this.error = (this.error ? this.error + ' ' : '') + 'The staff list was refused (' + (e.code || e.message) + '), so people counts show 0.'; }
+        this.rolesDocs = Object.fromEntries((rs ? rs.docs : []).map(d => [d.id, d.data()]));
+        const n = {}; (us ? us.docs : []).forEach(d => { const u = d.data(); if (u.active !== false && u.role) n[u.role] = (n[u.role] || 0) + 1; });
         this.people = n;
       } catch (e) { this.error = friendlyError(e, 'load the roles'); }
       this.loading = false;
