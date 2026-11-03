@@ -1069,8 +1069,16 @@ export default {
           ['offlineBookings', 'unitId'], ['issues', 'unitId']], u.id);
         if (used) { this.busy = false; await showNotice(`${u.unitCode} can't be deleted`, `It already has history (${used}). Set the unit to inactive instead, so the history stays.`); return; }
         if (!await askConfirm({ title: `Delete unit ${u.unitCode}?`, message: 'It will be removed from the system for good, including its terms history. This cannot be undone.', confirmText: 'Delete unit', danger: true })) { this.busy = false; return; }
+        // Chunked so a long history (500+ terms/ownership docs) can't silently exceed Firestore's 500-write batch limit.
+        const refs = [];
+        for (const sub of ['terms', 'ownership']) (await getDocs(collection(db, 'units', u.id, sub))).forEach(d => refs.push(d.ref));
+        const CHUNK = 450;
+        for (let i = 0; i < refs.length; i += CHUNK) {
+          const cb = writeBatch(db);
+          refs.slice(i, i + CHUNK).forEach(ref => cb.delete(ref));
+          await cb.commit();
+        }
         const b = writeBatch(db);
-        for (const sub of ['terms', 'ownership']) (await getDocs(collection(db, 'units', u.id, sub))).forEach(d => b.delete(d.ref));
         b.delete(doc(db, 'units', u.id));
         audit(b, me, { action: 'unit.delete', entity: `units/${u.id}`, propertyId: this.propertyId, changes: [{ field: 'unit', old: u.unitCode, new: null }], reason: 'Deleted, no history' });
         await b.commit();

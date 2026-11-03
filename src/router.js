@@ -57,6 +57,13 @@ const routes = [
   page('/Playbook/onboarding', () => import('./pages/Playbook/Onboarding.vue'), 'Onboarding', ALL),
   page('/Playbook/business-model', () => import('./pages/Playbook/BusinessModel.vue'), 'Business Model', ALL),
 
+  ticked('/Performance/quarters', () => import('./pages/Performance/Quarters.vue'), 'Quarterly Management', 'performance'),
+  page('/Performance/coh', () => import('./pages/Performance/COHEvaluate.vue'), 'COH Evaluations', ALL, { title: 'Code of conduct evaluations' }),
+  page('/Performance/kpi', () => import('./pages/Performance/KPI.vue'), 'KPI Management', ALL, { title: 'KPI management' }),
+  page('/Performance/tms', () => import('./pages/Performance/TMS.vue'), 'TMS Performance', ALL, { title: 'TMS performance' }),
+  page('/Performance/my', () => import('./pages/Performance/MyPerformance.vue'), 'My Performance', ALL, { title: 'My performance' }),
+  ticked('/Performance/approval', () => import('./pages/Performance/Approval.vue'), 'Final Approval', 'performance', { title: 'Final performance approval' }),
+
   // Staff accounts and Audit log: Director and HR (Khairul 21 Oct). Never tickable.
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),
   page('/Settings/roles', () => import('./pages/Settings/Roles.vue'), 'Roles', D),   // Director only, never tickable
