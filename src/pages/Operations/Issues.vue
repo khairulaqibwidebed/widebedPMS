@@ -175,7 +175,7 @@
               <span class="help" v-show="!tagEdit.tags.length">No roles tagged</span>
             </div>
             <OptionPicker class="add-role" v-show="tagEdit.tags.length < TAGS.length" v-model="addPick" :options="addOptions()" label="Add a role" @change="addTag($event)" /></div>
-          <div class="field"><label for="tWhy">Reason</label><input class="input" id="tWhy" v-model="tagEdit.reason" placeholder="e.g. Not an IT issue"></div>
+          <FormField id="tWhy" label="Reason" v-model="tagEdit.reason" placeholder="e.g. Not an IT issue" />
           <div class="help">The department that raised the ticket always stays tagged.</div>
           <div class="modal-foot"><button type="button" class="btn" @click="tagEdit = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Save tags</button></div>
         </form>
@@ -228,6 +228,7 @@
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
 import { db, ROLE_LABEL, CUSTOM_ROLES } from '@/lib/firebase.js';
+import FormField from '@/components/FormField.vue';
 import ComboInput from '@/components/ComboInput.vue';
 import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
@@ -269,7 +270,7 @@ const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [
 
 export default {
   beforeCreate() { TAGS = tagsNow(); },
-  components: { Avatar, ComboInput, OptionPicker, UploadFile, FileViewer },
+  components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer },
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,

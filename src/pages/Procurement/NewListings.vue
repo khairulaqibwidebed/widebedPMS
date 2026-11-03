@@ -93,11 +93,11 @@
         <section class="card form-card" style="max-width:760px">
           <div class="grid-fields">
             <div class="field"><label class="req" for="nProp">Property</label><select class="select" id="nProp" :value="propChoice(form, 'n')" @change="pickProp(form, 'n', $event.target.value)"><option value="">Choose a property…</option><template v-for="p in properties" :key="p.id"><option :value="p.name">{{ p.name }}</option></template><option value="__new">New property (not in Portfolio yet)…</option></select><input class="input prop-new" v-if="propChoice(form, 'n') === '__new'" v-model="form.property" placeholder="Name of the new property" aria-label="New property name"></div>
-            <div class="field"><label class="req" for="nUnit">Unit</label><input class="input" id="nUnit" v-model="form.unit" placeholder="e.g. DM 12-03"></div>
-            <div class="field"><label class="req" for="nOwner">Owner name</label><input class="input" id="nOwner" v-model="form.ownerName" placeholder="e.g. Owner A"></div>
-            <div class="field"><label for="nDue">Due date</label><input class="input" id="nDue" type="date" v-model="form.dueDate"></div>
-            <div class="field"><label for="nPhone">Owner phone</label><input class="input" id="nPhone" v-model="form.ownerPhone" inputmode="tel" placeholder="e.g. 012-345 6789"></div>
-            <div class="field"><label for="nEmail">Owner email</label><input class="input" id="nEmail" type="email" v-model="form.ownerEmail" placeholder="e.g. owner@example.com"></div>
+            <FormField id="nUnit" label="Unit" req v-model="form.unit" placeholder="e.g. DM 12-03" />
+            <FormField id="nOwner" label="Owner name" req v-model="form.ownerName" placeholder="e.g. Owner A" />
+            <FormField id="nDue" label="Due date" type="date" v-model="form.dueDate" />
+            <FormField id="nPhone" label="Owner phone" v-model="form.ownerPhone" inputmode="tel" placeholder="e.g. 012-345 6789" />
+            <FormField id="nEmail" label="Owner email" type="email" v-model="form.ownerEmail" placeholder="e.g. owner@example.com" />
           </div>
           <div class="field"><label for="nDesc">Description</label><textarea class="input" id="nDesc" v-model="form.description" placeholder="e.g. 2-bedroom unit, owner wants it live before December"></textarea></div>
         </section>
@@ -371,11 +371,11 @@
               <div class="card-head"><h2>Details</h2><span class="muted" v-show="dirty">Unsaved changes</span></div>
               <div class="d-grid" v-if="canEdit">
                 <div class="field"><label for="dProp">Property</label><select class="select" id="dProp" :value="propChoice(d, 'd')" @change="pickProp(d, 'd', $event.target.value)"><option value="">Choose a property…</option><template v-for="p in properties" :key="p.id"><option :value="p.name">{{ p.name }}</option></template><option value="__new">New property (not in Portfolio yet)…</option></select><input class="input prop-new" v-if="propChoice(d, 'd') === '__new'" v-model="d.property" placeholder="Name of the new property" aria-label="New property name"></div>
-                <div class="field"><label for="dUnit">Unit</label><input class="input" id="dUnit" v-model="d.unit" placeholder="e.g. DM 12-03"></div>
-                <div class="field"><label for="dOwner">Owner name</label><input class="input" id="dOwner" v-model="d.ownerName" placeholder="e.g. Owner A"></div>
-                <div class="field"><label for="dDue">Due date</label><input class="input" id="dDue" type="date" v-model="d.dueDate"></div>
-                <div class="field"><label for="dPhone">Owner phone</label><input class="input" id="dPhone" v-model="c.ownerPhone" inputmode="tel"></div>
-                <div class="field"><label for="dEmail">Owner email</label><input class="input" id="dEmail" type="email" v-model="c.ownerEmail"></div>
+                <FormField id="dUnit" label="Unit" v-model="d.unit" placeholder="e.g. DM 12-03" />
+                <FormField id="dOwner" label="Owner name" v-model="d.ownerName" placeholder="e.g. Owner A" />
+                <FormField id="dDue" label="Due date" type="date" v-model="d.dueDate" />
+                <FormField id="dPhone" label="Owner phone" v-model="c.ownerPhone" inputmode="tel" />
+                <FormField id="dEmail" label="Owner email" type="email" v-model="c.ownerEmail" />
                 <div class="field span2"><label for="dDesc">Description</label><textarea class="input" id="dDesc" v-model="d.description"></textarea></div>
                 <div class="actions span2"><button class="btn" v-if="dirty" @click="discard()" :disabled="busy">Discard changes</button><button class="btn btn-primary" @click="save()" :disabled="busy">Save details</button></div>
               </div>
@@ -428,11 +428,11 @@
                 <div class="card-head"><h2>Details</h2><span class="muted" v-show="dirty">Unsaved changes</span></div>
                 <div class="d-grid" v-if="canEdit">
                   <div class="field"><label for="mdProp">Property</label><select class="select" id="mdProp" :value="propChoice(d, 'd')" @change="pickProp(d, 'd', $event.target.value)"><option value="">Choose a property…</option><template v-for="p in properties" :key="p.id"><option :value="p.name">{{ p.name }}</option></template><option value="__new">New property (not in Portfolio yet)…</option></select><input class="input prop-new" v-if="propChoice(d, 'd') === '__new'" v-model="d.property" placeholder="Name of the new property" aria-label="New property name"></div>
-                  <div class="field"><label for="mdUnit">Unit</label><input class="input" id="mdUnit" v-model="d.unit" placeholder="e.g. DM 12-03"></div>
-                  <div class="field"><label for="mdOwner">Owner name</label><input class="input" id="mdOwner" v-model="d.ownerName" placeholder="e.g. Owner A"></div>
-                  <div class="field"><label for="mdDue">Due date</label><input class="input" id="mdDue" type="date" v-model="d.dueDate"></div>
-                  <div class="field"><label for="mdPhone">Owner phone</label><input class="input" id="mdPhone" v-model="c.ownerPhone" inputmode="tel"></div>
-                  <div class="field"><label for="mdEmail">Owner email</label><input class="input" id="mdEmail" type="email" v-model="c.ownerEmail"></div>
+                  <FormField id="mdUnit" label="Unit" v-model="d.unit" placeholder="e.g. DM 12-03" />
+                  <FormField id="mdOwner" label="Owner name" v-model="d.ownerName" placeholder="e.g. Owner A" />
+                  <FormField id="mdDue" label="Due date" type="date" v-model="d.dueDate" />
+                  <FormField id="mdPhone" label="Owner phone" v-model="c.ownerPhone" inputmode="tel" />
+                  <FormField id="mdEmail" label="Owner email" type="email" v-model="c.ownerEmail" />
                   <div class="field span2"><label for="mdDesc">Description</label><textarea class="input" id="mdDesc" v-model="d.description"></textarea></div>
                                 </div>
                 <div class="d-grid" v-else>
@@ -471,6 +471,7 @@ import { inbox, link, syncTask, listTasksFor } from '@/lib/tms.js';
 import { notifyRole } from '@/services/notificationService';
 import { toast } from '@/lib/toast.js';
 import { handOff } from '@/lib/handoff.js';
+import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
@@ -654,7 +655,7 @@ function summarize(a, b, contactChanged) {
 }
 
 export default {
-  components: { OptionPicker, UploadFile, FileViewer },
+  components: { FormField, OptionPicker, UploadFile, FileViewer },
   data() {
     return { createOpen: false,
       STAGES, RSTATUS, FURN, PAY_LINKS, FILTERS, FEE_PCT,

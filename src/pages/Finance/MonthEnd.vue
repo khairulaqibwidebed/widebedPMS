@@ -219,12 +219,7 @@
             <div class="notice ok">{{ `Sent to the Director${approvals[sel.unitId].submittedByName ? ' by ' + approvals[sel.unitId].submittedByName : ''}. The numbers are frozen until they approve or send it back.` }}</div>
             <RouterLink class="btn btn-primary" to="/Finance/statement-approvals" v-if="role === 'director'" style="margin-right:8px">Review in Statement Approvals</RouterLink>
             <button class="btn" v-show="!pulling" @click="pulling = true" :disabled="busy">Pull back</button>
-            <div class="confirm-box" v-show="pulling">
-              <b>{{ `Pull ${sel.unitCode} back?` }}</b>
-              <p class="help" style="margin:4px 0 10px">It becomes editable again. You can send it again when it is ready.</p>
-              <div class="field"><label for="pullWhy">Reason <span style="color:#d92d20">*required</span></label><input class="input" id="pullWhy" v-model="pullReason" placeholder="e.g. A booking was missing"></div>
-              <div class="actions"><button class="btn btn-primary" @click="pullBack()" :disabled="busy || !pullReason.trim()">Pull back</button><button class="btn" @click="pulling = false">Cancel</button></div>
-            </div>
+            <ConfirmReason v-if="pulling" :title="`Pull ${sel.unitCode} back?`" text="It becomes editable again. You can send it again when it is ready." label="Reason" placeholder="e.g. A booking was missing" v-model="pullReason" confirm-text="Pull back" :busy="busy" @confirm="pullBack()" @cancel="pulling = false" />
           </div>
           <div class="actions" style="margin-top:14px" v-else>
             <div class="notice error" v-if="sentState(sel) === 'returned'">{{ `Sent back by ${approvals[sel.unitId].returnedByName || 'the Director'}: ${approvals[sel.unitId].returnReason}` }}</div>
@@ -241,12 +236,7 @@
             </div>
           </template>
           <template v-if="reopening && sel.status === 'completed'">
-            <div class="confirm-box">
-              <b>{{ `Reopen ${sel.unitCode}?` }}</b>
-              <p class="help" style="margin:4px 0 10px">The statement stays saved. Completing again saves a new revision and keeps the old one. Its brought-forward line in the next month is removed.</p>
-              <div class="field"><label>Reason (audit log)</label><input class="input" v-model="overrideReason"></div>
-              <div class="actions"><button class="btn btn-primary" @click="reopen()" :disabled="busy || !overrideReason.trim()">Reopen</button><button class="btn" @click="reopening = false">Cancel</button></div>
-            </div>
+            <ConfirmReason :title="`Reopen ${sel.unitCode}?`" text="The statement stays saved. Completing again saves a new revision and keeps the old one. Its brought-forward line in the next month is removed." v-model="overrideReason" confirm-text="Reopen" :busy="busy" @confirm="reopen()" @cancel="reopening = false" />
           </template>
         </section>
         </div>
@@ -355,8 +345,9 @@ import AddBookingModal from '@/components/AddBookingModal.vue';
 import RemoveBookingsModal from '@/components/RemoveBookingsModal.vue';
 import RemovedBookings from '@/components/RemovedBookings.vue';
 import StatementLines from '@/components/StatementLines.vue';
+import ConfirmReason from '@/components/ConfirmReason.vue';
 export default {
-  components: { OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines },
+  components: { OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines, ConfirmReason },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
