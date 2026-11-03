@@ -46,6 +46,13 @@
         {{ status === 'submitted' ? 'Check the answers, then mark it completed.' : '' }}
       </div>
 
+      <div class="notice info rec-ext" v-if="record.renewal?.renewedFrom">
+        This is the renewal of <RouterLink :to="'/Agreements/record/' + record.renewal.renewedFrom">the previous term</RouterLink>. Change the dates for the new term, then mark it completed.
+      </div>
+      <div class="notice ok" v-if="record.renewal?.state === 'renewed' && record.renewal.renewedTo">
+        Renewed. <RouterLink :to="'/Agreements/record/' + record.renewal.renewedTo">Open the new term</RouterLink>.
+      </div>
+
       <div class="rec-layout">
         <div class="card">
           <form class="ag-form" @submit.prevent novalidate>
@@ -57,6 +64,18 @@
         </div>
 
         <aside class="card rec-side">
+          <template v-if="isTracked">
+            <h2>Renewal</h2>
+            <div class="kv"><span>Ends</span><span><b>{{ endDate ? formatDate(endDate, 'DD MMM YYYY') : 'No end date yet' }}</b> <small class="muted" v-if="endDate">{{ daysText(tState.days) }}</small></span></div>
+            <div class="kv"><span>Status</span><span><span class="pill" :class="tState.pill">{{ tState.label }}</span></span></div>
+            <div class="field rec-ic">
+              <span class="rec-ic-lbl">In charge</span>
+              <PeoplePicker :model-value="inChargeOf(record)" :staff="staff" :disabled="busy" label="Add a person in charge" @update:model-value="setInCharge" />
+              <span class="help">They get the renewal reminders, with the person who made it{{ remindAlso ? ' and ' + remindAlso : '' }}.</span>
+            </div>
+            <RouterLink class="btn btn-sm" to="/Agreements/renewals">Open Renewals</RouterLink>
+            <hr class="divider">
+          </template>
           <h2>Agreement history</h2>
           <p class="help" v-if="!history.length">PDFs made with "Generate agreement" or sent in through a link are kept here.</p>
           <div class="rows">
@@ -87,7 +106,11 @@ import FillWizard from '@/components/agreements/FillWizard.vue';
 import ThankYou from '@/components/agreements/ThankYou.vue';
 import GenerateDialog from '@/components/agreements/GenerateDialog.vue';
 import LinksDialog from '@/components/agreements/LinksDialog.vue';
-import { getForm, getRecord, createRecord, updateRecord, listTemplates, listGenerated, audit, millis } from '@/lib/agreements/data.js';
+import { getForm, getRecord, createRecord, updateRecord, listTemplates, listGenerated, audit, millis, listStaff, notifyPerson } from '@/lib/agreements/data.js';
+import { tracked, endDateOf, trackState, daysText, inChargeOf, rolesOf, peopleOf } from '@/lib/agreements/renewals.js';
+import PeoplePicker from '@/components/agreements/PeoplePicker.vue';
+import { formatDate } from '@/lib/agreements/format.js';
+import { ROLE_LABEL } from '@/lib/firebase.js';
 import { computeValues } from '@/lib/agreements/formula.js';
 import { defaultValues, isShown, validate, recordTitle, hasValue, STATUS, STATUS_PILL } from '@/lib/agreements/fields.js';
 import { useAutosave } from '@/lib/agreements/history.js';
@@ -108,6 +131,14 @@ const templates = ref([]), history = ref([]), errors = ref({}), gen = ref(null),
 const computed_ = computed(() => (form.value ? computeValues(form.value.fields, values.value) : {}));
 const title = computed(() => (form.value ? recordTitle(form.value.fields, values.value) : ''));
 const errorCount = computed(() => Object.keys(errors.value).length);
+// Renewal tracking (renewals.js): the end date follows the answers and is saved with them.
+const staff = ref([]);
+const isTracked = computed(() => tracked(form.value));
+const endDate = computed(() => endDateOf(form.value, values.value));
+const tState = computed(() => trackState({ ...record.value, endDate: endDate.value }));
+// Who else the form reminds, for the help line: "Operations, Finance and Mei".
+const remindAlso = computed(() => (form.value ? [...rolesOf(form.value.renewal).map(k => ROLE_LABEL[k] || k), ...peopleOf(form.value.renewal).map(p => p.name)].join(', ') : ''));
+const withEnd = patch => (isTracked.value ? { ...patch, endDate: endDate.value } : patch);
 const when = t => { const ms = millis(t) || (typeof t === 'string' ? Date.parse(t) : 0); return ms ? new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; };
 const back = () => router.push({ path: '/Agreements', query: form.value ? { form: form.value.id } : {} });
 
@@ -139,6 +170,7 @@ onMounted(async () => {
       loadHistory();
     }
     templates.value = await listTemplates(form.value.id);
+    if (isTracked.value && !isNew.value) listStaff().then(l => { staff.value = l; }).catch(() => {});
     if (route.query.then === 'generate') openGenerate();
     if (route.query.then === 'link') links.value = true;
   } catch (e) { error.value = e.message; }
@@ -154,7 +186,7 @@ async function saveNew(s) {
   busy.value = true; error.value = '';
   try {
     const clean = Object.fromEntries(form.value.fields.filter(f => hasValue(f) && f.type !== 'formula').map(f => [f.id, values.value[f.id] ?? '']));
-    const id = await createRecord(form.value.id, clean, { status: s, title: title.value });
+    const id = await createRecord(form.value.id, clean, withEnd({ status: s, title: title.value }));
     audit('agreement.record.create', `agreementRecords/${id}`, `${form.value.name}: ${title.value}`);
     touched.value = false;
     done.value = { id, status: s, title: title.value };
@@ -166,7 +198,7 @@ function again() { done.value = null; values.value = defaultValues(form.value.fi
 
 // ---- Existing record ----
 const autosave = useAutosave(async () => {
-  await updateRecord(record.value.id, { values: values.value, title: title.value });
+  await updateRecord(record.value.id, withEnd({ values: values.value, title: title.value }));
   record.value.updatedAt = Date.now();
 }, 1200);
 function setValue(f, v) {
@@ -189,12 +221,24 @@ async function changeStatus(s) {
   busy.value = true; error.value = '';
   try {
     await autosave.flush();
-    await updateRecord(record.value.id, { status: s, values: values.value, title: title.value });
+    await updateRecord(record.value.id, withEnd({ status: s, values: values.value, title: title.value }));
     status.value = s;
     if (s === 'completed') audit('agreement.record.complete', `agreementRecords/${record.value.id}`, `${form.value.name}: ${title.value}`);
     okMsg.value = { completed: 'Marked as completed.', draft: 'Back to draft.', archived: 'Archived.' }[s];
   } catch (e) { error.value = 'Could not change the status: ' + e.message; }
   busy.value = false;
+}
+// In charge: several people. Anyone newly added gets a bell notification.
+async function setInCharge(list) {
+  const before = inChargeOf(record.value);
+  try {
+    await updateRecord(record.value.id, { inCharge: list });
+    record.value = { ...record.value, inCharge: list };
+    const added = list.filter(p => !before.some(b => b.uid === p.uid));
+    added.forEach(p => notifyPerson(p.uid, 'You are in charge of an agreement: ' + title.value,
+      `${form.value.name}${endDate.value ? ', ending ' + formatDate(endDate.value, 'DD MMM YYYY') : ''}. You will get its renewal reminders.`, '/Agreements/record/' + record.value.id, record.value.id));
+    okMsg.value = added.length ? `${added.map(p => p.name).join(', ')} added.` : `In charge: ${list.map(p => p.name).join(', ') || 'nobody'}.`;
+  } catch (e) { error.value = 'Could not change who is in charge: ' + e.message; }
 }
 async function duplicate() {
   busy.value = true;
@@ -229,6 +273,8 @@ onBeforeRouteLeave(async () => {
 .rec-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
 .rec-side { position: sticky; top: 76px; }
 .rec-side h2 { font-size: 15px; margin: 0 0 10px; }
+.rec-ic { margin: 10px 0; }
+.rec-ic-lbl { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 .rec-ext { background: var(--blue-soft); color: var(--blue); }
 .page-head .sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 @media (max-width: 1000px) { .rec-layout { grid-template-columns: minmax(0, 1fr); } .rec-side { position: static; } }

@@ -16,8 +16,8 @@ const NEW_LISTINGS = G('Procurement', 'package', [P('New Owner Listings', '/Proc
 // Every role's own account page, last in the sidebar.
 const MY_ACCOUNT = G('My Account', 'user', [P('Profile & Appearance', '/Settings/appearance', 'sliders')]);
 // Agreements: everyone fills in forms. Setup shows for Directors and anyone ticked for it (navFor adds it).
-const AGREEMENTS = G('Agreements', 'fileText', [P('Agreements', '/Agreements', 'fileText')]);
-const AGREEMENTS_DIR = G('Agreements', 'fileText', [P('Agreements', '/Agreements', 'fileText'), P('Agreement Setup', '/Agreements/setup', 'sliders')]);
+const AGREEMENTS = G('Agreements', 'fileText', [P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'fileText')]);
+const AGREEMENTS_DIR = G('Agreements', 'fileText', [P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'fileText'), P('Agreement Setup', '/Agreements/setup', 'sliders')]);
 const PLAYBOOK = G('Playbook', 'book', [P('Onboarding', '/Playbook/onboarding', 'book'), P('Business Model', '/Playbook/business-model', 'briefcase')]);
 
 export const NAV = {

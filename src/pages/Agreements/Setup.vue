@@ -58,22 +58,24 @@
       <p class="card-intro">The questions staff answer. Each form has its own records table and can have several templates.</p>
       <div class="table-wrap">
         <table class="table hover-rows">
-          <thead><tr><th>Form</th><th class="num">Fields</th><th class="num">Formulas</th><th class="num">Templates</th><th>Last changed</th><th></th></tr></thead>
+          <thead><tr><th>Form</th><th class="num">Fields</th><th class="num">Formulas</th><th class="num">Templates</th><th>Renewal</th><th>Last changed</th><th></th></tr></thead>
           <tbody>
             <tr v-for="f in forms" :key="f.id">
               <td><RouterLink class="setup-name" :to="'/Agreements/setup/form/' + f.id">{{ f.name }}</RouterLink></td>
               <td class="num">{{ f.fields.filter(x => x.type !== 'section').length }}</td>
               <td class="num">{{ f.fields.filter(x => x.type === 'formula').length }}</td>
               <td class="num">{{ templates.filter(t => t.formId === f.id).length }}</td>
+              <td><span class="pill" :class="f.renewal?.on ? 'green' : 'grey'">{{ f.renewal?.on ? 'Reminders on' : 'Off' }}</span></td>
               <td class="muted">{{ when(f.updatedAt) }}</td>
               <td class="setup-acts">
                 <RouterLink class="act-pill" :to="'/Agreements/setup/form/' + f.id">Edit fields</RouterLink>
+                <button class="act-pill" @click="renewalFor = f">Renewal</button>
                 <button class="act-pill" @click="ask = { kind: 'renameForm', item: f }">Rename</button>
                 <button class="act-pill" @click="copyForm(f)">Duplicate</button>
                 <button class="act-pill danger" @click="archive('form', f)">Archive</button>
               </td>
             </tr>
-            <tr v-if="!loading && !forms.length"><td colspan="6" class="muted">No forms yet. Start from the tenancy forms in your sheet or a blank one.</td></tr>
+            <tr v-if="!loading && !forms.length"><td colspan="7" class="muted">No forms yet. Start from the tenancy forms in your sheet or a blank one.</td></tr>
           </tbody>
         </table>
       </div>
@@ -145,6 +147,8 @@
     </NameDialog>
     <NameDialog v-if="ask && ask.kind === 'renameForm'" title="Rename form" label="Form name" :value="ask.item.name" @close="ask = null" @done="n => rename('form', ask.item, n)" />
     <NameDialog v-if="ask && ask.kind === 'renameTemplate'" title="Rename template" label="Template name" :value="ask.item.name" @close="ask = null" @done="n => rename('template', ask.item, n)" />
+    <RenewalSettings v-if="renewalFor" :form="renewalFor" @close="renewalFor = null"
+      @saved="r => { renewalFor.renewal = r; flash(r.on ? 'Renewal reminders are on for ' + renewalFor.name + '.' : 'Renewal reminders are off for ' + renewalFor.name + '.'); renewalFor = null; }" />
     <ConfirmDialog v-if="ask && ask.kind === 'confirm'" :title="ask.title" :text="ask.text" :confirm="ask.confirm" danger @close="ask = null" @ok="ask.run(); ask = null" />
 
     <!-- Upload a template -->
@@ -222,6 +226,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import NameDialog from '@/components/agreements/NameDialog.vue';
 import ConfirmDialog from '@/components/agreements/ConfirmDialog.vue';
+import RenewalSettings from '@/components/agreements/RenewalSettings.vue';
 import { listForms, listTemplates, createForm, saveForm, createTemplate, saveTemplate, audit, millis, listMasters, createMaster, saveMaster } from '@/lib/agreements/data.js';
 import { STARTERS, starterFields } from '@/lib/agreements/starters.js';
 import { uploadTemplateFile, templateFromMaster } from '@/lib/agreements/templates.js';
@@ -231,7 +236,7 @@ import './agreements.css';
 
 const router = useRouter();
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
-const forms = ref([]), templates = ref([]), masters = ref([]), ask = ref(null), upload = ref(null), addMaster = ref(null);
+const forms = ref([]), templates = ref([]), masters = ref([]), ask = ref(null), upload = ref(null), addMaster = ref(null), renewalFor = ref(null);
 // Which drop-down sections are open, remembered in this browser (all open at first).
 const OPEN_KEY = 'wb.agreementSetupClosed';
 const closed = ref((() => { try { const v = JSON.parse(localStorage.getItem(OPEN_KEY)); return Array.isArray(v) ? v : []; } catch (_) { return []; } })());

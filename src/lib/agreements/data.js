@@ -2,7 +2,8 @@
 //
 // agreementForms/{id}      { name, fields: [...], archived }               form fields, formulas, column-only fields
 // agreementTemplates/{id}  { name, formId, version, fileId, fileName, pages, versions: [...], mappings: [...], archived }
-// agreementRecords/{id}    { formId, title, status: draft|submitted|completed|archived, values: { fieldId: value }, source? }
+// agreementRecords/{id}    { formId, title, status: draft|submitted|completed|archived, values: { fieldId: value }, source?,
+//                            endDate?, inCharge?: { uid, name }, renewal?: { state, note, renewedTo, renewedFrom, sent } }  (renewals.js)
 // agreementMasters/{id}    { name, docId, url, versions: [...], editing: { copyId, url, by, byName, at } | null, archived }
 // agreementLinks/{slug}    { slug, kind: open|personal, formId, templateId, recordId?, title, intro, passSalt, passHash,
 //                            active, expiresAt, lockFilled, allowDownload, submissions, submittedAt? }
@@ -139,6 +140,26 @@ export async function addGenerated(data) {
   const s = me();
   await addDoc(collection(db, 'generatedAgreements'), { ...data, by: s.user.uid, byName: s.name, at: serverTimestamp() });
   audit('agreement.generate', `agreementRecords/${data.recordId}`, `${data.templateName} v${data.templateVersion} → ${data.fileName}`);
+}
+
+// ---- Renewals ----
+// Active staff for the "In charge" picker: [{ uid, name, role }].
+export async function listStaff() {
+  return rows(await getDocs(collection(db, 'users')))
+    .filter(u => u.active !== false && u.role)
+    .map(u => ({ uid: u.id, name: u.displayName || u.email || 'Staff', role: u.role }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+// Keeps the saved end date in step with the answers (no "last changed" stamp: nobody edited the record).
+export const setEndDate = (id, endDate) => updateDoc(doc(db, 'agreementRecords', id), { endDate });
+// A PMS bell notification to one person (e.g. "you are in charge of this agreement").
+export async function notifyPerson(uid, title, message, link, refId = '') {
+  const s = me();
+  if (!uid || uid === s.user.uid) return;
+  try {
+    await addDoc(collection(db, 'notifications'), { recipientUid: uid, recipientRole: null, title: title.slice(0, 200), message: message.slice(0, 600),
+      type: 'agreement', link, refId, readBy: [], starredBy: [], createdByUid: s.user.uid, createdByName: s.name, createdAt: serverTimestamp() });
+  } catch (e) { console.warn('notify', e); }
 }
 
 // ---- Audit log (same collection as the rest of the PMS) ----
