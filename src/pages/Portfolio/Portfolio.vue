@@ -13,7 +13,8 @@
       </div>
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptionsAll" label="Property" @change="switchProperty()" v-show="top !== 'properties'" />
-        <MonthPicker :ahead="1" v-model="asOf" @change="switchMonth()" v-if="!viewOnly" />
+        <MonthPicker :ahead="1" v-model="asOf" @change="switchMonth()" v-if="!viewOnly && top !== 'bookings'" />
+        <MonthPicker :ahead="1" multiple all-label="All months" v-model="bkMonthsModel" v-if="!viewOnly && top === 'bookings'" />
         <RefreshButton @refresh="go()" />
       </div>
     </div>
@@ -26,7 +27,8 @@
       </div>
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="switchProperty()" />
-        <MonthPicker :ahead="1" v-model="asOf" @change="switchMonth()" v-if="!viewOnly" />
+        <MonthPicker :ahead="1" v-model="asOf" @change="switchMonth()" v-if="!viewOnly && top !== 'bookings'" />
+        <MonthPicker :ahead="1" multiple all-label="All months" v-model="bkMonthsModel" v-if="!viewOnly && top === 'bookings'" />
         <RefreshButton @refresh="go()" />
         <button class="btn btn-primary" v-show="ptab === 'units'" @click="openUnit(null)" v-if="canAdd">+ Add unit</button>
         <button class="btn" v-show="ptab === 'overview'" @click="openProperty(property())" v-if="!viewOnly || canEdit">Edit property</button>
@@ -144,11 +146,19 @@
         <p class="card-intro">Stays made outside eZee, such as long-term tenants.</p>
         <div class="toolbar" ref="bookList">
           <input class="input" type="search" placeholder="Search booking no., unit or tenant ID" v-model="bookingSearch" aria-label="Search booking">
+          <span class="mm-wrap"><button type="button" class="select" @click="drOpen = !drOpen" aria-haspopup="dialog" :aria-expanded="drOpen">{{ drLabel() }}</button>
+            <template v-if="drOpen"><div class="mm-back" @click="drOpen = false"></div>
+              <div class="mm-pop dr-pop" role="dialog" aria-label="Stay dates">
+                <label class="dr-f">Stays from<input class="input" type="date" v-model="bkFrom"></label>
+                <label class="dr-f">Stays to<input class="input" type="date" v-model="bkTo"></label>
+                <div class="mm-foot"><button type="button" class="link" @click="bkFrom = ''; bkTo = ''">Clear</button><button type="button" class="btn btn-primary" @click="drOpen = false">Done</button></div>
+              </div></template></span>
+          <span class="help" v-if="bookingSearch.trim()">Searching shows every month and date.</span>
         </div>
         <Paged :items="shownBookings()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="!viewOnly">Amount (RM)</th><th></th></tr></thead>
+            <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="!viewOnly">Amount (RM)</th><th v-if="!viewOnly" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
             <tbody>
               <template v-for="bkRow in pageRows" :key="bkRow.id">
                 <tr class="clickable" @click="openBooking(bkRow)">
@@ -159,10 +169,11 @@
                   <td class="nw">{{ dmy(bkRow.departure) }}</td>
                   <td class="nw">{{ bkRow.longTerm ? 'Long-term lease' : 'Short stay' }}</td>
                   <td class="num nw" v-if="!viewOnly">{{ bkRow.longTerm ? `${amt(bkRow.monthlyRent)} /M` : paidOf(bkRow) }}</td>
+                  <td v-if="!viewOnly"><div class="mp-list"><template v-for="m in payMonths()" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(bkRow, m)].cls" v-if="monthStatus(bkRow, m)" :title="monthPayTip(bkRow, m)">{{ `${payMonths().length > 1 || bkMonthSel !== null && !bkMonthSel.length ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(bkRow, m)].label}` }}</span></template><span class="muted" v-if="!payMonths().some(m => monthStatus(bkRow, m))">—</span></div></td>
                   <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="openBooking(bkRow)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
                 </tr>
               </template>
-              <tr v-show="!shownBookings().length"><td :colspan="8 - (viewOnly ? 1 : 0)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : bookingSearch.trim() ? 'No bookings match.' : 'No offline bookings yet. They are made from Offline inquiries with Create booking, or with + New booking.' }}</td></tr>
+              <tr v-show="!shownBookings().length"><td :colspan="9 - (viewOnly ? 2 : 0)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : bookingSearch.trim() ? 'No bookings match.' : offlineBookings.length ? 'No bookings stay in the months and dates picked. Pick All months, or clear the dates.' : 'No offline bookings yet. They are made from Offline inquiries with Create booking, or with + New booking.' }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -207,6 +218,17 @@
             <p class="help" v-if="bk.payments.length > 1">{{ `Total RM ${amt(bk.payments.reduce((a, x) => a + (Number(x.amount) || 0), 0))}` }}</p>
           </template>
           <p class="help" v-else>Payments are visible to Finance, Directors and Operations.</p>
+          <template v-if="bk.payments && bkCal().length">
+            <div class="form-sec">Rent summary</div>
+            <div class="cal-row" v-if="bkLong()"><span>Monthly rent</span><b>{{ `RM ${amt(Number(bk.f.rent) || Number(bk.monthlyRent) || 0)}` }}</b></div>
+                        <div class="cal-row"><span>{{ bkLong() ? `Total rental (${bkCal().length} ${bkCal().length === 1 ? 'month' : 'months'}) · owner receives` : 'Total rental' }}</span><b>{{ `RM ${amt(bkCal().reduce((a, c) => a + c.due, 0))}` }}</b></div>
+            <div class="cal-row cal-sub" v-for="c in bkCharges()" :key="c.label"><span>{{ c.label }}</span><b>{{ `RM ${amt(c.v)}` }}</b></div>
+            <div class="cal-row"><span>Total to pay</span><b>{{ `RM ${amt(bkCal().reduce((a, c) => a + c.due, 0) + bkOther())}` }}</b></div>
+            <div class="cal-row"><span><b>Total paid</b></span><b>{{ `RM ${amt(bk.payments.reduce((a, x) => a + (Number(x.amount) || 0), 0))}` }}</b></div>
+            <div class="form-sec">Total Payments</div>
+            <div class="cal-row" v-for="c in bkCal()" :key="c.m"><span>{{ shortName(c.m) }}</span><span class="pill" :class="MONTH_PAY[c.status].cls">{{ MONTH_PAY[c.status].label }}</span><b>{{ `RM ${amt(c.paid)}` }}<small v-if="c.due > 0">{{ ` / ${amt(c.due)}` }}</small></b></div>
+            <p class="help">{{ bkLong() ? 'Long-term: each month is rent against payments dated in that month.' : 'Short stay: the rental is due in the check-in month; payments count in the month they are dated.' }}</p>
+          </template>
           <div class="form-sec">Utility bill</div>
           <p class="help">{{ bk.bill ? `${dmy(bk.bill.periodFrom)} to ${dmy(bk.bill.periodTo)} · RM ${amt(bk.bill.total)} (electricity ${amt(bk.bill.electricity)}, water ${amt(bk.bill.water)}, sewerage ${amt(bk.bill.sewerage)})` : 'No utility bill saved yet. Add it on Operations > Booking Forms > Utility Lodgment Form.' }}</p>
           <div class="field" v-if="bkEdit"><label>Reason for the change (audit log)</label><input class="input" id="bkReason" v-model="bk.reason" placeholder="e.g. Guest extended by two nights"></div>
@@ -612,6 +634,7 @@ import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
 
 const me = useSession();
+const MONTH_PAY = { paid: { label: 'Paid', cls: 'green' }, part: { label: 'Part paid', cls: 'amber' }, unpaid: { label: 'Unpaid', cls: 'red' } };
 
 let params = new URLSearchParams(location.search);
 const pctIn = v => (v === '' || v == null ? null : Number(v) / 100);
@@ -650,7 +673,7 @@ export default {
       canLogInquiry: me.role === 'director',   // logging inquiries is Directors only for now
       viewOnly: VIEWERS.includes(me.role),
       isDirector: me.role === 'director',
-      bkPaid: {}, bkOpen: false, bk: null, bkNames: {}, bkAsked: new Set(), bkEdit: ['director', 'finance', 'operations'].includes(me.role),
+      MONTH_PAY, bkPaid: {}, bkOpen: false, bk: null, bkNames: {}, bkAsked: new Set(), bkEdit: ['director', 'finance', 'operations'].includes(me.role),
       canOpenInquiry: ['director', 'finance', 'operations'].includes(me.role),   // who may open Offline inquiries
       canAdd: ADDERS.includes(me.role),    // + Add property / unit / owner
       // Marketing also open and edit properties, units and owners (Khairul 27 Oct): details and contact only, no money,
@@ -665,7 +688,7 @@ export default {
       months: Array.from({ length: 25 }, (_, i) => monthOffset(1 - i)),
       customTypes: [], allUnits: [], units: [], owners: [], monthDocs: {}, bfLines: [], audits: [], auditLast: null, auditMore: false, auditBusy: false,
       offlineBookings: [], bookingsLoading: false,
-      search: '', filter: 'all', propSearch: '', ownerSearch: '', showInactive: false, bookingSearch: '', bookingKind: 'all', propAttn: false,
+      search: '', filter: 'all', propSearch: '', ownerSearch: '', showInactive: false, bookingSearch: '', bookingKind: 'all', bkMonthSel: null, bkFrom: '', bkTo: '', drOpen: false, bkPays: null, propAttn: false,
       filters: [{ key: 'all', label: 'All' }, { key: 'none', label: 'Not set up' }, { key: 'share', label: 'Profit share' }, { key: 'fixed', label: 'Fixed rent' }, { key: 'long', label: 'Long-term' }],
       loading: true, busy: false, error: '', okMsg: '',
       unitOpen: false, u: { history: [] }, propOpen: false, np: { info: {} },
@@ -700,6 +723,8 @@ export default {
     await this.pickUpHandoff();
   },
   computed: {
+    // The Bookings page's month picker: several months (none ticked = every month). Left alone it follows the month in the address.
+    bkMonthsModel: { get() { return this.selMonths(); }, set(v) { this.bkMonthSel = v; } },
     unitTypeOptions() {
       const seen = new Set(), out = [];
       for (const t of [...UNIT_TYPES.filter(x => x !== 'Other'), ...this.customTypes, ...this.allUnits.map(x => x.info?.type), this.u?.info?.type, 'Other']) {
@@ -1306,12 +1331,13 @@ export default {
         this.offlineBookings = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => x.status !== 'cancelled')
           .sort((a, b) => (b.arrival || '').localeCompare(a.arrival || ''));
         // What was paid comes from Finance's Offline Payments only (the booking itself keeps no payment data)
-        this.bkPaid = null;
+        this.bkPaid = null; this.bkPays = null;
         try {
           const pc = collection(db, 'offlinePayments'), ps = await getDocs(this.propertyId === 'all' ? query(pc, orderBy('createdAt', 'desc'), limit(500)) : query(pc, where('propertyId', '==', this.propertyId), limit(500)));
           const paid = {};
-          ps.docs.forEach(d => { const x = d.data(); if (x.bookingId) paid[x.bookingId] = (paid[x.bookingId] || 0) + (Number(x.amount) || 0); });
-          this.bkPaid = paid;
+          const pays = {};
+          ps.docs.forEach(d => { const x = d.data(); if (x.bookingId) { paid[x.bookingId] = (paid[x.bookingId] || 0) + (Number(x.amount) || 0); (pays[x.bookingId] ||= []).push({ date: x.date || '', amount: Number(x.amount) || 0 }); } });
+          this.bkPaid = paid; this.bkPays = pays;
         } catch (e) { /* no access to payments: the amount shows a dash */ }
       } catch (e) { this.error = friendlyError(e, 'load the offline bookings'); }
       this.bookingsLoading = false;
@@ -1337,6 +1363,26 @@ export default {
     },
     // Guest details on a tenant record can only be changed by Finance and Directors; on an imported booking Operations can too
     guestEditable() { const b = this.bk; return !!b && this.bkEdit && !!b.guestOk && (!b.tenantId || ['director', 'finance'].includes(me.role)); },
+    // Calendar of months for the open booking: paid in the month (by payment date) against what is due
+    bkCal() {
+      const b = this.bk, f = b?.f; if (!f?.arrival || !f?.departure || !b.payments) return [];
+      const long = this.bkLong(), rent = Number(f.rent) || Number(b.monthlyRent) || 0, rental = Number(b.rental) || 0;
+      const out = []; let [y, mo] = f.arrival.slice(0, 7).split('-').map(Number); const last = f.departure.slice(0, 7);
+      for (let i = 0; i < 48; i++, mo++) {
+        if (mo > 12) { mo = 1; y++; }
+        const m = `${y}-${String(mo).padStart(2, '0')}`; if (m > last) break;
+        const paid = b.payments.filter(x => (x.date || '').slice(0, 7) === m).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+        const due = long ? rent : (i === 0 ? rental : 0);
+        out.push({ m, paid, due, status: due > 0 ? (paid >= due - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid') : (paid > 0 ? 'paid' : 'unpaid') });
+      }
+      return out;
+    },
+    bkCharges() {
+      const b = this.bk || {}, L = [['securityDeposit', 'Security deposit'], ['utilityDeposit', 'Utility deposit'], ['internetFee', 'Internet fees'], ['carparkFee', 'Carpark fees'], ['cleaningFee', 'Cleaning fees'], ['taFee', 'Tenancy agreement fees'], ['taStampFee', 'Tenancy agreement stamping fees'], ['othersFee', b.othersNote ? `Others (${b.othersNote})` : 'Others']];
+      return L.map(([k, label]) => ({ label, v: Number(k === 'securityDeposit' && b.f?.deposit !== undefined ? b.f.deposit : b[k]) || 0 })).filter(c => c.v > 0);
+    },
+    // Deposits and fees on top of the rental: paid by the guest, never part of the owner's share
+    bkOther() { const b = this.bk || {}; return ['securityDeposit', 'utilityDeposit', 'internetFee', 'carparkFee', 'cleaningFee', 'taFee', 'taStampFee', 'othersFee'].reduce((a, k) => a + (Number(k === 'securityDeposit' && b.f?.deposit !== undefined ? b.f.deposit : b[k]) || 0), 0); },
     bkLong() { const b = this.bk; return b && Math.round((new Date(b.f.departure) - new Date(b.f.arrival)) / 86400000) >= 30; },
     async openBooking(r) {
       const rm = c => (c ? Number(c).toFixed(2) : '');
@@ -1393,10 +1439,47 @@ export default {
       } catch (e) { b.error = friendlyError(e, 'save the booking'); }
       b.busy = false;
     },
+    // A stay counts in a month when it overlaps it.
+    // Every month a stay touches, from check-in to check-out (at most 5 years)
+    stayMonths(b) {
+      if (!b.arrival || !b.departure) return [];
+      const out = []; let [y, mo] = b.arrival.slice(0, 7).split('-').map(Number); const last = b.departure.slice(0, 7);
+      for (let i = 0; i < 60; i++, mo++) { if (mo > 12) { mo = 1; y++; } const m = `${y}-${String(mo).padStart(2, '0')}`; if (m > last) break; out.push(m); }
+      return out;
+    },
+    // The worst month of a stay: unpaid, then part paid, then paid
+    stayWorst(b) { const st = this.stayMonths(b).map(m => this.monthStatus(b, m)).filter(Boolean); return !st.length ? 'none' : st.includes('unpaid') ? 'unpaid' : st.includes('part') ? 'part' : 'paid'; },
+    stays(b, m) { return (b.arrival || '') <= m + '-31' && (b.departure || '9999') >= m + '-01'; },
+    // 'Nov' when one month is shown, 'Nov 26' once the picked months span years
+    payTag(m) { const y = new Set(this.payMonths().map(x => x.slice(0, 4))).size > 1; return y ? `${this.shortName(m).split(' ')[0]} ${m.slice(2, 4)}` : this.shortName(m).split(' ')[0]; },
+    drLabel() { return !this.bkFrom && !this.bkTo ? 'Any dates' : `${this.bkFrom ? dmy(this.bkFrom) : 'Start'} to ${this.bkTo ? dmy(this.bkTo) : 'any'}`; },
+    selMonths() { return this.bkMonthSel === null ? [this.asOf] : this.bkMonthSel; },
+    payMonths() { const s = this.selMonths(); return s.length ? [...s].sort() : [this.asOf]; },
+    // Paid, part paid or unpaid for one month. Long-term: that month's rent against payments dated in the month.
+    // Short stay: the whole rental against everything paid. null = not in that month, or no access to payments.
+    monthStatus(b, m) {
+      if (!this.bkPays || !this.stays(b, m)) return null;
+      const paid = this.paidIn(b, m), due = b.longTerm ? Number(b.monthlyRent) || 0 : Number(b.rental) || 0;
+      if (due > 0) return paid >= due - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid';
+      return paid > 0 ? 'paid' : 'unpaid';
+    },
+    paidIn(b, m) { const list = this.bkPays?.[b.id] || []; return (b.longTerm ? list.filter(x => (x.date || '').slice(0, 7) === m) : list).reduce((s, x) => s + x.amount, 0); },
+    monthPayTip(b, m) {
+      const due = b.longTerm ? Number(b.monthlyRent) || 0 : Number(b.rental) || 0;
+      return `${monthName(m)}: paid RM ${amt(this.paidIn(b, m))}${due > 0 ? ` of RM ${amt(due)}` : ''}${b.longTerm ? ' (payments dated in this month)' : ''}`;
+    },
+    // The month and date filters; typing in the search box ignores them so a unit search shows all of its bookings.
+    inPicked(x) {
+      const sel = this.selMonths();
+      if (sel.length && !sel.some(m => this.stays(x, m))) return false;
+      if (this.bkFrom && (x.departure || '9999') < this.bkFrom) return false;
+      if (this.bkTo && (x.arrival || '') > this.bkTo) return false;
+      return true;
+    },
     shownBookings() {
       const q = this.bookingSearch.trim().toLowerCase();
       const k = this.bookingKind;
-      return this.offlineBookings.filter(x => (k === 'all' || (k === 'long' && x.longTerm) || (k === 'short' && !x.longTerm) || (k === 'noEzee' && !x.ezeeReservationNo))
+      return this.offlineBookings.filter(x => (q || this.inPicked(x)) && (k === 'all' || (k === 'long' && x.longTerm) || (k === 'short' && !x.longTerm) || (k === 'noEzee' && !x.ezeeReservationNo))
         && (!q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo].some(v => (v || '').toLowerCase().includes(q))));
     }
   }
@@ -1405,6 +1488,19 @@ export default {
 
 <style scoped>
     .page-head .head-tools { margin-left: auto; }
+    .mm-wrap { position: relative; display: inline-block; }
+    .mm-back { position: fixed; inset: 0; z-index: 19; }
+    .mm-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: 230px; max-height: 340px; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; }
+    .mm-opt { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    .mm-opt input { accent-color: var(--accent); }
+    .mm-foot { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+    .dr-pop { width: 250px; padding: 12px; }
+    .dr-f { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 10px; }
+    .dr-f .input { display: block; width: 100%; margin-top: 4px; max-width: none; }
+    .mp-list { display: flex; flex-wrap: wrap; gap: 4px; }
+    .cal-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .cal-sub { padding-left: 20px; color: var(--muted); }
+    .cal-row b small { font-weight: 400; color: var(--muted); }
     .pay-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
     .eye-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; }
     .eye-btn svg { width: 20px; height: 20px; fill: var(--accent); }

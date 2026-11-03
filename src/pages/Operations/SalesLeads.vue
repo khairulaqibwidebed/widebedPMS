@@ -316,17 +316,18 @@
             </section>
             <section class="card">
               <h2>Payment details</h2>
+              <p class="help" v-if="unpaid" style="margin:0 0 10px">Rental status is Unpaid, so payment details are optional. If you type an amount, add the mode, purpose and receipt too.</p>
               <div class="grid-fields">
-                <div class="field"><label :class="{ req: !longTerm }" for="bAmt">{{ longTerm ? 'Amount paid (RM)' : 'Amount (RM)' }}</label><input class="input" id="bAmt" type="number" min="0" step="0.01" v-model="bk.amount"></div>
-                <div class="field"><label class="req" for="bMode">Mode of payment</label>
+                <div class="field"><label :class="{ req: !longTerm && !unpaid }" for="bAmt">{{ longTerm ? 'Amount paid (RM)' : 'Amount (RM)' }}</label><input class="input" id="bAmt" type="number" min="0" step="0.01" v-model="bk.amount"></div>
+                <div class="field"><label :class="{ req: +bk.amount > 0 }" for="bMode">Mode of payment</label>
                   <OptionPicker class="fld-pick" v-model="bk.payMode" :options="PAY_MODES" label="Mode of payment" /></div>
                 <div class="field"><label for="bPayDate">Date</label><input class="input" id="bPayDate" type="date" v-model="bk.payDate"></div>
                 <div class="field"><label for="bRef">Reference numbers</label><input class="input" id="bRef" v-model="bk.paymentRef" placeholder="e.g. bank transfer ref or receipt no."></div>
                 <div class="field"><label for="bEzee">eZee reservation no.</label><input class="input" id="bEzee" v-model="bk.ezeeNo" placeholder="Add once it is keyed into eZee"></div>
               </div>
-              <div class="field" style="margin-top:12px"><label :class="{ req: !longTerm || +bk.amount > 0 }" for="bNote">Purpose</label>
+              <div class="field" style="margin-top:12px"><label :class="{ req: (!longTerm && !unpaid) || +bk.amount > 0 }" for="bNote">Purpose</label>
                 <textarea class="input" id="bNote" style="height:90px" v-model="bk.note" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
-              <div class="field" id="bReceipt" tabindex="-1" style="margin-top:12px"><label class="req">Receipt</label>
+              <div class="field" id="bReceipt" tabindex="-1" style="margin-top:12px"><label :class="{ req: +bk.amount > 0 }">Receipt</label>
                 <DriveFiles kind="offline-payments" :key="bk.payId" :record-id="bk.payId" :label="payLabel()" :list-on-load="false" @folder="l => bk.docsLink = l" /></div>
               <p class="help">The payment is saved under Finance › Offline Payments (status Pending), not on the booking. Finance checks it there.</p>
             </section>
@@ -458,6 +459,8 @@ export default {
   },
   beforeUnmount() { clearTimeout(this.phoneTimer); },
   computed: {
+    // Rental status Unpaid: the payment details are not required
+    unpaid() { return this.bk.rentalStatus === 'Unpaid'; },
     updDirty() { const l = this.lead, u = this.upd; return !!l && !!u && ((u.assignedToUid || '') !== (l.assignedToUid || '') || u.status !== l.status || !!(u.note || '').trim()); },
     canAssign() { return ASSIGNERS.includes(me.role); },
     canLog() { return LOGGERS.includes(me.role); },
@@ -864,6 +867,20 @@ export default {
         status: 'Pending', verifiedByName: '', verifiedDate: '', bookingId, bookingNo,
         createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name };
     },
+    // An existing booking on this unit whose dates overlap: offline bookings, and eZee bookings in the months around the stay.
+    async findClash(b) {
+      try {
+        const hit = x => x.status !== 'cancelled' && (x.arrival || '') < b.departure && (x.departure || '9999') > b.arrival;
+        const offs = await getDocs(query(collection(db, 'offlineBookings'), where('unitId', '==', b.unitId)));
+        for (const d of offs.docs) if (hit(d.data())) return { no: d.data().bookingNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
+        const months = []; let y = +b.arrival.slice(0, 4), m = +b.arrival.slice(5, 7);
+        const endKey = b.departure.slice(0, 7);
+        for (let i = 0; i < 29; i++) { const k = `${y}-${String(m).padStart(2, '0')}`; months.push(k); if (k >= endKey) { m++; if (m > 12) { m = 1; y++; } months.push(`${y}-${String(m).padStart(2, '0')}`); break; } m++; if (m > 12) { m = 1; y++; } }
+        const ez = await getDocs(query(collection(db, 'bookings'), where('unitId', '==', b.unitId), where('departureMonth', 'in', months.slice(0, 30))));
+        for (const d of ez.docs) if (hit(d.data())) return { no: d.data().reservationNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
+      } catch (e) { console.warn('Could not check for clashing bookings:', e.code || e.message); }
+      return null;
+    },
     async saveBooking() {
       const b = this.bk, ld = this.lead;
       const err = !b.name.trim() ? 'Add the tenant\'s name.'
@@ -877,13 +894,16 @@ export default {
         : !b.arrival || !b.departure ? 'Add the check-in and check-out dates.'
         : this.nights <= 0 ? 'Check-out must be after check-in.'
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent. The 2-month deposit is worked out from it.'
-        : !this.longTerm && !(+b.amount > 0) ? 'Add the amount paid.'
+        : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
         : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
         : +b.amount > 0 && !b.note.trim() ? 'Add the purpose of the payment.'
         : +b.amount > 0 && !b.docsLink ? 'Upload at least one receipt for the payment.'
         : b.mainPasscode.trim() && !b.currentExpiry ? 'Add the expiry date of the main door passcode.'
         : b.nextPasscode.trim() && !b.nextExpiry ? 'Add the expiry date of the next door passcode.' : this.coError();
       if (err) { this.formError = err; this.focusFor(err); return; }
+      // Same unit, overlapping dates: refused (a check-out on the day of the next check-in is fine)
+      const clash = await this.findClash(b);
+      if (clash) { this.formError = `${b.unitId ? (this.units.find(u => u.id === b.unitId)?.unitCode || 'This unit') : 'This unit'} is already booked ${this.full(clash.arrival)} to ${this.full(clash.departure)} (${clash.no}). Pick other dates or another unit.`; return; }
       if (this.direct) return this.saveDirect();
 
       this.busy = true; this.formError = '';

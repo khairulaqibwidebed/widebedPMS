@@ -146,10 +146,8 @@
               <span class="help" v-show="panel.mode === 'edit'">An email can't be changed. Switch this account off and add a new one instead.</span>
             </div>
             <div class="field">
-              <label for="sRole">Role</label>
-              <select class="input" id="sRole" v-model="panel.role" :disabled="cantEdit" @change="resetPerms()">
-                <template v-for="r in roleChoices" :key="r"><option :value="r" :selected="r === panel.role">{{ ROLE_LABEL[r] }}</option></template>
-              </select>
+              <label>Role</label>
+              <OptionPicker class="fit-picker" v-model="panel.role" :options="roleChoices.map(r => ({ value: r, label: ROLE_LABEL[r] }))" label="Role" :disabled="cantEdit" @change="resetPerms()" />
               <span class="help" v-show="panel.isMe">You can't change your own access. Ask another Director.</span>
               <span class="help" v-show="!panel.isMe && locked(panel.original || {})">Only a Director can change a Director's account.</span>
               <span class="help" v-show="!panel.isMe && !canSignIn(panel.role)">This role can't sign in yet. Its pages come in a later increment.</span>
@@ -499,4 +497,7 @@ export default {
     .perm-table .perm-grp small { display: block; font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); margin-top: 2px; }
     .perm-table input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
     .perm-table input:disabled { cursor: not-allowed; }
+.fit-picker :deep(.op) { display: block; width: 100%; }
+.fit-picker :deep(.op-btn), .fit-picker :deep(.op-input) { width: 100%; text-align: left; }
+.fit-picker :deep(.op-pop) { width: 100%; max-width: none; }
 </style>

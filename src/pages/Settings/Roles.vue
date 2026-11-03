@@ -23,7 +23,7 @@
             <td>{{ people[r.id] || 0 }}</td>
             <td>{{ r.id === 'director' ? 'All' : permCount(r) }}</td>
             <td><span class="pill" :class="r.active ? 'green' : 'grey'">{{ r.active ? 'Active' : 'Turned off' }}</span></td>
-            <td class="row-acts"><button class="act-pill" v-if="r.id !== 'director'" @click="openEdit(r)">Edit</button><span class="muted" v-else>-</span></td>
+            <td class="row-acts"><template v-if="r.id !== 'director'"><button class="act-pill" @click="openEdit(r)">Edit</button> <button class="act-pill" :class="{ danger: canDelete(r) || r.active }" :disabled="r.builtin" :title="r.builtin ? 'Built-in roles cannot be removed or turned off' : canDelete(r) ? 'Nothing uses this role, so it can be deleted' : whyKept(r) || (r.active ? 'Turn this role off' : 'Turn this role back on')" @click="rowAction(r)">{{ rowLabel(r) }}</button></template><span class="muted" v-else>-</span></td>
           </tr>
         </tbody>
       </table>
@@ -105,9 +105,10 @@
 </template>
 
 <script>
-import { collection, doc, getDocs, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, query, where, limit, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db, ROLE_LABEL, BUILTIN_ROLES, CUSTOM_ROLES, loadRoleRegistry } from '@/lib/firebase.js';
 import { friendlyError } from '@/lib/finance-data.js';
+import { askConfirm } from '@/lib/confirm.js';
 import { useSession } from '@/stores/session.js';
 import { roleColor } from '@/lib/avatars.js';
 import { ACCESS_ROWS, rowPerms, GROUP_NOTES, PRESETS, cleanPerms, samePerms } from '@/lib/access.js';
@@ -124,7 +125,7 @@ const slug = s => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').
 const ORIGINAL = JSON.parse(JSON.stringify(PRESETS));
 
 export default {
-  data() { return { ORIGINAL, COLOURS, GROUP_NOTES, loading: true, error: '', okMsg: '', rolesDocs: {}, people: {}, panel: {}, panelOpen: false }; },
+  data() { return { ORIGINAL, COLOURS, GROUP_NOTES, loading: true, error: '', okMsg: '', rolesDocs: {}, people: {}, accounts: {}, ticketUse: {}, panel: {}, panelOpen: false }; },
   computed: {
     rows() {
       const built = BUILTIN_ROLES.map(id => ({ id, name: ROLE_LABEL[id], builtin: true, active: true, description: this.rolesDocs[id]?.description || BUILTIN_TEXT[id], perms: id === 'director' ? [] : (PRESETS[id] || []) }));
@@ -156,6 +157,14 @@ export default {
         this.rolesDocs = Object.fromEntries((rs ? rs.docs : []).map(d => [d.id, d.data()]));
         const n = {}; (us ? us.docs : []).forEach(d => { const u = d.data(); if (u.active !== false && u.role) n[u.role] = (n[u.role] || 0) + 1; });
         this.people = n;
+        // What is attached to each custom role: every account that has it (turned off or not) and any ticket tagged with it
+        const all = {}; (us ? us.docs : []).forEach(d => { const u = d.data(); if (u.role) all[u.role] = (all[u.role] || 0) + 1; });
+        this.accounts = all;
+        const used = {};
+        await Promise.all(Object.entries(this.rolesDocs).filter(([id, v]) => !v.builtin && v.name).map(async ([id, v]) => {
+          try { used[id] = !(await getDocs(query(collection(db, 'issues'), where('tags', 'array-contains', v.name), limit(1)))).empty; } catch (e) { used[id] = null; }
+        }));
+        this.ticketUse = used;
       } catch (e) { this.error = friendlyError(e, 'load the roles'); }
       this.loading = false;
     },
@@ -164,6 +173,41 @@ export default {
       if (r.id === 'director') return;
       this.panel = { isNew: false, builtin: r.builtin, id: r.id, name: r.name, description: r.builtin ? '' : r.description, color: r.color || COLOURS[4], perms: cleanPerms(r.perms), active: r.active, reason: '', busy: false, error: '', before: cleanPerms(r.perms), wasActive: r.active };
       this.panelOpen = true;
+    },
+    // Delete only when nothing at all uses the role (no account, even turned-off, and no ticket tag); otherwise Disable / Enable
+    canDelete(r) { return !r.builtin && !this.accounts[r.id] && this.ticketUse[r.id] === false; },
+    rowLabel(r) { return this.canDelete(r) ? 'Delete' : r.active ? 'Disable' : 'Enable'; },
+    rowAction(r) { return this.canDelete(r) ? this.removeRole(r) : this.toggleRole(r); },
+    async removeRole(r) {
+      if (!this.canDelete(r)) return;
+      if (!await askConfirm({ title: `Delete ${r.name}?`, message: 'Nothing uses this role. It will be removed for good and the deletion goes in the audit log.', confirmText: 'Delete role', danger: true })) return;
+      try {
+        const bt = writeBatch(db);
+        bt.delete(doc(db, 'roles', r.id));
+        bt.set(doc(collection(db, 'auditLog')), { at: serverTimestamp(), uid: me.user.uid, userName: me.name, role: me.role, action: 'role.delete', entity: `roles/${r.id}`, changes: [{ field: 'role', old: r.name, new: null }], reason: 'Role deleted' });
+        await bt.commit();
+        this.okMsg = `${r.name} deleted.`;
+        await this.load();
+      } catch (e) { this.error = friendlyError(e, 'delete the role'); }
+    },
+    // Why a role cannot be turned off ('' = fine). Turning it back on is always allowed.
+    whyKept(r) {
+      if (r.builtin) return 'Built-in roles cannot be turned off';
+      if (!r.active) return '';
+      return this.people[r.id] ? `${this.people[r.id]} people still have this role. Move them to another role first` : '';
+    },
+    async toggleRole(r) {
+      if (this.whyKept(r)) return;
+      const on = !r.active;
+      if (!await askConfirm({ title: `${on ? 'Enable' : 'Disable'} ${r.name}?`, message: on ? 'People can be given this role again and it shows in the lists.' : 'Nobody can be given this role and it disappears from the role lists and ticket tags. You can turn it back on here.', confirmText: on ? 'Enable role' : 'Disable role', danger: !on })) return;
+      try {
+        const bt = writeBatch(db);
+        bt.set(doc(db, 'roles', r.id), { active: on, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        bt.set(doc(collection(db, 'auditLog')), { at: serverTimestamp(), uid: me.user.uid, userName: me.name, role: me.role, action: 'role.update', entity: `roles/${r.id}`, changes: [{ field: 'active', old: r.active, new: on }], reason: on ? 'Role enabled' : 'Role disabled' });
+        await bt.commit();
+        this.okMsg = `${r.name} ${on ? 'enabled' : 'disabled'}.`;
+        await this.load();
+      } catch (e) { this.error = friendlyError(e, 'change the role'); }
     },
     close() { if (!this.panel.busy) this.panelOpen = false; },
     has(p) { return (this.panel.perms || []).includes(p); },
@@ -238,4 +282,6 @@ export default {
 .perm-table .perm-grp td { background: var(--hover); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); text-align: left; }
 .perm-table .perm-grp small { display: block; font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); margin-top: 2px; }
 .perm-table input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+.act-pill:disabled { opacity: .4; cursor: not-allowed; background: none; border-color: var(--border); color: var(--muted); }
+.row-acts { white-space: nowrap; }
 </style>

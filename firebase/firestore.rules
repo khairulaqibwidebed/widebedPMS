@@ -175,7 +175,7 @@ service cloud.firestore {
     match /roles/{rid} {
       allow read: if signedIn();
       allow create, update: if isDirector() && request.resource.data.perms is list && rid != 'director';
-      allow delete: if false;
+      allow delete: if isDirector() && rid != 'director';
     }
 
     match /config/{docId} {
