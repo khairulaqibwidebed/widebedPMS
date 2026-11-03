@@ -81,7 +81,7 @@
             <section class="card">
               <h2>Inquiry</h2>
               <div class="grid-fields">
-                <FormField id="lLooking" label="Looking for" v-model="form.lookingFor" placeholder="e.g. Monthly rental, 2 bedrooms, Ampang" />
+                <FormField id="lLooking" label="Looking for" req v-model="form.lookingFor" placeholder="e.g. Monthly rental, 2 bedrooms, Ampang" />
                 <div class="field"><label for="lSource">Source</label>
                   <OptionPicker class="fld-pick" v-model="form.source" :options="SOURCES.map(x => ({ value: x, label: x }))" label="Source" /></div>
                 <FormField id="lBudget" label="Budget" v-model="form.budget" placeholder="e.g. RM 2,200 a month" />
@@ -270,20 +270,20 @@
                 <FormField id="bDob" label="Date of birth" type="date" v-model="bk.dob" />
                 <div class="field"><label for="bGender">Gender</label>
                   <OptionPicker class="fld-pick" v-model="bk.gender" :options="GENDERS" label="Gender" placeholder="Not set" /></div>
-                <FormField v-if="bk.gender === 'Other'" id="bGenderOther" label="If other, type" v-model="bk.genderOther" />
+                <FormField v-if="bk.gender === 'Other'" id="bGenderOther" label="If other, type" req v-model="bk.genderOther" />
               </div>
             </section>
             <section class="card" v-for="(c, ci) in bk.coTenants" :key="c.key">
               <div class="card-head"><h2>{{ `Tenant ${ci + 2}` }}</h2><button type="button" class="btn" @click="bk.coTenants.splice(ci, 1)">Remove</button></div>
               <div class="grid-fields">
-                <FormField :id="'cName' + ci" label="Name" v-model="c.name" />
-                <FormField :id="'cPhone' + ci" label="Phone" v-model="c.phone" inputmode="tel" />
+                <FormField :id="'cName' + ci" label="Name" req v-model="c.name" />
+                <FormField :id="'cPhone' + ci" label="Phone" req v-model="c.phone" inputmode="tel" />
                 <FormField :id="'cEmail' + ci" label="Email" type="email" v-model="c.email" />
-                <FormField :id="'cIc' + ci" label="IC / Passport" v-model="c.icPassport" />
+                <FormField :id="'cIc' + ci" label="IC / Passport" req v-model="c.icPassport" />
                 <FormField :id="'cNat' + ci" label="Nationality" v-model="c.nationality" />
                 <FormField :id="'cDob' + ci" label="Date of birth" type="date" v-model="c.dob" />
                 <div class="field"><label>Gender</label><OptionPicker class="fld-pick" v-model="c.gender" :options="GENDERS" placeholder="Not set" :label="`Gender of tenant ${ci + 2}`" /></div>
-                <FormField v-if="c.gender === 'Other'" :id="'cGo' + ci" label="If other, type" v-model="c.genderOther" />
+                <FormField v-if="c.gender === 'Other'" :id="'cGo' + ci" label="If other, type" req v-model="c.genderOther" />
               </div>
             </section>
             <div><button type="button" class="btn" @click="addCoTenant()">+ Add another tenant</button></div>
@@ -335,9 +335,9 @@
               <h2>Door access and passcodes</h2>
               <div class="grid-fields">
                 <FormField id="bPass" label="Main door passcode" v-model="bk.mainPasscode" autocomplete="off" />
-                <FormField id="bExp" label="Current expiry date" type="date" v-model="bk.currentExpiry" />
+                <FormField id="bExp" label="Current expiry date" :req="!!bk.mainPasscode.trim()" type="date" v-model="bk.currentExpiry" />
                 <FormField id="bNextPass" label="Next door passcode" v-model="bk.nextPasscode" autocomplete="off" />
-                <FormField id="bNextExp" label="Next expiry date" type="date" v-model="bk.nextExpiry" />
+                <FormField id="bNextExp" label="Next expiry date" :req="!!bk.nextPasscode.trim()" type="date" v-model="bk.nextExpiry" />
               </div>
             </section>
             <div class="bottom-actions">
