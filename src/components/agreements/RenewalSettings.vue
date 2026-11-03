@@ -18,6 +18,14 @@
           <span class="help" v-if="!dateFields.length">This form has no date fields. Add one (e.g. Completion Date) in the form builder first.</span>
         </div>
         <div class="field">
+          <label for="rnUnit">Which field is the unit number? (optional)</label>
+          <select id="rnUnit" class="input select" v-model="unitFieldId">
+            <option value="">Don't track by unit</option>
+            <option v-for="f in unitFields" :key="f.id" :value="f.id">{{ f.label }}</option>
+          </select>
+          <span class="help">Lets the Renewals page group and filter by unit number.</span>
+        </div>
+        <div class="field">
           <span class="rn-lbl">Remind whole departments (optional)</span>
           <div class="rn-roles">
             <label class="ag-check-row" v-for="(label, key) in ROLE_LABEL" :key="key"><input type="checkbox" :value="key" v-model="roles"> {{ label }}</label>
@@ -42,7 +50,7 @@
 // Agreement Setup → Forms → Renewal: which date field ends the agreement, and which departments and staff are also reminded.
 import { ref, computed, onMounted } from 'vue';
 import { saveForm, audit, listStaff } from '@/lib/agreements/data.js';
-import { endFieldsOf, rolesOf, peopleOf, REMIND_DAYS } from '@/lib/agreements/renewals.js';
+import { endFieldsOf, unitFieldsOf, rolesOf, peopleOf, REMIND_DAYS } from '@/lib/agreements/renewals.js';
 import PeoplePicker from './PeoplePicker.vue';
 import { ROLE_LABEL } from '@/lib/firebase.js';
 
@@ -50,9 +58,12 @@ const props = defineProps({ form: { type: Object, required: true } });
 const emit = defineEmits(['close', 'saved']);
 const r = props.form.renewal || {};
 const dateFields = computed(() => endFieldsOf(props.form));
+const unitFields = computed(() => unitFieldsOf(props.form));
 // Guess the end date field the first time: a date field named like "Completion", "End" or "Expiry".
 const guess = () => (dateFields.value.find(f => /complet|end|expir/i.test(f.label)) || {}).id || '';
+const guessUnit = () => (unitFields.value.find(f => /unit|room|lot/i.test(f.label)) || {}).id || '';
 const on = ref(r.on ?? true), endFieldId = ref(r.endFieldId || guess()), roles = ref([...rolesOf(r)]), people = ref([...peopleOf(r)]);
+const unitFieldId = ref(r.unitFieldId || guessUnit());
 const staff = ref([]);
 onMounted(() => listStaff().then(l => { staff.value = l; }).catch(() => {}));
 const busy = ref(false), error = ref('');
@@ -60,6 +71,7 @@ const busy = ref(false), error = ref('');
 async function save() {
   busy.value = true; error.value = '';
   const renewal = { on: on.value, endFieldId: on.value ? endFieldId.value : (r.endFieldId || ''), roles: roles.value, people: people.value };
+  renewal.unitFieldId = on.value ? unitFieldId.value : (r.unitFieldId || '');
   try {
     await saveForm(props.form.id, { renewal });
     audit('agreement.form.renewal', `agreementForms/${props.form.id}`, on.value ? `Renewal reminders on: ${[...roles.value.map(k => ROLE_LABEL[k] || k), ...people.value.map(p => p.name)].join(', ') || 'makers and people in charge only'}` : 'Renewal reminders off');

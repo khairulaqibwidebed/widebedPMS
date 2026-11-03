@@ -48,6 +48,7 @@
 
       <div class="notice info rec-ext" v-if="record.renewal?.renewedFrom">
         This is the renewal of <RouterLink :to="'/Agreements/record/' + record.renewal.renewedFrom">the previous term</RouterLink>. Change the dates for the new term, then mark it completed.
+        <button class="btn btn-sm btn-primary" style="margin-left:10px" @click="links = true">Send to tenant to sign</button>
       </div>
       <div class="notice ok" v-if="record.renewal?.state === 'renewed' && record.renewal.renewedTo">
         Renewed. <RouterLink :to="'/Agreements/record/' + record.renewal.renewedTo">Open the new term</RouterLink>.

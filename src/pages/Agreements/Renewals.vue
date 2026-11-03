@@ -44,17 +44,23 @@
             <option v-for="f in trackedForms" :key="f.id" :value="f.id">{{ f.name }}</option>
           </select>
           <label class="ag-check-row rn-mine"><input type="checkbox" v-model="onlyMine"> Only mine</label>
+          <label class="sr-only" for="rnUnit">Unit</label>
+          <select id="rnUnit" class="select" v-model="unitFilter">
+            <option value="">All units</option>
+            <option v-for="u in unitsAvailable" :key="u" :value="u">{{ u }}</option>
+          </select>
         </div>
 
         <div class="table-wrap">
           <table class="table hover-rows">
-            <thead><tr><th>Agreement</th><th>Ends</th><th>Status</th><th>In charge</th><th></th></tr></thead>
+            <thead><tr><th>Agreement</th><th>Unit</th><th>Ends</th><th>Status</th><th>In charge</th><th></th></tr></thead>
             <tbody>
               <tr v-for="r in shown" :key="r.id">
                 <td>
                   <RouterLink class="rn-name" :to="'/Agreements/record/' + r.id">{{ r.title || 'Untitled' }}</RouterLink>
                   <br><small class="muted">{{ formName(r.formId) }}<template v-if="r.renewal?.renewedFrom"> · renewal</template></small>
                 </td>
+                <td>{{ r.unit || '—' }}</td>
                 <td>
                   <b>{{ r.endDate ? formatDate(r.endDate, 'DD MMM YYYY') : '—' }}</b>
                   <br><small :class="dayClass(r)">{{ daysText(r.state.days) }}</small>
@@ -84,7 +90,7 @@
                   <button v-else class="act-pill" :disabled="r.busy" @click="setState(r, '')">Undo</button>
                 </div></td>
               </tr>
-              <tr v-if="!shown.length"><td colspan="5" class="muted">Nothing here.</td></tr>
+              <tr v-if="!shown.length"><td colspan="6" class="muted">Nothing here.</td></tr>
             </tbody>
           </table>
         </div>
@@ -103,8 +109,8 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import NameDialog from '@/components/agreements/NameDialog.vue';
-import { listForms, listRecords, createRecord, updateRecord, setEndDate, listStaff, notifyPerson, audit } from '@/lib/agreements/data.js';
-import { tracked, endDateOf, trackState, daysText, todayKL, inChargeOf, REMIND_DAYS } from '@/lib/agreements/renewals.js';
+import { listForms, listRecords, createRecord, updateRecord, setEndDate, setUnit, listStaff, notifyPerson, audit } from '@/lib/agreements/data.js';
+import { tracked, endDateOf, unitOf, trackState, daysText, todayKL, inChargeOf, REMIND_DAYS } from '@/lib/agreements/renewals.js';
 import PeoplePicker from '@/components/agreements/PeoplePicker.vue';
 import { formatDate } from '@/lib/agreements/format.js';
 import { can } from '@/lib/access.js';
@@ -115,7 +121,7 @@ const router = useRouter(), session = useSession();
 const isAdmin = computed(() => can(session, 'agreementSetup.view'));
 const loading = ref(true), error = ref(''), okMsg = ref('');
 const forms = ref([]), records = ref([]), staff = ref([]);
-const tab = ref('action'), search = ref(''), formFilter = ref(''), onlyMine = ref(false), notFor = ref(null);
+const tab = ref('action'), search = ref(''), formFilter = ref(''), unitFilter = ref(''), onlyMine = ref(false), notFor = ref(null);
 const today = todayKL();
 
 const KPIS = [
@@ -136,10 +142,13 @@ const formName = id => forms.value.find(f => f.id === id)?.name || '';
 const me = () => session.user?.uid;
 const mine = r => inChargeOf(r).some(p => p.uid === me()) || r.createdBy === me();
 
+// Distinct unit numbers across loaded records, for the filter dropdown.
+const unitsAvailable = computed(() => [...new Set(records.value.map(r => r.unit).filter(Boolean))].sort());
 // Filters except the tab, so the counts on the tabs match what is searched.
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
   return records.value.filter(r => (!formFilter.value || r.formId === formFilter.value) && (!onlyMine.value || mine(r))
+    && (!unitFilter.value || r.unit === unitFilter.value)
     && (!q || [r.title, ...inChargeOf(r).map(p => p.name), r.createdByName, formName(r.formId)].some(s => String(s || '').toLowerCase().includes(q))));
 });
 const count = t => filtered.value.filter(r => inTab(r, t)).length;
@@ -158,7 +167,9 @@ async function load() {
       // The saved end date follows the answers (a changed formula or a grid edit may have moved it).
       const end = endDateOf(r.form, r.values);
       if (end !== (r.endDate || '')) setEndDate(r.id, end).catch(() => {});
-      const rec = { ...r, endDate: end, busy: false };
+      const unit = unitOf(r.form, r.values);
+      if (unit !== (r.unit || '')) setUnit(r.id, unit).catch(() => {});
+      const rec = { ...r, endDate: end, unit, busy: false };
       rec.state = trackState(rec, today);
       return rec;
     });

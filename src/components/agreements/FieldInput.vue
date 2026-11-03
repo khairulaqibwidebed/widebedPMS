@@ -19,6 +19,11 @@
 
     <input v-else-if="field.type === 'date'" class="input" :id="id" type="date" :value="modelValue || ''" :disabled="disabled" @input="set($event.target.value)">
 
+    <ComboInput v-else-if="field.type === 'property'" :id="id" :model-value="modelValue ?? ''" :options="propertyOptions"
+      :placeholder="field.placeholder || 'Choose a property'" @update:model-value="set" />
+    <ComboInput v-else-if="field.type === 'unit'" :id="id" :model-value="modelValue ?? ''" :options="unitOptions"
+      :placeholder="field.placeholder || 'Choose a unit'" @update:model-value="set" />
+
     <template v-else-if="field.type === 'dropdown'">
       <select class="input select" :id="id" :value="otherMode ? '__other' : (modelValue ?? '')" :disabled="disabled" @change="pick($event.target.value)">
         <option value="">— Choose —</option>
@@ -65,11 +70,13 @@
 
 <script setup>
 // One form field of any type. Uploads go straight to Drive; the value becomes { id, name, mime }.
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import SignaturePad from './SignaturePad.vue';
+import ComboInput from '../ComboInput.vue';
 import { formatValue } from '@/lib/agreements/format.js';
 import { normaliseImage, sniff, safeFileName, downloadBytes } from '@/lib/agreements/bytes.js';
 import { uploadBytes, loadFile } from '@/lib/agreements/drive.js';
+import { loadPropertyOptions, loadUnitOptions } from '@/lib/agreements/portfolio-options.js';
 
 const props = defineProps({
   field: { type: Object, required: true },
@@ -84,6 +91,13 @@ const id = computed(() => 'fld-' + props.field.id);
 const wide = computed(() => ['textarea', 'signature', 'radio'].includes(props.field.type));
 const shown = computed(() => formatValue(props.field, props.modelValue));
 const set = v => emit('update:modelValue', v);
+
+// Property/unit pickers: the real Portfolio list, loaded once per page (cached in portfolio-options.js).
+const propertyOptions = ref([]), unitOptions = ref([]);
+onMounted(() => {
+  if (props.field.type === 'property') loadPropertyOptions().then(l => { propertyOptions.value = l; }).catch(() => {});
+  if (props.field.type === 'unit') loadUnitOptions().then(l => { unitOptions.value = l; }).catch(() => {});
+});
 
 // "Other…": shown when the value isn't one of the options.
 const otherMode = ref(false);

@@ -11,8 +11,9 @@ export async function hashPassword(password) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + password));
   return { passSalt: salt, passHash: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('') };
 }
-// Easy to read out on the phone: no 0/O or 1/l.
-export function makePassword(n = 6) {
+// Easy to read out on the phone: no 0/O or 1/l. 10 chars from a 32-char alphabet ≈ 50 bits —
+// strong enough to resist offline guessing if a hash ever leaked (6 chars was only ~30 bits).
+export function makePassword(n = 10) {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
   return Array.from(crypto.getRandomValues(new Uint8Array(n)), b => chars[b % chars.length]).join('');
 }

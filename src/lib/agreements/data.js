@@ -152,6 +152,8 @@ export async function listStaff() {
 }
 // Keeps the saved end date in step with the answers (no "last changed" stamp: nobody edited the record).
 export const setEndDate = (id, endDate) => updateDoc(doc(db, 'agreementRecords', id), { endDate });
+// Same idea, for the unit number (Renewals page filter/column).
+export const setUnit = (id, unit) => updateDoc(doc(db, 'agreementRecords', id), { unit });
 // A PMS bell notification to one person (e.g. "you are in charge of this agreement").
 export async function notifyPerson(uid, title, message, link, refId = '') {
   const s = me();

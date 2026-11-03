@@ -12,6 +12,8 @@ export const FIELD_TYPES = [
   { type: 'date', label: 'Date' },
   { type: 'dropdown', label: 'Dropdown' },
   { type: 'radio', label: 'Choice buttons' },
+  { type: 'property', label: 'Property (Portfolio)', hint: 'Picked from the real Portfolio property list' },
+  { type: 'unit', label: 'Unit (Portfolio)', hint: 'Picked from the real Portfolio unit list' },
   { type: 'checkbox', label: 'Tick box' },
   { type: 'signature', label: 'Signature' },
   { type: 'image', label: 'Image' },
@@ -82,7 +84,8 @@ export function sampleValues(fields) {
     if (f.default !== '' && f.default !== undefined) { Object.assign(out, defaultValues([f])); continue; }
     out[f.id] = {
       number: 12, currency: 1500, date: todayISO(), checkbox: true, email: 'name@example.com', phone: '012-345 6789',
-      dropdown: f.options?.[0] || '', radio: f.options?.[0] || '', signature: '', image: '', file: ''
+      dropdown: f.options?.[0] || '', radio: f.options?.[0] || '', signature: '', image: '', file: '',
+      property: 'Sample Property', unit: 'SP-0101'
     }[f.type] ?? f.label;
   }
   return out;
