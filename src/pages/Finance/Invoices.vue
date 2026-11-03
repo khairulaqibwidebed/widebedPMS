@@ -5,7 +5,7 @@
     <div class="page-head">
       <div>
         <h1>Invoices & Receipts</h1>
-        <div class="sub">Completed, final documents only · read-only</div>
+        <div class="sub">Completed documents · owner payments are marked Paid here with the pay slip</div>
       </div>
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
@@ -14,6 +14,7 @@
     </div>
 
     <div class="notice error" v-show="error">{{ error }}</div>
+    <div class="notice ok" v-show="ok">{{ ok }}</div>
     <div class="notice warn" v-show="!loading && !properties.length">No properties yet. Upload an eZee report first; it creates the property and its units.</div>
 
     <section class="kpis">
@@ -21,12 +22,13 @@
         <div class="hint">{{ count('statement') ? `${shortName(month)} · completed` : `None completed for ${shortName(month)} yet` }}</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'invoice' }" @click="kpiGo('invoice')"><div class="label">Tenant invoices</div><div class="value">{{ count('invoice') }}</div><div class="hint">None yet. Rent invoices come with leases</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'receipt' }" @click="kpiGo('receipt')"><div class="label">Receipts</div><div class="value">{{ count('receipt') }}</div><div class="hint">None yet. Rent receipts come with leases</div></button>
-      <button type="button" class="card kpi kpi-link" @click="kpiGo('statement')"><div class="label">Paid to owners</div><div class="value">{{ rm(paidToOwners()) }}</div><div class="hint">{{ `${shortName(month)} total` }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: payFilter === 'pending' }" @click="payFilter = 'pending'; kpiGo('statement')"><div class="label">Paid to owners</div><div class="value">{{ rm(paidToOwners()) }}</div><div class="hint">{{ waiting() ? `${waiting()} waiting for payment` : `${shortName(month)} · nothing waiting` }}</div></button>
     </section>
 
     <div class="toolbar" ref="list">
       <input class="input" type="search" placeholder="Search document no. or unit…" v-model="search" aria-label="Search">
       <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: f.label }))" label="Document type" />
+      <OptionPicker v-model="payFilter" :options="PAY_FILTERS" label="Payment status" />
     </div>
 
     <section class="card">
@@ -57,7 +59,7 @@
         <table class="table docs-table">
           <thead><tr>
             <th><input type="checkbox" aria-label="Tick all shown" :checked="allPicked()" @change="toggleAll($event.target.checked)"></th>
-            <th>Document no.</th><th>Type</th><th>Unit</th><th>Period</th><th>Completed on</th><th class="num">Amount (RM)</th><th>Status</th><th></th>
+            <th>Document no.</th><th>Type</th><th>Unit</th><th>Period</th><th>Completed on</th><th class="num">Amount (RM)</th><th>Payment</th><th></th>
           </tr></thead>
           <tbody>
             <template v-for="d in pageRows" :key="d.id">
@@ -69,8 +71,12 @@
                 <td>{{ shortName(d.month) }}</td>
                 <td>{{ d.completedOn }}</td>
                 <td class="num" :class="d.amount < 0 ? 'neg-amt' : ''">{{ amt(d.amount) }}</td>
-                <td><span class="pill green">Completed</span></td>
-                <td class="acts"><button class="editlink" @click="view(d)">View</button><button class="navlink" @click="downloadDocs([d])">↓ PDF</button></td>
+                <td><span class="pill" :class="PAY[payOf(d)].cls">{{ PAY[payOf(d)].label }}</span></td>
+                <td class="acts"><div class="acts-in">
+                  <button class="icon-act" @click="view(d)" title="View" aria-label="View"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 11.5A4.5 4.5 0 1112 7.5a4.5 4.5 0 010 9zm0-7.2a2.7 2.7 0 100 5.4 2.7 2.7 0 000-5.4z"/></svg></button>
+                  <button class="icon-act" @click="downloadDocs([d])" title="Download PDF" aria-label="Download PDF"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v9.6l3.3-3.3 1.4 1.4L12 16.4l-5.7-5.7 1.4-1.4 3.3 3.3V3zM4 18h16v2H4z"/></svg></button>
+                  <button class="act-pill" v-if="rowActions(d).length" @click="openMenu(d, $event)" aria-haspopup="menu" :aria-expanded="String(menu && menu.id === d.id)">Actions ▾</button>
+                </div></td>
               </tr>
             </template>
             <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">No documents match.</td></tr>
@@ -87,6 +93,18 @@
       </div>
       <p class="help" v-show="!loading && !count('statement')" style="margin:10px 0 0">{{ `No owner statements for ${monthName(month)} yet. Each one appears here once its unit's statement is completed on Month-end payout (Approve & complete).` }}</p>
     </section>
+
+    <!-- Row Actions menu: floats above the page so the table doesn't cut it off -->
+    <Teleport to="body"><template v-if="menu">
+      <div class="am-back" @click="menu = null" v-esc="() => { menu = null }"></div>
+      <div class="am-pop" role="menu" :style="{ top: menu.y + 'px', left: menu.x + 'px' }">
+        <template v-for="a in rowActions(menu.d)" :key="a.key">
+          <button type="button" role="menuitem" :class="a.key" @click="pick(a, menu.d)">{{ a.label }}</button>
+        </template>
+      </div>
+    </template></Teleport>
+
+    <OwnerPaymentModal v-if="paying" :doc="paying" @close="paying = null" @saved="m => { paying = null; ok = m; load(); }" />
 
     <!-- View one document (read-only) -->
     <template v-if="viewing">
@@ -154,12 +172,15 @@ const yymm = ym => ym.slice(2, 4) + ym.slice(5, 7);
 
 import OptionPicker from '@/components/OptionPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
+import OwnerPaymentModal, { PAY, payStatusOf } from '@/components/OwnerPaymentModal.vue';
+const PAY_FILTERS = [{ value: 'all', label: 'Any payment status' }, { value: 'pending', label: 'Pending Payment' }, { value: 'paid', label: 'Paid' }, { value: 'none', label: 'Nothing to pay' }];
 export default {
-  components: { OptionPicker, MonthPicker },
+  components: { OptionPicker, MonthPicker, OwnerPaymentModal },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
-      TYPE, FILTERS, HEAD, rm, amt, monthName, shortName,
+      TYPE, FILTERS, HEAD, rm, amt, monthName, shortName, PAY, PAY_FILTERS, payFilter: 'all', paying: null, ok: '', menu: null,
+      isDirector: me.role === 'director', canPay: me.role === 'director' || me.role === 'finance' || (me.perms || []).includes('invoices.edit'),
       properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       docs: [], picked: [], search: '', filter: 'all',
@@ -189,6 +210,7 @@ export default {
     async load() {
       if (!this.propertyId) { this.loading = false; return; }
       this.loading = true; this.error = ''; this.picked = []; this.dl.open = false;
+      if (this.paying) this.paying = null;
       try {
         const snap = await getDocs(query(collection(db, 'statements'), where('propertyId', '==', this.propertyId), where('month', '==', this.month)));
         const code = this.code();
@@ -201,10 +223,30 @@ export default {
       this.loading = false;
     },
     count(t) { return this.docs.filter(d => d.type === t).length; },
-    paidToOwners() { return this.docs.filter(d => d.type === 'statement').reduce((s, d) => s + Math.max(0, d.amount), 0); },
+    // Owner payment status of a row (statements only); older completed statements without one count as waiting
+    payOf(d) { return d.type === 'statement' ? payStatusOf(d.statement) : 'none'; },
+    paidToOwners() { return this.docs.filter(d => d.type === 'statement' && this.payOf(d) === 'paid').reduce((s, d) => s + (Number(d.statement.paidAmount) || 0), 0); },
+    waiting() { return this.docs.filter(d => d.type === 'statement' && ['pending', 'untracked'].includes(this.payOf(d))).length; },
+    // Row Actions drop-down: Mark paid (or Payment once paid) and Recall (Director, not once paid)
+    rowActions(d) {
+      if (d.type !== 'statement') return [];
+      const p = this.payOf(d), list = [];
+      if (this.canPay && p !== 'none') list.push({ key: 'pay', label: p === 'paid' ? 'View payment' : 'Mark as paid' });
+      if (this.isDirector && p !== 'paid') list.push({ key: 'recall', label: 'Recall statement' });
+      return list;
+    },
+    openMenu(d, e) {
+      if (this.menu?.id === d.id) { this.menu = null; return; }
+      const r = e.currentTarget.getBoundingClientRect(), w = 180, h = 12 + this.rowActions(d).length * 38;
+      const below = r.bottom + 6 + h <= window.innerHeight;
+      this.menu = { id: d.id, d, x: Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)), y: below ? r.bottom + 6 : r.top - 6 - h };
+    },
+    pick(a, d) { this.menu = null; if (a.key === 'pay') this.paying = d; else this.$router.push(this.recallLink(d)); },
+    recallLink(d) { return { path: '/Finance/month-end', query: { property: this.propertyId, month: d.month, unit: d.statement.unitId, recall: 1 } }; },
     shown() {
       const q = this.search.trim().toLowerCase();
-      return this.docs.filter(d => (this.filter === 'all' || d.type === this.filter) && (!q || d.no.toLowerCase().includes(q) || d.unitCode.toLowerCase().includes(q)));
+      const pf = this.payFilter, payOk = d => pf === 'all' || (pf === 'pending' ? ['pending', 'untracked'].includes(this.payOf(d)) : this.payOf(d) === pf);
+      return this.docs.filter(d => (this.filter === 'all' || d.type === this.filter) && payOk(d) && (!q || d.no.toLowerCase().includes(q) || d.unitCode.toLowerCase().includes(q)));
     },
     toggle(id) { this.picked = this.picked.includes(id) ? this.picked.filter(x => x !== id) : [...this.picked, id]; },
     allPicked() { const s = this.shown(); return s.length > 0 && s.every(d => this.picked.includes(d.id)); },
@@ -320,7 +362,15 @@ export default {
 <style scoped>
     .docs-table td:first-child, .docs-table th:first-child { width: 36px; padding-right: 0; }
     .docs-table .acts { white-space: nowrap; text-align: right; }
-    .docs-table .acts button { margin-left: 10px; }
+    .docs-table .acts-in { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+    .icon-act { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; }
+    .icon-act svg { width: 18px; height: 18px; fill: var(--accent); }
+    .icon-act:hover { background: var(--accent-soft); }
+    .am-back { position: fixed; inset: 0; z-index: 60; }
+    .am-pop { position: fixed; z-index: 61; width: 180px; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.14); }
+    .am-pop button { display: block; width: 100%; text-align: left; padding: 9px 10px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+    .am-pop button:hover { background: var(--accent-soft); color: var(--accent); }
+    .am-pop button.recall { color: var(--danger); }
     .dl-panel { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; background: var(--hover); display: grid; gap: 6px; }
     .dl-panel .progress { margin: 4px 0 0; }
     .dl-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }

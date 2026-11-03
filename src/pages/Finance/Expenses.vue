@@ -81,7 +81,7 @@
               <OptionPicker class="unit-pick" searchable v-model="panel.unitId" :options="unitOptions()" label="Unit" />
             </div>
             <div class="grid-fields">
-              <div class="field"><label for="eDate">Date</label><input class="input" id="eDate" type="date" v-model="panel.date" required></div>
+              <FormField id="eDate" label="Date" type="date" v-model="panel.date" required />
               <div class="field">
                 <label for="eMonth">Statement month</label>
                 <select class="input" id="eMonth" v-model="panel.month" :disabled="!!panel.id">
@@ -95,9 +95,9 @@
                 <template v-for="t in TYPES" :key="t[0]"><option :value="t[0]" :selected="t[0] === panel.type">{{ t[1] }}</option></template>
               </select>
             </div>
-            <div class="field"><label for="eDesc">Description</label><input class="input" id="eDesc" v-model="panel.description" placeholder="e.g. Replace bathroom tap" required></div>
+            <FormField id="eDesc" label="Description" v-model="panel.description" placeholder="e.g. Replace bathroom tap" required />
             <div class="grid-fields">
-              <div class="field"><label for="eCost">Cost (RM)</label><input class="input" id="eCost" type="number" step="0.01" min="0.01" v-model="panel.cost" placeholder="What it actually cost" required></div>
+              <FormField id="eCost" label="Cost (RM)" type="number" step="0.01" min="0.01" v-model="panel.cost" placeholder="What it actually cost" required />
               <div class="field">
                 <label for="eMargin">Margin</label>
                 <div class="margin-row">
@@ -159,12 +159,13 @@ const TYPES = [['maintenance', 'Maintenance (repair work)'], ['sewerage', 'Sewer
   ['procurement', 'Item bought for owner'], ['reimburse', 'Reimbursement'], ['broughtForward', 'Brought forward'], ['other', 'Other']];
 let params = new URLSearchParams(location.search);
 
+import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
 export default {
-  components: { OptionPicker, MonthPicker, UploadFile, FileViewer },
+  components: { FormField, OptionPicker, MonthPicker, UploadFile, FileViewer },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {

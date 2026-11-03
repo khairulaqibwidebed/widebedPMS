@@ -60,7 +60,9 @@ export async function completeStatement({ r, propertyId, month, me, unitIds, don
   b.set(doc(db, 'statements', id), { ...r, status: 'completed', revision: (prev?.revision || 0) + 1,
     ...(again ? { overrideReason: reason } : {}),
     ...(approval ? { sentBy: approval.submittedBy || null, sentByName: approval.submittedByName || '', sentAt: approval.submittedAt || null } : {}),
-    completedBy: me.user.uid, completedByName: me.name, completedAt: serverTimestamp() });
+    completedBy: me.user.uid, completedByName: me.name, completedAt: serverTimestamp(),
+    // Owner payment (Finance > Invoices & Receipts): waits for Finance to pay; nothing to pay when the payout is zero or negative
+    paymentStatus: r.totals.payout > 0.004 ? 'pending' : 'none' });
   if (r.totals.payout < 0 && nextFrozen) throw new Error(`${r.unitCode} is sent to the Director for ${monthName(next)}, so its negative balance can't carry forward yet. Approve or send back ${monthName(next)} first.`);
   if (r.totals.payout < 0)   // ARR-18: negative balance carried forward automatically
     b.set(doc(db, 'expenses', `bf_${r.unitId}_${next}`), { propertyId, unitId: r.unitId, date: `${next}-01`, month: next,

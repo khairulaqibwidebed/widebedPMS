@@ -8,7 +8,7 @@
 import { createSign } from 'node:crypto';
 
 const KINDS = { 'offline-payments': 'Offline Payments', 'utility-bills': 'Utility Bills',
-  expenses: 'Expenses', issues: 'Issues', listings: 'New Owner Listings', sops: 'HR SOPs' };
+  expenses: 'Expenses', issues: 'Issues', listings: 'New Owner Listings', sops: 'HR SOPs', 'owner-payments': 'Owner Payments' };
 const SAFE = /^[A-Za-z0-9_-]{1,64}$/;
 const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 

@@ -29,7 +29,7 @@
       <div class="field month-row"><label>Bill period <span class="muted">(one period for all three bills)</span></label>
         <div class="period"><input class="input" type="date" v-model="f.from" aria-label="Bill period from"><span>to</span><input class="input" type="date" v-model="f.to" aria-label="Bill period to"></div></div>
       <div class="rows">
-        <div class="field" v-for="u in KINDS" :key="u.key"><label :for="'u' + u.key">{{ u.label }} (RM)</label><input class="input" :id="'u' + u.key" type="number" min="0" step="0.01" v-model="f[u.key]" placeholder="0.00"></div>
+        <FormField v-for="u in KINDS" :key="u.key" :id="'u' + u.key" :label="`${u.label} (RM)`" type="number" min="0" step="0.01" v-model="f[u.key]" placeholder="0.00" />
       </div>
       <div class="field"><label>Utility bills <span class="muted">(photos or PDFs, saved to Google Drive)</span></label>
         <p class="help" v-if="!bookingId">Choose a booking first.</p>
@@ -52,6 +52,7 @@ import { collection, doc, getDoc, getDocs, limit, query, writeBatch, serverTimes
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import FormField from '@/components/FormField.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import { audit, friendlyError } from '@/lib/finance-data.js';
 import { askConfirm } from '@/lib/confirm.js';
@@ -64,7 +65,7 @@ const nameCache = reactive({});
 const cents = v => Math.round((+v || 0) * 100) / 100;
 
 export default {
-  components: { OptionPicker, DriveFiles },
+  components: { FormField, OptionPicker, DriveFiles },
   emits: ['close', 'saved'],
   data() { return { KINDS, f: blank(), bookings: [], bills: {}, names: nameCache, bookingId: '', details: false, loading: true, tenant: {}, tenantLoaded: false, busy: false, error: '', done: '' }; },
   computed: {
