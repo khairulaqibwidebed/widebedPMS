@@ -120,35 +120,8 @@
             <div class="modal-foot"><button class="btn" @click="editAsk = false" :disabled="busy">Back</button><button class="btn btn-primary" @click="saveEdit()" :disabled="busy || !editReason.trim()">Save changes</button></div>
           </div>
         </div>
-        <div class="modal-back" v-if="removeAsk" @click.self="removeAsk = false" v-esc="() => { removeAsk = false }">
-          <div class="modal" role="dialog" aria-modal="true" aria-label="Remove bookings">
-            <h2>{{ `Remove ${picked.length} booking${picked.length === 1 ? '' : 's'}` }}</h2>
-            <p class="help" style="margin:0 0 12px">They leave this statement and the owner PDF. Nothing is deleted, and a new eZee upload will not bring them back.</p>
-            <div class="field fit-picker"><label>What happens to them?</label>
-              <OptionPicker v-model="removeTo" :options="moveOptions()" label="What happens to them" searchable /></div>
-            <div class="field"><label for="rmWhy" class="req">Reason</label><textarea class="input" id="rmWhy" v-model="removeReason" placeholder="e.g. eZee put this booking under the wrong room"></textarea></div>
-            <div class="notice error" v-if="error" style="margin-top:10px">{{ error }}</div>
-            <div class="modal-foot"><button class="btn" @click="removeAsk = false" :disabled="busy">Back</button><button class="btn btn-primary" @click="confirmRemove()" :disabled="busy || !removeReason.trim()">{{ removeTo ? 'Move' : 'Remove' }}</button></div>
-          </div>
-        </div>
-        <div class="modal-back" v-if="addOpen" @click.self="addOpen = false" v-esc="() => { addOpen = false }">
-          <div class="modal" role="dialog" aria-modal="true" aria-label="Add booking" style="max-width:560px;width:calc(100% - 32px)">
-            <h2>{{ `Add a booking to ${sel.unitCode}` }}</h2>
-            <p class="help" style="margin:0 0 12px">For a booking eZee did not give this unit. Its amounts are typed by you and shown as Manual. Check-out must be in {{ monthName(month) }}.</p>
-            <div class="notice error" v-if="add.error" style="margin-bottom:10px">{{ add.error }}</div>
-            <div class="grid-fields">
-              <div class="field"><label for="adRes" class="req">Reservation no.</label><input class="input" id="adRes" v-model="add.reservationNo"></div>
-              <div class="field"><label for="adSrc" class="req">Source</label><input class="input" id="adSrc" v-model="add.source" list="adSources"><datalist id="adSources"><option>Walk-in</option><option>Direct</option><option>Booking.com</option><option>Agoda</option><option>Expedia</option><option>Tiket.com</option><option>Traveloka</option><option>Airbnb</option></datalist></div>
-              <div class="field"><label for="adIn" class="req">Check-in</label><input class="input" id="adIn" type="date" v-model="add.arrival"></div>
-              <div class="field"><label for="adOut" class="req">Check-out</label><input class="input" id="adOut" type="date" v-model="add.departure"></div>
-              <div class="field"><label for="adGp" class="req">Guest paid (RM)</label><input class="input" id="adGp" type="number" step="0.01" min="0" v-model="add.guestPaid" @input="autoShare()"></div>
-              <div class="field"><label for="adPl">Platform cut (RM)</label><input class="input" id="adPl" type="number" step="0.01" min="0" v-model="add.platform" @input="autoShare()"></div>
-              <div class="field"><label for="adPto" class="req">Owner share (RM)</label><input class="input" id="adPto" type="number" step="0.01" v-model="add.pto" @input="add.touched = true"><span class="help">Starts as guest paid ÷ 1.08 minus the platform cut. Change it if Finance's figure differs.</span></div>
-            </div>
-            <div class="field"><label for="adWhy" class="req">Reason</label><textarea class="input" id="adWhy" v-model="add.reason" placeholder="e.g. Booking missing from the eZee report"></textarea></div>
-            <div class="modal-foot"><button class="btn" @click="addOpen = false" :disabled="busy">Cancel</button><button class="btn btn-primary" @click="saveAdd()" :disabled="busy">Add booking</button></div>
-          </div>
-        </div>
+        <RemoveBookingsModal v-if="removeAsk" :property-id="propertyId" :unit-id="sel.unitId" :unit-code="sel.unitCode" :month="month" :bookings="pickedBookings()" @close="removeAsk = false" @done="onRemoved" />
+        <AddBookingModal v-if="addOpen" :property-id="propertyId" :unit-id="sel.unitId" :unit-code="sel.unitCode" :month="month" @close="addOpen = false" @added="onAdded" />
         <div class="modal-back" v-if="ctripEdit" @click.self="ctripEdit = null" v-esc="() => { ctripEdit = null }">
           <div class="modal" role="dialog" aria-modal="true" aria-label="Ctrip amount">
             <h2>Ctrip booking {{ ctripEdit.reservationNo }}</h2>
@@ -229,50 +202,18 @@
                 </tbody>
               </table>
             </div>
-            <div class="removed-box" v-if="removedList().length">
-              <h3 class="t">{{ `Removed by hand · ${removedList().length}` }}</h3>
-              <p class="help" style="margin:0 0 8px">Not in the statement or the owner PDF. Restore puts a booking back.</p>
-              <div class="removed-row" v-for="b in removedList()" :key="b.id">
-                <span><b>{{ b.reservationNo }}</b> · {{ b.source }} · {{ dmy(b.arrival) }} to {{ dmy(b.departure) }}</span>
-                <span class="help">{{ `${b.removedByHand.reason || ''}${b.removedByHand.byName ? ' (' + b.removedByHand.byName + ')' : ''}` }}</span>
-                <button class="btn" v-if="!locked(sel)" @click="restoreBooking(b)" :disabled="busy">Restore</button>
-              </div>
-            </div>
+            <RemovedBookings :bookings="removedList()" :locked="!!locked(sel)" :disabled="busy" :property-id="propertyId" :unit-id="sel.unitId" :month="month" @restored="onRestored" />
           </div>
         </section>
         <section class="card">
           <div class="card-head"><h2>Statement summary</h2></div>
-            <div class="stmt-lines">
-              <template v-if="!sel.fixed">
-                <div>
-                  <div class="row"><span>Total receivable</span><span>{{ amt(sel.totals.totalReceivable) }}</span></div>
-                  <div class="row sub"><span>{{ `Service fee (${pct(sel.rates.serviceFeePct)})` }}</span><span>{{ amt(-sel.totals.serviceFee) }}</span></div>
-                  <div class="row sub" v-show="sel.rates.utilityFeePct"><span>{{ `Utilities (${pct(sel.rates.utilityFeePct)})` }}</span><span>{{ amt(-sel.totals.utilityFee) }}</span></div>
-                  <div class="row sub" v-show="sel.rates.sstOnFeePct"><span>{{ `SST on fee (${pct(sel.rates.sstOnFeePct)})` }}</span><span>{{ amt(-sel.totals.sstOnFee) }}</span></div>
-                  <div class="row"><span>Owner's entitlement</span><span>{{ amt(sel.totals.entitlement) }}</span></div>
-                </div>
-              </template>
-              <template v-if="sel.fixed">
-                <div class="row"><span>Fixed rent</span><span>{{ amt(sel.totals.totalReceivable) }}</span></div>
-              </template>
-              <div class="stmt-label"><span>Expenses & reimbursements</span><RouterLink class="navlink" :to="{ path: '/Finance/expenses', query: { property: propertyId, month } }">View all →</RouterLink></div>
-              <template v-for="e in sel.expenseLines" :key="e.expenseId">
-                <div class="row sub"><span>{{ `${dmy(e.date)} · ${e.description}` }}</span><span>{{ amt(e.amount) }}</span></div>
-              </template>
-              <div class="row sub" v-show="!sel.expenseLines.length"><span>No expenses or reimbursements</span><span></span></div>
-              <template v-if="!sel.fixed">
-                <div>
-                  <div class="row"><span>Nett receivable</span><span>{{ amt(sel.totals.netReceivable) }}</span></div>
-                  <div class="row sub"><span>Rounding adjust (to RM 0.05)</span><span>{{ amt(sel.totals.roundingAdjust) }}</span></div>
-                </div>
-              </template>
-              <div class="row total" :class="{ 'neg-amt': sel.totals.payout < 0 }"><span>{{ sel.totals.payout < 0 ? 'Payout (negative, carried forward)' : 'Payout to owner' }}</span><span>{{ 'RM ' + amt(sel.totals.payout) }}</span></div>
-            </div>
+            <StatementLines :sel="sel" :property-id="propertyId" :month="month" />
             <p class="help" v-show="!locked(sel)" style="margin-top:14px">Add expenses on the <RouterLink class="link" :to="{ path: '/Finance/expenses', query: { property: propertyId, month, add: 1 } }">Expenses page</RouterLink>.</p>
           <!-- Approve & complete is per unit (Khairul, Oct 2026) -->
           <div class="unit-done" v-if="sel.status === 'completed'">
             <p class="help" style="margin:14px 0 10px">{{ `Completed${sel.completedByName ? ' by ' + sel.completedByName : ''}${sel.revision > 1 ? ` · revision ${sel.revision}` : ''}. This statement is read-only.` }}</p>
-            <button class="btn" v-show="role === 'director' && !reopening" @click="reopening = true" :disabled="busy">Reopen statement (Director)</button>
+            <button class="btn" v-show="role === 'director' && !reopening && !paidOut(sel)" @click="reopening = true" :disabled="busy">Reopen statement (Director)</button>
+            <p class="help" v-if="paidOut(sel)">Paid to the owner, so it can't be reopened. A Director can undo the payment on Invoices & Receipts first.</p>
           </div>
           <div class="unit-done" v-else-if="sentState(sel) === 'submitted'">
             <div class="notice ok">{{ `Sent to the Director${approvals[sel.unitId].submittedByName ? ' by ' + approvals[sel.unitId].submittedByName : ''}. The numbers are frozen until they approve or send it back.` }}</div>
@@ -385,7 +326,7 @@ import { toast } from '@/lib/toast.js';
 import { completeStatement } from '@/lib/statement-approve.js';
 import { notifyRole } from '@/services/notificationService.js';
 import { otaKeyOf, ARRANGEMENTS, DM_STARTER, paymentSummary, byUnit, nextMonth, r2 } from '@/lib/engine.js';
-import { loadProperties, loadUnits, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, monthSummary } from '@/lib/finance-data.js';
+import { loadProperties, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, monthSummary } from '@/lib/finance-data.js';
 import { draftRecord, monthEndFromSummaries, ALL_MONTHS } from '@/lib/summaries.js';
 import { propertyMonth, readUnit, markDirty, markFrom, canWriteSummaries } from '@/lib/summary-data.js';
 import { rm, amt, pct, dmy, monthName, monthOffset } from '@/lib/format.js';
@@ -410,8 +351,12 @@ const msOf = t => (t?.toMillis ? t.toMillis() : (t?.seconds != null ? t.seconds 
 
 import OptionPicker from '@/components/OptionPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
+import AddBookingModal from '@/components/AddBookingModal.vue';
+import RemoveBookingsModal from '@/components/RemoveBookingsModal.vue';
+import RemovedBookings from '@/components/RemovedBookings.vue';
+import StatementLines from '@/components/StatementLines.vue';
 export default {
-  components: { OptionPicker, MonthPicker },
+  components: { OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -430,7 +375,7 @@ export default {
       toast, sel: null, selOpen: false, ctripInput: {}, ctripKind: {}, ctripEdit: null, editing: false, editAsk: false, draft: {}, draft0: {}, editReason: '',
       settingsOpen: false, set: {}, confirming: false, reopening: false, overrideReason: '',
       dlOpen: false, approvals: {}, pulling: false, pullReason: '',
-      menuOpen: false, removing: false, picked: [], removeAsk: false, removeTo: '', removeReason: '', propUnits: [], addOpen: false, add: {}
+      menuOpen: false, removing: false, picked: [], removeAsk: false, addOpen: false
     };
   },
   // Remember the property for the next page (see lib/last-property.js)
@@ -442,6 +387,9 @@ export default {
       if (!this.months.includes(this.month)) this.months.push(this.month);
       this.months.sort().reverse();
       await this.load();
+      // Opened from Invoices & Receipts (Recall): go straight to the unit, with the reopen box open for a Director
+      const unit = params.get('unit');
+      if (unit && this.rows.some(x => x.unitId === unit)) { await this.reloadAt(unit); if (params.get('recall') && me.role === 'director' && !this.paidOut(this.sel)) this.reopening = true; }
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
   },
   computed: {
@@ -715,106 +663,38 @@ export default {
       const removed = bk.filter(b => b.removedByHand && b.status === 'cancelled').map(b => ({ reservationNo: b.reservationNo, reason: b.removedByHand.reason || '' }));
       return added.length || moved.length || removed.length ? { added, moved, removed } : null;
     },
-    moveOptions() { return [{ value: '', label: 'Remove them entirely' }, ...this.propUnits.filter(u => u.id !== this.sel?.unitId).map(u => ({ value: u.id, label: `Move to ${u.unitCode}` }))]; },
     startRemove() { this.menuOpen = false; this.picked = []; this.removing = true; this.error = ''; },
-    cancelRemove() { this.removing = false; this.picked = []; this.removeAsk = false; this.removeTo = ''; this.removeReason = ''; },
-    async openRemove() {
-      this.error = ''; this.removeTo = ''; this.removeReason = '';
-      try { this.propUnits = await loadUnits(this.propertyId); } catch (e) { this.propUnits = []; }
-      this.removeAsk = true;
-    },
-    async confirmRemove() {
-      if (this.locked(this.sel)) return;
-      const why = this.removeReason.trim(); if (!why) return;
-      const unitId = this.sel.unitId, full = this.unitFull[unitId], to = this.removeTo ? this.propUnits.find(u => u.id === this.removeTo) : null;
-      const chosen = (full?.bookings || []).filter(b => this.picked.includes(b.id));
-      if (!chosen.length) { this.error = 'Pick at least one booking.'; return; }
-      this.busy = true; this.error = '';
-      try {
-        const b = writeBatch(db);
-        for (const bk of chosen) {
-          const by = { at: serverTimestamp(), by: me.user.uid, byName: me.name, reason: why };
-          if (to) {
-            b.set(doc(db, 'bookings', bk.id), { unitId: to.id, unitCode: to.unitCode, movedByHand: { ...by, fromUnitId: unitId, fromUnitCode: this.sel.unitCode } }, { merge: true });
-            audit(b, me, { action: 'booking.move', entity: `bookings/${bk.id}`, propertyId: this.propertyId, month: this.month, changes: [{ field: 'unit', old: this.sel.unitCode, new: to.unitCode }], reason: why });
-          } else {
-            b.set(doc(db, 'bookings', bk.id), { status: 'cancelled', removedByHand: by }, { merge: true });
-            audit(b, me, { action: 'booking.remove', entity: `bookings/${bk.id}`, propertyId: this.propertyId, month: this.month, changes: [{ field: 'status', old: 'active', new: 'removed by hand' }], reason: why });
-          }
-        }
-        markDirty(b, this.propertyId, this.month, to ? [unitId, to.id] : [unitId]);
-        await b.commit();
-        const gone = new Set(chosen.map(x => x.id));
-        if (to) { full.bookings = full.bookings.filter(x => !gone.has(x.id)); delete this.unitFull[to.id]; }
-        else for (const x of full.bookings) if (gone.has(x.id)) { x.status = 'cancelled'; x.removedByHand = { reason: why, byName: me.name }; }
-        const n = chosen.length;
-        this.cancelRemove();
-        await this.refreshKeepingUnit(unitId);
-        this.toTop();
-        this.okMsg = to ? `${n} booking${n === 1 ? '' : 's'} moved to ${to.unitCode}.` : `${n} booking${n === 1 ? '' : 's'} removed from this statement.`;
-      } catch (e) { this.error = friendlyError(e, 'remove the bookings'); }
-      this.busy = false;
-    },
-    async restoreBooking(bk) {
-      if (this.locked(this.sel)) return;
-      this.busy = true; this.error = '';
-      try {
-        const unitId = this.sel.unitId, full = this.unitFull[unitId];
-        const b = writeBatch(db);
-        b.set(doc(db, 'bookings', bk.id), { status: 'active', removedByHand: deleteField() }, { merge: true });
-        audit(b, me, { action: 'booking.restore', entity: `bookings/${bk.id}`, propertyId: this.propertyId, month: this.month, changes: [{ field: 'status', old: 'removed by hand', new: 'active' }], reason: 'Restored on Month-end' });
-        markDirty(b, this.propertyId, this.month, [unitId]);
-        await b.commit();
-        const x = full.bookings.find(y => y.id === bk.id); if (x) { x.status = 'active'; delete x.removedByHand; }
-        await this.refreshKeepingUnit(unitId);
-        this.okMsg = `${bk.reservationNo} restored.`;
-      } catch (e) { this.error = friendlyError(e, 'restore the booking'); }
-      this.busy = false;
-    },
-    openAdd() {
-      this.menuOpen = false;
-      this.add = { reservationNo: '', source: 'Walk-in', arrival: '', departure: '', guestPaid: '', platform: '0', pto: '', touched: false, reason: '', error: '' };
-      this.error = ''; this.addOpen = true;
-    },
-    autoShare() {
-      const a = this.add; if (a.touched) return;
-      const gp = Number(a.guestPaid);
-      a.pto = a.guestPaid === '' || !(gp >= 0) ? '' : String(r2(gp / 1.08 - (Number(a.platform) || 0)));
-    },
-    async saveAdd() {
-      const a = this.add; a.error = '';
-      if (this.locked(this.sel)) return;
-      const id = a.reservationNo.trim(), source = a.source.trim();
-      if (!id || /\//.test(id)) { a.error = 'Type the reservation number (no slashes).'; return; }
-      if (!source) { a.error = 'Type the source.'; return; }
-      if (!a.arrival || !a.departure) { a.error = 'Pick the check-in and check-out dates.'; return; }
-      if (a.departure < a.arrival) { a.error = 'Check-out is before check-in.'; return; }
-      if (a.departure.slice(0, 7) !== this.month) { a.error = `Check-out must be in ${monthName(this.month)}: a booking counts in the month it ends.`; return; }
-      if (!(Number(a.guestPaid) > 0)) { a.error = 'Type what the guest paid.'; return; }
-      if (a.pto === '' || Number.isNaN(Number(a.pto))) { a.error = 'Type the owner share.'; return; }
-      if (!a.reason.trim()) { a.error = 'Add a short reason. It goes in the audit log.'; return; }
+    cancelRemove() { this.removing = false; this.picked = []; this.removeAsk = false; },
+    pickedBookings() { return (this.unitFull[this.sel?.unitId]?.bookings || []).filter(b => this.picked.includes(b.id)); },
+    openRemove() { this.error = ''; this.removeAsk = true; },
+    // Saved by RemoveBookingsModal: drop or mark them in this unit's list, then reload the statement
+    async onRemoved({ to, ids, reason }) {
+      const unitId = this.sel.unitId, full = this.unitFull[unitId], gone = new Set(ids), n = ids.length;
+      if (to) { full.bookings = full.bookings.filter(x => !gone.has(x.id)); delete this.unitFull[to.id]; }
+      else for (const x of full.bookings) if (gone.has(x.id)) { x.status = 'cancelled'; x.removedByHand = { reason, byName: me.name }; }
+      this.cancelRemove();
       this.busy = true;
-      try {
-        if ((await getDoc(doc(db, 'bookings', id))).exists()) { a.error = `A booking with reservation ${id} already exists. Use Edit all or Move instead, so it is not counted twice.`; this.busy = false; return; }
-        const unitId = this.sel.unitId, full = this.unitFull[unitId];
-        const nights = Math.max(1, Math.round((Date.parse(a.departure) - Date.parse(a.arrival)) / 864e5));
-        const edits = { ovGuestPaid: Number(a.guestPaid), ovPlatform: Number(a.platform) || 0, ovPto: Number(a.pto), editedBy: me.user.uid, editedByName: me.name, editReason: a.reason.trim() };
-        const data = { reservationNo: id, folioNo: '', source, otaKey: otaKeyOf(source), arrival: a.arrival, departure: a.departure, departureMonth: this.month, nights,
-          status: 'active', propertyId: this.propertyId, unitId, unitCode: this.sel.unitCode, manual: true, edits,
-          addedByHand: { at: serverTimestamp(), by: me.user.uid, byName: me.name, reason: a.reason.trim() } };
-        const b = writeBatch(db);
-        b.set(doc(db, 'bookings', id), data);
-        audit(b, me, { action: 'booking.add', entity: `bookings/${id}`, propertyId: this.propertyId, month: this.month,
-          changes: [{ field: 'booking', old: null, new: `${source} ${a.arrival} to ${a.departure}, owner share ${r2(a.pto)}` }], reason: a.reason.trim() });
-        markDirty(b, this.propertyId, this.month, [unitId]);
-        await b.commit();
-        full.bookings.push({ id, ...data, addedByHand: { reason: a.reason.trim(), byName: me.name } });
-        this.addOpen = false;
-        await this.refreshKeepingUnit(unitId);
-        this.toTop();
-        this.okMsg = `${id} added to ${this.sel.unitCode}.`;
-      } catch (e) { a.error = friendlyError(e, 'add the booking'); }
-      this.busy = false;
+      try { await this.refreshKeepingUnit(unitId); } catch (e) { this.error = friendlyError(e, 'reload the statement'); } finally { this.busy = false; }
+      this.toTop();
+      this.okMsg = to ? `${n} booking${n === 1 ? '' : 's'} moved to ${to.unitCode}.` : `${n} booking${n === 1 ? '' : 's'} removed from this statement.`;
+    },
+    // Saved by RemovedBookings: mark it active in this unit's list, then reload the statement
+    async onRestored(bk) {
+      const unitId = this.sel.unitId, x = this.unitFull[unitId]?.bookings.find(y => y.id === bk.id);
+      if (x) { x.status = 'active'; delete x.removedByHand; }
+      this.busy = true; this.error = '';
+      try { await this.refreshKeepingUnit(unitId); this.okMsg = `${bk.reservationNo} restored.`; } catch (e) { this.error = friendlyError(e, 'reload the statement'); } finally { this.busy = false; }
+    },
+    openAdd() { this.menuOpen = false; this.error = ''; this.addOpen = true; },
+    // A booking saved by AddBookingModal: keep it in this unit's list, then reload the statement
+    async onAdded({ id, data, reason }) {
+      const unitId = this.sel.unitId;
+      this.unitFull[unitId].bookings.push({ id, ...data, addedByHand: { reason, byName: me.name } });
+      this.addOpen = false;
+      this.busy = true;
+      try { await this.refreshKeepingUnit(unitId); } catch (e) { this.error = friendlyError(e, 'reload the statement'); } finally { this.busy = false; }
+      this.toTop();
+      this.okMsg = `${id} added to ${this.sel.unitCode}.`;
     },
     // The page scrolls inside .main, not the window
     toTop() { const go = () => { window.scrollTo(0, 0); document.querySelector('.main')?.scrollTo(0, 0); }; go(); this.$nextTick(go); setTimeout(go, 60); },
@@ -990,6 +870,7 @@ export default {
     async reopen() {
       const r = this.sel;
       if (!r || r.status !== 'completed' || me.role !== 'director' || !this.overrideReason.trim()) return;
+      if (this.paidOut(r)) { this.error = `${r.unitCode} is marked Paid. Undo the payment on Invoices & Receipts before reopening it.`; return; }
       this.busy = true; this.error = '';
       try {
         const next = nextMonth(this.month), id = statementId(r.unitId, this.month);
@@ -1017,6 +898,8 @@ export default {
       } catch (e) { this.error = e.code ? friendlyError(e, 'reopen the statement') : e.message; }
       this.busy = false;
     },
+    // Marked Paid on Invoices & Receipts: the completed statement can't be reopened until a Director undoes the payment
+    paidOut(r) { return !!r && r.status === 'completed' && this.unitFull[r.unitId]?.statement?.paymentStatus === 'paid'; },
     async reloadAt(unitId) {
       await this.load();
       const again = this.rows.find(x => x.unitId === unitId);
@@ -1115,11 +998,9 @@ export default {
     .ctrip-in .btn { height: 32px; padding: 0 12px; font-size: 12px; }
     .checks-rows { min-height: 292px; }
     .grid-2 > .card > .card-head { min-height: 34px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-    .stmt-label .navlink { text-transform: none; letter-spacing: 0; font-size: 12px; }
     /* Summary goes under the bookings until the table has room beside it */
     @media (max-width: 1600px) { .stmt-grid { grid-template-columns: minmax(0,1fr); } }
     .table tr.est td { background: color-mix(in srgb, var(--amber-soft) 60%, var(--surface)); }
-    .stmt-label { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 14px 0 4px; }
     @media (max-width: 1000px) { .stmt-grid { grid-template-columns: minmax(0,1fr); } }
     .month-empty { margin-top: 16px; height: 56px; padding: 0 20px; display: flex; align-items: center; text-align: left; box-sizing: border-box; }
     /* the table keeps the height of a full page (10 rows, header and total) so it does not shrink on a quiet month */
@@ -1136,7 +1017,4 @@ export default {
     @media (hover: hover) { .mb-pop button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); } }
     .mb-pop button:focus-visible { background: var(--accent-soft); color: var(--accent); }
     .stmt-page .table .tag-moved { font-size: 11px; color: var(--accent); white-space: normal; }
-    .removed-box { margin-top: 18px; padding: 14px; border: 1px dashed var(--border); border-radius: 10px; }
-    .removed-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
-    .removed-row .help { flex: 1; min-width: 160px; }
 </style>

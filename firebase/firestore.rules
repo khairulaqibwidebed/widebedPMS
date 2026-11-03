@@ -1,5 +1,5 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.17, 2 Nov 2026: roles/{id} (Roles page: new roles and changed usual pages, Director only), myPerms reads them. Draft 0.16, 30 Oct 2026: Neo's Draft 0.15 (agreement master files, fill-in links, 'submitted' record status) plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
+// Widebed PMS Firestore rules. Draft 0.18, 3 Nov 2026: owner payment status on statements (Pending Payment / Paid, Invoices & Receipts), no reopen once Paid, Director can delete an unused custom role. Draft 0.17, 2 Nov 2026: roles/{id} (Roles page: new roles and changed usual pages, Director only), myPerms reads them. Draft 0.16, 30 Oct 2026: Neo's Draft 0.15 (agreement master files, fill-in links, 'submitted' record status) plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
 // and Operations editing booking details (reservationLodgments rules removed).
 // Offline payments: Operations may view the page (preset) and fill in a payment with status Unknown, which becomes Edited; an Offline Payments View tick no longer opens the other finance data.
 // Draft 0.14, 30 Oct 2026: Draft 0.13 plus Agreements (forms, templates, records, views,
@@ -419,6 +419,7 @@ service cloud.firestore {
       // Director reopens one unit: same revision, status 'reopened', and the revision is saved first.
       allow update: if isDirector()
         && resource.data.status == 'completed' && request.resource.data.status == 'reopened'
+        && resource.data.get('paymentStatus', '') != 'paid'
         && request.resource.data.revision == resource.data.revision
         && exists(/databases/$(database)/documents/statements/$(id)/revisions/$(string(resource.data.revision)));
       // Director Override (completing a reopened unit again): revision goes up by one, the old one saved first.
@@ -426,6 +427,13 @@ service cloud.firestore {
         && request.resource.data.status == 'completed'
         && request.resource.data.revision == resource.data.revision + 1
         && exists(/databases/$(database)/documents/statements/$(id)/revisions/$(string(resource.data.revision)));
+      // Owner payment (Draft 0.18, Invoices & Receipts): Finance or a Director marks a completed statement Paid (pay slip in Drive);
+      // only a Director sets it back to pending (Undo payment). Nothing else on the statement changes.
+      allow update: if (isDirector() || isFinance())
+        && resource.data.status == 'completed' && request.resource.data.status == 'completed'
+        && request.resource.data.revision == resource.data.revision
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paidDate', 'paidAmount', 'paidRef', 'paidBy', 'paidByName', 'paidAt', 'payUndoReason', 'payUndoBy', 'payUndoByName', 'payUndoAt'])
+        && (request.resource.data.paymentStatus == 'paid' || (isDirector() && request.resource.data.paymentStatus == 'pending'));
       allow delete: if false;
       match /revisions/{rev} {
         allow read: if staff();
