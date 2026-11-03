@@ -130,7 +130,7 @@ import { markDirty } from '@/lib/summary-data.js';
 import { can } from '@/lib/access.js';
 import { amt, dmy, monthName, monthOffset, dayOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
-import { notifyRole } from '@/services/notificationService.js';
+import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
@@ -191,6 +191,13 @@ export default {
       await b.commit();
       this.q = { ...this.q, ...fields, history: [...(this.q?.history || []), h] };
     },
+    // The person who added the quote hears what happened to it (3 Nov 2026), unless they did it themselves
+    tellQuoter(title, message) {
+      const uid = this.q?.createdBy;
+      if (!uid || uid === this.me.user.uid) return;
+      notifyUser({ recipientUid: uid, type: 'issue', refId: this.ticket.id, link: `/Operations/issues?id=${this.ticket.id}`, title, message })
+        .catch(e => console.error('Notification failed:', e));
+    },
     tell(role, title, message) {
       if (role === this.me.role) return;
       notifyRole({ recipientRole: role, type: 'issue', refId: this.ticket.id, link: `/Operations/issues?id=${this.ticket.id}`, title, message })
@@ -230,6 +237,7 @@ export default {
         await this.write(writeBatch(db), { status: 'approved', approvedBy: this.me.name, approvedAt: serverTimestamp() },
           `approved the quote (RM ${amt(this.q.total)})`, 'issueQuote.approve', [{ field: 'status', old: 'quoted', new: 'approved' }]);
         this.tell('finance', `Quote on ${this.ticket.id} approved`, `${this.me.name} approved RM ${amt(this.q.total)} from ${this.q.vendor} for ${this.ticket.unit}. Add the invoice when it comes in.`);
+        this.tellQuoter(`Your quote on ${this.ticket.id} was approved`, `${this.me.name} approved RM ${amt(this.q.total)} from ${this.q.vendor} for ${this.ticket.unit}.`);
       } catch (e) { this.error = friendlyError(e, 'approve the quote'); }
       this.busy = false;
     },
@@ -241,6 +249,7 @@ export default {
           'issueQuote.reject', [{ field: 'status', old, new: 'rejected' }], reason);
         this.rej = null;
         this.tell('finance', `Quote on ${this.ticket.id} rejected`, `${this.me.name} rejected the quote from ${this.q.vendor}. Reason: ${reason}`);
+        this.tellQuoter(`Your quote on ${this.ticket.id} was rejected`, `${this.me.name} rejected the quote from ${this.q.vendor}. Reason: ${reason}`);
       } catch (e) { this.rej.error = friendlyError(e, 'reject the quote'); }
       this.busy = false;
     },
@@ -272,6 +281,7 @@ export default {
           [{ field: 'status', old: 'approved', new: 'invoiced' }, { field: 'expenseId', old: null, new: eRef.id }]);
         this.inv = null;
         this.tell('finance', `Invoice for ${t.id} added to ${t.unit}`, `RM ${amt(amount)} is now an expense on ${t.unit} for ${monthName(v.month)}.`);
+        this.tellQuoter(`Invoice for ${t.id} added`, `RM ${amt(amount)} from ${this.q.vendor} is on ${t.unit}'s ${monthName(v.month)} statement.`);
       } catch (e) { v.error = friendlyError(e, 'add the invoice'); }
       this.busy = false;
     },
@@ -284,6 +294,7 @@ export default {
         await this.write(writeBatch(db), { status: 'paid', paidDate: p.date, paidRef: p.ref.trim(), paidBy: this.me.name },
           `marked the vendor paid on ${dmy(p.date)}`, 'issueQuote.paid', [{ field: 'status', old: 'invoiced', new: 'paid' }]);
         this.paid = null;
+        this.tellQuoter(`Vendor paid for ${this.ticket.id}`, `${this.me.name} marked ${this.q.vendor} paid on ${dmy(p.date)}.`);
       } catch (e) { p.error = friendlyError(e, 'mark it paid'); }
       this.busy = false;
     }

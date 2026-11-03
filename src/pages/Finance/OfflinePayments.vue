@@ -185,7 +185,7 @@ import Paged from '@/components/Paged.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import { loadProperties, loadUnits, audit, friendlyError, loadXlsxLib, download, toCSV } from '@/lib/finance-data.js';
 import MonthPicker from '@/components/MonthPicker.vue';
-import { notifyRole } from '@/services/notificationService.js';
+import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { monthOffset } from '@/lib/format.js';
 
 const MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); MODES.unshift({ value: '', label: 'Choose method' });
@@ -348,11 +348,21 @@ export default {
         await batch.commit(); Object.assign(r, data); toast('Changes saved');
       } catch (e) { this.error = friendlyError(e, 'save the change'); }
     },
-    setStatus(r, v) {
+    async setStatus(r, v) {
       if (v === r.status) return;
       const me = useSession();
-      this.patch(r, { status: v, verifiedByName: v === 'Pending' ? '' : me.name, verifiedDate: v === 'Pending' ? '' : today() }, 'status', r.status);
+      await this.patch(r, { status: v, verifiedByName: v === 'Pending' ? '' : me.name, verifiedDate: v === 'Pending' ? '' : today() }, 'status', r.status);
+      if (r.status !== v) return;   // not saved (the error is shown)
       if (v === 'Unknown') this.tellOperations(r);
+      if (v === 'Checked') this.tellFiller(r, me);
+    },
+    // Checked: the person who filled in an Unknown payment (Operations) hears that Finance checked it (3 Nov 2026)
+    tellFiller(r, me) {
+      const uid = r.editedByUid;
+      if (!uid || uid === me.user.uid) return;
+      notifyUser({ recipientUid: uid, type: 'payment', refId: r.id, link: '/Finance/offline-payments', title: 'Offline payment checked',
+        message: `${me.name} checked the RM ${Number(r.amount || 0).toFixed(2)} payment from ${r.guest || 'a guest'}${r.unitCode ? ' (' + r.unitCode + ')' : ''} you filled in.` })
+        .catch(e => console.error('Notification failed', e));
     },
     // ---- report: monthly, yearly or custom dates; all properties or one ----
     async openReport() {

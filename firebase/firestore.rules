@@ -1,5 +1,22 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.20, 3 Nov 2026: ticket quotes and invoices (issueQuotes/{ticketId}: anyone on the ticket adds and reads the quote, Director and Expenses Edit approve and add it to the owner's unit expenses). Draft 0.19, 3 Nov 2026: What's New page (updates/{id}: every staff member reads, Director posts, edits, deletes). Draft 0.18, 3 Nov 2026: owner payment status on statements (Pending Payment / Paid, Invoices & Receipts), no reopen once Paid, Director can delete an unused custom role. Draft 0.17, 2 Nov 2026: roles/{id} (Roles page: new roles and changed usual pages, Director only), myPerms reads them. Draft 0.16, 30 Oct 2026: Neo's Draft 0.15 (agreement master files, fill-in links, 'submitted' record status) plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
+// Widebed PMS Firestore rules. Draft 0.22, 3 Nov 2026: Notifications page clean-up: the recipient may delete a notification
+// sent to them personally, and hide a team (role) notification for themselves only (hiddenBy).
+// Draft 0.21, 3 Nov 2026 (Khairul + Neo combined): Neo's merge (below) plus Khairul's
+// Draft 0.21: notifications may go to roles made on the Roles page (roles/{id} exists), not only the 7 built-in roles.
+// Neo's merge, 3 Nov 2026: base Draft 0.20, with two fixes restored from the stale root firestore.rules (agreement
+// renewals staff-read on users/{uid}, agreementLinks delete support), PLUS the new Performance Management collections.
+// firebase.json deploys THIS file (firebase/firestore.rules). The root firestore.rules is stale and not deployed.
+//
+// Draft 0.20, 3 Nov 2026: ticket quotes and invoices (issueQuotes/{ticketId}: anyone on the ticket adds and reads
+// the quote, Director and Expenses Edit approve and add it to the owner's unit expenses). Draft 0.19, 3 Nov 2026:
+// What's New page (updates/{id}: every staff member reads, Director posts, edits, deletes). Draft 0.18, 3 Nov 2026:
+// owner payment status on statements (Pending Payment / Paid, Invoices & Receipts), no reopen once Paid, Director
+// can delete an unused custom role. Draft 0.18, 2 Nov 2026 (restored from root firestore.rules): agreement renewals
+// — every staff member may read the staff list (names for the "In charge" picker on agreements).
+// Draft 0.17, 2 Nov 2026: roles/{id} (Roles page: new roles and changed usual pages, Director only), myPerms reads
+// them. Draft 0.17, 30 Oct 2026 (restored from root firestore.rules): fill-in links can be deleted (agreementLinks).
+// Draft 0.16, 30 Oct 2026: Neo's Draft 0.15 (agreement master files, fill-in links, 'submitted' record status) plus
+// booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
 // and Operations editing booking details (reservationLodgments rules removed).
 // Offline payments: Operations may view the page (preset) and fill in a payment with status Unknown, which becomes Edited; an Offline Payments View tick no longer opens the other finance data.
 // Draft 0.14, 30 Oct 2026: Draft 0.13 plus Agreements (forms, templates, records, views,
@@ -14,8 +31,12 @@ rules_version = '2';
 // Draft 0.10, 27 Oct 2026: (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
 // (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
 // 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
-// History: 0.16 booking numbers, Willow booking import, Operations edit bookings, offline payments for Operations. 0.15 master files, fill-in links (Neo). 0.14 Agreements. 0.13 utility bills, door passcodes, offline payments, unit types. 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings. 0.8 profile pictures (avatars).
-// 0.7 month summaries (unitMonths, months.summary).
+// History: 0.22 clear notifications (delete own, hide team ones). 0.21 notifications to custom roles; Performance Management collections (Neo's merge). 0.20 ticket quotes & invoices. 0.19 What's New.
+// 0.18 agreement renewals (staff list readable); owner payment status, custom role delete. 0.17 delete fill-in
+// links; Roles page. 0.16 booking numbers, Willow booking import, Operations edit bookings, offline payments for
+// Operations. 0.15 master files, fill-in links (Neo). 0.14 Agreements. 0.13 utility bills, door passcodes, offline
+// payments, unit types. 0.12 page access. 0.10 anonymous complaint notifications. 0.9 New Owner Listings.
+// 0.8 profile pictures (avatars). 0.7 month summaries (unitMonths, months.summary).
 // 0.6 every role signs in; Portfolio for Operations/Procurement/Marketing; direct bookings. 0.5 offline inquiries,
 // tenants, offline bookings, Issues, SOPs, complaints, Playbook, brand logos. 0.4 month-end completion is per unit.
 // 0.3 HR manages staff accounts and reads the audit log.
@@ -159,6 +180,8 @@ service cloud.firestore {
       // Page ticks, when saved, are a list.
       function permsOk() { return !('perms' in request.resource.data) || request.resource.data.perms is list; }
       allow read: if signedIn() && (request.auth.uid == uid || staffAdmin() || isIT());
+      // Agreement renewals: everyone picks who is in charge of an agreement from the staff list.
+      allow read: if anyStaff();
       allow create: if permsOk() && (isDirector() || (isHR() && request.resource.data.role != 'director'));
       // A Director cannot remove their own Director role or switch themselves off (no lock-out).
       allow update: if isDirector() && permsOk() && (uid != request.auth.uid
@@ -220,13 +243,13 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Every role writes its own audit entries; an anonymous complaint is logged with NO uid.
-    // What's New (Draft 0.19): every staff member reads the updates; only a Director posts, edits or deletes them.
+    // What's New: every staff member reads the updates; only a Director posts, edits or deletes them.
     match /updates/{id} {
       allow read: if anyStaff();
       allow create, update, delete: if isDirector();
     }
 
+    // Every role writes its own audit entries; an anonymous complaint is logged with NO uid.
     match /auditLog/{id} {
       allow read: if staff() || isHR();
       allow create: if anyStaff() && request.resource.data.uid == request.auth.uid;
@@ -682,13 +705,18 @@ service cloud.firestore {
         && request.resource.data.link is string && request.resource.data.link.matches('/.*')
         && ((request.resource.data.recipientUid is string && request.resource.data.recipientRole == null)
           || (request.resource.data.recipientUid == null
-            && request.resource.data.recipientRole in ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing']));
-      // Read, unread and star: the recipient adds or removes only their own uid in readBy / starredBy.
+            && (request.resource.data.recipientRole in ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing']
+              // Draft 0.21: a role made on the Roles page (e.g. Maintenance)
+              || (request.resource.data.recipientRole is string && exists(roleDoc(request.resource.data.recipientRole))))));
+      // Read, unread, star and hide (Draft 0.22): the recipient adds or removes only their own uid in readBy / starredBy / hiddenBy.
       allow update: if anyStaff() && (resource.data.recipientUid == request.auth.uid || resource.data.recipientRole == role())
-        && changed().hasOnly(['readBy', 'starredBy'])
+        && changed().hasOnly(['readBy', 'starredBy', 'hiddenBy'])
         && onlyMine(resource.data.readBy, request.resource.data.readBy)
-        && onlyMine(resource.data.get('starredBy', []), request.resource.data.get('starredBy', []));
-      allow delete: if false;
+        && onlyMine(resource.data.get('starredBy', []), request.resource.data.get('starredBy', []))
+        && onlyMine(resource.data.get('hiddenBy', []), request.resource.data.get('hiddenBy', []));
+      // Draft 0.22: a notification sent to one person may be deleted by that person (Clear on the Notifications page).
+      // Team notifications are never deleted (others still need them): they are hidden per person above.
+      allow delete: if anyStaff() && resource.data.recipientUid == request.auth.uid;
     }
 
     // ================= HR: SOPs, Playbook, onboarding, complaints =================
@@ -772,6 +800,97 @@ service cloud.firestore {
       }
     }
 
+    // ================= Performance management (Stage 4 draft, 3 Nov 2026) =================
+    // performance.edit is not yet in presetFor()/PRESETS — until it's added, only the Director can write.
+    // Everyone reads quarter config (deadlines, status) so excluded employees can be told why they see nothing further.
+    match /performanceQuarters/{id} {
+      allow read: if anyStaff();
+      allow create, update: if isDirector() || can('performance.edit');
+      allow delete: if false;
+    }
+
+    // Each person reads their own participation row; HR/Director (performance.edit) read everyone's.
+    match /performanceParticipants/{id} {
+      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create, update: if isDirector() || can('performance.edit');
+      allow delete: if false;
+    }
+
+    // COH questions: everyone reads (so they know what they're being rated on); only performance.edit changes them.
+    match /cohQuestions/{id} {
+      allow read: if anyStaff();
+      allow create, update: if isDirector() || can('performance.edit');
+      allow delete: if false;
+    }
+
+    // COH evaluations: evaluator identity is always visible to the evaluatee and to HR/Director (confirmed
+    // requirement, not an anonymous system). The id itself (quarterId_evaluatorUid_evaluateeUid) stops one
+    // evaluator from rating the same colleague twice under two different documents.
+    match /cohEvaluations/{id} {
+      allow read: if isDirector() || can('performance.edit')
+        || resource.data.evaluatorId == request.auth.uid || resource.data.evaluateeId == request.auth.uid;
+      allow create: if anyStaff() && request.resource.data.evaluatorId == request.auth.uid
+        && request.resource.data.evaluateeId != request.auth.uid
+        && id == request.resource.data.quarterId + '_' + request.resource.data.evaluatorId + '_' + request.resource.data.evaluateeId
+        && request.resource.data.status == 'submitted';
+      // Resubmit before review: same pair, still in 'submitted' state on both sides.
+      allow update: if anyStaff() && resource.data.evaluatorId == request.auth.uid && resource.data.status == 'submitted'
+        && request.resource.data.evaluatorId == resource.data.evaluatorId && request.resource.data.evaluateeId == resource.data.evaluateeId
+        && request.resource.data.status == 'submitted';
+      // HR/Director approve: only the review fields change.
+      allow update: if (isDirector() || can('performance.edit'))
+        && changed().hasOnly(['status', 'reviewedBy', 'reviewedAt']) && request.resource.data.status == 'approved';
+      allow delete: if false;
+    }
+
+    // KPI assignments: HR/Director create and edit; the employee and HR/Director read.
+    match /kpiAssignments/{id} {
+      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create, update: if isDirector() || can('performance.edit');
+      allow delete: if false;
+    }
+
+    // KPI submissions: the employee submits their own self-assessment (status 'submitted', no final rating set
+    // yet); only HR/Director can set finalApprovedRating / reviewerId, and only by changing review fields.
+    match /kpiSubmissions/{id} {
+      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create, update: if (resource == null || resource.data.employeeId == request.auth.uid)
+        && request.resource.data.employeeId == request.auth.uid
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.get('finalApprovedRating', null) == null
+        && request.resource.data.get('reviewerId', null) == null;
+      allow update: if (isDirector() || can('performance.edit'))
+        && changed().hasOnly(['status', 'revisedRating', 'finalApprovedRating', 'reviewerId', 'reviewerComments', 'reviewReason', 'reviewedAt', 'history']);
+      // The employee's own discussion-status flip, set alongside their performanceDiscussions request.
+      allow update: if resource.data.employeeId == request.auth.uid && changed().hasOnly(['discussionStatus']);
+      allow delete: if false;
+    }
+
+    // Discussion requests: the employee who raised it, and HR/Director, read and resolve.
+    match /performanceDiscussions/{id} {
+      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create: if request.resource.data.employeeId == request.auth.uid && request.resource.data.status == 'requested';
+      allow update: if isDirector() || can('performance.edit');
+      allow delete: if false;
+    }
+
+    // TMS performance snapshots: only HR/Director sync and approve (server-side TMS credentials never touch the
+    // frontend — this just writes the result). The employee reads their own; isFinal is never flipped back to false.
+    match /performanceTmsSnapshots/{id} {
+      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create, update: if (isDirector() || can('performance.edit')) && (resource == null || resource.data.get('isFinal', false) != true);
+      allow delete: if false;
+    }
+
+    // Final combined results: the employee reads their own (finalized or not); HR/Director read and write.
+    // Once approvalStatus is 'finalized', only the Director may touch it again (an authorized correction).
+    match /performanceResults/{id} {
+      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create, update: if can('performance.edit') && (resource == null || resource.data.get('approvalStatus', 'draft') != 'finalized');
+      allow create, update: if isDirector();
+      allow delete: if false;
+    }
+
     // ================= Agreements (Draft 0.14, 0.15) =================
     function agreementAdmin() { return can('agreementSetup.view'); }
 
@@ -815,7 +934,7 @@ service cloud.firestore {
 
     // Fill-in links for outside people; the link name is the document id (/f/{slug}). Passwords are stored only as
     // salt + SHA-256. "Anyone" links need Agreement Setup; any staff member may make a personal link for one record.
-    // Turned off, never deleted. The Apps Script records submissions (it writes as the company account).
+    // Turned off or deleted (records already sent in stay). The Apps Script records submissions (it writes as the company account).
     match /agreementLinks/{slug} {
       function linkOk() {
         return slug.matches('[a-z0-9-]{3,60}') && request.resource.data.slug == slug
@@ -828,7 +947,8 @@ service cloud.firestore {
       allow update: if anyStaff() && linkOk() && request.resource.data.kind == resource.data.kind
         && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy
         && (agreementAdmin() || resource.data.kind == 'personal');
-      allow delete: if false;
+      // Agreement Setup deletes any link; other staff only the personal links they made.
+      allow delete: if anyStaff() && (agreementAdmin() || (resource.data.kind == 'personal' && resource.data.createdBy == request.auth.uid));
     }
 
     // Saved table layouts (columns, widths, filters). Shared by everyone.

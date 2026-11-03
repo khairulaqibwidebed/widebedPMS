@@ -207,6 +207,7 @@
 </template>
 
 <script>
+import { notifyUser } from '@/services/notificationService.js';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, updateProfile, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { collection, doc, getDocs, serverTimestamp, writeBatch, query, where, limit, deleteField } from 'firebase/firestore';
@@ -436,6 +437,13 @@ export default {
           audit(batch, 'staff.update', p.id, changes, p.reason.trim());
           await batch.commit();
           this.okMsg = `${name} updated. Changes apply the next time they open a page.`;
+          // The person hears that their role or page access changed (3 Nov 2026). Not for switched-off accounts or yourself.
+          const roleChanged = p.role !== o.role, accessChanged = changes.some(c => c.field === 'perms');
+          if ((roleChanged || accessChanged) && p.active && p.id !== me.user.uid)
+            notifyUser({ recipientUid: p.id, type: 'access', link: '/', refId: p.id,
+              title: roleChanged ? `Your role is now ${ROLE_LABEL[p.role] || p.role}` : 'Your page access changed',
+              message: `${me.name} changed your ${roleChanged && accessChanged ? 'role and pages' : roleChanged ? 'role' : 'pages'}. Reason: ${p.reason.trim()}. Reload a page to see the change.` })
+              .catch(e => console.warn('Notification not sent:', e));
         }
         p.busy = false;
         this.panelOpen = false;
