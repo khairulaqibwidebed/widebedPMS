@@ -57,7 +57,7 @@
           <span class="help" v-else-if="edit.isNew">Small letters, numbers and dashes, e.g. <code>widebed-tenancy</code>. It can't be changed later.</span>
         </div>
         <div class="field"><label for="lkTitle">Title on the form</label><input id="lkTitle" class="input" v-model="edit.title" maxlength="120" required></div>
-        <div class="field"><label for="lkIntro">Message at the top (optional)</label><textarea id="lkIntro" class="input" rows="3" v-model="edit.intro" maxlength="1000" placeholder="e.g. Please fill in your details and sign. It takes about 5 minutes."></textarea></div>
+        <div class="field"><label for="lkIntro">Message at the top</label><textarea id="lkIntro" class="input" rows="3" v-model="edit.intro" maxlength="1000" placeholder="e.g. Please fill in your details and sign. It takes about 5 minutes."></textarea></div>
         <div class="field">
           <label for="lkTpl">PDF they can download</label>
           <select id="lkTpl" class="input select" v-model="edit.templateId">
@@ -70,7 +70,7 @@
             <label for="lkPass">{{ edit.isNew ? 'Password' : 'New password (leave empty to keep)' }}</label>
             <div class="ag-inline"><input id="lkPass" class="input" v-model="edit.password" :required="edit.isNew" minlength="4" autocomplete="new-password"><button type="button" class="btn btn-sm" @click="edit.password = makePassword()">Make one</button></div>
           </div>
-          <div class="field"><label for="lkExp">Closes after (optional)</label><input id="lkExp" class="input" type="date" v-model="edit.expiresAt"></div>
+          <div class="field"><label for="lkExp">Closes after</label><input id="lkExp" class="input" type="date" v-model="edit.expiresAt"></div>
         </div>
         <label class="ag-check-row" v-if="edit.kind === 'personal'"><input type="checkbox" v-model="edit.lockFilled"> Answers you already filled in can't be changed by them</label>
         <label class="ag-check-row"><input type="checkbox" v-model="edit.allowDownload"> They can download their copy after submitting</label>

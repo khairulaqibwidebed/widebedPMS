@@ -59,6 +59,7 @@ const routes = [
 
   // Staff accounts and Audit log: Director and HR (Khairul 21 Oct). Never tickable.
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),
+  page('/Settings/roles', () => import('./pages/Settings/Roles.vue'), 'Roles', D),   // Director only, never tickable
   page('/Settings/brand-logos', () => import('./pages/Settings/BrandLogos.vue'), 'Brand Logos', D),
   page('/Settings/audit-log', () => import('./pages/Settings/AuditLog.vue'), 'Audit Log', DH),
   page('/Settings/appearance', () => import('./pages/Settings/Appearance.vue'), 'Profile & Appearance', ALLOWED_ROLES),

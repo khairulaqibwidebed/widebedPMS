@@ -137,10 +137,10 @@
         <form class="modal" role="dialog" aria-label="Raise a ticket" @submit.prevent="saveRaise()">
           <h2>Raise a ticket</h2>
           <div class="notice error" v-show="raise.error">{{ raise.error }}</div>
-          <div class="field"><label for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
-          <div class="field"><label for="rUnit">Unit (optional)</label>
+          <div class="field"><label class="req" for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
+          <div class="field"><label for="rUnit">Unit</label>
             <ComboInput id="rUnit" v-model="raise.unit" :options="unitOptions()" placeholder="Choose a unit · leave blank for office issues" /></div>
-          <div class="field"><label for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
+          <div class="field"><label class="req" for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
           <div class="field" style="margin-bottom:8px"><label>Tag the roles who should handle it</label>
             <!-- Same chips + drop-down as Edit tags. Your own role is always tagged and has no × -->
             <div class="tag-pick">
@@ -148,7 +148,7 @@
               <span class="help" v-show="!raise.tags.length">No roles tagged</span>
             </div>
             <OptionPicker class="add-role" v-show="raise.tags.length < TAGS.length" v-model="addPickR" :options="addOptionsR()" label="Add a role" @change="addTagR($event)" /></div>
-          <div class="field" style="margin-bottom:6px"><label for="rLinkName">Add Drive link (optional)</label>
+          <div class="field" style="margin-bottom:6px"><label for="rLinkName">Add Drive link</label>
             <div class="link-add" style="margin-top:0">
               <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
               <input class="input" v-model="raise.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(raise)">
@@ -227,7 +227,7 @@
 // Completed tickets are locked by the rules too (no updates or replies once status is 'done').
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
-import { db, ROLE_LABEL } from '@/lib/firebase.js';
+import { db, ROLE_LABEL, CUSTOM_ROLES } from '@/lib/firebase.js';
 import ComboInput from '@/components/ComboInput.vue';
 import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
@@ -246,7 +246,9 @@ const myLabel = me.name || (isDirector ? 'Director' : `${myRole} user`);
 // Every role raises, comments on and works its own tickets. IT included (Khairul 21 Oct), though IT is view-only elsewhere.
 const canWrite = !!me.role;
 
-const TAGS = ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
+// Roles made on the Roles page can be tagged too (by name).
+const tagsNow = () => ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing', ...Object.values(CUSTOM_ROLES).filter(r => r.active).map(r => r.name)];
+let TAGS = tagsNow();   // worked out again each time the page opens, so a role made a minute ago is there
 const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' }, deleted: { label: 'Deleted', cls: 'red' } };
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'active', label: 'Not completed' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];
@@ -266,6 +268,7 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], raisedAt: isoOf(d.createdAt), doneAt: isoOf(d.doneAt) });
 
 export default {
+  beforeCreate() { TAGS = tagsNow(); },
   components: { Avatar, ComboInput, OptionPicker, UploadFile, FileViewer },
   data() {
     return {

@@ -551,3 +551,6 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 .full-pick { display: block; width: 100%; }
 .full-pick .op-btn, .full-pick .op-input { width: 100%; min-height: 44px; }
 .full-pick .op-pop { max-width: none; width: 100%; }
+
+/* Required fields carry a small red star; a field without one is optional. */
+label.req::after { content: ' *'; color: #D93025; font-weight: 700; }

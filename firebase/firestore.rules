@@ -1,5 +1,5 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.16, 30 Oct 2026: Neo's Draft 0.15 (agreement master files, fill-in links, 'submitted' record status) plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
+// Widebed PMS Firestore rules. Draft 0.17, 2 Nov 2026: roles/{id} (Roles page: new roles and changed usual pages, Director only), myPerms reads them. Draft 0.16, 30 Oct 2026: Neo's Draft 0.15 (agreement master files, fill-in links, 'submitted' record status) plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
 // and Operations editing booking details (reservationLodgments rules removed).
 // Offline payments: Operations may view the page (preset) and fill in a payment with status Unknown, which becomes Edited; an Offline Payments View tick no longer opens the other finance data.
 // Draft 0.14, 30 Oct 2026: Draft 0.13 plus Agreements (forms, templates, records, views,
@@ -59,8 +59,12 @@ service cloud.firestore {
         'marketing': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit']
       }.get(r, []);
     }
-    // The person's ticks: saved on their record, or their role's preset. A switched-off record has none.
-    function myPerms()    { return role() != null ? get(myRecord()).data.get('perms', presetFor(role())) : []; }
+    // Draft 0.17: the Director can change a role's usual pages and make new roles on the Roles page, saved in roles/{id}.
+    // A role with a roles/{id} document uses its perms list; the built-in lists above are the fallback.
+    function roleDoc(r)     { return /databases/$(database)/documents/roles/$(r); }
+    function roleDefault(r) { return exists(roleDoc(r)) ? get(roleDoc(r)).data.get('perms', presetFor(r)) : presetFor(r); }
+    // The person's ticks: saved on their record, or their role's usual pages. A switched-off record has none.
+    function myPerms()    { return role() != null ? get(myRecord()).data.get('perms', roleDefault(role())) : []; }
     function can(p)       { return isDirector() || p in myPerms(); }
 
     // Finance data: any Finance page lets them read it; any Finance page ticked for Edit lets them change it.
@@ -131,7 +135,8 @@ service cloud.firestore {
 
     // ---- Issues: the tag each role answers to ('Admin' has no sign-in role yet) ----
     function myIssueTag() {
-      return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing' }.get(role(), '-');
+      return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing' }
+        .get(role(), exists(roleDoc(role())) ? get(roleDoc(role())).data.get('name', '-') : '-');   // a role made on the Roles page is tagged by its name
     }
     function canSeeIssue(d) { return anyStaff() && (isDirector() || myIssueTag() in d.tags || d.raisedByUid == request.auth.uid); }
 
@@ -163,6 +168,13 @@ service cloud.firestore {
         && resource.data.role != 'director' && request.resource.data.role != 'director';
       // Sign-in stamps lastLoginAt on your own record (Team activity).
       allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
+      allow delete: if false;
+    }
+
+    // Roles page (Director only). Everyone signed in reads, so the app can show names and usual pages after sign-in.
+    match /roles/{rid} {
+      allow read: if signedIn();
+      allow create, update: if isDirector() && request.resource.data.perms is list && rid != 'director';
       allow delete: if false;
     }
 

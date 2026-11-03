@@ -406,9 +406,9 @@ export default {
         if (code === 'DM') for (const [main, al] of Object.entries(DM_STARTER.aliases)) if (al.includes(unitCode)) return main;
         return unitCode;
       };
-      const existing = new Set(), savedUnit = {}, savedHash = {};
+      const existing = new Set(), savedUnit = {}, savedHash = {}, held = {};   // held: removed or moved by hand on Month-end
       // This read was already here; it also brings each saved booking's rawHash, so unchanged rows can be skipped
-      if (prop) (await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', prop.id), where('departureMonth', '==', this.month)))).docs.forEach(d => { existing.add(d.id); savedUnit[d.id] = d.data().unitId; savedHash[d.id] = d.data().rawHash || null; });
+      if (prop) (await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', prop.id), where('departureMonth', '==', this.month)))).docs.forEach(d => { existing.add(d.id); savedUnit[d.id] = d.data().unitId; savedHash[d.id] = d.data().rawHash || null; if (d.data().removedByHand) held[d.id] = 'removed'; else if (d.data().movedByHand) held[d.id] = 'moved'; });
       const noUnit = [];
       // A multi-room reservation is several eZee rows with ONE reservation number but different folio numbers. Each row is its
       // own booking: its document is "<reservation>-<folio>" (a single-room booking keeps the plain reservation number).
@@ -432,7 +432,7 @@ export default {
       const newUnitRecs = [...new Map(recs.filter(r => r.unitId && r.status === 'active' && !known.has(r.unitId)).map(r => [r.unitId, r])).values()];
       const active = recs.filter(r => r.status === 'active');
       return {
-        kind: 'ezee', property, records: recs, noUnit, active: active.length, lockedUnits, savedUnit, savedHash, month: this.month,
+        kind: 'ezee', property, records: recs, noUnit, active: active.length, lockedUnits, savedUnit, savedHash, held, month: this.month,
         newCount: active.filter(r => r.isNew).length,
         cancelled: recs.length - active.length,
         ctrip: active.filter(r => r.otaKey === 'ctrip').length,
@@ -475,6 +475,9 @@ export default {
         const dirty = new Map();   // "propertyId|month" -> unit ids
         const touch = (p, m, u) => { const k = `${p}|${m}`; if (!dirty.has(k)) dirty.set(k, []); dirty.get(k).push(u); };
         for (const { r, priv, data, isNew, hash } of write.slice(i, i + CHUNK)) {
+          // Removed or moved by hand on Month-end: eZee's status and room must not undo it
+          if (check.held?.[r.docId] === 'removed') delete data.status;
+          if (check.held?.[r.docId] === 'moved') { delete data.unitId; delete data.unitCode; }
           data.importBatchId = batchRef.id; data.lastImportedAt = serverTimestamp(); data.rawHash = hash;
           if (isNew) data.firstImportedAt = serverTimestamp();
           b.set(doc(db, 'bookings', r.docId), data, { merge: true });

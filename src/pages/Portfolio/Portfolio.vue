@@ -418,7 +418,7 @@
           <form class="drawer-body" id="unitForm" @submit.prevent="saveUnit()">
             <div class="notice error" v-show="u.error">{{ u.error }}</div>
             <p class="help from-listing" v-if="u.fromListing">{{ `Filled in from new owner listing ${u.fromListing.listingId}. Check the details, then Save unit.` }}</p>
-            <div class="field"><label for="uCode">Unit code</label>
+            <div class="field"><label for="uCode" class="req">Unit code</label>
               <input class="input" id="uCode" v-model="u.unitCode" :readonly="!u.isNew" :placeholder="`${property().code || 'DM'} 1615`">
               <span class="help" v-show="u.isNew">{{ property().code ? `Starts with this property's code (${property().code}), then the floor and unit, e.g. ${property().code} 0719. You can change it.` : 'This property has no short code yet. Type the unit code as Finance writes it.' }}</span></div>
             <div class="field"><label for="uAlias">Other eZee names for this unit</label>
@@ -449,7 +449,7 @@
               <OptionPicker class="full-pick" v-model="u.arrangement" :options="arrangementOptions" label="Arrangement" searchable /></div>
             <div class="switch" style="border-top:0;margin-top:-6px"><span>Fixed rent</span>
               <button type="button" class="toggle" :class="{ on: u.arrangement === 'fixedRent' }" style="border:0" @click="u.arrangement = u.arrangement === 'fixedRent' ? '' : 'fixedRent'" aria-label="Fixed rent"></button></div>
-            <div class="field" v-show="u.arrangement === 'fixedRent'"><label for="uFix">Fixed rent a month (RM)</label><input class="input" id="uFix" type="number" step="0.01" v-model="u.fixedRentAmount"></div>
+            <div class="field" v-show="u.arrangement === 'fixedRent'"><label for="uFix" class="req">Fixed rent a month (RM)</label><input class="input" id="uFix" type="number" step="0.01" v-model="u.fixedRentAmount"></div>
             <template v-if="u.arrangement && u.arrangement !== 'fixedRent'">
               <div class="grid-3">
                 <div class="field"><label>Service fee %</label><input class="input" type="number" step="0.01" v-model="u.serviceFeePct" :placeholder="ARRANGEMENTS[u.arrangement].serviceFeePct * 100"></div>
@@ -465,7 +465,7 @@
             </div>
             </template>
             <p class="help" v-else>Arrangement, fixed rent and fees are set by Finance or a Director after the unit is added.</p>
-            <div class="field"><label for="uWhy">Reason (audit log)</label><textarea class="input" id="uWhy" v-model="u.reason" placeholder="e.g. New owner agreement from June"></textarea></div>
+            <div class="field"><label for="uWhy" class="req">Reason (audit log)</label><textarea class="input" id="uWhy" v-model="u.reason" placeholder="e.g. New owner agreement from June"></textarea></div>
             <template v-if="!viewOnly">
             <hr class="divider">
             <h3 style="margin:0 0 6px;font-size:14px">Settings history</h3>
@@ -497,8 +497,8 @@
             <p class="help from-listing" v-if="np.fromListing">{{ `Filled in from new owner listing ${np.fromListing.listingId}. Add the short code and the rest, then Add property.` }}</p>
             <div class="form-sec">Property details</div>
             <div class="grid-fields">
-              <div class="field"><label for="pName">Property name</label><input class="input" id="pName" v-model="np.name" placeholder="e.g. D'Majestic"></div>
-              <div class="field"><label for="pCode">Short code</label><input class="input" id="pCode" v-model="np.code" :readonly="!!np.id" placeholder="e.g. DM">
+              <div class="field"><label for="pName" class="req">Property name</label><input class="input" id="pName" v-model="np.name" placeholder="e.g. D'Majestic"></div>
+              <div class="field"><label for="pCode" class="req">Short code</label><input class="input" id="pCode" v-model="np.code" :readonly="!!np.id" placeholder="e.g. DM">
                 <span class="help">Starts every unit number in this property, e.g. DM 07-19.</span></div>
               <div class="field" style="grid-column:1/-1"><label for="pAddr">Address</label><input class="input" id="pAddr" v-model="np.info.address" placeholder="Street address"></div>
               <div class="field"><label for="pCity">City</label><input class="input" id="pCity" v-model="np.info.city" placeholder="e.g. Kuala Lumpur"></div>
@@ -513,7 +513,7 @@
                 <span class="help">Several buildings can share one eZee account.</span></div>
               <div class="field"><label for="pEzName">Name in the eZee report</label><input class="input" id="pEzName" v-model="np.info.ezeeName" placeholder="As it appears in the export"></div>
             </div>
-            <div class="field" v-show="np.id"><label for="pWhy">Reason (audit log)</label><input class="input" id="pWhy" v-model="np.reason" placeholder="e.g. New TNB account number"></div>
+            <div class="field" v-show="np.id"><label for="pWhy" class="req">Reason (audit log)</label><input class="input" id="pWhy" v-model="np.reason" placeholder="e.g. New TNB account number"></div>
             <p class="help" v-show="!np.id">{{ viewOnly ? 'After saving, add its units from the Units tab. It starts with the standard OTA rates; Finance or a Director can change them. The change is recorded in the audit log.'
               : 'After saving, add its units from the Units tab. It starts with the standard OTA rates (change them under OTA commissions). The change is recorded in the audit log.' }}</p>
           </form>
@@ -553,7 +553,7 @@
             </template>
             <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ canEdit ? '· private, Finance, Directors and Marketing only' : viewOnly ? '· private: once saved, only Finance and Directors see them' : '· private, Finance and Directors only' }}</span></div>
             <div class="grid-fields">
-              <div class="field"><label for="oName">Full name</label><input class="input" id="oName" v-model="o.fullName" placeholder="e.g. Owner A"></div>
+              <div class="field"><label for="oName" class="req">Full name</label><input class="input" id="oName" v-model="o.fullName" placeholder="e.g. Owner A"></div>
               <div class="field"><label for="oIc">IC / passport</label><input class="input" id="oIc" v-model="o.ic"></div>
               <div class="field"><label for="oEmail">Email</label><input class="input" id="oEmail" type="email" v-model="o.email"></div>
               <div class="field"><label for="oPhone">Phone number</label><input class="input" id="oPhone" v-model="o.phone"></div>
@@ -572,10 +572,10 @@
             </div>
             </template>
             <p class="help" v-else>Bank details are added by Finance or a Director.</p>
-            <div class="field" v-show="!o.isNew"><label for="oWhy">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
+            <div class="field" v-show="!o.isNew"><label for="oWhy" class="req">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
             <template v-if="!o.isNew && o.active !== false && !viewOnly">
               <div class="confirm-box" v-show="o.deactivating">
-                <div class="field" style="margin-bottom:10px"><label for="oDeact">Why deactivate this owner? <span style="color:#d92d20">*required</span></label><input class="input" id="oDeact" v-model="o.deactivateReason" placeholder="e.g. Sold the unit"></div>
+                <div class="field" style="margin-bottom:10px"><label for="oDeact" class="req">Why deactivate this owner?</label><input class="input" id="oDeact" v-model="o.deactivateReason" placeholder="e.g. Sold the unit"></div>
                 <button type="button" class="btn btn-primary" @click="deactivateOwner()" :disabled="busy || !o.deactivateReason.trim()">Deactivate owner</button> <button type="button" class="btn" @click="o.deactivating = false">Keep active</button>
               </div>
             </template>

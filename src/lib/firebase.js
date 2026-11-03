@@ -1,8 +1,9 @@
 // One place that starts Firebase. Everything imports from here.
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, doc, getDoc } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, doc, getDoc, getDocs, collection } from 'firebase/firestore';
 import { firebaseConfig } from '../firebase-config.js';
+import { PRESETS } from './access.js';
 
 export const configMissing = firebaseConfig.apiKey.startsWith('PASTE');
 
@@ -21,6 +22,34 @@ export const db = initializeFirestore(app, {
 export const ALLOWED_ROLES = ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing'];   // every role signs in (Khairul 21 Oct)
 export const ROLE_LABEL = { director: 'Director', finance: 'Finance', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing' };
 
+// Roles made on the Roles page (Director only), kept in roles/{id}. Built-in roles can also have their usual pages changed there.
+// loadRoleRegistry() copies them into ROLE_LABEL, ALLOWED_ROLES and PRESETS (lib/access.js), so the rest of the app reads them as before.
+// Runs once after sign-in; the Roles page runs it again after a save. If the roles collection can't be read (rules not published yet), the built-in roles work as before.
+export const BUILTIN_ROLES = ['director', 'finance', 'it', 'operations', 'hr', 'procurement', 'marketing'];
+export const CUSTOM_ROLES = {};   // id -> { name, description, color, active }
+const ORIGINAL_PRESETS = JSON.parse(JSON.stringify(PRESETS));
+let registry = null;
+export function loadRoleRegistry(force = false) {
+  if (registry && !force) return registry;
+  registry = (async () => {
+    try {
+      const snap = await getDocs(collection(db, 'roles'));
+      for (const id of BUILTIN_ROLES) if (id !== 'director') PRESETS[id] = ORIGINAL_PRESETS[id];
+      for (const id of Object.keys(CUSTOM_ROLES)) { delete CUSTOM_ROLES[id]; delete ROLE_LABEL[id]; delete PRESETS[id]; }
+      for (let i = ALLOWED_ROLES.length - 1; i >= 0; i--) if (!BUILTIN_ROLES.includes(ALLOWED_ROLES[i])) ALLOWED_ROLES.splice(i, 1);
+      snap.forEach(d => {
+        const r = d.data(), id = d.id;
+        if (BUILTIN_ROLES.includes(id)) { if (id !== 'director' && Array.isArray(r.perms)) PRESETS[id] = r.perms; return; }
+        CUSTOM_ROLES[id] = { name: r.name || id, description: r.description || '', color: r.color || '', active: r.active !== false };
+        ROLE_LABEL[id] = r.name || id;
+        PRESETS[id] = Array.isArray(r.perms) ? r.perms : [];
+        if (r.active !== false) ALLOWED_ROLES.push(id);
+      });
+    } catch (e) { console.warn('Could not read the roles (publish the latest security rules):', e.code || e.message); }
+  })();
+  return registry;
+}
+
 // A person's role lives on their staff record, users/{uid} (set on the Staff accounts page).
 // The security rules read the same record, so the role here and in the rules always match.
 // perms = the pages ticked on Staff accounts (lib/access.js), or null = their role's usual pages. Turned off = none.
@@ -30,6 +59,7 @@ export async function profileOf(user) {
     if (!snap.exists()) return { role: null, perms: [], name: user.email };
     const p = snap.data();
     const active = p.active !== false;
+    await loadRoleRegistry();
     return {
       role: active ? (p.role || null) : null,
       perms: !active ? [] : Array.isArray(p.perms) ? p.perms : null,

@@ -91,9 +91,9 @@
             <section class="card">
               <h2>Customer</h2>
               <div class="grid-fields">
-                <div class="field"><label for="lName">Name</label><input class="input" id="lName" v-model="form.contactName" placeholder="e.g. Prospect A"></div>
-                <div class="field"><label for="lPhone">Phone</label><input class="input" id="lPhone" v-model="form.phone" inputmode="tel" placeholder="e.g. 012-345 6789"></div>
-                <div class="field"><label for="lEmail">Email (optional)</label><input class="input" id="lEmail" type="email" v-model="form.email" placeholder="e.g. name@example.com"></div>
+                <div class="field"><label class="req" for="lName">Name</label><input class="input" id="lName" v-model="form.contactName" placeholder="e.g. Prospect A"></div>
+                <div class="field"><label class="req" for="lPhone">Phone</label><input class="input" id="lPhone" v-model="form.phone" inputmode="tel" placeholder="e.g. 012-345 6789"></div>
+                <div class="field"><label for="lEmail">Email</label><input class="input" id="lEmail" type="email" v-model="form.email" placeholder="e.g. name@example.com"></div>
               </div>
               <p class="help" v-if="known">{{ `This phone number belongs to existing tenant ${known.id}. The inquiry will be linked to them.` }}</p>
             </section>
@@ -104,7 +104,7 @@
                 <span class="help" v-show="!staff.length">No Operations staff yet. Save it unassigned and assign it later.</span></div>
             </section>
             <section class="card">
-              <h2>Status (optional)</h2>
+              <h2>Status</h2>
               <div class="status-opts">
                 <template v-for="k in PICKABLE" :key="k">
                   <button type="button" class="status-opt" :class="{ on: form.status === k }" @click="form.status = form.status === k ? 'new' : k">{{ STATUS[k][0] }}</button>
@@ -262,10 +262,10 @@
               <h2>Tenant</h2>
               <p class="help" v-if="bk.existing">{{ `Existing tenant ${bk.existing.id} has this phone number. Their details are filled in below and the booking will be added to their record.` }}</p>
               <div class="grid-fields">
-                <div class="field"><label for="bName">Name</label><input class="input" id="bName" v-model="bk.name"></div>
-                <div class="field"><label for="bPhone">Phone</label><input class="input" id="bPhone" v-model="bk.phone" inputmode="tel" @change="refill(true)"></div>
+                <div class="field"><label class="req" for="bName">Name</label><input class="input" id="bName" v-model="bk.name"></div>
+                <div class="field"><label class="req" for="bPhone">Phone</label><input class="input" id="bPhone" v-model="bk.phone" inputmode="tel" @change="refill(true)"></div>
                 <div class="field"><label for="bEmail">Email</label><input class="input" id="bEmail" type="email" v-model="bk.email"></div>
-                <div class="field"><label for="bIc">IC / Passport</label><input class="input" id="bIc" v-model="bk.icPassport"></div>
+                <div class="field"><label class="req" for="bIc">IC / Passport</label><input class="input" id="bIc" v-model="bk.icPassport"></div>
                 <div class="field"><label for="bNat">Nationality</label><input class="input" id="bNat" v-model="bk.nationality" placeholder="e.g. Malaysian"></div>
                 <div class="field"><label for="bDob">Date of birth</label><input class="input" id="bDob" type="date" v-model="bk.dob"></div>
                 <div class="field"><label for="bGender">Gender</label>
@@ -290,53 +290,53 @@
             <section class="card">
               <h2>Stay</h2>
               <div class="grid-fields">
-                <div class="field"><label for="bProp">Property</label>
+                <div class="field"><label class="req" for="bProp">Property</label>
                   <OptionPicker class="fld-pick" v-model="bk.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList()" /></div>
-                <div class="field"><label for="bUnit">Unit</label>
+                <div class="field"><label class="req" for="bUnit">Unit</label>
                   <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="[{ value: '', label: bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-                <div class="field"><label for="bIn">Check-in</label><input class="input" id="bIn" type="date" v-model="bk.arrival"></div>
-                <div class="field"><label for="bOut">Check-out</label><input class="input" id="bOut" type="date" v-model="bk.departure"></div>
+                <div class="field"><label class="req" for="bIn">Check-in</label><input class="input" id="bIn" type="date" v-model="bk.arrival"></div>
+                <div class="field"><label class="req" for="bOut">Check-out</label><input class="input" id="bOut" type="date" v-model="bk.departure"></div>
               </div>
               <p class="help" v-if="nights > 0">{{ `${nights} night${nights === 1 ? '' : 's'} · ${longTerm ? 'Long-term lease (30 nights or more)' : 'Short stay (29 nights or less)'}` }}</p>
             </section>
             <section class="card">
               <h2>Booking details</h2>
               <div class="grid-fields">
-                <div class="field"><label>Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="SOURCES_BK" label="Booking source" /></div>
-                <div class="field"><label>Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" /></div>
+                <div class="field"><label class="req">Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="SOURCES_BK" label="Booking source" /></div>
+                <div class="field"><label class="req">Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" /></div>
                 <div class="field"><label for="bRentType">Type of rent</label>
                   <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" /></div>
-                <div class="field" v-if="longTerm"><label for="bRent">Rental (RM)</label><input class="input" id="bRent" type="number" min="0" step="0.01" v-model="bk.monthlyRent"></div>
-                <div class="field" v-else><label for="bRental">Rental (RM)</label><input class="input" id="bRental" type="number" min="0" step="0.01" v-model="bk.rental"></div>
-                <div class="field" v-if="longTerm"><label>Security deposit (2 months, required)</label><div class="input readonly">{{ rm(deposit) }}</div></div>
-                <div class="field" v-else><label for="bSec">Security deposit (RM) <span class="muted">(optional)</span></label><input class="input" id="bSec" type="number" min="0" step="0.01" v-model="bk.securityDeposit"></div>
-                <div class="field" v-for="f in FEES" :key="f.key"><label :for="'bf' + f.key">{{ f.label }} (RM) <span class="muted">(optional)</span></label><input class="input" :id="'bf' + f.key" type="number" min="0" step="0.01" v-model="bk[f.key]"></div>
+                <div class="field" v-if="longTerm"><label class="req" for="bRent">Rental (RM)</label><input class="input" id="bRent" type="number" min="0" step="0.01" v-model="bk.monthlyRent"></div>
+                <div class="field" v-else><label class="req" for="bRental">Rental (RM)</label><input class="input" id="bRental" type="number" min="0" step="0.01" v-model="bk.rental"></div>
+                <div class="field" v-if="longTerm"><label class="req">Security deposit (2 months)</label><div class="input readonly">{{ rm(deposit) }}</div></div>
+                <div class="field" v-else><label for="bSec">Security deposit (RM)</label><input class="input" id="bSec" type="number" min="0" step="0.01" v-model="bk.securityDeposit"></div>
+                <div class="field" v-for="f in FEES" :key="f.key"><label :for="'bf' + f.key">{{ f.label }} (RM)</label><input class="input" :id="'bf' + f.key" type="number" min="0" step="0.01" v-model="bk[f.key]"></div>
                 <div class="field" v-if="+bk.othersFee > 0"><label for="bOthersNote">Others: what is it for?</label><input class="input" id="bOthersNote" v-model="bk.othersNote"></div>
               </div>
             </section>
             <section class="card">
               <h2>Payment details</h2>
               <div class="grid-fields">
-                <div class="field"><label for="bAmt">{{ longTerm ? 'Amount paid (RM, optional)' : 'Amount (RM)' }}</label><input class="input" id="bAmt" type="number" min="0" step="0.01" v-model="bk.amount"></div>
-                <div class="field"><label for="bMode">Mode of payment</label>
+                <div class="field"><label :class="{ req: !longTerm }" for="bAmt">{{ longTerm ? 'Amount paid (RM)' : 'Amount (RM)' }}</label><input class="input" id="bAmt" type="number" min="0" step="0.01" v-model="bk.amount"></div>
+                <div class="field"><label class="req" for="bMode">Mode of payment</label>
                   <OptionPicker class="fld-pick" v-model="bk.payMode" :options="PAY_MODES" label="Mode of payment" /></div>
                 <div class="field"><label for="bPayDate">Date</label><input class="input" id="bPayDate" type="date" v-model="bk.payDate"></div>
                 <div class="field"><label for="bRef">Reference numbers</label><input class="input" id="bRef" v-model="bk.paymentRef" placeholder="e.g. bank transfer ref or receipt no."></div>
-                <div class="field"><label for="bEzee">eZee reservation no. (optional)</label><input class="input" id="bEzee" v-model="bk.ezeeNo" placeholder="Add once it is keyed into eZee"></div>
+                <div class="field"><label for="bEzee">eZee reservation no.</label><input class="input" id="bEzee" v-model="bk.ezeeNo" placeholder="Add once it is keyed into eZee"></div>
               </div>
-              <div class="field" style="margin-top:12px"><label for="bNote">Remarks</label>
-                <textarea class="input" id="bNote" style="height:70px" v-model="bk.note" placeholder="e.g. Paid in full by bank transfer"></textarea></div>
-              <div class="field" id="bReceipt" tabindex="-1" style="margin-top:12px"><label>Receipt <span class="muted">(required: upload at least one file)</span></label>
+              <div class="field" style="margin-top:12px"><label :class="{ req: !longTerm || +bk.amount > 0 }" for="bNote">Purpose</label>
+                <textarea class="input" id="bNote" style="height:90px" v-model="bk.note" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
+              <div class="field" id="bReceipt" tabindex="-1" style="margin-top:12px"><label class="req">Receipt</label>
                 <DriveFiles kind="offline-payments" :key="bk.payId" :record-id="bk.payId" :label="payLabel()" :list-on-load="false" @folder="l => bk.docsLink = l" /></div>
               <p class="help">The payment is saved under Finance › Offline Payments (status Pending), not on the booking. Finance checks it there.</p>
             </section>
             <section class="card">
               <h2>Door access and passcodes</h2>
               <div class="grid-fields">
-                <div class="field"><label for="bPass">Main door passcode <span class="muted">(optional)</span></label><input class="input" id="bPass" v-model="bk.mainPasscode" autocomplete="off"></div>
-                <div class="field"><label for="bExp">Current expiry date <span class="muted">(optional)</span></label><input class="input" id="bExp" type="date" v-model="bk.currentExpiry"></div>
-                <div class="field"><label for="bNextPass">Next door passcode <span class="muted">(optional)</span></label><input class="input" id="bNextPass" v-model="bk.nextPasscode" autocomplete="off"></div>
-                <div class="field"><label for="bNextExp">Next expiry date <span class="muted">(optional)</span></label><input class="input" id="bNextExp" type="date" v-model="bk.nextExpiry"></div>
+                <div class="field"><label for="bPass">Main door passcode</label><input class="input" id="bPass" v-model="bk.mainPasscode" autocomplete="off"></div>
+                <div class="field"><label for="bExp">Current expiry date</label><input class="input" id="bExp" type="date" v-model="bk.currentExpiry"></div>
+                <div class="field"><label for="bNextPass">Next door passcode</label><input class="input" id="bNextPass" v-model="bk.nextPasscode" autocomplete="off"></div>
+                <div class="field"><label for="bNextExp">Next expiry date</label><input class="input" id="bNextExp" type="date" v-model="bk.nextExpiry"></div>
               </div>
             </section>
             <div class="bottom-actions">
@@ -846,7 +846,7 @@ export default {
       const MAP = [[/^Add the tenant/, '#bName'], [/^Add a full phone/, '#bPhone'], [/email address/, '#bEmail'], [/^Add the IC/, '#bIc'], [/^Type the gender/, '#bGenderOther'],
         [/^Choose the property and unit/, '[aria-label="Property"]'], [/^Choose the booking source/, '[aria-label="Booking source"]'], [/^Choose the rental status/, '[aria-label="Rental status"]'],
         [/check-in and check-out|^Check-out must/, '#bIn'], [/^Add the monthly rent/, '#bRent'], [/^Add the amount paid/, '#bAmt'], [/^Choose the mode of payment/, '[aria-label="Mode of payment"]'],
-        [/receipt/, '#bReceipt'], [/main door passcode/, '#bExp'], [/next door passcode/, '#bNextExp']];
+        [/^Add the purpose/, '#bNote'], [/receipt/, '#bReceipt'], [/main door passcode/, '#bExp'], [/next door passcode/, '#bNextExp']];
       const sel = (MAP.find(([re]) => re.test(msg)) || [])[1];
       this.$nextTick(() => {
         const el = sel && document.querySelector(sel);
@@ -879,6 +879,7 @@ export default {
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent. The 2-month deposit is worked out from it.'
         : !this.longTerm && !(+b.amount > 0) ? 'Add the amount paid.'
         : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
+        : +b.amount > 0 && !b.note.trim() ? 'Add the purpose of the payment.'
         : +b.amount > 0 && !b.docsLink ? 'Upload at least one receipt for the payment.'
         : b.mainPasscode.trim() && !b.currentExpiry ? 'Add the expiry date of the main door passcode.'
         : b.nextPasscode.trim() && !b.nextExpiry ? 'Add the expiry date of the next door passcode.' : this.coError();
