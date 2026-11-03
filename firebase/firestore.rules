@@ -1,5 +1,5 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.18, 3 Nov 2026: owner payment status on statements (Pending Payment / Paid, Invoices & Receipts), no reopen once Paid, Director can delete an unused custom role. Draft 0.17, 2 Nov 2026: roles/{id} (Roles page: new roles and changed usual pages, Director only), myPerms reads them. Draft 0.16, 30 Oct 2026: Neo's Draft 0.15 (agreement master files, fill-in links, 'submitted' record status) plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
+// Widebed PMS Firestore rules. Draft 0.20, 3 Nov 2026: ticket quotes and invoices (issueQuotes/{ticketId}: anyone on the ticket adds and reads the quote, Director and Expenses Edit approve and add it to the owner's unit expenses). Draft 0.19, 3 Nov 2026: What's New page (updates/{id}: every staff member reads, Director posts, edits, deletes). Draft 0.18, 3 Nov 2026: owner payment status on statements (Pending Payment / Paid, Invoices & Receipts), no reopen once Paid, Director can delete an unused custom role. Draft 0.17, 2 Nov 2026: roles/{id} (Roles page: new roles and changed usual pages, Director only), myPerms reads them. Draft 0.16, 30 Oct 2026: Neo's Draft 0.15 (agreement master files, fill-in links, 'submitted' record status) plus booking numbers (lodgmentCounters), the Willow booking import into offlineBookings,
 // and Operations editing booking details (reservationLodgments rules removed).
 // Offline payments: Operations may view the page (preset) and fill in a payment with status Unknown, which becomes Edited; an Offline Payments View tick no longer opens the other finance data.
 // Draft 0.14, 30 Oct 2026: Draft 0.13 plus Agreements (forms, templates, records, views,
@@ -221,6 +221,12 @@ service cloud.firestore {
     }
 
     // Every role writes its own audit entries; an anonymous complaint is logged with NO uid.
+    // What's New (Draft 0.19): every staff member reads the updates; only a Director posts, edits or deletes them.
+    match /updates/{id} {
+      allow read: if anyStaff();
+      allow create, update, delete: if isDirector();
+    }
+
     match /auditLog/{id} {
       allow read: if staff() || isHR();
       allow create: if anyStaff() && request.resource.data.uid == request.auth.uid;
@@ -611,6 +617,38 @@ service cloud.firestore {
           && get(docPath('issues', id)).data.status in ['open', 'progress'];
         allow update, delete: if false;
       }
+    }
+
+    // Draft 0.20: quote and invoice for a ticket. Anyone who can see the ticket reads the quote and adds or edits it while
+    // it is Quoted or Rejected (it goes back to Quoted). Director and people with the Expenses Edit tick (Finance) approve,
+    // reject, add the invoice (which also writes an expense line, expenses rules above) and mark it paid.
+    // Always charged to the unit's owner. Nothing changes once the vendor is Paid.
+    match /issueQuotes/{id} {
+      function priceAccess() { return isDirector() || can('expenses.edit'); }
+      function ticketOk() {
+        return exists(docPath('issues', id)) && get(docPath('issues', id)).data.status != 'deleted'
+          && canSeeIssue(get(docPath('issues', id)).data);
+      }
+      function quoteKeys() {
+        return ['issueId', 'propertyId', 'unitId', 'unitCode', 'chargeTo', 'vendor', 'items', 'total', 'notes', 'status', 'rejectReason',
+          'createdAt', 'createdBy', 'createdByName', 'history', 'updatedAt', 'updatedBy'];
+      }
+      function quoteOk() {
+        return request.resource.data.issueId == id && request.resource.data.chargeTo == 'owner'
+          && request.resource.data.items is list && request.resource.data.items.size() > 0 && request.resource.data.items.size() <= 20;
+      }
+      allow read: if anyStaff() && ticketOk();
+      // Any staff member: add a quote, or edit one that is Quoted or Rejected. It is saved as Quoted.
+      allow create: if anyStaff() && ticketOk() && quoteOk()
+        && request.resource.data.status == 'quoted' && request.resource.data.keys().hasOnly(quoteKeys());
+      allow update: if anyStaff() && ticketOk() && quoteOk()
+        && resource.data.status in ['quoted', 'rejected'] && request.resource.data.status == 'quoted'
+        && changed().hasOnly(quoteKeys());
+      // Director and Finance: every step.
+      allow create, update: if priceAccess() && ticketOk() && quoteOk()
+        && request.resource.data.status in ['quoted', 'approved', 'invoiced', 'paid', 'rejected']
+        && (resource == null || resource.data.status != 'paid');
+      allow delete: if false;
     }
 
     // Notifications: one document per recipient target. recipientUid = one person; recipientRole = everyone in

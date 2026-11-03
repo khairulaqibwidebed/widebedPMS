@@ -125,7 +125,8 @@
             </div>
             <button class="btn" style="width:100%;margin-top:8px" @click="auditOpen = true">Audit log</button>
             </div>
-            <div class="help">Mark completed locks the ticket and moves it to Completed. Nobody can comment or change tags after that.</div>
+            <!-- Quote & invoice: anyone on the ticket adds the quote; Finance/Director approve and add it to the unit's expenses (owner pays) -->
+            <TicketQuote :key="ticket.id" :ticket="ticket" @view="f => $refs.viewer.open(f)" />
           </div>
         </div>
       </div>
@@ -238,6 +239,7 @@ import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
+import TicketQuote from '@/components/TicketQuote.vue';
 
 const me = useSession();
 const myRole = ROLE_LABEL[me.role] || me.role;          // 'Finance', 'Director'
@@ -270,7 +272,7 @@ const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [
 
 export default {
   beforeCreate() { TAGS = tagsNow(); },
-  components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer },
+  components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer, TicketQuote },
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,

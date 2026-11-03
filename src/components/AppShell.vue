@@ -24,10 +24,14 @@
         </template>
       </nav>
 
-      <button class="sidebar-toggle" type="button" :aria-expanded="wide ? String(!rail) : null" :aria-label="!wide ? 'Close menu' : rail ? 'Expand sidebar' : 'Collapse sidebar'" :title="wide && rail ? 'Expand sidebar' : null" @click="toggleSidebar">
-        <svg class="toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path class="collapse-arrow" d="m16 15-3-3 3-3"/></svg>
-        <span class="toggle-label">{{ wide ? 'Collapse' : 'Close menu' }}</span>
-      </button>
+      <!-- Sidebar footer: What's New (orange dot = an update posted since this browser last opened it) and the collapse toggle on one row. -->
+      <div class="side-foot">
+        <NavItem class="foot-new" :class="{ unread: whatsNew.unread }" :item="{ label: 'What\'s New', icon: 'sparkle', to: '/whats-new' }" :active="active" :collapsed="rail" />
+        <button class="sidebar-toggle" type="button" :aria-expanded="wide ? String(!rail) : null" :aria-label="!wide ? 'Close menu' : rail ? 'Expand sidebar' : 'Collapse sidebar'" :title="!wide ? 'Close menu' : rail ? 'Expand sidebar' : 'Collapse sidebar'" @click="toggleSidebar">
+          <svg class="toggle-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path class="collapse-arrow" d="m16 15-3-3 3-3"/></svg>
+          <span class="toggle-label">{{ wide ? 'Collapse' : 'Close menu' }}</span>
+        </button>
+      </div>
     </aside>
     <div class="main">
       <header class="topbar">
@@ -91,6 +95,7 @@ import Avatar from './Avatar.vue';
 import { roleTint } from '../lib/avatars.js';
 import CommandPalette from './CommandPalette.vue';
 import { NAV_ICONS } from './NavIcons.js';
+import { whatsNew, checkWhatsNew } from '../lib/whats-new.js';
 // import { triggerPushNotification } from '../lib/push.js';
 import NotificationBell from '@/components/NotificationBell.vue'
 
@@ -109,7 +114,7 @@ const DESKTOP_QUERY = '(min-width: 861px)';
 export default {
   components: { NavItem, CommandPalette, Avatar, NotificationBell },
   data: () => ({
-    ROLE_LABEL, quota, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
+    ROLE_LABEL, quota, whatsNew, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
     folded: readFolded(), collapsed: readCollapsed(),
     wide: window.matchMedia(DESKTOP_QUERY).matches
   }),
@@ -139,6 +144,7 @@ export default {
     }
   },
   mounted() {
+    checkWhatsNew();
     this.onKey = e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); this.paletteOpen = true; } };
     document.addEventListener('keydown', this.onKey);
     this.mq = window.matchMedia(DESKTOP_QUERY);
@@ -241,8 +247,14 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 /* Column layout on every screen size: brand on top, nav scrolls in the middle, toggle pinned at the bottom. */
 .sidebar { display: flex; flex-direction: column; }
 .sidebar > .brand { flex-shrink: 0; }
+.sidebar { padding-bottom: 6px; }
+.side-foot { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; margin-top: auto; padding: 6px 0 0; border-top: 1px solid rgba(128, 128, 128, .2); }
+.side-foot .foot-new { flex: 1 1 auto; min-width: 0; }
+.side-foot .foot-new { position: relative; }
+.side-foot .foot-new.unread::after { content: ""; position: absolute; top: 9px; left: 24px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
 .sidebar > nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.sidebar-toggle { margin-top: auto; border-top: 1px solid rgba(128, 128, 128, .2); border-radius: 0; width: 100%; margin-left: 0; margin-right: 0; padding: 12px 18px; }
+.side-foot .sidebar-toggle { flex: 0 0 auto; width: 40px; height: 40px; margin: 0; padding: 0; justify-content: center; gap: 0; border-radius: 8px; }
+.side-foot .toggle-label { display: none; }
 
 /* Neo's Notification: */
 .bell-btn {position: relative;}
@@ -251,7 +263,7 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 /* Phone drawer: dvh so the pinned button is not hidden under the browser's address bar; keep clear of the home bar. */
 @media (max-width: 860px) {
   .app .sidebar { height: 100vh; height: 100dvh; }
-  .app .sidebar-toggle { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .app .side-foot { padding-bottom: env(safe-area-inset-bottom, 0px); }
 }
 
 @media (min-width: 861px) { /* keep equal to DESKTOP_QUERY in the script, and one above the drawer breakpoint (860px) in app.css */
@@ -262,6 +274,8 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 
   .sidebar { width: var(--sidebar-w); overflow-x: hidden; transition: width .25s var(--nav-ease); }
   .app.collapsed .sidebar-toggle { padding-left: 0; padding-right: 0; }
+  .app.collapsed .side-foot { flex-direction: column; align-items: stretch; }
+  .app.collapsed .side-foot .sidebar-toggle { width: 100%; }
 
   .brand-text { white-space: nowrap; overflow: hidden; max-width: 200px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
   .app.collapsed .brand-text { max-width: 0; opacity: 0; }

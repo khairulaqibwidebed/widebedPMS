@@ -4,13 +4,13 @@
     <button type="button" class="select op-btn" :class="{ searching: searchable && open }" :disabled="disabled" :aria-expanded="String(open)" aria-haspopup="listbox" :aria-label="label" @click="toggle" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown="typeAhead">
       <span class="op-val" :class="{ ph: !current && placeholder }">{{ current || placeholder }}</span>
     </button>
-    <ul class="op-pop" :class="{ up }" ref="pop" v-if="open" role="listbox" :aria-label="label" @keydown.esc="open = false">
+    <ul class="op-pop" :class="{ up }" ref="pop" v-if="open" role="listbox" :aria-label="label" :aria-multiselectable="multiple ? 'true' : null" @keydown.esc="open = false">
       <li v-if="!list.length" class="op-none" role="presentation">No match</li>
       <template v-for="(o, i) in list" :key="o.value">
-        <li role="option" :aria-selected="String(o.value === modelValue)" class="op-item" :class="{ on: o.value === modelValue, hot: i === hot && !o.disabled, off: o.disabled }" :aria-disabled="String(!!o.disabled)"
+        <li role="option" :aria-selected="String(isOn(o.value))" class="op-item" :class="{ on: isOn(o.value), hot: i === hot && !o.disabled, off: o.disabled }" :aria-disabled="String(!!o.disabled)"
           @mouseenter="hot = i" @click="!o.disabled && pick(o.value)">
           <span>{{ o.label }}</span>
-          <svg v-if="o.value === modelValue" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+          <svg v-if="isOn(o.value)" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
         </li>
       </template>
       <li v-if="addLabel" class="op-addrow" role="presentation" @mousedown.stop>
@@ -27,8 +27,9 @@
 <script>
 // A drop-down in the theme colour (a native <select> list can't be styled).
 //   <OptionPicker v-model="propertyId" :options="[{ value: 'all', label: 'All properties' }, ...]" label="Property" @change="load()" />
+// Add `multiple` to pick several: v-model is then an array, the list stays open and each click ticks or unticks.
 export default {
-  props: { modelValue: { type: String, required: true }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' } },
+  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' } },
   emits: ['update:modelValue', 'change', 'add'],
   data() { return { open: false, hot: 0, q: '', up: false, adding: false, newText: '' }; },
   computed: {
@@ -36,16 +37,20 @@ export default {
       const k = this.norm(this.q);
       return k ? this.options.filter(o => this.norm(o.label).includes(k)) : this.options;
     },
-    current() { return this.options.find(o => o.value === this.modelValue)?.label || ''; }
+    current() {
+      if (this.multiple) return this.options.filter(o => this.isOn(o.value)).map(o => o.label).join(', ');
+      return this.options.find(o => o.value === this.modelValue)?.label || '';
+    }
   },
   mounted() { document.addEventListener('mousedown', this.away); },
   beforeUnmount() { document.removeEventListener('mousedown', this.away); },
   methods: {
+    isOn(v) { return this.multiple ? (this.modelValue || []).includes(v) : v === this.modelValue; },
     norm(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]/g, ''); },
     toggle() {
       this.open = !this.open; this.q = ''; this.up = false; this.adding = false;
       if (this.open) this.$nextTick(() => this.place());
-      if (this.open) { this.hot = Math.max(0, this.options.findIndex(o => o.value === this.modelValue)); if (this.searchable) this.$nextTick(() => this.$refs.q?.focus()); }
+      if (this.open) { this.hot = Math.max(0, this.options.findIndex(o => this.isOn(o.value))); if (this.searchable) this.$nextTick(() => this.$refs.q?.focus()); }
     },
     // Opens upward when the list would run off the bottom of the screen and there is more room above
     place() {
@@ -78,6 +83,12 @@ export default {
       this.hot = (this.hot + d + this.list.length) % this.list.length;
     },
     pick(v) {
+      if (this.multiple) {
+        const now = this.modelValue || [], next = now.includes(v) ? now.filter(x => x !== v) : [...now, v];
+        this.$emit('update:modelValue', next);
+        this.$nextTick(() => this.$emit('change', next));
+        return;
+      }
       this.open = false; this.q = '';
       if (v === this.modelValue) return;
       this.$emit('update:modelValue', v);

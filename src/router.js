@@ -72,6 +72,7 @@ const routes = [
   page('/HR/director-complaints', () => import('./pages/HR/DirectorComplaints.vue'), 'Director Complaints', DH),
   page('/HR/raise-complaint', () => import('./pages/HR/RaiseComplaint.vue'), 'Raise a Complaint', ALL),
   page('/Notifications', () => import('./pages/Notifications.vue'), 'Notifications', ALL),
+  page('/whats-new', () => import('./pages/WhatsNew/WhatsNew.vue'), "What's New", ALL),
 
   // Old prototype addresses (…/page.html) still work.
   { path: '/index.html', redirect: to => ({ path: '/', query: to.query }) },

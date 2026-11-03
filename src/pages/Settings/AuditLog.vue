@@ -78,7 +78,7 @@ const ACTIONS = {
   'ezee.upload': 'Uploaded an eZee report', 'financeStatement.import': "Imported Finance's statement", 'staff.create': 'Invited staff', 'staff.update': 'Changed a staff account',
   'offlineInquiry.create': 'Logged an offline inquiry', 'offlineInquiry.assign': 'Assigned an offline inquiry', 'offlineInquiry.update': 'Updated an offline inquiry',
   'offlineInquiry.contact': "Edited a customer's details", 'offlineBooking.create': 'Created an offline booking', 'offlineBooking.ezee': 'Linked an eZee reservation',
-  'tenant.update': "Edited a tenant's details", 'issue.create': 'Raised an issue', 'issue.comment': 'Commented on an issue', 'issue.progress': 'Moved an issue to In progress',
+  'tenant.update': "Edited a tenant's details", 'issue.create': 'Raised an issue', 'issueQuote.create': 'Added a quote to a ticket', 'issueQuote.update': 'Edited a ticket quote', 'issueQuote.approve': 'Approved a ticket quote', 'issueQuote.reject': 'Rejected a ticket quote', 'issueQuote.invoice': 'Added a ticket invoice to an owner statement', 'issueQuote.paid': 'Marked a ticket vendor paid', 'issue.comment': 'Commented on an issue', 'issue.progress': 'Moved an issue to In progress',
   'issue.tags': 'Changed an issue\'s tags', 'issue.complete': 'Completed an issue', 'sop.update': 'Edited an SOP', 'sop.docAdd': 'Added an SOP document', 'sop.docRemove': 'Removed an SOP document',
   'complaint.create': 'Sent a complaint', 'complaint.read': 'Read a Director complaint', 'onboarding.tick': 'Ticked an onboarding step', 'playbook.update': 'Edited a Playbook page',
   'brandLogo.update': 'Changed a brand logo'
