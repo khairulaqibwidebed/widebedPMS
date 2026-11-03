@@ -1,6 +1,8 @@
 <template>
   <div class="app" :class="{ collapsed: rail }">
-    <aside class="sidebar" :class="{ open: menuOpen }">
+    <!-- Phone: tap outside the slide-in menu to close it -->
+    <div class="nav-scrim" v-if="menuOpen && !wide" @click="menuOpen = false"></div>
+    <aside class="sidebar" :class="{ open: menuOpen }" v-esc="() => { menuOpen = false }">
       <div class="brand">
         <div class="brand-mark">W</div>
         <div class="brand-text"><div class="brand-name">Widebed</div><div class="brand-sub">Property Management</div></div>
@@ -35,7 +37,9 @@
     </aside>
     <div class="main">
       <header class="topbar">
-        <button class="btn menu-btn" aria-label="Menu" @click="menuOpen = !menuOpen">☰</button>
+        <button class="btn menu-btn" aria-label="Open menu" :aria-expanded="String(menuOpen)" @click="menuOpen = !menuOpen">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <router-link class="top-brand" to="/" aria-label="Widebed PMS home"><span class="brand-mark">W</span><span>Widebed PMS</span></router-link>
         <button class="search-btn" @click="paletteOpen = true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5.5"/><path d="M11 11l4 4"/></svg> <span>Search</span><kbd>Ctrl K</kbd></button>
         <div class="user-menu" v-click-outside="() => { userOpen = false }" v-esc="() => { userOpen = false }">
           <button type="button" class="user-id" :class="{ open: userOpen }" @click="userOpen = !userOpen" aria-haspopup="menu" :aria-expanded="String(userOpen)">
@@ -77,6 +81,14 @@
         <span>{{ `Pages can't load or save data until it resets at about ${resetAt}. Saved copies still show. Please stop reloading.` }}</span>
         <button type="button" class="btn" @click="quota.hiddenAt = Date.now()">Hide</button>
       </div>
+      <!-- PWA (lib/pwa.js): no connection, and a new version waiting -->
+      <div class="pwa-bar off" role="status" v-if="pwa.offline">
+        <b>You're offline.</b><span>Pages can't load or save until the connection is back.</span>
+      </div>
+      <div class="pwa-bar" role="status" v-if="pwa.updateReady">
+        <b>New version available.</b><span>Reload to get the latest changes. Save what you're typing first.</span>
+        <button type="button" class="btn btn-primary" @click="applyUpdate">Reload</button>
+      </div>
       <RouterView :key="$route.fullPath" />
     </div>
     <CommandPalette v-if="paletteOpen" :groups="groups" @close="paletteOpen = false" />
@@ -98,6 +110,7 @@ import { NAV_ICONS } from './NavIcons.js';
 import { whatsNew, checkWhatsNew } from '../lib/whats-new.js';
 // import { triggerPushNotification } from '../lib/push.js';
 import NotificationBell from '@/components/NotificationBell.vue'
+import { pwa, applyUpdate } from '../lib/pwa.js';
 
 // Sidebar groups a person has folded, remembered in this browser.
 const FOLDED_KEY = 'wb.navFolded';
@@ -114,7 +127,7 @@ const DESKTOP_QUERY = '(min-width: 861px)';
 export default {
   components: { NavItem, CommandPalette, Avatar, NotificationBell },
   data: () => ({
-    ROLE_LABEL, quota, whatsNew, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
+    ROLE_LABEL, quota, whatsNew, pwa, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
     folded: readFolded(), collapsed: readCollapsed(),
     wide: window.matchMedia(DESKTOP_QUERY).matches
   }),
@@ -133,6 +146,9 @@ export default {
     
   },
   watch: {
+    // Phone: the page behind the open menu doesn't scroll
+    menuOpen(v) { document.documentElement.classList.toggle('nav-locked', v && !this.wide); },
+    wide(v) { if (v) this.menuOpen = false; },
     // Only the current page's group is open. On an ungrouped page (Dashboard) the first group opens.
     $route: {
       immediate: true,
@@ -151,10 +167,8 @@ export default {
     this.onMq = e => { this.wide = e.matches; };
     this.mq.addEventListener('change', this.onMq);
 
-    // Neo's Notification: Request permission for push notifications if not already granted
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    // (3 Nov 2026) No browser-notification permission prompt on every load: nothing uses it yet. Ask only when phone
+    // push notifications are built, and then from a button the person presses.
     // setTimeout(() => {
     //   triggerPushNotification(
     //     'New Task Assigned',
@@ -168,7 +182,7 @@ export default {
     this.mq.removeEventListener('change', this.onMq);
   },
   methods: {
-    logOut,
+    logOut, applyUpdate,
     async refreshData() { await clearCache(); location.reload(); },
     notBuilt, roleTint,
     groupIcon(g) { return NAV_ICONS[g.icon] || NAV_ICONS.dot; },
@@ -295,6 +309,21 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 @media (prefers-reduced-motion: reduce) {
   .sidebar, .brand-text, .nav-group-btn, .grp-label, .collapse-arrow, .toggle-label, .sidebar-toggle { transition: none; }
 }
+/* Phone menu: dim backdrop behind the slide-in sidebar (sidebar is z-index 30 in app.css) */
+.nav-scrim { position: fixed; inset: 0; z-index: 29; background: rgba(26, 29, 35, .35); animation: fade var(--fast) ease-out; }
+html.nav-locked, html.nav-locked body { overflow: hidden; }
+.top-brand { display: none; align-items: center; gap: 8px; margin-right: auto; color: var(--text); font-weight: 700; font-size: 15px; text-decoration: none; white-space: nowrap; }
+.top-brand .brand-mark { width: 28px; height: 28px; font-size: 14px; }
+.menu-btn { width: 44px; height: 44px; padding: 0; }
+/* Phone top bar: menu button on the left, account and bell on the right. No logo or search (Khairul, 3 Nov). */
+@media (max-width: 860px) {
+  .menu-btn { margin-right: auto; }
+  .topbar { gap: 8px; }
+  .topbar .search-btn { display: none; }
+}
+.pwa-bar { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; padding: 10px 20px; background: var(--accent-soft); color: var(--accent); border-bottom: 1px solid var(--border); font-size: 13px; }
+.pwa-bar span { flex: 1; min-width: 180px; color: var(--text-2); }
+.pwa-bar.off { background: var(--amber-soft); color: var(--amber); }
 .quota-bar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 10px 20px; background: var(--red-soft); color: var(--red); border-bottom: 1px solid var(--border); font-size: 13px; }
 .quota-bar span { flex: 1; min-width: 200px; color: var(--text-2); }
 </style>

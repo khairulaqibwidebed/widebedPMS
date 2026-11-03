@@ -40,6 +40,29 @@ function localDriveApi() {
   };
 }
 
+// PWA: writes sw.js into the build with a new version each build, so phones see "New version available".
+// Precaches only the main entry code and styles; other built files are saved the first time they are used.
+// PWA_OFF=1 (a Vercel variable) builds the off switch instead (pwa/sw-off.js), which removes the PWA from every device.
+function pwaServiceWorker() {
+  return {
+    name: 'pwa-service-worker',
+    apply: 'build',
+    generateBundle(_, bundle) {
+      const off = process.env.PWA_OFF === '1';
+      let source = readFileSync(resolve(process.cwd(), off ? 'pwa/sw-off.js' : 'pwa/sw.template.js'), 'utf8');
+      if (!off) {
+        const files = Object.values(bundle)
+          .filter(f => (f.type === 'chunk' && f.isEntry) || (f.type === 'asset' && /\.css$/.test(f.fileName)))
+          .map(f => '/' + f.fileName);
+        const version = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+        source = source.replaceAll('__VERSION__', version)
+          .replaceAll('__PRECACHE__', JSON.stringify(['/index.html', '/manifest.webmanifest', '/icons/icon-192.png', ...files]));
+      }
+      this.emitFile({ type: 'asset', fileName: 'sw.js', source });
+    }
+  };
+}
+
 // WB_STUB=1 swaps Firebase for the in-browser test stubs (automated checks only).
 const stub = process.env.WB_STUB;
 const alias = [{ find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) }];
@@ -49,7 +72,7 @@ if (stub) alias.unshift(
 
 export default defineConfig({
   // Keep spaces between inline elements, the way plain HTML (and the old prototype) does.
-  plugins: [vue({ template: { compilerOptions: { whitespace: 'preserve' } } }), localDriveApi()],
+  plugins: [vue({ template: { compilerOptions: { whitespace: 'preserve' } } }), localDriveApi(), pwaServiceWorker()],
   resolve: { alias },
   // Firebase (main file) and the Excel reader (loaded only when needed) are big on their own; that's expected.
   build: { chunkSizeWarningLimit: 1000 },

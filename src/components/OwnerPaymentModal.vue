@@ -55,7 +55,7 @@ import { doc as docRef, writeBatch, serverTimestamp, deleteField } from 'firebas
 import { db } from '@/lib/firebase.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
 import { listFiles } from '@/lib/drive.js';
-import { notifyRole } from '@/services/notificationService.js';
+import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { amt, dmy, monthName } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import FormField from '@/components/FormField.vue';
@@ -118,6 +118,11 @@ export default {
         audit(b, me, { action: 'statement.unpaid', entity: `statements/${this.doc.id}`, propertyId: this.st.propertyId || null, month: this.doc.month,
           changes: [{ field: 'paymentStatus', old: 'paid', new: 'pending' }], reason: why });
         await b.commit();
+        // The person who marked it paid is told (3 Nov 2026)
+        const payer = this.st.paidBy || this.doc.paidBy;
+        if (payer && payer !== me.user.uid)
+          notifyUser({ recipientUid: payer, title: 'Owner payment undone', message: `${this.doc.unitCode} · ${monthName(this.doc.month)}: ${why}. It is Pending Payment again.`,
+            type: 'statement', link: `/Finance/invoices?property=${this.st.propertyId || this.doc.propertyId || ""}&month=${this.doc.month}`, refId: this.doc.id || null }).catch(e => console.warn('Notification not sent:', e));
         this.$emit('saved', `Payment for ${this.doc.unitCode} undone. It is Pending Payment again.`);
       } catch (e) { this.error = friendlyError(e, 'undo the payment'); }
       finally { this.busy = false; }

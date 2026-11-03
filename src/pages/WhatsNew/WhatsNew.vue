@@ -123,6 +123,7 @@ import { useSession } from '@/stores/session.js';
 import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { markUpdatesSeen, updatesSeenAt } from '@/lib/whats-new.js';
+import { notifyRole } from '@/services/notificationService.js';
 
 // Patch note sections, in the order they show. Older posts saved one "body" field; it shows as Changes.
 const SECTIONS = [
@@ -230,12 +231,21 @@ export default {
         b.set(ref, f.id ? data : { ...data, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name }, { merge: true });
         b.set(doc(collection(db, 'auditLog')), { at: serverTimestamp(), uid: me.user.uid, userName: me.name, role: me.role, action: f.id ? 'update.edit' : 'update.post', entity: `updates/${ref.id}`, changes: [{ field: 'title', old: null, new: data.title }], reason: f.id ? 'What\'s New edited' : 'What\'s New posted' });
         await b.commit();
+        if (!f.id) this.tellTeams(ref.id, data);
         this.okMsg = f.id ? 'Update saved.' : 'Update posted.';
         this.form = null;
         await this.load();
         markUpdatesSeen(this.items[0]);
       } catch (e) { f.error = friendlyError(e, 'save the update'); }
       this.busy = false;
+    },
+    // A new post (not an edit) notifies the teams it is for; Everyone = every built-in role and every active role made on Roles (3 Nov 2026)
+    tellTeams(id, data) {
+      const roles = data.audience.includes('everyone') ? this.ROLES.filter(r => !CUSTOM_ROLES[r] || CUSTOM_ROLES[r].active) : data.audience;
+      const title = data.kind === 'major' ? `New version ${data.version}: ${data.title}` : `What's New: ${data.title}`;
+      Promise.allSettled([...new Set(roles)].map(recipientRole => notifyRole({ recipientRole, type: 'update', refId: id, link: `/whats-new?id=${id}`,
+        title: title.slice(0, 200), message: (data.summary || 'See what changed.').slice(0, 600) })))
+        .then(r => r.forEach(x => { if (x.status === 'rejected') console.warn('Notification not sent:', x.reason); }));
     },
     async remove(u) {
       if (!await askConfirm({ title: `Delete "${u.title}"?`, message: 'It disappears from What\'s New for everyone. The deletion goes in the audit log.', confirmText: 'Delete update', danger: true })) return;

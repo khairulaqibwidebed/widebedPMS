@@ -1,172 +1,185 @@
 <script setup>
+// Notifications page (reworked 3 Nov 2026): one row per notification in Today / This week / Older, filters by area
+// (from each notification's type) and by Unread / Starred, and clearing: × on a row, or "Clear read" (read and not starred).
+// Personal notifications are deleted; team ones are hidden for you only. Only the last 30 days are fetched.
+// Same shared listener as the bell (composables/useNotifications.js).
 import { computed, ref } from "vue"
 import { useRouter } from "vue-router"
 import { useNotifications } from "@/composables/useNotifications"
 import {
-  markAllNotificationsAsRead, markNotificationAsRead, markNotificationAsUnread, setNotificationStarred,
+  KEEP_DAYS, clearNotification, clearReadNotifications, markAllNotificationsAsRead, markNotificationAsRead, markNotificationAsUnread, setNotificationStarred,
 } from "@/services/notificationService"
+import { askConfirm } from "@/lib/confirm.js"
+import OptionPicker from "@/components/OptionPicker.vue"
 
 const router = useRouter()
 const { notifications, unreadCount, loading, error } = useNotifications()
-const filter = ref("all")
+const show = ref("all")      // all / unread / starred
+const area = ref("all")
 const actionError = ref("")
-const open = ref({}) // which groups are expanded, by title
+const okMsg = ref("")
 
+// Area of a notification, from its type
+const AREAS = [
+  { key: "issues", label: "Issues", types: ["issue"] },
+  { key: "finance", label: "Finance", types: ["statement", "payment", "expense"] },
+  { key: "leads", label: "Leads", types: ["inquiry"] },
+  { key: "listings", label: "Listings", types: ["listing"] },
+  { key: "agreements", label: "Agreements", types: ["agreement"] },
+  { key: "hr", label: "HR", types: ["complaint", "access"] },
+  { key: "updates", label: "Updates", types: ["update"] },
+]
+const areaOf = (n) => AREAS.find((a) => a.types.includes(n.type))?.key || "other"
+const areaLabel = (n) => AREAS.find((a) => a.key === areaOf(n))?.label || "Other"
+// Area drop-down: every area with its count; empty ones are greyed out
+const areaOptions = computed(() => {
+  const count = (k) => notifications.value.filter((n) => areaOf(n) === k).length
+  return [{ value: "all", label: `All areas (${notifications.value.length})` },
+    ...[...AREAS, { key: "other", label: "Other" }].map((a) => ({ value: a.key, label: `${a.label} (${count(a.key)})`, disabled: !count(a.key) && area.value !== a.key }))]
+})
+
+const shown = computed(() => notifications.value
+  .filter((n) => area.value === "all" || areaOf(n) === area.value)
+  .filter((n) => show.value === "all" || (show.value === "unread" ? !n.read : n.starred)))
 const starredCount = computed(() => notifications.value.filter((n) => n.starred).length)
+const clearable = computed(() => notifications.value.filter((n) => n.read && !n.starred).length)
 
-const shown = computed(() => {
-  if (filter.value === "unread") return notifications.value.filter((n) => !n.read)
-  if (filter.value === "starred") return notifications.value.filter((n) => n.starred)
-  return notifications.value
+// Today / This week / Older (the list is already newest first)
+const ms = (t) => (t?.toMillis ? t.toMillis() : Date.now())
+const sections = computed(() => {
+  const d = new Date(), today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), week = today - 6 * 86400000
+  const out = [{ key: "today", label: "Today", items: [] }, { key: "week", label: "This week", items: [] }, { key: "older", label: "Older", items: [] }]
+  for (const n of shown.value) out[ms(n.createdAt) >= today ? 0 : ms(n.createdAt) >= week ? 1 : 2].items.push(n)
+  return out.filter((s) => s.items.length)
 })
-
-// Notifications with the same title share one group. The list is already newest first,
-// so groups are ordered by their latest message and messages inside a group are newest first.
-const groups = computed(() => {
-  const map = new Map()
-  for (const n of shown.value) {
-    if (!map.has(n.title)) map.set(n.title, { key: n.title, title: n.title, items: [] })
-    map.get(n.title).items.push(n)
-  }
-  return [...map.values()].map((g) => ({
-    ...g,
-    unread: g.items.filter((i) => !i.read).length,
-    starred: g.items.some((i) => i.starred),
-    latest: g.items[0].createdAt,
-  }))
-})
-
 const stamp = (t) => (t?.toDate ? t.toDate().toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Just now")
-const toggleGroup = (g) => { open.value = { ...open.value, [g.key]: !open.value[g.key] } }
 
 async function run(action, failMessage) {
-  actionError.value = ""
+  actionError.value = ""; okMsg.value = ""
   try { await action() } catch (e) { console.error(e); actionError.value = failMessage }
 }
-
 async function openItem(n) {
-  if (!n.read) await run(() => markNotificationAsRead(n.id), "Could not mark it as read.")
+  if (!n.read) markNotificationAsRead(n.id).catch((e) => console.error(e))
   if (n.link) router.push(n.link)
 }
-
 const toggleRead = (n) => run(() => (n.read ? markNotificationAsUnread(n.id) : markNotificationAsRead(n.id)), "Could not change read status.")
 const toggleStar = (n) => run(() => setNotificationStarred(n.id, !n.starred), "Could not change the star.")
-const readGroup = (g) => run(() => markAllNotificationsAsRead(g.items), "Could not mark the group as read.")
+const clearOne = (n) => run(() => clearNotification(n), "Could not clear it.")
 const readAll = () => run(() => markAllNotificationsAsRead(notifications.value), "Could not mark all as read.")
+async function clearRead() {
+  const n = clearable.value
+  if (!n) return
+  const ok = await askConfirm({ title: `Clear ${n} read notification${n === 1 ? "" : "s"}?`,
+    message: "Read notifications leave your list. Unread and starred ones stay. Notifications sent to your team are only hidden for you.", confirmText: "Clear read" })
+  if (!ok) return
+  await run(async () => { const done = await clearReadNotifications(notifications.value); okMsg.value = `${done} cleared.` }, "Could not clear them.")
+}
 </script>
 
 <template>
-  <main class="content">
-    <div class="nf-head">
+  <main class="content nf-page">
+    <div class="page-head">
       <div>
         <h1>Notifications</h1>
-        <p class="nf-sub">{{ unreadCount }} unread</p>
+        <div class="sub"><b class="nf-unread-sub" v-if="unreadCount">{{ unreadCount }} unread</b><span v-else>Nothing unread</span>{{ ` · the last ${KEEP_DAYS} days` }}</div>
       </div>
-      <div class="nf-filters">
-        <button class="nf-chip" :class="{ on: filter === 'all' }" @click="filter = 'all'">All</button>
-        <button class="nf-chip" :class="{ on: filter === 'unread' }" @click="filter = 'unread'">Unread</button>
-        <button class="nf-chip" :class="{ on: filter === 'starred' }" @click="filter = 'starred'">Starred ({{ starredCount }})</button>
-        <button class="nf-chip" :disabled="!unreadCount" @click="readAll">Mark all as read</button>
+      <div class="nf-tools">
+        <button type="button" class="btn" :disabled="!unreadCount" @click="readAll">Mark all as read</button>
+        <button type="button" class="btn" :disabled="!clearable" @click="clearRead">Clear read</button>
       </div>
     </div>
 
-    <p v-if="error || actionError" class="nf-error">{{ error || actionError }}</p>
-    <p v-else-if="loading" class="nf-sub">Loading…</p>
-    <p v-else-if="!groups.length" class="nf-sub">
-      {{ filter === "unread" ? "Nothing unread." : filter === "starred" ? "No starred notifications." : "No notifications yet." }}
-    </p>
+    <!-- Tabs for what you switch most (All / Unread / Starred), the area drop-down on the same line -->
+    <div class="nf-bar">
+      <div class="nf-tabs" role="tablist" aria-label="Show">
+        <button type="button" role="tab" class="nf-tab" :class="{ on: show === 'all' }" :aria-selected="String(show === 'all')" @click="show = 'all'">All</button>
+        <button type="button" role="tab" class="nf-tab" :class="{ on: show === 'unread' }" :aria-selected="String(show === 'unread')" @click="show = 'unread'">Unread<span class="nf-n" v-if="unreadCount">{{ unreadCount }}</span></button>
+        <button type="button" role="tab" class="nf-tab" :class="{ on: show === 'starred' }" :aria-selected="String(show === 'starred')" @click="show = 'starred'">Starred<span class="nf-n star" v-if="starredCount">{{ starredCount }}</span></button>
+      </div>
+      <OptionPicker class="nf-area-pick" v-model="area" :options="areaOptions" label="Area" />
+    </div>
 
-    <ul v-else class="nf-list">
-      <li v-for="g in groups" :key="g.key" class="nf-group" :class="{ unread: g.unread > 0, expanded: open[g.key] }">
-        <!-- Group header: click to open or close the messages -->
-        <div class="nf-group-head">
-          <button type="button" class="nf-toggle" :aria-expanded="!!open[g.key]" @click="toggleGroup(g)">
-            <span class="nf-chevron" aria-hidden="true">{{ open[g.key] ? "▾" : "▸" }}</span>
-            <span class="nf-group-title">
-              {{ g.title }}
-              <span v-if="g.starred" class="nf-star-mark" aria-hidden="true">★</span>
-            </span>
-            <span class="nf-count" :title="g.items.length + ' notification(s)'">{{ g.items.length }}</span>
-            <span v-if="g.unread" class="nf-unread-pill">{{ g.unread }} new</span>
-            <span class="nf-when">{{ stamp(g.latest) }}</span>
+    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
+    <div class="notice error" v-if="error || actionError">{{ error || actionError }}</div>
+    <p class="help" v-else-if="loading">Loading…</p>
+    <div class="card nf-empty" v-else-if="!sections.length">
+      {{ show === 'unread' ? 'Nothing unread.' : show === 'starred' ? 'No starred notifications.' : area !== 'all' ? 'Nothing in this area.' : 'No notifications in the last ' + KEEP_DAYS + ' days.' }}
+    </div>
+
+    <section class="nf-section" v-for="s in sections" :key="s.key">
+      <h2>{{ s.label }}<span class="nf-sec-n">{{ s.items.length }}</span></h2>
+      <ul class="nf-list">
+        <li v-for="n in s.items" :key="n.id" class="nf-row" :class="[{ unread: !n.read }, 'a-' + areaOf(n)]">
+          <span class="nf-dot" aria-hidden="true"></span>
+          <button type="button" class="nf-main" @click="openItem(n)">
+            <span class="nf-title">{{ n.title }}</span>
+            <span class="nf-msg" v-if="n.message">{{ n.message }}</span>
+            <span class="nf-meta"><span class="nf-area" :class="'a-' + areaOf(n)">{{ areaLabel(n) }}</span>{{ stamp(n.createdAt) }}</span>
           </button>
-          <button v-if="g.unread" type="button" class="nf-btn" @click="readGroup(g)">Mark group as read</button>
-        </div>
-
-        <!-- Dropdown: the messages under this title -->
-        <ul v-if="open[g.key]" class="nf-sublist">
-          <li v-for="n in g.items" :key="n.id" class="nf-sub-item" :class="{ unread: !n.read }">
-            <div class="nf-row">
-              <span class="nf-dot" aria-hidden="true"></span>
-              <div class="nf-text" role="button" tabindex="0" @click="openItem(n)" @keyup.enter="openItem(n)">
-                <span class="nf-msg">{{ n.message || "(no details)" }}</span>
-              </div>
-              <span class="nf-when">{{ stamp(n.createdAt) }}</span>
-            </div>
-            <div class="nf-actions">
-              <button
-                type="button"
-                class="nf-btn nf-star"
-                :class="{ on: n.starred }"
-                :title="n.starred ? 'Remove star' : 'Star'"
-                :aria-label="n.starred ? 'Remove star' : 'Star'"
-                @click="toggleStar(n)"
-              >{{ n.starred ? "★" : "☆" }}</button>
-              <button type="button" class="nf-btn" @click="toggleRead(n)">{{ n.read ? "Mark as unread" : "Mark as read" }}</button>
-            </div>
-          </li>
-        </ul>
-      </li>
-    </ul>
+          <div class="nf-acts">
+            <button type="button" class="nf-ico" :class="{ star: n.starred }" :title="n.starred ? 'Remove star' : 'Star'" :aria-label="n.starred ? 'Remove star' : 'Star'" @click="toggleStar(n)">
+              <svg width="16" height="16" viewBox="0 0 24 24" :fill="n.starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></svg></button>
+            <button type="button" class="nf-ico" :title="n.read ? 'Mark as unread' : 'Mark as read'" :aria-label="n.read ? 'Mark as unread' : 'Mark as read'" @click="toggleRead(n)">
+              <!-- The icon shows the state (Khairul, 3 Nov): unread = closed envelope, read = open envelope. Click to switch. -->
+              <svg v-if="!n.read" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              <svg v-else width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-9"/><path d="m3 10 9-7 9 7"/><path d="m3 10 9 6 9-6"/></svg></button>
+            <button type="button" class="nf-ico clear" title="Clear" aria-label="Clear" @click="clearOne(n)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          </div>
+        </li>
+      </ul>
+    </section>
   </main>
 </template>
 
 <style scoped>
-.nf-page { max-width: 760px; }
-.nf-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-.nf-head h1 { margin: 0; font-size: 20px; }
-.nf-sub { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
-.nf-filters { display: flex; gap: 8px; flex-wrap: wrap; }
-.nf-error { color: #b42318; font-size: 13px; }
-
-/* Buttons: reset anything the app's global button styles may set (fixed width or height, big padding). */
-.nf-chip, .nf-btn, .nf-toggle {
-  appearance: none; box-sizing: border-box; width: auto; min-width: 0; height: auto; min-height: 0; margin: 0;
-  line-height: 1.3; color: inherit; font: inherit; font-size: 12px; cursor: pointer;
-}
-.nf-chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 5px 12px; white-space: nowrap; }
-.nf-chip.on { border-color: var(--accent); color: var(--accent); }
-.nf-chip:disabled { opacity: .5; cursor: default; }
-
-.nf-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.nf-group { border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); min-width: 0; }
-.nf-group:hover, .nf-group.expanded { border-color: var(--accent); }
-
-.nf-group-head { display: flex; align-items: center; gap: 10px; padding: 4px 14px 4px 4px; flex-wrap: wrap; }
-.nf-toggle {
-  flex: 1 1 260px; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left;
-  border: 0; background: none; padding: 10px; font-size: 13px;
-}
-.nf-chevron { width: 14px; flex: none; color: var(--muted); }
-.nf-group-title { flex: 1 1 auto; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
-.nf-group.unread .nf-group-title { font-weight: 700; }
-.nf-star-mark { color: #f79009; margin-left: 4px; }
-.nf-count { flex: none; min-width: 20px; padding: 1px 7px; border-radius: 999px; background: rgba(128, 128, 128, .18); font-size: 11px; text-align: center; }
-.nf-unread-pill { flex: none; padding: 1px 8px; border-radius: 999px; background: #d92d20; color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.nf-when { flex: none; color: var(--muted); font-size: 11px; white-space: nowrap; }
-
-.nf-sublist { list-style: none; margin: 0; padding: 0 14px 10px 32px; display: grid; gap: 6px; }
-.nf-sub-item { border-top: 1px solid var(--border); padding-top: 8px; min-width: 0; }
-.nf-sub-item:not(.unread) { opacity: .75; }
-.nf-row { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-.nf-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; background: transparent; flex: none; }
-.nf-sub-item.unread .nf-dot { background: #d92d20; }
-.nf-text { flex: 1 1 auto; min-width: 0; font-size: 13px; cursor: pointer; }
-.nf-msg { color: var(--text-2); overflow-wrap: anywhere; }
-
-.nf-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 4px; padding-left: 18px; }
-.nf-btn { border: 0; background: none; color: var(--muted); padding: 2px 4px; white-space: nowrap; }
-.nf-btn:hover { color: var(--accent); }
-.nf-star { font-size: 18px; line-height: 1; }
-.nf-star.on { color: #f79009; }
+/* Full width, like the other pages (Khairul, 3 Nov) */
+.nf-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.nf-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+.nf-tabs { display: flex; gap: 4px; }
+.nf-tab { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 10px 14px; margin-bottom: -1px; font: inherit; font-size: 14px; font-weight: 500;
+  color: var(--text-2); border-bottom: 2px solid transparent; cursor: pointer; }
+.nf-tab:hover { color: var(--accent); }
+.nf-tab.on { color: var(--accent); font-weight: 600; border-bottom-color: var(--accent); }
+.nf-n { min-width: 20px; padding: 1px 7px; border-radius: 999px; background: #d92d20; color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
+.nf-n.star { background: #f79009; color: #fff; }   /* same orange as the star icon */
+.nf-area-pick { margin-bottom: 8px; }
+.nf-empty { color: var(--muted); font-size: 13px; }
+.nf-section { margin-bottom: 18px; }
+.nf-section h2 { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); margin: 0 0 8px; }
+.nf-sec-n { padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; letter-spacing: 0; }
+.nf-unread-sub { color: var(--accent); font-weight: 700; }
+.nf-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.nf-row { --tone: var(--muted); --tone-soft: var(--chip); position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 12px 10px 12px 14px;
+  transition: background var(--fast, .15s), box-shadow var(--fast, .15s); }
+.nf-row + .nf-row { border-top: 1px solid var(--line, var(--border)); }
+/* Each area has its theme colour, used on its tag only */
+.a-issues { --tone: var(--amber); --tone-soft: var(--amber-soft); }
+.a-finance { --tone: var(--green); --tone-soft: var(--green-soft); }
+.a-leads { --tone: var(--blue); --tone-soft: var(--blue-soft); }
+.a-listings { --tone: var(--navy); --tone-soft: var(--navy-soft); }
+.a-agreements, .a-updates { --tone: var(--accent); --tone-soft: var(--accent-soft); }
+.a-hr { --tone: var(--red); --tone-soft: var(--red-soft); }
+/* Unread rows stay white: bold title and the red dot mark them (toned down, Khairul 3 Nov) */
+/* Hover: a clear highlight in the theme colour, the title turns accent */
+.nf-row:hover { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.nf-row:hover .nf-title { color: var(--accent); }
+.nf-dot { flex: none; width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: transparent; }
+.nf-row.unread .nf-dot { background: var(--accent); }
+.nf-main { flex: 1 1 auto; min-width: 0; display: grid; gap: 3px; border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.nf-title { font-size: 14px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.nf-row.unread .nf-title { font-weight: 700; }
+.nf-row:not(.unread) .nf-title, .nf-row:not(.unread) .nf-msg { opacity: .8; }
+.nf-msg { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.nf-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.nf-area { padding: 1px 8px; border-radius: 999px; background: var(--tone-soft, var(--chip)); color: var(--tone, var(--text-2)); font-weight: 600; }
+.nf-area.a-other { --tone: var(--text-2); --tone-soft: var(--chip); }
+.nf-acts { flex: none; display: flex; gap: 2px; }
+.nf-ico { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
+.nf-ico:hover { background: var(--accent-soft); color: var(--accent); }
+.nf-ico.star { color: #f79009; }
+.nf-ico.clear { color: var(--danger, #d92d20); }
+.nf-ico.clear:hover { background: color-mix(in srgb, var(--danger, #d92d20) 12%, transparent); color: var(--danger, #d92d20); }
+@media (pointer: coarse) { .nf-ico { width: 40px; height: 40px; } }
+@media (max-width: 600px) { .nf-row { flex-wrap: wrap; } .nf-acts { width: 100%; justify-content: flex-end; margin-top: -4px; } }
 </style>
