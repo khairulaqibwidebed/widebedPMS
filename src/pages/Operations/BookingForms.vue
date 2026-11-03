@@ -12,7 +12,8 @@
           <div><b>Booking Form</b><span>Log a booking: tenant, stay, rental and deposit, payment and door passcodes. Replaces the Reservation Lodgment form.</span></div>
           <span class="open-btn">{{ bookingOpen ? 'Hide form' : 'Show form' }} <svg class="chev" :class="{ up: bookingOpen }" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
         </button>
-        <div class="form-frame booking-embed" v-if="bookingOpen">
+        <div class="form-frame booking-embed sheet" v-if="bookingOpen">
+          <div class="sheet-head"><b>Booking Form</b><button type="button" class="btn" @click="bookingOpen = false">Close</button></div>
           <div class="notice ok" v-show="bookedMsg">{{ bookedMsg }}</div>
           <BookingForm embedded :lead-id="leadId" :key="leadId" @close="bookingOpen = false" @saved="m => bookedMsg = m" />
         </div>
@@ -20,13 +21,17 @@
           <div><b>Utility Lodgment Form</b><span>Log utility invoices to an active booking.</span></div>
           <span class="open-btn">{{ utilityOpen ? 'Hide form' : 'Show form' }} <svg class="chev" :class="{ up: utilityOpen }" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
         </button>
-        <div class="form-frame" v-if="utilityOpen"><UtilityForm @close="utilityOpen = false" /></div>
+        <div class="form-frame sheet" v-if="utilityOpen">
+          <div class="sheet-head"><b>Utility Lodgment Form</b><button type="button" class="btn" @click="utilityOpen = false">Close</button></div>
+          <UtilityForm @close="utilityOpen = false" />
+        </div>
         <template v-for="f in LINKS" :key="f.name">
           <button type="button" class="form-row" :aria-expanded="String(openName === f.name)" @click="toggle(f)">
             <div><b>{{ f.name }}</b><span>{{ f.about }}</span></div>
             <span class="open-btn">{{ openName === f.name ? 'Hide form' : 'Show form' }} <svg class="chev" :class="{ up: openName === f.name }" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
           </button>
-          <div class="form-frame soon" v-if="openName === f.name">
+          <div class="form-frame soon sheet" v-if="openName === f.name">
+            <div class="sheet-head"><b>{{ f.name }}</b><button type="button" class="btn" @click="openName = ''">Close</button></div>
             <p class="muted">{{ f.note }}</p>
           </div>
         </template>
@@ -74,4 +79,21 @@ export default {
     .booking-embed :deep(.bottom-actions) { padding-bottom: 4px; }
     .booking-embed :deep(.card) { background: var(--surface); }
     .page-note { color: var(--muted); font-size: 12px; margin-top: 14px; }
+    /* Phones: an open form fills the screen like a pop-up, with Close at the top and its Save buttons pinned at the bottom.
+       Desktop keeps the form opening inside the list. */
+    .sheet-head { display: none; }
+    @media (max-width: 600px) {
+      .form-frame.sheet { position: fixed; inset: 0; z-index: 45; margin: 0; border: 0; border-radius: 0; overflow-y: auto; overscroll-behavior: contain;
+        padding: 0 14px; background: var(--surface); animation: fade var(--fast) ease-out; }
+      .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 2;
+        margin: 0 -14px 10px; padding: max(10px, env(safe-area-inset-top, 0px)) 14px 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
+      .sheet-head b { font-size: 16px; }
+      .booking-embed.sheet { padding-top: 0; }
+      .form-frame.sheet :deep(.bottom-actions) { position: sticky; bottom: 0; z-index: 2; margin: 8px -14px 0; padding: 12px 14px max(12px, env(safe-area-inset-bottom, 0px));
+        background: var(--surface); border-top: 1px solid var(--border); }
+      .form-frame.sheet :deep(.bottom-actions .btn) { flex: 1 1 auto; }
+      /* The form's sections sit straight on the sheet: no frames */
+      .form-frame.sheet :deep(.card) { border: 0; border-radius: 0; padding: 14px 0; background: transparent; box-shadow: none; }
+      .form-frame.sheet :deep(.card + .card) { border-top: 1px solid var(--border); }
+    }
 </style>

@@ -26,8 +26,8 @@
       <div class="filters">
         <div class="field grow"><label>Search</label><input class="input" v-model="q" placeholder="Search by name, property, ref…"></div>
         <div class="field"><label>Month</label><MonthPicker v-model="month" all-label="All months" @change="pickMonth" /></div>
-        <div class="field"><label>From date</label><input class="input" type="date" v-model="from" @input="month = ''"></div>
-        <div class="field"><label>To date</label><input class="input" type="date" v-model="to" @input="month = ''"></div>
+        <FormField label="From date" type="date" v-model="from" @input="month = ''" />
+        <FormField label="To date" type="date" v-model="to" @input="month = ''" />
         <div class="field"><label>Status</label>
           <OptionPicker v-model="status" :options="STATUS_OPTS" label="Status" /></div>
       </div>
@@ -74,17 +74,17 @@
           </div>
           <div class="v-edit-grid" v-else>
             <div class="notice error" v-show="formError" style="grid-column: 1 / -1">{{ formError }}</div>
-            <div class="field"><label class="req">Payment date</label><input class="input" type="date" v-model="ed.date"></div>
-            <div class="field"><label class="req">Amount (RM)</label><input class="input" type="number" min="0" step="0.01" v-model="ed.amount"></div>
+            <FormField label="Payment date" req type="date" v-model="ed.date" />
+            <FormField label="Amount (RM)" req type="number" min="0" step="0.01" v-model="ed.amount" />
             <div class="field"><label>Payment method</label>
               <OptionPicker class="fld-pick" v-model="ed.mode" :options="MODES" label="Payment method" /></div>
-            <div class="field"><label>Bank reference</label><input class="input" v-model="ed.bankRef"></div>
+            <FormField label="Bank reference" v-model="ed.bankRef" />
             <div class="field"><label class="req">Property</label>
               <OptionPicker class="fld-pick" v-model="ed.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="editProperty" /></div>
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="ed.unitCode" :disabled="!ed.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-            <div class="field"><label class="req">Guest / tenant name</label><input class="input" v-model="ed.guest"></div>
-            <div class="field" v-if="canEdit"><label>Payment code</label><input class="input" v-model="ed.remarks" placeholder="Add payment code"></div>
+            <FormField label="Guest / tenant name" req v-model="ed.guest" />
+            <FormField v-if="canEdit" label="Payment code" v-model="ed.remarks" placeholder="Add payment code" />
             <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
           </div>
           <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :label="nameOf(view)" :readonly="!(canEdit || opsEdit(view))" :key="view.id" @folder="l => saveFolder(view, l)" />
@@ -125,8 +125,8 @@
             <div class="field" v-if="rep.type === 'yearly'"><label>Year</label>
               <OptionPicker class="fld-pick" v-model="rep.year" :options="yearOptions" label="Year" /></div>
             <template v-if="rep.type === 'custom'">
-              <div class="field"><label>From date</label><input class="input" type="date" v-model="rep.from"></div>
-              <div class="field"><label>To date</label><input class="input" type="date" v-model="rep.to"></div>
+              <FormField label="From date" type="date" v-model="rep.from" />
+              <FormField label="To date" type="date" v-model="rep.to" />
             </template>
           </div>
           <div class="modal-foot">
@@ -146,9 +146,9 @@
           <div class="grid">
             <div class="field"><label class="req">Status <span class="muted">(Unknown = no receipt)</span></label>
               <OptionPicker class="fld-pick" v-model="f.status" :options="statusOptions('')" label="Status" /></div>
-            <div class="field"><label class="req">Payment date</label><input class="input" type="date" v-model="f.date"></div>
+            <FormField label="Payment date" req type="date" v-model="f.date" />
             <p class="help wide" v-if="f.status === 'Unknown'">Unknown only needs the date and amount. Operations can fill in the rest later.</p>
-            <div class="field"><label class="req">Amount (RM)</label><input class="input" type="number" min="0" step="0.01" v-model="f.amount" placeholder="0.00"></div>
+            <FormField label="Amount (RM)" req type="number" min="0" step="0.01" v-model="f.amount" placeholder="0.00" />
             <template v-if="f.status !== 'Unknown'">
               <div class="field"><label class="req">Payment method</label>
                 <OptionPicker class="fld-pick" v-model="f.mode" :options="MODES" label="Payment method" /></div>
@@ -156,8 +156,8 @@
                 <OptionPicker class="fld-pick" v-model="f.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList" /></div>
               <div class="field"><label class="req">Unit</label>
                 <OptionPicker class="fld-pick" v-model="f.unitCode" :disabled="!f.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-              <div class="field"><label class="req">Guest / tenant name</label><input class="input" v-model="f.guest"></div>
-              <div class="field"><label>Bank reference</label><input class="input" v-model="f.bankRef"></div>
+              <FormField label="Guest / tenant name" req v-model="f.guest" />
+              <FormField label="Bank reference" v-model="f.bankRef" />
               <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
               <div class="field wide"><label class="req">Receipts / documents</label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
               <div class="field wide"><label>Payment code</label><input class="input" v-model="f.remarks"></div>
@@ -179,12 +179,13 @@ import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { can } from '@/lib/access.js';
 import { toast } from '@/lib/toast.js';
+import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import Paged from '@/components/Paged.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import { loadProperties, loadUnits, audit, friendlyError, loadXlsxLib, download, toCSV } from '@/lib/finance-data.js';
 import MonthPicker from '@/components/MonthPicker.vue';
-import { notifyRole } from '@/services/notificationService.js';
+import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { monthOffset } from '@/lib/format.js';
 
 const MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); MODES.unshift({ value: '', label: 'Choose method' });
@@ -194,7 +195,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '' });
 
 export default {
-  components: { OptionPicker, Paged, DriveFiles, MonthPicker },
+  components: { FormField, OptionPicker, Paged, DriveFiles, MonthPicker },
   data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: { view(r) { this.loadHistory(r); } },
   computed: {
@@ -347,11 +348,21 @@ export default {
         await batch.commit(); Object.assign(r, data); toast('Changes saved');
       } catch (e) { this.error = friendlyError(e, 'save the change'); }
     },
-    setStatus(r, v) {
+    async setStatus(r, v) {
       if (v === r.status) return;
       const me = useSession();
-      this.patch(r, { status: v, verifiedByName: v === 'Pending' ? '' : me.name, verifiedDate: v === 'Pending' ? '' : today() }, 'status', r.status);
+      await this.patch(r, { status: v, verifiedByName: v === 'Pending' ? '' : me.name, verifiedDate: v === 'Pending' ? '' : today() }, 'status', r.status);
+      if (r.status !== v) return;   // not saved (the error is shown)
       if (v === 'Unknown') this.tellOperations(r);
+      if (v === 'Checked') this.tellFiller(r, me);
+    },
+    // Checked: the person who filled in an Unknown payment (Operations) hears that Finance checked it (3 Nov 2026)
+    tellFiller(r, me) {
+      const uid = r.editedByUid;
+      if (!uid || uid === me.user.uid) return;
+      notifyUser({ recipientUid: uid, type: 'payment', refId: r.id, link: '/Finance/offline-payments', title: 'Offline payment checked',
+        message: `${me.name} checked the RM ${Number(r.amount || 0).toFixed(2)} payment from ${r.guest || 'a guest'}${r.unitCode ? ' (' + r.unitCode + ')' : ''} you filled in.` })
+        .catch(e => console.error('Notification failed', e));
     },
     // ---- report: monthly, yearly or custom dates; all properties or one ----
     async openReport() {

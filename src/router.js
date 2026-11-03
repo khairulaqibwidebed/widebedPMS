@@ -45,7 +45,7 @@ const routes = [
 
   // Agreements: every role fills in forms and sees records. Setup (forms, formulas, templates, designer) needs its tick.
   page('/Agreements', () => import('./pages/Agreements/Records.vue'), 'Agreements', ALL),
-  page('/Agreements/renewals', () => import('./pages/Agreements/Renewals.vue'), 'Agreements', ALL, { title: 'Agreement renewals' }),
+  page('/Agreements/renewals', () => import('./pages/Agreements/Renewals.vue'), 'Renewals', ALL, { title: 'Agreement renewals' }),
   page('/Agreements/record/:id', () => import('./pages/Agreements/RecordEdit.vue'), 'Agreements', ALL, { title: 'Agreement' }),
   ticked('/Agreements/setup', () => import('./pages/Agreements/Setup.vue'), 'Agreement Setup', 'agreementSetup'),
   ticked('/Agreements/setup/form/:id', () => import('./pages/Agreements/FormBuilder.vue'), 'Agreement Setup', 'agreementSetup', { title: 'Form builder' }),
@@ -72,6 +72,7 @@ const routes = [
   page('/HR/director-complaints', () => import('./pages/HR/DirectorComplaints.vue'), 'Director Complaints', DH),
   page('/HR/raise-complaint', () => import('./pages/HR/RaiseComplaint.vue'), 'Raise a Complaint', ALL),
   page('/Notifications', () => import('./pages/Notifications.vue'), 'Notifications', ALL),
+  page('/whats-new', () => import('./pages/WhatsNew/WhatsNew.vue'), "What's New", ALL),
 
   // Old prototype addresses (…/page.html) still work.
   { path: '/index.html', redirect: to => ({ path: '/', query: to.query }) },

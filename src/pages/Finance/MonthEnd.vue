@@ -219,12 +219,7 @@
             <div class="notice ok">{{ `Sent to the Director${approvals[sel.unitId].submittedByName ? ' by ' + approvals[sel.unitId].submittedByName : ''}. The numbers are frozen until they approve or send it back.` }}</div>
             <RouterLink class="btn btn-primary" to="/Finance/statement-approvals" v-if="role === 'director'" style="margin-right:8px">Review in Statement Approvals</RouterLink>
             <button class="btn" v-show="!pulling" @click="pulling = true" :disabled="busy">Pull back</button>
-            <div class="confirm-box" v-show="pulling">
-              <b>{{ `Pull ${sel.unitCode} back?` }}</b>
-              <p class="help" style="margin:4px 0 10px">It becomes editable again. You can send it again when it is ready.</p>
-              <div class="field"><label for="pullWhy">Reason <span style="color:#d92d20">*required</span></label><input class="input" id="pullWhy" v-model="pullReason" placeholder="e.g. A booking was missing"></div>
-              <div class="actions"><button class="btn btn-primary" @click="pullBack()" :disabled="busy || !pullReason.trim()">Pull back</button><button class="btn" @click="pulling = false">Cancel</button></div>
-            </div>
+            <ConfirmReason v-if="pulling" :title="`Pull ${sel.unitCode} back?`" text="It becomes editable again. You can send it again when it is ready." label="Reason" placeholder="e.g. A booking was missing" v-model="pullReason" confirm-text="Pull back" :busy="busy" @confirm="pullBack()" @cancel="pulling = false" />
           </div>
           <div class="actions" style="margin-top:14px" v-else>
             <div class="notice error" v-if="sentState(sel) === 'returned'">{{ `Sent back by ${approvals[sel.unitId].returnedByName || 'the Director'}: ${approvals[sel.unitId].returnReason}` }}</div>
@@ -241,12 +236,7 @@
             </div>
           </template>
           <template v-if="reopening && sel.status === 'completed'">
-            <div class="confirm-box">
-              <b>{{ `Reopen ${sel.unitCode}?` }}</b>
-              <p class="help" style="margin:4px 0 10px">The statement stays saved. Completing again saves a new revision and keeps the old one. Its brought-forward line in the next month is removed.</p>
-              <div class="field"><label>Reason (audit log)</label><input class="input" v-model="overrideReason"></div>
-              <div class="actions"><button class="btn btn-primary" @click="reopen()" :disabled="busy || !overrideReason.trim()">Reopen</button><button class="btn" @click="reopening = false">Cancel</button></div>
-            </div>
+            <ConfirmReason :title="`Reopen ${sel.unitCode}?`" text="The statement stays saved. Completing again saves a new revision and keeps the old one. Its brought-forward line in the next month is removed." v-model="overrideReason" confirm-text="Reopen" :busy="busy" @confirm="reopen()" @cancel="reopening = false" />
           </template>
         </section>
         </div>
@@ -324,7 +314,7 @@ import { db } from '@/lib/firebase.js';
 import { clearCache } from '@/lib/cache.js';
 import { toast } from '@/lib/toast.js';
 import { completeStatement } from '@/lib/statement-approve.js';
-import { notifyRole } from '@/services/notificationService.js';
+import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { otaKeyOf, ARRANGEMENTS, DM_STARTER, paymentSummary, byUnit, nextMonth, r2 } from '@/lib/engine.js';
 import { loadProperties, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, monthSummary } from '@/lib/finance-data.js';
 import { draftRecord, monthEndFromSummaries, ALL_MONTHS } from '@/lib/summaries.js';
@@ -355,8 +345,9 @@ import AddBookingModal from '@/components/AddBookingModal.vue';
 import RemoveBookingsModal from '@/components/RemoveBookingsModal.vue';
 import RemovedBookings from '@/components/RemovedBookings.vue';
 import StatementLines from '@/components/StatementLines.vue';
+import ConfirmReason from '@/components/ConfirmReason.vue';
 export default {
-  components: { OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines },
+  components: { OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines, ConfirmReason },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -656,12 +647,21 @@ export default {
     // Removed: status 'cancelled' + removedByHand, so every total and export ignores it. Moved: unitId changes + movedByHand.
     // Added: a booking with manual: true and typed figures (edits.ov*). A re-upload of the eZee report keeps removals and moves (Upload.vue).
     removedList() { return (this.unitFull[this.sel?.unitId]?.bookings || []).filter(b => b.removedByHand && b.status === 'cancelled'); },
-    handChangesOf(unitId) {
+    // Moved out: those bookings now belong to the other unit, so they are looked up by movedByHand.fromUnitId
+    // (one small query, only when sending). The Director then sees both sides of a move (Statement Approvals).
+    async handChangesOf(unitId) {
       const bk = this.unitFull[unitId]?.bookings || [];
-      const added = bk.filter(b => b.manual && b.status !== 'cancelled').map(b => b.reservationNo);
+      let movedOut = [];
+      try {
+        const snap = await getDocs(query(collection(db, 'bookings'), where('movedByHand.fromUnitId', '==', unitId), where('departureMonth', '==', this.month)));
+        movedOut = snap.docs.map(d => ({ reservationNo: d.id, ...d.data() })).filter(b => b.propertyId === this.propertyId && b.status !== 'cancelled' && b.unitId !== unitId)
+          .map(b => ({ reservationNo: String(b.reservationNo), to: b.unitCode || null, reason: b.movedByHand?.reason || '' }));
+      } catch (e) { console.warn('Moved-out bookings not checked:', e); }
+      // Added = made by hand on THIS unit. A hand-made booking moved in from another unit counts only as Moved in.
+      const added = bk.filter(b => b.manual && !b.movedByHand && b.status !== 'cancelled').map(b => b.reservationNo);
       const moved = bk.filter(b => b.movedByHand && b.status !== 'cancelled').map(b => ({ reservationNo: b.reservationNo, from: b.movedByHand.fromUnitCode || null, reason: b.movedByHand.reason || '' }));
       const removed = bk.filter(b => b.removedByHand && b.status === 'cancelled').map(b => ({ reservationNo: b.reservationNo, reason: b.removedByHand.reason || '' }));
-      return added.length || moved.length || removed.length ? { added, moved, removed } : null;
+      return added.length || moved.length || removed.length || movedOut.length ? { added, moved, movedOut, removed } : null;
     },
     startRemove() { this.menuOpen = false; this.picked = []; this.removing = true; this.error = ''; },
     cancelRemove() { this.removing = false; this.picked = []; this.removeAsk = false; },
@@ -839,7 +839,7 @@ export default {
     async sendToDirector(r) {
       const id = statementId(r.unitId, this.month), old = this.approvals[r.unitId];
       const b = writeBatch(db);
-      const data = { propertyId: this.propertyId, unitId: r.unitId, unitCode: r.unitCode, month: this.month, status: 'submitted', snapshot: JSON.parse(JSON.stringify(r)), handChanges: this.handChangesOf(r.unitId),
+      const data = { propertyId: this.propertyId, unitId: r.unitId, unitCode: r.unitCode, month: this.month, status: 'submitted', snapshot: JSON.parse(JSON.stringify(r)), handChanges: await this.handChangesOf(r.unitId),
         payout: r.totals.payout, submittedBy: me.user.uid, submittedByName: me.name, submittedAt: serverTimestamp(), again: this.reopened(r),
         returnReason: null, returnedBy: null, returnedByName: '', withdrawReason: null };
       if (old) b.update(doc(db, 'approvals', id), data); else b.set(doc(db, 'approvals', id), data);
@@ -859,6 +859,9 @@ export default {
         audit(b, me, { action: 'statement.pullback', entity: `approvals/${a.id}`, propertyId: this.propertyId, month: this.month,
           changes: [{ field: 'status', old: 'submitted', new: 'withdrawn' }], reason: this.pullReason.trim() });
         await b.commit();
+        // The Director is told, so it doesn't just vanish from Statement Approvals (3 Nov 2026)
+        notifyRole({ recipientRole: 'director', title: 'Statement pulled back', message: `${r.unitCode} · ${monthName(this.month)} · ${this.propertyName()}: ${this.pullReason.trim()}`,
+          type: 'statement', link: '/Finance/statement-approvals', refId: a.id }).catch(e => console.warn('Director notification not sent:', e));
         this.pulling = false; this.pullReason = '';
         this.okMsg = `${r.unitCode} pulled back. You can edit it again.`;
         await this.reloadAt(r.unitId);
@@ -892,6 +895,11 @@ export default {
         audit(b, me, { action: 'statement.reopen', entity: `statements/${id}`, propertyId: this.propertyId, month: this.month,
           changes: [{ field: 'status', old: 'completed', new: 'reopened' }], reason });
         await b.commit();
+        // The person who sent it to the Director is told (3 Nov 2026)
+        const sender = this.approvals[r.unitId]?.submittedBy;
+        if (sender && sender !== me.user.uid)
+          notifyUser({ recipientUid: sender, title: 'Statement reopened', message: `${r.unitCode} · ${monthName(this.month)} · ${this.propertyName()} reopened by ${me.name}: ${reason}`,
+            type: 'statement', link: `/Finance/month-end?property=${this.propertyId}&month=${this.month}`, refId: id }).catch(e => console.warn('Notification not sent:', e));
         this.reopening = false; this.overrideReason = '';
         this.okMsg = `${r.unitCode} reopened for ${monthName(this.month)}.`;
         await this.reloadAt(r.unitId);

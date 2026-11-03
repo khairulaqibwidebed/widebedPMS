@@ -19,6 +19,8 @@ export const SOON_DAYS = 60;
 
 // Fields that can hold the end date: date fields, and formulas that give a date.
 export const endFieldsOf = form => (form?.fields || []).filter(f => valueType(f) === 'date' && f.type !== 'section');
+// Fields that can hold a unit/room number: text and dropdown fields.
+export const unitFieldsOf = form => (form?.fields || []).filter(f => ['text', 'dropdown'].includes(f.type));
 
 export const tracked = form => !!(form?.renewal?.on && form.renewal.endFieldId);
 
@@ -32,6 +34,14 @@ export function endDateOf(form, values) {
   if (!tracked(form)) return '';
   const v = computeValues(form.fields, values || {})[form.renewal.endFieldId];
   return typeof v === 'string' && ISO_DATE.test(v) ? v : '';
+}
+
+// The record's unit number, if the form has a unit field chosen in Renewal settings. '' if not set.
+export function unitOf(form, values) {
+  const fieldId = form?.renewal?.unitFieldId;
+  if (!fieldId) return '';
+  const v = computeValues(form.fields, values || {})[fieldId];
+  return typeof v === 'string' ? v.trim() : '';
 }
 
 // Today in Malaysia as YYYY-MM-DD, and whole days from today to a date (negative = already ended).

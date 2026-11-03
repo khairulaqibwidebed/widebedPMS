@@ -35,15 +35,15 @@
             <tbody>
               <template v-for="t in pageRows" :key="t.id">
                 <tr class="clickable" @click="open(t.id)">
-                  <td class="nw">{{ t.id }}</td>
-                  <td class="t-title">{{ t.title }}</td>
-                  <td class="nw">{{ t.unit || '—' }}</td>
+                  <td class="nw ct-sub">{{ t.id }}<span class="ct-only" v-if="t.unit">{{ ' · ' + t.unit }}</span></td>
+                  <td class="t-title ct-title">{{ t.title }}</td>
+                  <td class="nw ct-hide">{{ t.unit || '—' }}</td>
                   <td><div class="tag-wrap"><template v-for="g in t.tags" :key="g"><span class="tag">{{ g }}</span></template></div></td>
                   <td><span class="who"><Avatar :uid="t.raisedByUid" :name="t.raisedBy" :role="t.raisedRole" :size="20" />{{ t.raisedBy }}<span class="tag role-tint" :style="roleTint(t.raisedRole)" v-if="showRole(t.raisedBy, t.raisedRole)">{{ t.raisedRole }}</span></span></td>
                   <td class="nw">{{ day(t.raisedAt) }}</td>
-                  <td class="nw"><span class="pill" :class="STATUS[t.status].cls">{{ STATUS[t.status].label }}</span></td>
-                  <td class="cnt">{{ t.replyCount || 0 }}</td>
-                  <td class="cnt">{{ t.linkCount || 0 }}</td>
+                  <td class="nw ct-badge"><span class="pill" :class="STATUS[t.status].cls">{{ STATUS[t.status].label }}</span></td>
+                  <td class="cnt ct-hide">{{ t.replyCount || 0 }}</td>
+                  <td class="cnt ct-hide">{{ t.linkCount || 0 }}</td>
                 </tr>
               </template>
               <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">No tickets match.</td></tr>
@@ -125,7 +125,8 @@
             </div>
             <button class="btn" style="width:100%;margin-top:8px" @click="auditOpen = true">Audit log</button>
             </div>
-            <div class="help">Mark completed locks the ticket and moves it to Completed. Nobody can comment or change tags after that.</div>
+            <!-- Quote & invoice: anyone on the ticket adds the quote; Finance/Director approve and add it to the unit's expenses (owner pays) -->
+            <TicketQuote :key="ticket.id" :ticket="ticket" @view="f => $refs.viewer.open(f)" />
           </div>
         </div>
       </div>
@@ -175,7 +176,7 @@
               <span class="help" v-show="!tagEdit.tags.length">No roles tagged</span>
             </div>
             <OptionPicker class="add-role" v-show="tagEdit.tags.length < TAGS.length" v-model="addPick" :options="addOptions()" label="Add a role" @change="addTag($event)" /></div>
-          <div class="field"><label for="tWhy">Reason</label><input class="input" id="tWhy" v-model="tagEdit.reason" placeholder="e.g. Not an IT issue"></div>
+          <FormField id="tWhy" label="Reason" v-model="tagEdit.reason" placeholder="e.g. Not an IT issue" />
           <div class="help">The department that raised the ticket always stays tagged.</div>
           <div class="modal-foot"><button type="button" class="btn" @click="tagEdit = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Save tags</button></div>
         </form>
@@ -228,6 +229,7 @@
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
 import { db, ROLE_LABEL, CUSTOM_ROLES } from '@/lib/firebase.js';
+import FormField from '@/components/FormField.vue';
 import ComboInput from '@/components/ComboInput.vue';
 import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
@@ -237,6 +239,7 @@ import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
+import TicketQuote from '@/components/TicketQuote.vue';
 
 const me = useSession();
 const myRole = ROLE_LABEL[me.role] || me.role;          // 'Finance', 'Director'
@@ -253,8 +256,10 @@ const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In p
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'active', label: 'Not completed' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];
 // Each tag is answered by one sign-in role ('Admin' has no sign-in role yet, so Directors cover it).
-// Directors are always notified: they see every ticket.
+// Roles made on the Roles page are tagged by name and notified by their id (rules Draft 0.21).
+// Directors see every ticket but are only notified when Director (or Admin) is tagged (Khairul, 3 Nov 2026).
 const TAG_ROLE = { Director: 'director', IT: 'it', Admin: 'director', HR: 'hr', Finance: 'finance', Operations: 'operations', Procurement: 'procurement', Marketing: 'marketing' };
+const roleForTag = g => TAG_ROLE[g] || Object.keys(CUSTOM_ROLES).find(id => CUSTOM_ROLES[id].name === g) || null;
 const LIST_LIMIT = 500;
 let unitCache = null;
 // Links must point at the company Google Drive (Drive, Docs, Sheets, Slides).
@@ -269,7 +274,7 @@ const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [
 
 export default {
   beforeCreate() { TAGS = tagsNow(); },
-  components: { Avatar, ComboInput, OptionPicker, UploadFile, FileViewer },
+  components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer, TicketQuote },
   data() {
     return {
       TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
@@ -547,12 +552,12 @@ export default {
     },
 
     // Notifications are best effort: a failed one is logged and never blocks or undoes the ticket action.
-    // Roles get one shared notification each (read state is per person); the person who raised the ticket
+    // Only the tagged roles are told (the Director too only when tagged). Roles get one shared notification each (read state is per person); the person who raised the ticket
     // gets their own, unless they already receive the role one. You never see notifications you caused.
     async notify(t, { title, message, tags = t.tags, includeRaiser = true }) {
       const link = `/Operations/issues?id=${t.id}`;
-      const roles = [...new Set(['director', ...tags.map(g => TAG_ROLE[g]).filter(Boolean)])];
-      const raiserRole = t.raisedRole === 'Director' ? 'director' : TAG_ROLE[t.raisedRole];
+      const roles = [...new Set(tags.map(roleForTag).filter(Boolean))];
+      const raiserRole = roleForTag(t.raisedRole);
       const base = { title, message, type: 'issue', refId: t.id, link };
       const jobs = roles.map(recipientRole => notifyRole({ ...base, recipientRole }));
       if (includeRaiser && t.raisedByUid && t.raisedByUid !== me.user.uid && !roles.includes(raiserRole))

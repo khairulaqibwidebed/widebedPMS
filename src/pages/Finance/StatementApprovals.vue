@@ -100,8 +100,9 @@
           </div>
           <div class="notice warn hand-note" v-if="sel.handChanges">
             <b>Bookings were changed by hand on this unit. Look at them before approving.</b>
-            <div v-for="x in (sel.handChanges.added || [])" :key="'a' + x">{{ `Added: ${x}` }}</div>
+            <div v-for="x in addedOnly(sel.handChanges)" :key="'a' + x">{{ `Added: ${x}` }}</div>
             <div v-for="x in (sel.handChanges.moved || [])" :key="'m' + x.reservationNo">{{ `Moved in: ${x.reservationNo} from ${x.from || 'another unit'}${x.reason ? ' (' + x.reason + ')' : ''}` }}</div>
+            <div v-for="x in (sel.handChanges.movedOut || [])" :key="'o' + x.reservationNo">{{ `Moved out: ${x.reservationNo} to ${x.to || 'another unit'}${x.reason ? ' (' + x.reason + ')' : ''}` }}</div>
             <div v-for="x in (sel.handChanges.removed || [])" :key="'r' + x.reservationNo">{{ `Removed: ${x.reservationNo}${x.reason ? ' (' + x.reason + ')' : ''}` }}</div>
           </div>
           <h3 class="t">{{ `Bookings · ${(s.lines || []).length}` }}</h3>
@@ -139,7 +140,7 @@ import { completeStatement } from '@/lib/statement-approve.js';
 import { monthEndFromSummaries } from '@/lib/summaries.js';
 import { propertyMonth, canWriteSummaries } from '@/lib/summary-data.js';
 import { paymentSummary } from '@/lib/engine.js';
-import { notifyRole } from '@/services/notificationService.js';
+import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { amt, pct, dmy, stamp, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { askConfirm } from '@/lib/confirm.js';
@@ -185,7 +186,9 @@ export default {
   },
   async created() { await this.load(); },
   methods: {
-    handText(h) { return [h.added?.length ? `${h.added.length} added` : '', h.moved?.length ? `${h.moved.length} moved in` : '', h.removed?.length ? `${h.removed.length} removed` : ''].filter(Boolean).join(' · '); },
+    // A booking moved in shows only as Moved in, even if it was first added by hand on the other unit (statements sent before 3 Nov listed it twice)
+    addedOnly(h) { return (h?.added || []).filter(x => !(h.moved || []).some(m => m.reservationNo === x)); },
+    handText(h) { const add = this.addedOnly(h); return [add.length ? `${add.length} added` : '', h.moved?.length ? `${h.moved.length} moved in` : '', h.movedOut?.length ? `${h.movedOut.length} moved out` : '', h.removed?.length ? `${h.removed.length} removed` : ''].filter(Boolean).join(' · '); },
     propertyName(id) { return this.properties.find(p => p.id === id)?.name || id; },
     // On Waiting the month is an optional filter (all months until one is picked); on History it picks the month to read
     pickMonth(m) { if (this.tab === 'waiting') this.waitMonth = m; else { this.month = m; this.loadHistory(); } },
@@ -253,6 +256,7 @@ export default {
         await this.approve(a, ctx, this.overrideReason);
         this.okMsg = `${a.unitCode} approved and completed for ${monthName(a.month)}.`;
         this.sel = null;
+        this.tellApproved([a]);
       } catch (e) { this.drawerError = e.code ? friendlyError(e, 'approve the statement') : e.message; }
       this.busy = false;
     },
@@ -271,9 +275,32 @@ export default {
         for (const a of list) { await this.approve(a, ctx); done++; }
         this.okMsg = `${done} statement${done === 1 ? '' : 's'} approved for ${g.propertyName} · ${monthName(g.month)}.`;
       } catch (e) {
+        this.tellApproved(list.slice(0, done));
         this.error = `${done} approved, then it stopped: ` + (e.code ? friendlyError(e, 'approve the statements') : e.message);
       }
+      if (done === list.length) this.tellApproved(list);
       this.busy = false;
+    },
+    // Approved (3 Nov 2026): the person who sent each statement is told (one notice per person, however many units),
+    // and Finance gets "Owner payment due" for the units with money to pay. Best effort, never blocks the approval.
+    tellApproved(list) {
+      if (!list.length) return;
+      const jobs = [], bySender = new Map();
+      for (const a of list) if (a.submittedBy && a.submittedBy !== me.user.uid) bySender.set(a.submittedBy, [...(bySender.get(a.submittedBy) || []), a]);
+      for (const [uid, items] of bySender) {
+        const a = items[0];
+        jobs.push(notifyUser({ recipientUid: uid, type: 'statement', refId: a.id, link: `/Finance/month-end?property=${a.propertyId}&month=${a.month}`,
+          title: items.length === 1 ? 'Statement approved' : `${items.length} statements approved`,
+          message: `${items.map(x => x.unitCode).join(', ').slice(0, 300)} · ${monthName(a.month)} approved by ${me.name}.` }));
+      }
+      const due = list.filter(a => Number(a.payout) > 0.004);
+      if (due.length) {
+        const a = due[0];
+        jobs.push(notifyRole({ recipientRole: 'finance', type: 'statement', refId: a.id, link: `/Finance/invoices?property=${a.propertyId}&month=${a.month}`,
+          title: 'Owner payment due',
+          message: (due.length === 1 ? `${a.unitCode} · ${monthName(a.month)}: RM ${amt(a.payout)} to pay the owner.` : `${due.length} units · ${monthName(a.month)}: ${due.map(x => x.unitCode).join(', ')}`.slice(0, 500)) }));
+      }
+      Promise.allSettled(jobs).then(r => r.forEach(x => { if (x.status === 'rejected') console.warn('Notification not sent:', x.reason); }));
     },
     async sendBack() {
       const a = this.sel; if (!a || this.busy || !this.returnReason.trim()) return;
@@ -285,8 +312,11 @@ export default {
         audit(b, me, { action: 'statement.return', entity: `approvals/${a.id}`, propertyId: a.propertyId, month: a.month,
           changes: [{ field: 'status', old: 'submitted', new: 'returned' }], reason });
         await b.commit();
-        notifyRole({ recipientRole: 'finance', title: 'Statement sent back', message: `${a.unitCode} · ${monthName(a.month)}: ${reason}`,
-          type: 'statement', link: `/Finance/month-end?property=${a.propertyId}&month=${a.month}`, refId: a.id }).catch(e => console.warn('Finance notification not sent:', e));
+        // To the person who sent it (3 Nov 2026); to all of Finance only for an old record with no sender
+        const back = { title: 'Statement sent back', message: `${a.unitCode} · ${monthName(a.month)}: ${reason}`,
+          type: 'statement', link: `/Finance/month-end?property=${a.propertyId}&month=${a.month}`, refId: a.id };
+        (a.submittedBy ? (a.submittedBy !== me.user.uid ? notifyUser({ ...back, recipientUid: a.submittedBy }) : Promise.resolve()) : notifyRole({ ...back, recipientRole: 'finance' }))
+          .catch(e => console.warn('Finance notification not sent:', e));
         this.waiting = this.waiting.filter(x => x.id !== a.id);
         if (this.returnedCount != null) this.returnedCount++;
         this.okMsg = `${a.unitCode} sent back to Finance.`;
