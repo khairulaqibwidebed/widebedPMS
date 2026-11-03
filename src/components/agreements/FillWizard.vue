@@ -55,7 +55,7 @@
       <span class="grow"></span>
       <button type="button" class="btn" v-if="draftLabel" :disabled="busy" @click="emit('draft')">{{ draftLabel }}</button>
       <button v-if="!onReview" type="button" class="btn btn-primary" :disabled="busy" @click="next">{{ index === steps.length - 1 ? 'Review' : 'Next' }} →</button>
-      <button v-else type="button" class="btn btn-primary wz-submit" :disabled="busy || (consent && !agreed)" @click="submit">{{ busy ? 'Sending…' : submitLabel }}</button>
+      <button v-else type="button" class="btn btn-primary wz-submit" :disabled="busy || (!!consent && !agreed)" @click="submit">{{ busy ? 'Sending…' : submitLabel }}</button>
     </div>
   </div>
 </template>

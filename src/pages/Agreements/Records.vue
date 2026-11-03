@@ -8,6 +8,7 @@
         <div class="sub">{{ form ? 'Every record of this agreement. Open one to edit it or make its PDF.' : 'Pick an agreement to see its records, fill in a new one or send a fill-in link.' }}</div>
       </div>
       <div class="head-tools">
+        <RouterLink v-if="!form" class="btn" to="/Agreements/renewals">Renewals</RouterLink>
         <RouterLink v-if="isAdmin && !form" class="btn" to="/Agreements/setup">Setup</RouterLink>
         <button v-if="form && isAdmin" class="btn" @click="links = form">Fill-in links</button>
         <button v-if="form" class="btn btn-primary" @click="newRecord(form.id)">+ New {{ form.name }}</button>
