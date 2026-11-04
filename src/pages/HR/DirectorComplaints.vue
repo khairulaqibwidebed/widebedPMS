@@ -29,7 +29,7 @@
             <thead><tr><th>Ref</th><th>Date</th><th>Subject</th><th>From</th><th>Status</th></tr></thead>
             <tbody>
               <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="showSent = false; open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.subject }}</td><td>{{ c.fromName }}</td>
-                <td><span class="pill" :class="c.read ? 'green' : 'amber'">{{ c.read ? 'Read' : 'Not read' }}</span></td></tr>
+                <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td></tr>
               <tr v-show="!loading && !list.length"><td colspan="5" class="muted">Nothing sent yet.</td></tr>
             </tbody>
           </table>
@@ -49,7 +49,7 @@
           <thead><tr><th>Ref</th><th>Date</th><th>From</th><th>Subject</th><th>Status</th><th></th></tr></thead>
           <tbody>
             <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.fromName }}</td><td>{{ c.subject }}</td>
-              <td><span class="pill" :class="c.read ? 'green' : 'amber'">{{ c.read ? 'Read' : 'New' }}</span></td>
+              <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td>
               <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td></tr>
             <tr v-show="!loading && !list.length"><td colspan="6" class="muted">No complaints yet.</td></tr>
           </tbody>
@@ -65,20 +65,44 @@
             <h2>{{ `${sel.ref} · ${sel.subject}` }}</h2>
             <button type="button" class="cp-x" aria-label="Close" @click="sel = null">×</button>
           </div>
+          <div class="notice error" v-show="actErr">{{ actErr }}</div>
           <div class="cp-split">
             <div class="cp-left">
               <div class="kv"><span>Date</span><span>{{ sel.date }}</span></div>
               <div class="kv"><span>From</span><span>{{ sel.fromName }}</span></div>
-              <div class="kv"><span>Status</span><span><span class="pill" :class="sel.read ? 'green' : 'amber'">{{ sel.read ? 'Read by the Directors' : 'Not read yet' }}</span></span></div>
+              <!-- Directors set the status (4 Nov 2026), like HR on staff complaints; HR sees it read-only.
+                   Closed asks for a closing note first; picking another status on a Closed one reopens it. -->
+              <div class="kv"><span>Status</span><span class="st-row">
+                <OptionPicker v-if="!isHr" class="st-pick" :model-value="selStatus" :options="statusOptions" label="Status" @update:model-value="pickStatus" />
+                <span v-else class="pill" :class="st(sel)[1]">{{ st(sel)[0] }}</span></span></div>
+              <div class="close-box" v-if="closing">
+                <label for="dcClose" class="req">Closing note (HR sees it)</label>
+                <textarea class="input" id="dcClose" v-model="closeNote" maxlength="2000" placeholder="e.g. Salaries for part-timers will be paid on the 25th from next month."></textarea>
+                <div class="row-btns"><button class="btn" @click="closing = false">Cancel</button><button class="btn btn-primary" :disabled="busy || !closeNote.trim()" @click="status('closed', closeNote)">Close complaint</button></div>
+              </div>
               <div class="field" style="margin-top:12px"><label>Details</label><div class="detail">{{ sel.details }}</div></div>
               <PhotoThumbs :images="selPhotos" />
               <!-- Sent before 4 Nov: only file names were kept (the files were never uploaded) -->
               <div class="file-names" v-show="sel.files && sel.files.length">{{ 'File names given (not uploaded): ' + sel.files.join(', ') }}</div>
+
+              <!-- Directors' notes: only the Directors see these -->
+              <section class="fu" v-if="!isHr">
+                <h3>Directors' notes <span class="only">Only Directors see these</span></h3>
+                <div class="msgs" v-if="notes.length">
+                  <div class="msg note" v-for="n in notes" :key="n.id || n.text"><div class="who">{{ n.byName || 'Director' }}<span class="when">{{ when(n.createdAt) }}</span></div><div class="txt">{{ n.text }}</div></div>
+                </div>
+                <p class="help" v-else-if="!notesLoading">No notes yet.</p>
+                <div class="compose">
+                  <textarea class="input" v-model="noteText" maxlength="2000" placeholder="e.g. Discussed with Finance on 5 Nov" aria-label="Director note"></textarea>
+                  <button class="btn" :disabled="busy || !noteText.trim()" @click="note()">Add note</button>
+                </div>
+              </section>
             </div>
-            <ComplaintChat :key="sel.id" :complaint="sel" :side="isHr ? 'hr' : 'director'" :labels="{ hr: 'HR', director: 'Director' }"
+            <ComplaintChat ref="chat" :key="sel.id" :complaint="sel" :side="isHr ? 'hr' : 'director'" :labels="{ hr: 'HR', director: 'Director' }"
               :title="isHr ? 'Conversation with the Directors' : 'Conversation with HR'"
               :hint="isHr ? 'The Directors get a notification for each reply.' : 'HR gets a notification for each reply.'"
-              :placeholder="isHr ? 'Reply to the Directors' : 'Reply to HR'" @complaint-photos="p => selPhotos = p" />
+              :placeholder="isHr ? 'Reply to the Directors' : 'Reply to HR'" @complaint-photos="p => selPhotos = p"
+              :can-reply="selStatus !== 'closed'" :closed-text="isHr ? 'Closed by the Directors. They can reopen it.' : 'Closed. Pick another status on the left to reopen it and reply.'" />
           </div>
         </div>
       </div>
@@ -90,8 +114,11 @@
 // HR sends, Directors read. Only a Director opening a complaint marks it read. IT and other staff never see this page.
 // 4 Nov 2026: HR no longer sees the Directors' inbox (only "Sent before", which opens each complaint); each complaint has a
 // conversation between HR and the Directors with photos (components/ComplaintChat.vue, rules Draft 0.29).
-import { loadComplaints, createComplaint, markRead } from './complaints.js';
+// 4 Nov 2026: the Directors set the status (Read by the Directors / In review / Closed with a note / reopen) and keep their
+// own notes; every update notifies HR and the Directors (complaints.js tellBoth, rules Draft 0.30).
+import { loadComplaints, createComplaint, markRead, loadNotes, addNote, setStatus, DSTATUS, dirStatus } from './complaints.js';
 import PhotoPicker from '@/components/PhotoPicker.vue';
+import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
 import ComplaintChat from '@/components/ComplaintChat.vue';
 import { friendlyError } from '@/lib/finance-data.js';
@@ -100,11 +127,17 @@ import { useSession } from '@/stores/session.js';
 const me = useSession();
 
 export default {
-  components: { PhotoPicker, PhotoThumbs, ComplaintChat },
-  computed: { isHr() { return me.role === 'hr'; } },
+  components: { PhotoPicker, PhotoThumbs, ComplaintChat, OptionPicker },
+  computed: {
+    isHr() { return me.role === 'hr'; },
+    selStatus() { return this.sel ? dirStatus(this.sel) : 'new'; },
+    // New is only where a complaint starts; the Directors move it on from there
+    statusOptions() { return ['new', 'read', 'review', 'closed'].map(k => ({ value: k, label: DSTATUS[k][0], disabled: k === 'new' })); }
+  },
   data() {
     return {
-      list: [], showSent: false, loading: true, loadErr: '', busy: false, subject: '', details: '', photos: [], err: '', okMsg: '', sel: null, selPhotos: []
+      list: [], showSent: false, loading: true, loadErr: '', busy: false, subject: '', details: '', photos: [], err: '', okMsg: '', sel: null, selPhotos: [],
+      notes: [], notesLoading: false, noteText: '', closing: false, closeNote: '', actErr: ''
     };
   },
   async mounted() {
@@ -121,13 +154,39 @@ export default {
       this.loading = false;
     },
     clear() { this.subject = ''; this.details = ''; this.photos = []; this.err = ''; },
-    // Opening a complaint marks it as read for the Directors
+    st(c) { return DSTATUS[dirStatus(c)] || DSTATUS.new; },
+    when(t) { return t?.toDate ? t.toDate().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Just now'; },
+    // Opening a complaint marks it as read for the Directors and loads their notes
     async open(c) {
-      this.sel = c; this.selPhotos = [];
-      if (c.read || me.role !== 'director') return;
-      try { await markRead(me, c); c.read = true; }
+      this.sel = c; this.selPhotos = []; this.notes = []; this.noteText = ''; this.closing = false; this.closeNote = ''; this.actErr = '';
+      if (me.role !== 'director') return;
+      this.notesLoading = true;
+      loadNotes(c.id).then(n => { if (this.sel === c) this.notes = n; })
+        .catch(e => { this.actErr = friendlyError(e, 'load the notes'); }).finally(() => { this.notesLoading = false; });
+      if (c.read) return;
+      try { await markRead(me, c); c.read = true; if (!c.status) c.status = 'read'; }
       catch (e) { this.loadErr = friendlyError(e, 'mark the complaint as read'); }
     },
+    async run(fn, what) {
+      this.busy = true; this.actErr = '';
+      try { await fn(); } catch (e) { this.actErr = e.code ? friendlyError(e, what) : e.message; }
+      this.busy = false;
+    },
+    pickStatus(to) {
+      if (this.busy || to === this.selStatus) return;
+      if (to === 'closed') { this.closing = true; this.closeNote = ''; return; }   // applied by "Close complaint" with its note
+      this.closing = false;
+      this.status(to);
+    },
+    status(to, text = '') {
+      return this.run(async () => {
+        await setStatus(me, this.sel, to, text);
+        // The closing note is a message in the conversation
+        if (text) this.$refs.chat?.thread.push({ text: text.trim(), by: 'director', byName: me.name, closing: true, createdAt: null });
+        this.sel.status = to; this.closing = false; this.closeNote = '';
+      }, 'change the status');
+    },
+    note() { return this.run(async () => { this.notes.push(await addNote(me, this.sel, this.noteText)); this.noteText = ''; }, 'add the note'); },
     async send() {
       this.err = ''; this.okMsg = '';
       if (!this.subject.trim()) return this.err = 'Add a subject.';
@@ -168,4 +227,22 @@ export default {
     .cp-left { min-height: 0; overflow-y: auto; padding-right: 12px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
     @media (max-width: 860px) { .cp-modal { height: auto; } .cp-split { grid-template-columns: 1fr; } .cp-left { overflow: visible; padding-right: 0; } }
     .detail { white-space: pre-wrap; font-size: 13px; background: var(--hover); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    /* Status drop-down, closing note and Directors' notes: same look as the staff complaints (StaffComplaints.vue) */
+    .st-pick :deep(.op-pop) { left: auto; right: 0; }
+    .st-row { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .close-box { display: grid; gap: 6px; margin: 10px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--hover); }
+    .close-box label { font-size: 12px; font-weight: 600; }
+    .row-btns { display: flex; gap: 8px; justify-content: flex-end; }
+    .fu { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .fu h3 { font-size: 14px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+    .only { font-size: 11px; font-weight: 600; color: var(--amber); background: var(--amber-soft); padding: 1px 8px; border-radius: 999px; }
+    .msgs { display: grid; gap: 8px; margin: 10px 0; }
+    .msg { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); }
+    .msg.note { background: var(--amber-soft); max-width: 100%; }
+    .who { font-size: 11px; font-weight: 600; color: var(--text-2); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 3px; }
+    .when { color: var(--muted); font-weight: 400; }
+    .txt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+    .compose { display: grid; gap: 8px; margin-top: 8px; }
+    .compose textarea, .close-box textarea { min-height: 70px; }
+    .compose .btn { justify-self: end; }
 </style>

@@ -10,6 +10,10 @@ import { notifyRole, notifyUser } from '@/services/notificationService';
 
 export const today = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 export const STATUS = { new: ['New', 'amber'], read: ['Read by HR', 'blue'], review: ['In review', 'blue'], closed: ['Closed', 'green'] };
+// Director complaints (4 Nov 2026): the Directors set the status like HR does on staff complaints. Ones sent before
+// that have only read: true/false, so dirStatus falls back to it.
+export const DSTATUS = { new: ['New', 'amber'], read: ['Read by the Directors', 'blue'], review: ['In review', 'blue'], closed: ['Closed', 'green'] };
+export const dirStatus = c => c.status || (c.read ? 'read' : 'new');
 // Staff complaint refs are SC-0001 (Staff Complaint). They were CP- until 4 Nov 2026; those older saved refs are shown as
 // SC- by showRef (same number, the counter carries on), so the old prefix never appears on screen.
 const KIND = { staff: { counter: 'staffComplaints', prefix: 'SC-', width: 4 }, director: { counter: 'directorComplaints', prefix: 'DC-', width: 3 } };
@@ -108,12 +112,13 @@ export async function markStaffRead(me, c) {
   return true;
 }
 
-// A Director opening a Director complaint marks it read.
+// A Director opening a Director complaint marks it read (status Read by the Directors); HR and the other Directors are told.
 export async function markRead(me, c) {
   const batch = writeBatch(db);
-  batch.update(doc(db, 'complaints', c.id), { read: true, readAt: serverTimestamp(), readBy: me.user.uid });
+  batch.update(doc(db, 'complaints', c.id), { read: true, readAt: serverTimestamp(), readBy: me.user.uid, ...(c.status ? {} : { status: 'read' }) });
   audit(batch, me, { action: 'complaint.read', entity: `complaints/${c.id}`, changes: [{ field: 'read', old: false, new: true }] });
   await batch.commit();
+  tellBoth(c, `The Directors have read complaint ${c.ref}`, `${me.name || 'A Director'} opened it.`);
 }
 
 // ---- Follow-up (4 Nov 2026) ----
@@ -144,6 +149,10 @@ export async function loadNotes(id) {
 }
 const clean = t => String(t || '').trim().slice(0, TEXT_MAX);
 const tell = p => p.catch(e => console.warn('Notification not sent:', e));
+// Director complaints: every update goes to HR and to the Directors (the person who made it never sees their own).
+function tellBoth(c, title, message = 'Open the complaint for the details.', roles = ['hr', 'director']) {
+  for (const r of roles) tell(notifyRole({ recipientRole: r, type: 'complaint', refId: c.id, link: `/HR/director-complaints?id=${c.id}`, title, message }));
+}
 
 // Staff complaints: by = 'hr' (HR replying) or 'sender' (the named sender replying back).
 // Director complaints (HR to the Directors): by = 'hr' or 'director'; each side's bell rings when the other replies.
@@ -156,11 +165,8 @@ export async function addReply(me, c, text, by, images = []) {
   for (const x of imgs) b.set(x.ref, imageDoc(x.im, 'thread', r.id, me.user.uid));
   audit(b, me, { action: 'complaint.reply', entity: `complaints/${c.id}`, changes: [{ field: 'reply', old: null, new: by === 'hr' ? 'HR' : by === 'director' ? 'Director' : 'Sender' }] });
   await b.commit();
-  if (c.kind === 'director') {
-    const toDirectors = by === 'hr';
-    tell(notifyRole({ recipientRole: toDirectors ? 'director' : 'hr', type: 'complaint', refId: c.id, link: `/HR/director-complaints?id=${c.id}`,
-      title: toDirectors ? `HR replied on complaint ${c.ref}` : `The Directors replied on complaint ${c.ref}`, message: 'Open the complaint to read it.' }));
-  } else if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
+  if (c.kind === 'director') tellBoth(c, by === 'hr' ? `HR replied on complaint ${c.ref}` : `The Directors replied on complaint ${c.ref}`, 'Open the complaint to read it.');
+  else if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
     title: `HR replied to your complaint ${c.ref}`, message: 'Open My complaints to read it.' }));
   else if (by === 'sender') tell(notifyRole({ recipientRole: 'hr', type: 'complaint', refId: c.id, link: `/HR/staff-complaints?id=${c.id}`,
     title: `New reply on complaint ${c.ref}`, message: 'The sender replied. Open the complaint to read it.' }));
@@ -175,18 +181,26 @@ export async function addNote(me, c, text) {
   b.set(doc(collection(db, 'complaints', c.id, 'notes')), { text: t, byName: me.name || '', byUid: me.user.uid, createdAt: serverTimestamp() });
   audit(b, me, { action: 'complaint.note', entity: `complaints/${c.id}`, changes: [{ field: 'note', old: null, new: 'added' }] });
   await b.commit();
+  // Director complaints: notes are the Directors' own (HR never sees them), so only the other Directors are told
+  if (c.kind === 'director') tellBoth(c, `A Director added a note on complaint ${c.ref}`, 'Open the complaint to read it.', ['director']);
   return { text: t, byName: me.name || '', createdAt: null };
 }
 
-// HR: 'review' (In review), 'closed' (needs a note, which the sender sees) or back to 'review' (Reopen)
+// HR on a staff complaint, or the Directors on a Director complaint: 'read', 'review' (In review), 'closed' (needs a note,
+// which the other side sees) or back to 'review' (Reopen)
 export async function setStatus(me, c, status, note = '') {
-  const t = clean(note);
-  if (status === 'closed' && !t) throw new Error('Add a closing note for the sender.');
-  const b = writeBatch(db), old = c.status;
+  const dir = c.kind === 'director', t = clean(note);
+  if (status === 'closed' && !t) throw new Error(dir ? 'Add a closing note for HR.' : 'Add a closing note for the sender.');
+  const b = writeBatch(db), old = dir ? dirStatus(c) : c.status;
   b.update(doc(db, 'complaints', c.id), { status, statusAt: serverTimestamp(), statusBy: me.user.uid });
-  if (t) b.set(doc(collection(db, 'complaints', c.id, 'thread')), { text: t, by: 'hr', byName: me.name || '', byUid: me.user.uid, closing: true, createdAt: serverTimestamp() });
+  if (t) b.set(doc(collection(db, 'complaints', c.id, 'thread')), { text: t, by: dir ? 'director' : 'hr', byName: me.name || '', byUid: me.user.uid, closing: true, createdAt: serverTimestamp() });
   audit(b, me, { action: 'complaint.status', entity: `complaints/${c.id}`, changes: [{ field: 'status', old, new: status }] });
   await b.commit();
+  if (dir) {
+    const DTITLE = { read: `Complaint ${c.ref} is marked Read by the Directors`, review: `The Directors are looking into complaint ${c.ref}`, closed: `The Directors closed complaint ${c.ref}` };
+    return tellBoth(c, old === 'closed' ? `The Directors reopened complaint ${c.ref}` : DTITLE[status] || `Complaint ${c.ref} was updated`,
+      status === 'closed' ? 'Open the complaint to read the closing note.' : 'Open the complaint for the details.');
+  }
   // Notification wording per status (edit the sentences here)
   const TITLE = { read: `HR has read your complaint ${c.ref}`, review: `HR is looking into your complaint ${c.ref}`, closed: `Your complaint ${c.ref} is closed` };
   const title = old === 'closed' ? `Your complaint ${c.ref} has been reopened` : TITLE[status] || `Your complaint ${c.ref} was updated`;
