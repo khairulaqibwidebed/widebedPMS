@@ -433,6 +433,7 @@ import {
   createAssignment, updateAssignment, submitSelfAssessment, provideDirectorReview, sendBackForDiscussion,
   approveKpiRating, rerateKpi, reopenAndSendBack, postDiscussionReply, postDirectorReply, getDiscussionThread,
   editDiscussionComment, deleteDiscussionComment,
+  getConversation, addChatMessage, editChatMessage, deleteChatMessage, addSystemMessage, markConversationAsRead,
   suggestDeadlineRating, customThresholds, getSubmission
 } from '@/lib/performance/kpi.js';
 import { avatarSrc, initialOf, roleColor } from '@/lib/avatars.js';
@@ -476,6 +477,11 @@ const discussionReplies = reactive({});
 const editingComment = ref(null);
 const editingCommentText = ref('');
 const employeeDiscussionThreads = reactive({});
+const chatModalOpen = ref(null);
+const currentConversation = ref(null);
+const chatInput = ref('');
+const editingMessageId = ref(null);
+const editingMessageText = ref('');
 
 const mySub = id => mySubs.value[id] || null;
 const getEmployeeDiscussionThread = assignmentId => employeeDiscussionThreads[assignmentId] || null;
