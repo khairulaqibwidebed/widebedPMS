@@ -22,7 +22,7 @@
         <!-- KPI cards -->
         <section class="kpis">
           <RouterLink class="card kpi kpi-link" to="/Reports" title="Open Reports">
-            <div class="label">Rental income!!!!</div>
+            <div class="label">Rental income</div>
             <div class="value">{{ rm(data.rentalIncome) }}</div>
             <div class="hint">{{ `From eZee, checked out in ${shortMonth(month)}` }}</div>
           </RouterLink>

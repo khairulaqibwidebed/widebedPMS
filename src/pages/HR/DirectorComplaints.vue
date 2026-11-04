@@ -28,7 +28,7 @@
           <table class="table">
             <thead><tr><th>Ref</th><th>Date</th><th>Subject</th><th>From</th><th>Status</th></tr></thead>
             <tbody>
-              <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="showSent = false; open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.subject }}</td><td>{{ c.fromName }}</td>
+              <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="showSent = false; open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.subject }}</td><td><span class="who-cell"><Avatar :uid="c.fromUid" :name="c.fromName" role="hr" :size="24" />{{ c.fromName }}</span></td>
                 <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td></tr>
               <tr v-show="!loading && !list.length"><td colspan="5" class="muted">Nothing sent yet.</td></tr>
             </tbody>
@@ -42,16 +42,24 @@
     <!-- The Directors' inbox is for Directors only; HR follows what they sent under "Sent before" (4 Nov 2026) -->
     <section class="card" v-if="!isHr">
       <div class="card-head"><h2>Directors' inbox</h2><span class="help">{{ `${list.filter(c => !c.read).length} not read` }}</span></div>
+      <!-- Status filter, the themed drop-down with a count per status (4 Nov 2026) -->
+      <div class="list-tools">
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input class="input" type="search" v-model="q" placeholder="Search ref, name or subject" aria-label="Search ref, name or subject">
+        </div>
+        <OptionPicker v-model="filter" :options="filterOptions" label="Status" />
+      </div>
       <div class="loading-bar" v-show="loading"></div>
-      <Paged :items="list" v-slot="{ pageRows }">
+      <Paged :items="inboxShown" v-slot="{ pageRows }">
       <div class="table-wrap">
         <table class="table">
           <thead><tr><th>Ref</th><th>Date</th><th>From</th><th>Subject</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.fromName }}</td><td>{{ c.subject }}</td>
+            <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td><span class="who-cell"><Avatar :uid="c.fromUid" :name="c.fromName" role="hr" :size="24" />{{ c.fromName }}</span></td><td>{{ c.subject }}</td>
               <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td>
               <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td></tr>
-            <tr v-show="!loading && !list.length"><td colspan="6" class="muted">No complaints yet.</td></tr>
+            <tr v-show="!loading && !inboxShown.length"><td colspan="6" class="muted">{{ q.trim() ? `Nothing matches "${q.trim()}".` : list.length ? 'No complaints with this status.' : 'No complaints yet.' }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -69,7 +77,7 @@
           <div class="cp-split">
             <div class="cp-left">
               <div class="kv"><span>Date</span><span>{{ sel.date }}</span></div>
-              <div class="kv"><span>From</span><span>{{ sel.fromName }}</span></div>
+              <div class="kv"><span>From</span><span class="who-cell"><Avatar :uid="sel.fromUid" :name="sel.fromName" role="hr" :size="24" />{{ sel.fromName }}</span></div>
               <!-- Directors set the status (4 Nov 2026), like HR on staff complaints; HR sees it read-only.
                    Closed asks for a closing note first; picking another status on a Closed one reopens it. -->
               <div class="kv"><span>Status</span><span class="st-row">
@@ -89,7 +97,7 @@
               <section class="fu" v-if="!isHr">
                 <h3>Directors' notes <span class="only">Only Directors see these</span></h3>
                 <div class="msgs" v-if="notes.length">
-                  <div class="msg note" v-for="n in notes" :key="n.id || n.text"><div class="who">{{ n.byName || 'Director' }}<span class="when">{{ when(n.createdAt) }}</span></div><div class="txt">{{ n.text }}</div></div>
+                  <div class="msg note" v-for="n in notes" :key="n.id || n.text"><div class="who"><Avatar :uid="n.byUid" :name="n.byName" role="director" :size="18" />{{ n.byName || 'Director' }}<span class="when">{{ when(n.createdAt) }}</span></div><div class="txt">{{ n.text }}</div></div>
                 </div>
                 <p class="help" v-else-if="!notesLoading">No notes yet.</p>
                 <div class="compose">
@@ -121,22 +129,33 @@ import PhotoPicker from '@/components/PhotoPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
 import ComplaintChat from '@/components/ComplaintChat.vue';
+import Avatar from '@/components/Avatar.vue';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
 
 export default {
-  components: { PhotoPicker, PhotoThumbs, ComplaintChat, OptionPicker },
+  components: { PhotoPicker, PhotoThumbs, ComplaintChat, OptionPicker, Avatar },
   computed: {
     isHr() { return me.role === 'hr'; },
     selStatus() { return this.sel ? dirStatus(this.sel) : 'new'; },
+    // Status filter, then search by ref, sender name or subject (4 Nov 2026)
+    inboxShown() {
+      const q = this.q.trim().toLowerCase();
+      return this.list.filter(c => (this.filter === 'all' || dirStatus(c) === this.filter)
+        && (!q || [c.ref, c.fromName, c.subject].some(v => String(v || '').toLowerCase().includes(q))));
+    },
+    filterOptions() {
+      const n = k => this.list.filter(c => dirStatus(c) === k).length;
+      return [{ value: 'all', label: `All statuses (${this.list.length})` }, ...['new', 'read', 'review', 'closed'].map(k => ({ value: k, label: `${DSTATUS[k][0]} (${n(k)})` }))];
+    },
     // New is only where a complaint starts; the Directors move it on from there
     statusOptions() { return ['new', 'read', 'review', 'closed'].map(k => ({ value: k, label: DSTATUS[k][0], disabled: k === 'new' })); }
   },
   data() {
     return {
-      list: [], showSent: false, loading: true, loadErr: '', busy: false, subject: '', details: '', photos: [], err: '', okMsg: '', sel: null, selPhotos: [],
+      list: [], filter: 'all', q: '', showSent: false, loading: true, loadErr: '', busy: false, subject: '', details: '', photos: [], err: '', okMsg: '', sel: null, selPhotos: [],
       notes: [], notesLoading: false, noteText: '', closing: false, closeNote: '', actErr: ''
     };
   },
@@ -216,6 +235,11 @@ export default {
     .filedrop b { color: var(--accent); }
     .file-names { font-size: 12px; color: var(--text-2); margin-top: 6px; }
     .who-line { margin: 4px 0 0; }
+    .list-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .search-box { position: relative; flex: 1 1 260px; max-width: 420px; }
+    .search-box svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+    .search-box .input { width: 100%; padding-left: 36px; }
+    .who-cell { display: inline-flex; align-items: center; gap: 8px; }   /* profile picture + name (4 Nov 2026) */
     .sent-row { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; padding: 10px 8px; }
     .sent-row:hover { background: var(--accent-soft); }
     .cp-modal { max-width: 1180px; width: calc(100% - 32px); height: min(860px, 90vh); display: flex; flex-direction: column; padding-bottom: 16px; }

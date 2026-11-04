@@ -2,30 +2,37 @@
   <main class="content soft-page">
     <div class="page-head">
       <div><h1>Staff complaints</h1><div class="sub">Complaints sent to HR by staff</div></div>
-      <div class="head-tools"><span class="chip">View only</span></div>
     </div>
     <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="pills brand" style="margin-bottom:16px">
-      <button class="pill-btn" v-for="f in filters" :key="f[0]" :class="{ on: filter === f[0] }" @click="filter = f[0]">{{ f[1] }}</button>
-    </div>
-    <div class="loading-bar" v-show="loading"></div>
-    <Paged :items="shown()" v-slot="{ pageRows }">
-    <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Ref</th><th>Date</th><th>From</th><th>Subject</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="open(c)">
-            <td>{{ c.ref }}</td><td>{{ c.date }}</td>
-            <td><span class="anon" v-show="c.anonymous">Anonymous</span><span v-show="!c.anonymous">{{ c.fromName }}</span></td>
-            <td>{{ c.subject }}</td>
-            <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td>
-            <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td>
-          </tr>
-          <tr v-show="!loading && !shown().length"><td colspan="6" class="muted">No complaints here.</td></tr>
-        </tbody>
-      </table>
-    </div>
-    </Paged>
+    <!-- The list sits in a coloured card like the Directors' inbox, with search and the status drop-down (4 Nov 2026) -->
+    <section class="card">
+      <div class="card-head"><h2>HRs' Inbox</h2><span class="help">{{ `${list.filter(c => c.status === 'new').length} new` }}</span></div>
+      <div class="list-tools">
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input class="input" type="search" v-model="q" placeholder="Search ref, name or subject" aria-label="Search ref, name or subject">
+        </div>
+        <OptionPicker v-model="filter" :options="filterOptions" label="Status" />
+      </div>
+      <div class="loading-bar" v-show="loading"></div>
+      <Paged :items="shown()" v-slot="{ pageRows }">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Ref</th><th>Date</th><th>From</th><th>Subject</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="open(c)">
+              <td>{{ c.ref }}</td><td>{{ c.date }}</td>
+              <td><span class="who-cell"><Avatar :anonymous="c.anonymous" :uid="c.fromId" :name="c.fromName" :size="24" />{{ c.anonymous ? 'Anonymous' : c.fromName }}</span></td>
+              <td>{{ c.subject }}</td>
+              <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td>
+              <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td>
+            </tr>
+            <tr v-show="!loading && !shown().length"><td colspan="6" class="muted">{{ q.trim() ? `Nothing matches "${q.trim()}".` : 'No complaints here.' }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      </Paged>
+    </section>
     <p class="help" style="margin-top:12px">Complaints sent anonymously show "Anonymous" and HR cannot see who sent them. Opening a New complaint marks it "Read by HR", which the sender sees under My complaints. HR cannot change the details or delete a complaint. Only HR sees this page.</p>
 
     <template v-if="sel">
@@ -40,7 +47,7 @@
           <div class="cp-split">
             <div class="cp-left">
               <div class="kv"><span>Date</span><span>{{ sel.date }}</span></div>
-              <div class="kv"><span>From</span><span>{{ sel.anonymous ? 'Anonymous' : sel.fromName }}</span></div>
+              <div class="kv"><span>From</span><span class="who-cell"><Avatar :anonymous="sel.anonymous" :uid="sel.fromId" :name="sel.fromName" :size="24" />{{ sel.anonymous ? 'Anonymous' : sel.fromName }}</span></div>
               <!-- Status drop-down. Closed asks for a closing note first; picking another status on a Closed one reopens it. -->
               <div class="kv"><span>Status</span><span class="st-row">
                 <OptionPicker class="st-pick" :model-value="sel.status" :options="statusOptions" label="Status" @update:model-value="pickStatus" /></span></div>
@@ -58,7 +65,7 @@
               <section class="fu notes">
                 <h3>HR notes <span class="only">Only HR sees these</span></h3>
                 <div class="msgs" v-if="notes.length">
-                  <div class="msg note" v-for="n in notes" :key="n.id || n.text"><div class="who">{{ n.byName || 'HR' }}<span class="when">{{ when(n.createdAt) }}</span></div><div class="txt">{{ n.text }}</div></div>
+                  <div class="msg note" v-for="n in notes" :key="n.id || n.text"><div class="who"><Avatar :uid="n.byUid" :name="n.byName" role="hr" :size="18" />{{ n.byName || 'HR' }}<span class="when">{{ when(n.createdAt) }}</span></div><div class="txt">{{ n.text }}</div></div>
                 </div>
                 <p class="help" v-else-if="!fuLoading">No notes yet.</p>
                 <div class="compose">
@@ -76,10 +83,13 @@
               </div>
               <div class="chat-msgs" ref="chat">
                 <div class="loading-bar" v-show="fuLoading"></div>
-                <div class="msg" v-for="m in thread" :key="m.id || m.text" :class="m.by === 'hr' ? 'hr' : 'them'">
-                  <div class="who">{{ m.by === 'hr' ? 'HR' + (m.byName ? ' · ' + m.byName : '') : (sel.anonymous ? 'Sender' : sel.fromName || 'Sender') }}<span v-if="m.closing" class="tag">Closing note</span><span class="when">{{ when(m.createdAt) }}</span></div>
-                  <div class="txt" v-if="m.text">{{ m.text }}</div>
-                  <PhotoThumbs :images="photosOf(m)" />
+                <div class="msg-row" v-for="m in thread" :key="m.id || m.text" :class="m.by === 'hr' ? 'mine' : 'theirs'">
+                  <Avatar class="msg-av" :anonymous="m.by !== 'hr' && sel.anonymous" :uid="m.byUid" :name="m.by === 'hr' ? m.byName : sel.fromName" :role="m.by === 'hr' ? 'hr' : null" :size="30" />
+                  <div class="msg" :class="m.by === 'hr' ? 'hr' : 'them'">
+                    <div class="who">{{ m.by === 'hr' ? 'HR' + (m.byName ? ' · ' + m.byName : '') : (sel.anonymous ? 'Sender' : sel.fromName || 'Sender') }}<span v-if="m.closing" class="tag">Closing note</span><span class="when">{{ when(m.createdAt) }}</span></div>
+                    <div class="txt" v-if="m.text">{{ m.text }}</div>
+                    <PhotoThumbs :images="photosOf(m)" />
+                  </div>
                 </div>
                 <p class="chat-empty" v-if="!fuLoading && !thread.length">No replies yet. Your first reply starts the conversation.</p>
               </div>
@@ -103,16 +113,17 @@ import PhotoPicker from '@/components/PhotoPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
 import ChatCompose from '@/components/ChatCompose.vue';
+import Avatar from '@/components/Avatar.vue';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
 import { friendlyError } from '@/lib/finance-data.js';
 
 export default {
-  components: { PhotoPicker, PhotoThumbs, OptionPicker, ChatCompose },
+  components: { PhotoPicker, PhotoThumbs, OptionPicker, ChatCompose, Avatar },
   data() {
     return {
-      STATUS, list: [], loading: true, error: '', filter: 'all', sel: null,
+      STATUS, list: [], loading: true, error: '', filter: 'all', q: '', sel: null,
       thread: [], notes: [], images: [], replyPhotos: [], fuLoading: false, replyText: '', noteText: '', closing: false, closeNote: '', busy: false, actErr: '',
       filters: [['all', 'All'], ['new', 'New'], ['read', 'Read by HR'], ['review', 'In review'], ['closed', 'Closed']]
     };
@@ -123,6 +134,9 @@ export default {
   },
   computed: {
     // New is only where a complaint starts; HR moves it on from there
+    filterOptions() {
+      return this.filters.map(([k, label]) => ({ value: k, label: `${k === 'all' ? 'All statuses' : label} (${k === 'all' ? this.list.length : this.list.filter(c => c.status === k).length})` }));
+    },
     statusOptions() { return ['new', 'read', 'review', 'closed'].map(k => ({ value: k, label: STATUS[k][0], disabled: k === 'new' })); }
   },
   async mounted() {
@@ -173,7 +187,12 @@ export default {
         this.sel.status = to; this.closing = false; this.closeNote = '';
       }, 'change the status');
     },
-    shown() { return this.list.filter(c => this.filter === 'all' || c.status === this.filter); }
+    // Status filter, then search by ref, sender name (Anonymous for anonymous ones) or subject
+    shown() {
+      const q = this.q.trim().toLowerCase();
+      return this.list.filter(c => (this.filter === 'all' || c.status === this.filter)
+        && (!q || [c.ref, c.anonymous ? 'Anonymous' : c.fromName, c.subject].some(v => String(v || '').toLowerCase().includes(q))));
+    }
   }
 };
 </script>
@@ -239,5 +258,17 @@ export default {
     .compose textarea, .close-box textarea { min-height: 70px; }
     .compose .btn { justify-self: end; }
     .compose-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+
+    /* Profile pictures beside each message (4 Nov 2026): the other side on the left, yours on the right */
+    .msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 88%; }
+    .msg-row.mine { align-self: flex-end; flex-direction: row-reverse; }
+    .msg-row.theirs { align-self: flex-start; }
+    .chat-msgs .msg-row .msg { max-width: none; min-width: 0; }
+    .msg-av { margin-bottom: 2px; }
+    .who-cell { display: inline-flex; align-items: center; gap: 8px; }
+    .list-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .search-box { position: relative; flex: 1 1 260px; max-width: 420px; }
+    .search-box svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+    .search-box .input { width: 100%; padding-left: 36px; }
     .detail { white-space: pre-wrap; font-size: 13px; background: var(--hover); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
 </style>

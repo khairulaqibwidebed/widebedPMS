@@ -65,7 +65,8 @@ export async function createComplaint(me, kind, { subject, details, files, anony
     tx.set(c, { ref, kind, date: today(), createdAt: serverTimestamp(),
       ...(kind === 'staff' ? { status: 'new', anonymous: !named } : { read: false }),
       ...(kind === 'staff' && named ? { fromId: me.user.uid } : {}) });
-    tx.set(doc(db, 'complaints', c.id, 'private', 'main'), { subject, details, files, ...(named ? { fromName: me.name } : {}) });
+    // Director complaints also keep the sender's uid (4 Nov 2026) so their profile picture shows. Staff complaints already have fromId.
+    tx.set(doc(db, 'complaints', c.id, 'private', 'main'), { subject, details, files, ...(named ? { fromName: me.name } : {}), ...(kind === 'director' ? { fromUid: me.user.uid } : {}) });
     if (named) audit(tx, me, { action: 'complaint.create', entity: `complaints/${c.id}`, changes: [{ field: 'ref', old: null, new: ref }] });
     // Anonymous: a neutral audit entry with no uid, name or role.
     else tx.set(doc(collection(db, 'auditLog')), { at: serverTimestamp(), uid: null, userName: 'Anonymous', role: null,

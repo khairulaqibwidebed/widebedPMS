@@ -7,10 +7,13 @@
     <div class="notice error" v-show="err" style="margin:8px 12px 0">{{ err }}</div>
     <div class="chat-msgs" ref="list">
       <div class="loading-bar" v-show="loading"></div>
-      <div class="msg" v-for="m in thread" :key="m.id || m.text" :class="m.by === side ? 'mine' : 'theirs'">
+      <div class="msg-row" v-for="m in thread" :key="m.id || m.text" :class="m.by === side ? 'mine' : 'theirs'">
+      <Avatar class="msg-av" :uid="m.byUid" :name="m.byName || labels[m.by]" :role="roleOf(m)" :size="30" />
+      <div class="msg" :class="m.by === side ? 'mine' : 'theirs'">
         <div class="who">{{ m.by === side ? 'You' : (labels[m.by] || 'Them') + (m.byName ? ' · ' + m.byName : '') }}<span v-if="m.closing" class="tag">Closing note</span><span class="when">{{ when(m.createdAt) }}</span></div>
         <div class="txt" v-if="m.text">{{ m.text }}</div>
         <PhotoThumbs :images="photosOf(m)" />
+      </div>
       </div>
       <p class="chat-empty" v-if="!loading && !thread.length">{{ empty }}</p>
     </div>
@@ -31,11 +34,12 @@ import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
 import ChatCompose from '@/components/ChatCompose.vue';
+import Avatar from '@/components/Avatar.vue';
 
 const me = useSession();
 
 export default {
-  components: { PhotoThumbs, ChatCompose },
+  components: { PhotoThumbs, ChatCompose, Avatar },
   props: {
     complaint: { type: Object, required: true },
     side: { type: String, required: true },                    // who "you" are in thread.by: 'hr', 'sender' or 'director'
@@ -58,6 +62,7 @@ export default {
   },
   methods: {
     when(t) { return t?.toDate ? t.toDate().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Just now'; },
+    roleOf(m) { return m.by === 'hr' ? 'hr' : m.by === 'director' ? 'director' : null; },   // colour behind the letter when there's no picture
     photosOf(m) { return m.images || this.images.filter(i => (m.imageIds || []).includes(i.id)); },
     async send() {
       if (this.busy || (!this.text.trim() && !this.photos.length)) return;
@@ -86,5 +91,14 @@ export default {
 .chat-empty { margin: auto; color: var(--muted); font-size: 13px; text-align: center; }
 .chat-compose { padding: 10px 12px 12px; background: var(--surface); border-top: 1px solid var(--border); }
 .chat-closed { margin: 0; padding: 12px 14px; background: var(--surface); border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+
+/* Profile pictures beside each message (4 Nov 2026): the other side on the left, yours on the right */
+.msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 88%; }
+.msg-row.mine { align-self: flex-end; flex-direction: row-reverse; }
+.msg-row.theirs { align-self: flex-start; }
+.chat-msgs .msg-row .msg { max-width: none; min-width: 0; }
+.msg-av { margin-bottom: 2px; }
+.who-cell { display: inline-flex; align-items: center; gap: 8px; }
+.who .avatar { margin-right: -2px; }
 @media (max-width: 860px) { .cc-chat { min-height: 420px; } .chat-msgs { max-height: 60vh; } }
 </style>

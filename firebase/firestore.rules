@@ -1,5 +1,7 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.30, 4 Nov 2026 (Khairul): Director complaints: the Directors set the status
+// Widebed PMS Firestore rules. Draft 0.31, 4 Nov 2026 (Khairul): a Director complaint's private part may also keep the
+// sender's uid (fromUid, must be the person sending) so their profile picture can be shown. Nothing else changes.
+// Draft 0.30, 4 Nov 2026 (Khairul): Director complaints: the Directors set the status
 // (Read by the Directors / In review / Closed, with a closing note in the conversation) and keep their own notes
 // (complaints/{id}/notes, Directors only; HR reads notes on staff complaints only). HR can't reply once it is Closed.
 // Draft 0.29, 4 Nov 2026 (Khairul): Director complaints (HR to the Directors) get the same
@@ -896,9 +898,10 @@ service cloud.firestore {
         allow read: if signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid;
         // Written once, in the same transaction as the parent. Anonymous: no fromName.
         allow create: if docId == 'main' && anyStaff()
-          && newKeysOnly(['subject', 'details', 'files', 'fromName'])
+          && newKeysOnly(['subject', 'details', 'files', 'fromName', 'fromUid'])
+          && (!('fromUid' in request.resource.data) || request.resource.data.fromUid == request.auth.uid)
           && ((complaintAfter(id).kind == 'staff'
-                && (complaintAfter(id).anonymous == true ? !('fromName' in request.resource.data) : complaintAfter(id).fromId == request.auth.uid))
+                && (complaintAfter(id).anonymous == true ? !('fromName' in request.resource.data) && !('fromUid' in request.resource.data) : complaintAfter(id).fromId == request.auth.uid))
             || (complaintAfter(id).kind == 'director' && hrOrDir()));
         allow update, delete: if false;
       }

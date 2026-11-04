@@ -40,10 +40,13 @@
             </div>
             <div class="chat-msgs" ref="chat">
               <div class="loading-bar" v-show="fuLoading"></div>
-              <div class="msg" v-for="m in thread" :key="m.id || m.text" :class="m.by === 'hr' ? 'hr' : 'me'">
-                <div class="who">{{ m.by === 'hr' ? 'HR' + (m.byName ? ' · ' + m.byName : '') : 'You' }}<span v-if="m.closing" class="tag">Closing note</span><span class="when">{{ when(m.createdAt) }}</span></div>
-                <div class="txt" v-if="m.text">{{ m.text }}</div>
-                <PhotoThumbs :images="photosOf(m)" />
+              <div class="msg-row" v-for="m in thread" :key="m.id || m.text" :class="m.by === 'hr' ? 'theirs' : 'mine'">
+                <Avatar class="msg-av" :uid="m.byUid" :name="m.byName" :role="m.by === 'hr' ? 'hr' : null" :size="30" />
+                <div class="msg" :class="m.by === 'hr' ? 'hr' : 'me'">
+                  <div class="who">{{ m.by === 'hr' ? 'HR' + (m.byName ? ' · ' + m.byName : '') : 'You' }}<span v-if="m.closing" class="tag">Closing note</span><span class="when">{{ when(m.createdAt) }}</span></div>
+                  <div class="txt" v-if="m.text">{{ m.text }}</div>
+                  <PhotoThumbs :images="photosOf(m)" />
+                </div>
               </div>
               <p class="chat-empty" v-if="!fuLoading && !thread.length">No replies from HR yet.</p>
             </div>
@@ -84,13 +87,14 @@ import { createComplaint, loadMyComplaints, loadThread, loadImages, addReply, ST
 import PhotoPicker from '@/components/PhotoPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
 import ChatCompose from '@/components/ChatCompose.vue';
+import Avatar from '@/components/Avatar.vue';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
 
 export default {
-  components: { PhotoPicker, PhotoThumbs, ChatCompose },
+  components: { PhotoPicker, PhotoThumbs, ChatCompose, Avatar },
   data() {
     return { STATUS, open: null, thread: [], images: [], photos: [], replyPhotos: [], fuLoading: false, replyText: '', actErr: '', myName: me.name || 'With my name', list: [], showMine: false, loading: true, loadErr: '', busy: false, subject: '', details: '', anonymous: false, files: [], err: '', okMsg: '' };
   },
@@ -199,5 +203,13 @@ export default {
     .compose textarea { min-height: 70px; }
     .compose .btn { justify-self: end; }
     .compose-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+
+    /* Profile pictures beside each message (4 Nov 2026): the other side on the left, yours on the right */
+    .msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 88%; }
+    .msg-row.mine { align-self: flex-end; flex-direction: row-reverse; }
+    .msg-row.theirs { align-self: flex-start; }
+    .chat-msgs .msg-row .msg { max-width: none; min-width: 0; }
+    .msg-av { margin-bottom: 2px; }
+    .who-cell { display: inline-flex; align-items: center; gap: 8px; }
     .detail { white-space: pre-wrap; font-size: 13px; background: var(--hover); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
 </style>
