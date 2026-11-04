@@ -172,12 +172,45 @@ export async function rerateKpi(assignmentId, newRating) {
   const s = me();
   const prior = await getSubmission(assignmentId);
   if (!prior) throw new Error('No submission found.');
-  if (prior.status === 'done') throw new Error('Cannot re-rate an approved KPI.');
 
   await updateDoc(doc(db, 'kpiSubmissions', assignmentId), {
     directorRating: Number(newRating), ratedAt: serverTimestamp()
   });
   audit('performance.kpi.director.rerate', `kpiSubmissions/${assignmentId}`, `re-rated to ${newRating}`);
+}
+
+// Director reopens a done KPI and sends back for discussion (allows re-rating after approval).
+export async function reopenAndSendBack(assignmentId, { directorRating, directorComments }) {
+  const s = me();
+  const prior = await getSubmission(assignmentId);
+  if (!prior) throw new Error('No submission found.');
+  if (prior.status !== 'done') throw new Error('Can only reopen KPIs with Done status.');
+
+  const history = [...(prior.history || []), historyEntry(prior.status, 'discussionRequested', Number(directorRating), 'Reopened for discussion')];
+
+  await updateDoc(doc(db, 'kpiSubmissions', assignmentId), {
+    status: 'discussionRequested',
+    directorRating: Number(directorRating),
+    directorComments: directorComments || '',
+    directorId: s.user.uid,
+    ratedAt: serverTimestamp(),
+    discussionStatus: 'requested',
+    history
+  });
+
+  const assignment = await one(doc(db, 'kpiAssignments', assignmentId));
+  audit('performance.kpi.director.reopenAndSendBack', `kpiSubmissions/${assignmentId}`, `reopened and sent back with new rating ${directorRating}`);
+
+  try {
+    await notifyUser({
+      recipientUid: prior.employeeId,
+      title: 'KPI reopened for discussion',
+      message: `Your approved KPI "${assignment?.title}" has been reopened by your supervisor for further discussion. New rating: ${directorRating}/5.`,
+      type: 'kpi',
+      link: '/Performance/kpi',
+      refId: assignmentId
+    });
+  } catch (e) { console.warn('notify', e); }
 }
 
 // Employee replies to director's discussion request.

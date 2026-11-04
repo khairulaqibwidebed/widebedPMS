@@ -1016,21 +1016,38 @@ service cloud.firestore {
 
     // KPI submissions: the employee submits their own self-assessment (status 'submitted', no final rating set
     // yet); only HR/Director can set finalApprovedRating / reviewerId, and only by changing review fields.
+    // Draft 0.31: Director can also reopen done KPIs and send back for discussion.
     match /kpiSubmissions/{id} {
       allow read: if (resource == null && anyStaff()) || isDirector() || resource.data.employeeId == request.auth.uid;
       // The employee submits or resubmits their own self-assessment, but never once it's already been
-      // approved or rejected (matches the KPI.vue UI, which hides the submit form at that point) — otherwise
+      // done (matches the KPI.vue UI, which hides the submit form at that point) — otherwise
       // an employee could write status back to 'submitted' with nulled-out review fields and erase a
       // reviewer's decision.
-      allow create, update: if (resource == null || (resource.data.employeeId == request.auth.uid && !(resource.data.status in ['approved', 'rejected'])))
+      allow create, update: if (resource == null || (resource.data.employeeId == request.auth.uid && resource.data.status != 'done'))
         && request.resource.data.employeeId == request.auth.uid
         && request.resource.data.status == 'submitted'
         && request.resource.data.get('finalApprovedRating', null) == null
         && request.resource.data.get('reviewerId', null) == null;
+      // Director review and rating: provide rating/comments or approve/send back.
       allow update: if isDirector()
-        && changed().hasOnly(['status', 'revisedRating', 'finalApprovedRating', 'reviewerId', 'reviewerComments', 'reviewReason', 'reviewedAt', 'history']);
-      // The employee's own discussion-status flip, set alongside their performanceDiscussions request.
+        && changed().hasOnly(['status', 'revisedRating', 'finalApprovedRating', 'reviewerId', 'reviewerComments', 'reviewReason',
+          'directorRating', 'directorComments', 'directorId', 'ratedAt', 'discussionStatus', 'reviewedAt', 'history']);
+      // Director can reopen a done KPI and send it back for discussion (allows re-rating after approval).
+      allow update: if isDirector()
+        && resource.data.status == 'done'
+        && request.resource.data.status == 'discussionRequested'
+        && changed().hasOnly(['status', 'directorRating', 'directorComments', 'directorId', 'ratedAt', 'discussionStatus', 'history']);
+      // The employee's own discussion-status flip, set alongside their replies.
       allow update: if resource.data.employeeId == request.auth.uid && changed().hasOnly(['discussionStatus']);
+      allow delete: if false;
+    }
+
+    // KPI discussion threads: director and employee can read and write messages.
+    match /kpiDiscussions/{id} {
+      allow read: if isDirector() || resource.data.employeeId == request.auth.uid;
+      allow create: if isDirector() && request.resource.data.submissionId is string && request.resource.data.employeeId is string
+        && request.resource.data.directorId is string && request.resource.data.thread is list && request.resource.data.status == 'active';
+      allow update: if (isDirector() || resource.data.employeeId == request.auth.uid) && request.resource.data.thread is list;
       allow delete: if false;
     }
 

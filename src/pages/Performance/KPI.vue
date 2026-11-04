@@ -266,9 +266,19 @@
           <FormField label="Comments" v-model="reviewComments" type="textarea" />
           <div class="modal-foot">
             <button class="btn" @click="reviewing = null">Cancel</button>
-            <button class="btn" v-if="reviewing.submission.status === 'discussionRequested' || reviewing.submission.status === 'resubmitted'" @click="postReply">Reply & Continue Discussion</button>
-            <button class="btn" @click="sendBack">Send Back for Discussion</button>
-            <button class="btn btn-primary" @click="approve">Approve Final Rating</button>
+
+            <!-- For pending/discussion KPIs -->
+            <template v-if="['submitted', 'discussionRequested', 'resubmitted', 'pendingReview'].includes(reviewing.submission.status)">
+              <button class="btn" v-if="reviewing.submission.status === 'discussionRequested' || reviewing.submission.status === 'resubmitted'" @click="postReply">Reply & Continue Discussion</button>
+              <button class="btn" @click="sendBack">Send Back for Discussion</button>
+              <button class="btn btn-primary" @click="approve">Approve Final Rating</button>
+            </template>
+
+            <!-- For done KPIs - allow reopening -->
+            <template v-else-if="reviewing.submission.status === 'done'">
+              <button class="btn" @click="rerateOnly">Just Re-rate</button>
+              <button class="btn btn-primary" @click="reopenForDiscussion">Reopen & Send Back for Discussion</button>
+            </template>
           </div>
         </div>
       </div>
@@ -285,7 +295,7 @@ import { listQuarters, listParticipants, getQuarter } from '@/lib/performance/qu
 import {
   listAssignmentsFor, listAllAssignments, listSubmissionsFor, totalWeightage, kpiScoreFor,
   createAssignment, updateAssignment, submitSelfAssessment, provideDirectorReview, sendBackForDiscussion,
-  approveKpiRating, rerateKpi, postDiscussionReply, postDirectorReply, getDiscussionThread,
+  approveKpiRating, rerateKpi, reopenAndSendBack, postDiscussionReply, postDirectorReply, getDiscussionThread,
   suggestDeadlineRating, customThresholds, getSubmission
 } from '@/lib/performance/kpi.js';
 
@@ -534,6 +544,25 @@ async function postReply() {
     await postDirectorReply(reviewing.value.assignment.id, reviewComments.value);
     okMsg.value = 'Reply posted.'; reviewComments.value = '';
     discussionThread.value = await getDiscussionThread(reviewing.value.assignment.id);
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
+
+async function rerateOnly() {
+  if (!reviewRating.value) { error.value = 'Please provide a rating.'; return; }
+  saving.value = true; error.value = '';
+  try {
+    await rerateKpi(reviewing.value.assignment.id, reviewRating.value);
+    okMsg.value = 'Rating updated.'; reviewing.value = null; await load();
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
+
+async function reopenForDiscussion() {
+  if (!reviewRating.value) { error.value = 'Please provide a rating.'; return; }
+  if (!reviewComments.value) { error.value = 'Please add comments for reopening.'; return; }
+  saving.value = true; error.value = '';
+  try {
+    await reopenAndSendBack(reviewing.value.assignment.id, { directorRating: reviewRating.value, directorComments: reviewComments.value });
+    okMsg.value = 'KPI reopened and sent back for discussion.'; reviewing.value = null; await load();
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
 </script>
