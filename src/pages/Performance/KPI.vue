@@ -90,8 +90,8 @@
               </button>
             </template>
             <template v-else>
-              <!-- Rating comparison section -->
-              <div class="kpi-rating-section" :class="{ 'discussion-needed': mySub(a.id)?.status === 'discussionRequested' }">
+              <!-- Rating comparison section with integrated chat for discussion status -->
+              <div class="kpi-rating-section" :class="{ 'discussion-needed': mySub(a.id)?.status === 'discussionRequested' || mySub(a.id)?.status === 'resubmitted' }">
                 <div class="kpi-rating-compare">
                   <div>
                     <span class="kpi-muted">Your rating</span>
@@ -110,8 +110,8 @@
                 <!-- Unified Discussion Chat -->
                 <div v-if="mySub(a.id)?.status === 'discussionRequested' || mySub(a.id)?.status === 'resubmitted'" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <h4 style="margin: 0; font-size: 14px;">💬 Discussion Chat</h4>
-                    <button class="btn" style="font-size: 12px; padding: 6px 12px;" @click="openChatModal(a.id)">Open Full Chat</button>
+                    <h4 style="margin: 0; font-size: 13px; font-weight: 500;">💬 Supervisor Feedback</h4>
+                    <button class="btn" style="font-size: 11px; padding: 6px 10px; white-space: nowrap;" @click="openChatModal(a.id)">📧 Full Chat</button>
                   </div>
 
                   <!-- Chat Messages -->
@@ -343,8 +343,12 @@
         <p class="muted">{{ reviewing.assignment.employeeName }} | Completed: {{ reviewing.submission.completionTimestamp || '—' }} | Due: {{ reviewing.assignment.deadline || '—' }}</p>
 
         <div style="flex: 1; overflow-y: auto; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 16px; margin: 12px 0;">
+          <!-- Employee Self-Assessment Section -->
           <div class="kpi-review-section">
-            <h3 style="margin: 0 0 10px;">Employee self-assessment</h3>
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+              <h3 style="margin: 0;">Employee self-assessment</h3>
+              <button v-if="reviewing.submission.status === 'discussionRequested' || reviewing.submission.status === 'resubmitted'" class="btn" style="font-size: 11px; padding: 6px 10px; white-space: nowrap;" @click="openChatModal(reviewing.assignment.id)">📧 Full Chat</button>
+            </div>
             <div class="kpi-rating-compare">
               <div><span class="kpi-muted">Self-rating</span><b>{{ reviewing.submission.selfRating }} / 5</b></div>
               <div><span class="kpi-muted">Completion date</span><b>{{ reviewing.submission.completionTimestamp || '—' }}</b></div>
@@ -352,10 +356,7 @@
             <p class="kpi-muted" style="margin: 8px 0; font-size: 13px;">{{ reviewing.submission.selfComments || '(no comments)' }}</p>
 
             <div v-if="discussionThread && discussionThread.thread && discussionThread.thread.length > 0" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h3 style="margin: 0; font-size: 14px;">💬 Discussion Chat</h3>
-                <button class="btn" style="font-size: 12px; padding: 6px 12px;" @click="openChatModal(reviewing.assignment.id)">Open Full Chat</button>
-              </div>
+              <h4 style="margin: 0 0 12px; font-size: 13px;">💬 Discussion History</h4>
               <div class="kpi-chat-container">
                 <div class="kpi-discussion-chat">
                   <div v-for="comment in discussionThread.thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-chat-msg" :class="{ 'by-me': comment.byUid === session.user.uid }">
@@ -404,20 +405,20 @@
             <RatingPicker v-model="reviewRating" label="Director rating" />
           </div>
           <FormField label="Comments" v-model="reviewComments" type="textarea" />
-          <div class="modal-foot">
-            <button class="btn" @click="reviewing = null">Cancel</button>
+          <div class="modal-foot" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn" @click="reviewing = null" style="flex: 0 0 auto;">Cancel</button>
 
             <!-- For pending/discussion KPIs -->
             <template v-if="['submitted', 'discussionRequested', 'resubmitted', 'pendingReview'].includes(reviewing.submission.status)">
-              <button class="btn" v-if="reviewing.submission.status === 'discussionRequested' || reviewing.submission.status === 'resubmitted'" @click="postReply">Reply & Continue Discussion</button>
-              <button class="btn" @click="sendBack">Send Back for Discussion</button>
-              <button class="btn btn-primary" @click="approve">Approve Final Rating</button>
+              <button class="btn" v-if="reviewing.submission.status === 'discussionRequested' || reviewing.submission.status === 'resubmitted'" @click="postReply" style="flex: 1; min-width: 140px;">Reply & Continue</button>
+              <button class="btn" @click="sendBack" style="flex: 1; min-width: 140px;">Send Back</button>
+              <button class="btn btn-primary" @click="approve" style="flex: 1; min-width: 140px;">Approve Rating</button>
             </template>
 
             <!-- For done KPIs - allow reopening -->
             <template v-else-if="reviewing.submission.status === 'done'">
-              <button class="btn" @click="rerateOnly">Just Re-rate</button>
-              <button class="btn btn-primary" @click="reopenForDiscussion">Reopen & Send Back for Discussion</button>
+              <button class="btn" @click="rerateOnly" style="flex: 1; min-width: 100px;">Just Re-rate</button>
+              <button class="btn btn-primary" @click="reopenForDiscussion" style="flex: 1; min-width: 160px;">Reopen & Send Back</button>
             </template>
           </div>
         </div>
