@@ -223,8 +223,10 @@ export async function postDiscussionReply(submissionId, message) {
   let discussionDoc = await getDoc(doc(db, 'kpiDiscussions', submissionId));
   const thread = discussionDoc.exists() ? (discussionDoc.data().thread || []) : [];
 
+  const commentId = `${s.user.uid}_${Date.now()}`;
   thread.push({
-    by: s.name, byUid: s.user.uid, message, at: Date.now(), role: 'employee'
+    id: commentId, by: s.name, byUid: s.user.uid, message, at: Date.now(), role: 'employee',
+    edited: null, deleted: false
   });
 
   if (!discussionDoc.exists()) {
@@ -252,6 +254,42 @@ export async function postDiscussionReply(submissionId, message) {
       refId: submissionId
     });
   } catch (e) { console.warn('notify', e); }
+}
+
+// Edit a discussion comment.
+export async function editDiscussionComment(submissionId, commentId, newMessage) {
+  const s = me();
+  const discussionDoc = await getDoc(doc(db, 'kpiDiscussions', submissionId));
+  if (!discussionDoc.exists()) throw new Error('Discussion not found.');
+
+  const thread = discussionDoc.data().thread || [];
+  const comment = thread.find(c => c.id === commentId);
+  if (!comment) throw new Error('Comment not found.');
+  if (comment.byUid !== s.user.uid) throw new Error('Can only edit your own comments.');
+
+  comment.message = newMessage;
+  comment.edited = Date.now();
+
+  await updateDoc(doc(db, 'kpiDiscussions', submissionId), { thread });
+  audit('performance.kpi.discussion.edit', `kpiDiscussions/${submissionId}`, `edited comment ${commentId}`);
+}
+
+// Delete a discussion comment.
+export async function deleteDiscussionComment(submissionId, commentId) {
+  const s = me();
+  const discussionDoc = await getDoc(doc(db, 'kpiDiscussions', submissionId));
+  if (!discussionDoc.exists()) throw new Error('Discussion not found.');
+
+  const thread = discussionDoc.data().thread || [];
+  const comment = thread.find(c => c.id === commentId);
+  if (!comment) throw new Error('Comment not found.');
+  if (comment.byUid !== s.user.uid) throw new Error('Can only delete your own comments.');
+
+  comment.deleted = true;
+  comment.message = '';
+
+  await updateDoc(doc(db, 'kpiDiscussions', submissionId), { thread });
+  audit('performance.kpi.discussion.delete', `kpiDiscussions/${submissionId}`, `deleted comment ${commentId}`);
 }
 
 // Director replies to ongoing discussion.

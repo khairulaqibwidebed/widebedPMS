@@ -295,6 +295,18 @@
       </div>
     </div>
 
+    <!-- Edit Comment Modal -->
+    <div class="modal-back" v-if="editingComment" @click.self="editingComment = null">
+      <div class="modal" style="max-width: 500px;">
+        <h2>Edit Comment</h2>
+        <textarea class="input" v-model="editingCommentText" style="min-height: 120px;"></textarea>
+        <div class="modal-foot">
+          <button class="btn" @click="editingComment = null">Cancel</button>
+          <button class="btn btn-primary" :disabled="saving" @click="saveEditedComment">Save</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Director Review Modal -->
     <div class="modal-back" v-if="reviewing" @click.self="reviewing = null">
       <div class="modal" style="max-width: 720px; max-height: 90vh; display: flex; flex-direction: column;">
@@ -311,14 +323,25 @@
             <p class="kpi-muted" style="margin: 8px 0; font-size: 13px;">{{ reviewing.submission.selfComments || '(no comments)' }}</p>
 
             <div v-if="discussionThread" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-              <h3 style="margin: 0 0 12px; font-size: 14px;">Discussion chat</h3>
-              <div class="kpi-chat-box" style="max-height: 250px;">
-                <div v-for="msg in discussionThread.thread" :key="msg.at" class="kpi-chat-message" :class="{ 'supervisor': msg.role === 'director' }">
-                  <div class="kpi-chat-header">
-                    <span class="kpi-chat-name">{{ msg.role === 'director' ? '👤 Supervisor' : '👤 Employee' }}</span>
-                    <span class="kpi-chat-time">{{ formatWhen(msg.at) }}</span>
+              <h3 style="margin: 0 0 16px; font-size: 14px;">💬 Discussion Chat</h3>
+              <div class="kpi-discussion-chat">
+                <div v-for="comment in discussionThread.thread" :key="comment.id" class="kpi-comment" v-if="!comment.deleted">
+                  <div class="kpi-comment-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
+                    {{ initialOf(comment.by) }}
                   </div>
-                  <p class="kpi-chat-text">{{ msg.message }}</p>
+                  <div class="kpi-comment-body">
+                    <div class="kpi-comment-header">
+                      <span class="kpi-comment-name">{{ comment.by }}</span>
+                      <span class="kpi-comment-role">{{ comment.role === 'director' ? 'Supervisor' : 'Employee' }}</span>
+                      <span class="kpi-comment-time">{{ formatWhen(comment.at) }}</span>
+                      <span v-if="comment.edited" class="kpi-comment-edited">edited</span>
+                    </div>
+                    <p class="kpi-comment-text">{{ comment.message }}</p>
+                    <div class="kpi-comment-actions" v-if="comment.byUid === session.user.uid">
+                      <button class="kpi-action-btn" @click="startEditComment(comment)">Edit</button>
+                      <button class="kpi-action-btn" @click="removeComment(discussionThread.submissionId, comment.id)">Delete</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -365,8 +388,10 @@ import {
   listAssignmentsFor, listAllAssignments, listSubmissionsFor, totalWeightage, kpiScoreFor,
   createAssignment, updateAssignment, submitSelfAssessment, provideDirectorReview, sendBackForDiscussion,
   approveKpiRating, rerateKpi, reopenAndSendBack, postDiscussionReply, postDirectorReply, getDiscussionThread,
+  editDiscussionComment, deleteDiscussionComment,
   suggestDeadlineRating, customThresholds, getSubmission
 } from '@/lib/performance/kpi.js';
+import { avatarSrc, initialOf, roleColor } from '@/lib/avatars.js';
 
 const session = useSession();
 // Confirmed business rule: KPI management (assign/edit/review) is Director-only — narrower than COH, which
@@ -404,6 +429,8 @@ const reviewComments = ref('');
 const reviewReason = ref('');
 const discussionThread = ref(null);
 const discussionReplies = reactive({});
+const editingComment = ref(null);
+const editingCommentText = ref('');
 
 const mySub = id => mySubs.value[id] || null;
 // Uses this specific task's Director-configured early/on-time/overdue rule when set, otherwise the app-wide
@@ -649,6 +676,33 @@ async function submitDiscussionReply(a) {
     await load();
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
+
+function startEditComment(comment) {
+  editingComment.value = comment;
+  editingCommentText.value = comment.message;
+}
+
+async function saveEditedComment() {
+  if (!editingComment.value) return;
+  if (!editingCommentText.value.trim()) { error.value = 'Comment cannot be empty.'; return; }
+  saving.value = true; error.value = '';
+  try {
+    await editDiscussionComment(discussionThread.value.submissionId, editingComment.value.id, editingCommentText.value);
+    okMsg.value = 'Comment updated.';
+    editingComment.value = null;
+    discussionThread.value = await getDiscussionThread(discussionThread.value.submissionId);
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
+
+async function removeComment(submissionId, commentId) {
+  if (!confirm('Delete this comment? This cannot be undone.')) return;
+  saving.value = true; error.value = '';
+  try {
+    await deleteDiscussionComment(submissionId, commentId);
+    okMsg.value = 'Comment deleted.';
+    discussionThread.value = await getDiscussionThread(submissionId);
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
 </script>
 
 <style scoped>
@@ -708,6 +762,67 @@ async function submitDiscussionReply(a) {
 .kpi-rating-section.discussion-needed {
   border: 2px solid var(--orange); background: var(--orange-soft);
   box-shadow: 0 0 0 4px rgba(255, 152, 0, 0.1);
+}
+
+.kpi-discussion-chat {
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--chip); padding: 12px; border-radius: var(--radius);
+  max-height: 400px; overflow-y: auto;
+}
+
+.kpi-comment {
+  display: flex; gap: 10px; padding: 12px;
+  background: var(--surface); border-radius: 6px; border: 1px solid var(--border);
+}
+
+.kpi-comment-avatar {
+  width: 40px; height: 40px; min-width: 40px;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  color: white; font-weight: 600; font-size: 16px;
+}
+
+.kpi-comment-body {
+  flex: 1; min-width: 0;
+}
+
+.kpi-comment-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  flex-wrap: wrap; font-size: 13px;
+}
+
+.kpi-comment-name {
+  font-weight: 600; color: var(--text);
+}
+
+.kpi-comment-role {
+  background: var(--chip); padding: 2px 6px; border-radius: 3px;
+  font-size: 11px; color: var(--text-2); font-weight: 500;
+}
+
+.kpi-comment-time {
+  color: var(--text-2); font-size: 12px;
+}
+
+.kpi-comment-edited {
+  color: var(--text-2); font-size: 11px; font-style: italic;
+}
+
+.kpi-comment-text {
+  margin: 8px 0 0 0; color: var(--text); line-height: 1.5;
+  word-wrap: break-word; white-space: pre-wrap;
+}
+
+.kpi-comment-actions {
+  display: flex; gap: 8px; margin-top: 8px;
+}
+
+.kpi-action-btn {
+  background: none; border: none; color: var(--text-2);
+  font-size: 12px; cursor: pointer; padding: 0; text-decoration: underline;
+}
+
+.kpi-action-btn:hover {
+  color: var(--text);
 }
 
 .kpi-chat-box {
