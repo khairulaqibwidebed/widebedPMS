@@ -1042,7 +1042,19 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // KPI discussion threads: director and employee can read and write messages.
+    // KPI conversation threads: complete discussion history for each KPI.
+    // Only the assigned employee and director can access.
+    match /kpiConversations/{id} {
+      allow read: if isDirector() || resource.data.employeeId == request.auth.uid;
+      allow create: if isDirector() && request.resource.data.assignmentId is string
+        && request.resource.data.employeeId is string && request.resource.data.directorId is string
+        && request.resource.data.messages is list && request.resource.data.status == 'active';
+      allow update: if (isDirector() || resource.data.employeeId == request.auth.uid)
+        && request.resource.data.messages is list;
+      allow delete: if false;
+    }
+
+    // KPI discussion threads (deprecated): kept for backwards compatibility.
     match /kpiDiscussions/{id} {
       allow read: if isDirector() || resource.data.employeeId == request.auth.uid;
       allow create: if isDirector() && request.resource.data.submissionId is string && request.resource.data.employeeId is string
