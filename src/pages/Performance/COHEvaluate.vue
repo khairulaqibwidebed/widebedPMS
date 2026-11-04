@@ -77,8 +77,8 @@
               <div class="coh-colleague-info">
                 <div class="coh-colleague-name">{{ p.employeeName }}</div>
                 <div class="coh-status-row">
-                  <span class="coh-status-dot" :class="{ done: given(p.employeeId) }"></span>
-                  <span class="coh-muted">{{ given(p.employeeId) ? 'Completed' : 'Pending' }}</span>
+                  <span class="coh-status-dot" :class="statusOf(p.employeeId)"></span>
+                  <span class="coh-muted">{{ STATUS_TEXT[statusOf(p.employeeId)] }}</span>
                 </div>
               </div>
               <svg class="coh-chevron" viewBox="0 0 24 24" aria-hidden="true" v-html="NAV_ICONS.chevronRight"></svg>
@@ -108,7 +108,12 @@
               <div class="coh-greeting" style="font-size:18px;">{{ activeEvaluatee.employeeName }}</div>
               <div class="coh-sub">Quarter {{ quarter.name }} · COH Evaluation</div>
             </div>
-            <span class="coh-badge" :class="{ submitted: readOnly }">{{ readOnly ? 'Submitted' : 'Draft' }}</span>
+            <span class="coh-badge" :class="{ submitted: readOnly, update: !readOnly && lockedIds.size }">{{ readOnly ? 'Submitted' : (lockedIds.size ? 'New questions' : 'Draft') }}</span>
+          </div>
+
+          <div class="notice warn" v-if="!readOnly && lockedIds.size" style="margin-bottom:16px;">
+            {{ remainingQuestions }} new question{{ remainingQuestions === 1 ? ' was' : 's were' }} added after you submitted.
+            Your earlier answers are kept — answer the new one{{ remainingQuestions === 1 ? '' : 's' }} and submit again.
           </div>
 
           <div class="coh-progress-card">
@@ -133,10 +138,13 @@
             <div v-for="(q, i) in questions" :key="q.id" ref="questionRefs" class="coh-q-card" :class="{ unanswered: scores[i] == null }">
               <div class="coh-q-head">
                 <div class="coh-q-title-row">{{ String(i + 1).padStart(2, '0') }}. {{ q.title }}</div>
-                <span class="coh-q-status" :class="{ answered: scores[i] != null }">{{ scores[i] != null ? 'Answered' : 'Not answered' }}</span>
+                <span class="coh-q-status" :class="{ answered: scores[i] != null, new: lockedIds.size && !lockedIds.has(q.id) && scores[i] == null }">
+                  {{ scores[i] != null ? 'Answered' : (lockedIds.size && !lockedIds.has(q.id) ? 'New' : 'Not answered') }}
+                </span>
               </div>
               <p class="coh-q-desc" v-if="q.description">{{ q.description }}</p>
-              <RatingPicker variant="buttons" :model-value="scores[i]" :disabled="readOnly" :label="q.title" @update:model-value="n => selectScore(i, n)" />
+              <!-- Questions answered in the earlier submission stay locked; only new ones can be rated. -->
+              <RatingPicker variant="buttons" :model-value="scores[i]" :disabled="readOnly || lockedIds.has(q.id)" :label="q.title" @update:model-value="n => selectScore(i, n)" />
             </div>
           </div>
 
@@ -155,8 +163,9 @@
         <!-- Confirm submit -->
         <div class="coh-overlay" v-if="showConfirm" @click.self="showConfirm = false">
           <div class="coh-dialog">
-            <h3>Submit this evaluation?</h3>
-            <p class="coh-muted">You rated {{ activeEvaluatee?.employeeName }} on all {{ questions.length }} questions. Your name and ratings will be visible to them, and this cannot be edited once HR/Director reviews it.</p>
+            <h3>{{ lockedIds.size ? 'Submit your new answers?' : 'Submit this evaluation?' }}</h3>
+            <p class="coh-muted" v-if="lockedIds.size">Your answers to the new question{{ lockedIds.size === questions.length - 1 ? '' : 's' }} are added to your earlier evaluation of {{ activeEvaluatee?.employeeName }}. Your earlier answers don't change. HR/Director will review it again.</p>
+            <p class="coh-muted" v-else>You rated {{ activeEvaluatee?.employeeName }} on all {{ questions.length }} questions. Your name and ratings will be visible to them, and this cannot be edited once HR/Director reviews it.</p>
             <div class="coh-dialog-actions">
               <button class="coh-btn-ghost" @click="showConfirm = false">Cancel</button>
               <button class="coh-btn-primary" :disabled="submitting" @click="doSubmit">Confirm &amp; submit</button>
@@ -240,6 +249,7 @@ import FormField from '@/components/FormField.vue';
 import { NAV_ICONS } from '@/components/NavIcons.js';
 import { useSession } from '@/stores/session.js';
 import { listQuarters, listParticipants } from '@/lib/performance/quarters.js';
+import { normalizeStatus } from '@/lib/performance/quarterStatus.js';
 import {
   listQuestions, listAllQuestions, createQuestion, saveQuestion,
   listEvaluatees, listGiven, listReceived, listAllForQuarter, getEvaluation, submitEvaluation
@@ -271,7 +281,30 @@ const sortBy = ref('name');
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'pending', label: 'Pending' }, { key: 'completed', label: 'Completed' }];
 
 const given = uid => givenList.value.some(g => g.evaluateeId === uid);
-const evaluatedCount = computed(() => evaluatees.value.filter(p => given(p.employeeId)).length);
+
+// Which of this quarter's active questions you've already answered for each colleague. If a question is added
+// (or switched back to Active) after you submitted, that colleague goes back to "New questions" until you answer it.
+const activeQuestionIds = ref([]);
+const answeredBy = ref(new Map());   // evaluateeId -> Set of questionIds you answered
+const STATUS_TEXT = { pending: 'Pending', update: 'New questions to answer', done: 'Completed' };
+function statusOf(uid) {
+  if (!given(uid)) return 'pending';
+  const answered = answeredBy.value.get(uid);
+  if (!answered) return 'done';   // answers couldn't be loaded: don't block the person
+  return activeQuestionIds.value.every(id => answered.has(id)) ? 'done' : 'update';
+}
+async function loadAnswered() {
+  activeQuestionIds.value = (await listQuestions(quarter.value.id)).map(q => q.id);
+  const entries = await Promise.all(givenList.value.map(async g => {
+    try {
+      const ev = await getEvaluation(quarter.value.id, session.user.uid, g.evaluateeId);
+      return [g.evaluateeId, new Set((ev?.ratings || []).map(r => r.questionId))];
+    } catch { return null; }
+  }));
+  answeredBy.value = new Map(entries.filter(Boolean));
+}
+
+const evaluatedCount = computed(() => evaluatees.value.filter(p => statusOf(p.employeeId) === 'done').length);
 const totalCount = computed(() => evaluatees.value.length);
 const remaining = computed(() => totalCount.value - evaluatedCount.value);
 const pct = computed(() => totalCount.value ? Math.round((evaluatedCount.value / totalCount.value) * 1000) / 10 : 0);
@@ -280,13 +313,15 @@ const filteredEvaluatees = computed(() => {
   const q = search.value.trim().toLowerCase();
   let list = evaluatees.value.filter(p => {
     if (q && !p.employeeName.toLowerCase().includes(q)) return false;
-    if (statusFilter.value === 'pending') return !given(p.employeeId);
-    if (statusFilter.value === 'completed') return given(p.employeeId);
+    // "Pending" includes colleagues you rated before but who now have new questions.
+    if (statusFilter.value === 'pending') return statusOf(p.employeeId) !== 'done';
+    if (statusFilter.value === 'completed') return statusOf(p.employeeId) === 'done';
     return true;
   });
   list = [...list];
+  const rank = { pending: 0, update: 1, done: 2 };
   if (sortBy.value === 'name') list.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
-  else list.sort((a, b) => Number(given(a.employeeId)) - Number(given(b.employeeId)) || a.employeeName.localeCompare(b.employeeName));
+  else list.sort((a, b) => rank[statusOf(a.employeeId)] - rank[statusOf(b.employeeId)] || a.employeeName.localeCompare(b.employeeName));
   return list;
 });
 
@@ -321,6 +356,10 @@ const activeEvaluatee = ref(null);
 const questions = ref([]);
 const scores = ref([]);
 const readOnly = ref(false);
+// Questions answered in an earlier submission: shown, but locked. Empty for a first-time evaluation.
+const lockedIds = ref(new Set());
+// The earlier submission's ratings, kept so answers to since-disabled questions aren't dropped on resubmit.
+const existingRatings = ref([]);
 const currentIndex = ref(0);
 const showConfirm = ref(false);
 const showSuccess = ref(false);
@@ -336,9 +375,15 @@ const draftKey = uid => `coh-draft-${quarter.value.id}-${session.user.uid}-${uid
 function loadDraft(uid) {
   try { return JSON.parse(localStorage.getItem(draftKey(uid)) || 'null'); } catch { return null; }
 }
+// Drafts are saved by question id (not position), so adding or reordering questions doesn't shift answers.
 function saveDraft(uid) {
-  try { localStorage.setItem(draftKey(uid), JSON.stringify({ scores: scores.value, savedAt: Date.now() })); } catch { /* storage unavailable, autosave is best-effort */ }
+  try {
+    const byId = Object.fromEntries(questions.value.map((q, i) => [q.id, scores.value[i]]));
+    localStorage.setItem(draftKey(uid), JSON.stringify({ byId, savedAt: Date.now() }));
+  } catch { /* storage unavailable, autosave is best-effort */ }
 }
+// Reads both the new by-id drafts and older drafts saved by position.
+const draftScore = (draft, q, i) => (draft?.byId ? draft.byId[q.id] : draft?.scores?.[i]) ?? null;
 function clearDraft(uid) {
   try { localStorage.removeItem(draftKey(uid)); } catch { /* ignore */ }
 }
@@ -347,7 +392,8 @@ async function load() {
   loading.value = true;
   try {
     const quarters = await listQuarters();
-    quarter.value = quarters.find(q => q.status === 'evaluation') || null;
+    // COH is open while the quarter is Active (old 'evaluation' / 'pendingApproval' quarters count as Active too).
+    quarter.value = quarters.find(q => normalizeStatus(q.status) === 'active') || null;
     if (canManageQuestions.value) allQuestions.value = await listAllQuestions();
     if (!quarter.value) return;
     const parts = await listParticipants(quarter.value.id);
@@ -361,6 +407,7 @@ async function load() {
     evaluatees.value = await listEvaluatees(quarter.value.id, session.user.uid);
     givenList.value = await listGiven(quarter.value.id, session.user.uid);
     received.value = await listReceived(quarter.value.id, session.user.uid);
+    await loadAnswered();
   } catch (e) { error.value = e.message; } finally { loading.value = false; }
 }
 onMounted(load);
@@ -372,20 +419,28 @@ async function openEvaluatee(p) {
   try {
     questions.value = await listQuestions(quarter.value.id);
     const existing = await getEvaluation(quarter.value.id, session.user.uid, p.employeeId);
-    readOnly.value = !!existing;
+    existingRatings.value = existing?.ratings || [];
     if (existing) {
-      // Submitted already: show exactly what was sent, never a silent default. (Fixes a pre-existing bug where
-      // every question defaulted to a rating of 3 instead of being genuinely unanswered until chosen.)
-      scores.value = questions.value.map(q => existing.ratings.find(r => r.questionId === q.id)?.score ?? null);
+      // Submitted already: show exactly what was sent, never a silent default. Any active question that wasn't
+      // in that submission (added later) must still be answered, so the form reopens for just those.
+      const answered = new Set(existingRatings.value.map(r => r.questionId));
+      const hasNew = questions.value.some(q => !answered.has(q.id));
+      readOnly.value = !hasNew;
+      lockedIds.value = hasNew ? answered : new Set();
+      const draft = hasNew ? loadDraft(p.employeeId) : null;
+      scores.value = questions.value.map((q, i) =>
+        existingRatings.value.find(r => r.questionId === q.id)?.score ?? draftScore(draft, q, i));
     } else {
+      readOnly.value = false;
+      lockedIds.value = new Set();
       const draft = loadDraft(p.employeeId);
-      scores.value = questions.value.map((q, i) => draft?.scores?.[i] ?? null);
+      scores.value = questions.value.map((q, i) => draftScore(draft, q, i));
     }
   } catch (e) { error.value = e.message; activeEvaluatee.value = null; }
 }
 
 function selectScore(i, n) {
-  if (readOnly.value) return;
+  if (readOnly.value || lockedIds.value.has(questions.value[i]?.id)) return;
   scores.value[i] = n;
   saveDraft(activeEvaluatee.value.employeeId);
 }
@@ -403,12 +458,16 @@ async function doSubmit() {
   if (!canSubmit.value || submitting.value) return;
   submitting.value = true; error.value = '';
   try {
-    const ratings = questions.value.map((q, i) => ({ questionId: q.id, questionTextSnapshot: q.title, score: scores.value[i] }));
+    const current = questions.value.map((q, i) => ({ questionId: q.id, questionTextSnapshot: q.title, score: scores.value[i] }));
+    // Keep earlier answers to questions that have since been switched off, so nothing already submitted is lost.
+    const kept = existingRatings.value.filter(r => !questions.value.some(q => q.id === r.questionId));
+    const ratings = [...current, ...kept];
     await submitEvaluation(quarter.value.id, activeEvaluatee.value.employeeId, activeEvaluatee.value.employeeName, ratings);
     clearDraft(activeEvaluatee.value.employeeId);
     showConfirm.value = false;
     showSuccess.value = true;
     givenList.value = await listGiven(quarter.value.id, session.user.uid);
+    await loadAnswered();
     setTimeout(() => { showSuccess.value = false; activeEvaluatee.value = null; }, 1400);
   } catch (e) { error.value = e.message; showConfirm.value = false; } finally { submitting.value = false; }
 }
@@ -495,6 +554,9 @@ async function moveQuestion(i, dir) {
 .coh-status-row { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 2px; }
 .coh-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
 .coh-status-dot.done { background: var(--green); }
+.coh-status-dot.update { background: var(--amber); }
+.coh-badge.update { background: var(--amber-soft); color: var(--amber); border-color: var(--amber); }
+.coh-q-status.new { background: var(--amber-soft); color: var(--amber); }
 .coh-chevron { width: 18px; height: 18px; flex-shrink: 0; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .coh-received { border-top: 1px solid var(--border); padding-top: 14px; }

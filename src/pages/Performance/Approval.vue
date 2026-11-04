@@ -10,7 +10,7 @@
         <select class="select" v-model="quarterId" v-if="quarters.length">
           <option v-for="q in quarters" :key="q.id" :value="q.id">{{ q.name }}</option>
         </select>
-        <button class="btn" :disabled="busy || quarter?.status === 'finalized'" @click="recompute">Recalculate</button>
+        <button class="btn" :disabled="busy || isFinal" @click="recompute">Recalculate</button>
         <button class="btn" :disabled="busy || !results.length" @click="exportExcel">Export Excel</button>
       </div>
     </div>
@@ -42,12 +42,12 @@
       <h3 style="margin-top:0;">Before you finalize</h3>
       <ul style="font-size:13px; color:var(--text-2); margin:0 0 14px; padding-left:18px;">
         <li>{{ pendingCount }} of {{ results.length }} participant(s) have an incomplete component.</li>
-        <li>Quarter status: {{ quarter?.status }}.</li>
+        <li>Quarter status: {{ quarterStatusLabel }}.</li>
         <li>Directors are scored on COH only: their COH result is scaled to a score out of 100.</li>
       </ul>
-      <button class="btn btn-primary" v-if="quarter?.status !== 'finalized'" :disabled="busy || !canFinalize" @click="dialog = 'finalize'">Finalize quarter</button>
+      <button class="btn btn-primary" v-if="!isFinal" :disabled="busy || !canFinalize" @click="dialog = 'finalize'">Finalize quarter</button>
       <button class="btn" v-else :disabled="busy" @click="correctionReason = ''; dialog = 'correction'">Request correction</button>
-      <p class="note" v-if="quarter?.status === 'finalized'">This quarter is finalized and locked. Requesting a correction snapshots every current result into its revision history, then reopens the quarter so you can fix the underlying COH/KPI/TMS data and re-finalize.</p>
+      <p class="note" v-if="isFinal">This quarter is finalized and locked. Requesting a correction snapshots every current result into its revision history, then reopens the quarter so you can fix the underlying COH/KPI/TMS data and re-finalize.</p>
       <p class="note" v-else-if="!canFinalize">Finalize is disabled until every participant's COH, KPI and TMS components are ready.</p>
     </div>
 
@@ -110,6 +110,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { listStaff } from '@/lib/agreements/data.js';
 import { listQuarters, getQuarter } from '@/lib/performance/quarters.js';
+import { normalizeStatus, STATUS_LABELS } from '@/lib/performance/quarterStatus.js';
 import { listResults, recomputeAll, readyToFinalize, finalizeQuarter, exportResultsReport, requestCorrection, listRevisions } from '@/lib/performance/results.js';
 
 const loading = ref(true);
@@ -132,12 +133,15 @@ const cell = (score, status) => status === 'insufficientData' ? 'Insufficient da
   : status === 'n/a' ? 'N/A' : status === 'notApplicable' ? 'Not scored' : score != null ? score.toFixed(2) : '—';
 const formatWhen = ts => ts?.toDate ? ts.toDate().toLocaleString() : '—';
 const pendingCount = computed(() => results.value.filter(r => r.finalScore == null).length);
-const canFinalize = computed(() => readyToFinalize(results.value) && quarter.value?.status !== 'finalized');
+// Quarters only have draft / active / finalized now; older saved statuses are mapped by normalizeStatus().
+const isFinal = computed(() => normalizeStatus(quarter.value?.status) === 'finalized');
+const quarterStatusLabel = computed(() => quarter.value ? STATUS_LABELS[normalizeStatus(quarter.value.status)] : '—');
+const canFinalize = computed(() => readyToFinalize(results.value) && !isFinal.value);
 
 async function load() {
   loading.value = true;
   try {
-    quarters.value = (await listQuarters()).filter(q => ['pendingApproval', 'finalized'].includes(q.status));
+    quarters.value = (await listQuarters()).filter(q => ['active', 'finalized'].includes(normalizeStatus(q.status)));
     if (!quarterId.value && quarters.value.length) quarterId.value = quarters.value[0].id;
     if (!quarterId.value) return;
     quarter.value = await getQuarter(quarterId.value);

@@ -1,5 +1,15 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.32, 4 Nov 2026: every staff member can do COH and KPI self-rating.
+// Widebed PMS Firestore rules. Draft 0.34, 4 Nov 2026 (Neo, on top of Khairul's Draft 0.33 below): COH questions added
+// mid-quarter. An evaluator who already submitted (even if HR/Director approved it) can add answers to the new
+// questions; the evaluation goes back to 'submitted' for review. Once approved, the scores document can only grow
+// (earlier answers can't be removed). Nothing else changes.
+// Draft 0.33, 4 Nov 2026 (Khairul, on top of Neo's Draft 0.32 below): puts back Khairul's
+// Draft 0.30 and 0.31, which were missing from 0.32: the Directors set a Director complaint's status (Read by the Directors /
+// In review / Closed, closing note in the conversation, HR can't reply once Closed), the Directors' own notes
+// (complaints/{id}/notes on a 'director' complaint, Directors only), and the sender's uid (fromUid) on a complaint's
+// private part for the profile picture. Also fixes the What's New rule (updates/{id}), whose first line had been cut
+// to the top of the file. Nothing else changes.
+// Draft 0.32, 4 Nov 2026: every staff member can do COH and KPI self-rating.
 // (1) cohEvaluations/{id}/private/scores: read/create/update no longer call get() on a parent that may not exist
 // yet (first "Evaluate" probe, and the batch that creates the evaluation + its scores together). get() on a missing
 // document errors, and an error means deny, so only roles with another way in (Director, HR, Finance via the
@@ -78,7 +88,8 @@ rules_version = '2';
 // Draft 0.10, 27 Oct 2026: (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
 // (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
 // 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
-// History: 0.32 COH/KPI for every staff member (null-safe scores rules, Finance no longer reads COH marks).
+// History: 0.34 COH new questions after submitting. 0.33 Director complaint status/notes, fromUid, What's New fix.
+// 0.32 COH/KPI for every staff member (null-safe scores rules, Finance no longer reads COH marks).
 // 0.30 six resource==null read-rule fixes reapplied. 0.29 Director complaint threads/photos. 0.28 staff
 // complaint thread/photos/notes. 0.26 COH marks moved to a private sub-document (evaluatee can't read scores).
 // 0.25 HR complaint read-marking.
@@ -838,8 +849,13 @@ service cloud.firestore {
         && request.resource.data.status in ['read', 'review', 'closed'] && request.resource.data.statusBy == request.auth.uid;
       // Only a Director opening a Director complaint marks it read.
       allow update: if isDirector() && resource.data.kind == 'director'
-        && changed().hasOnly(['read', 'readAt', 'readBy'])
-        && request.resource.data.read == true && request.resource.data.readBy == request.auth.uid;
+        && changed().hasOnly(['read', 'readAt', 'readBy', 'status'])
+        && request.resource.data.read == true && request.resource.data.readBy == request.auth.uid
+        && (!changed().hasAny(['status']) || request.resource.data.status == 'read');
+      // Draft 0.30: the Directors move a Director complaint to Read by the Directors, In review or Closed (Reopen = In review).
+      allow update: if isDirector() && resource.data.kind == 'director'
+        && changed().hasOnly(['status', 'statusAt', 'statusBy'])
+        && request.resource.data.status in ['read', 'review', 'closed'] && request.resource.data.statusBy == request.auth.uid;
       allow delete: if false;
       // Draft 0.28 (Khairul): the conversation with the sender. HR reads all; the named sender reads theirs; an anonymous
       // sender's browser reads by the (random) id, like the status. HR writes any time (a closing note goes with the Close);
@@ -860,14 +876,16 @@ service cloud.firestore {
                 && complaintNow(id).status != 'closed' && !('closing' in request.resource.data)));
         // Draft 0.29: a Director complaint's conversation is between HR and the Directors
         allow read: if hrOrDir() && complaintNow(id).kind == 'director';
+        // Draft 0.30: a closing note (closing) comes only from the Directors; HR can't write once it is Closed.
         allow create: if hrOrDir() && complaintNow(id).kind == 'director'
-          && newKeysOnly(['text', 'by', 'byName', 'byUid', 'imageIds', 'createdAt'])
+          && newKeysOnly(['text', 'by', 'byName', 'byUid', 'imageIds', 'closing', 'createdAt'])
           && request.resource.data.text is string && request.resource.data.text.size() <= 2000
           && (request.resource.data.text.size() > 0
             || (request.resource.data.get('imageIds', []) is list && request.resource.data.get('imageIds', []).size() > 0))
           && request.resource.data.get('imageIds', []).size() <= 5
           && request.resource.data.byUid == request.auth.uid
-          && ((isHR() && request.resource.data.by == 'hr') || (isDirector() && request.resource.data.by == 'director'));
+          && ((isHR() && request.resource.data.by == 'hr' && complaintNow(id).get('status', '') != 'closed' && !('closing' in request.resource.data))
+            || (isDirector() && request.resource.data.by == 'director'));
         allow update, delete: if false;
       }
       // Draft 0.28 (Khairul): photos. Read by the same people as the conversation. Added with the complaint by its sender
@@ -897,9 +915,10 @@ service cloud.firestore {
         allow update, delete: if false;
       }
       // Draft 0.28 (Khairul): HR's own notes on a staff complaint; nobody else reads them.
+      // Draft 0.30: the Directors' own notes on a Director complaint; HR never reads those.
       match /notes/{nid} {
-        allow read: if isHR();
-        allow create: if isHR() && complaintNow(id).kind == 'staff'
+        allow read: if (isHR() && complaintNow(id).kind == 'staff') || (isDirector() && complaintNow(id).kind == 'director');
+        allow create: if ((isHR() && complaintNow(id).kind == 'staff') || (isDirector() && complaintNow(id).kind == 'director'))
           && newKeysOnly(['text', 'byName', 'byUid', 'createdAt'])
           && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
           && request.resource.data.byUid == request.auth.uid;
@@ -910,9 +929,10 @@ service cloud.firestore {
         allow read: if signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid;
         // Written once, in the same transaction as the parent. Anonymous: no fromName.
         allow create: if docId == 'main' && anyStaff()
-          && newKeysOnly(['subject', 'details', 'files', 'fromName'])
+          && newKeysOnly(['subject', 'details', 'files', 'fromName', 'fromUid'])
+          && (!('fromUid' in request.resource.data) || request.resource.data.fromUid == request.auth.uid)
           && ((complaintAfter(id).kind == 'staff'
-                && (complaintAfter(id).anonymous == true ? !('fromName' in request.resource.data) : complaintAfter(id).fromId == request.auth.uid))
+                && (complaintAfter(id).anonymous == true ? !('fromName' in request.resource.data) && !('fromUid' in request.resource.data) : complaintAfter(id).fromId == request.auth.uid))
             || (complaintAfter(id).kind == 'director' && hrOrDir()));
         allow update, delete: if false;
       }
@@ -989,8 +1009,10 @@ service cloud.firestore {
         && id == request.resource.data.quarterId + '_' + request.resource.data.evaluatorId + '_' + request.resource.data.evaluateeId
         && request.resource.data.status == 'submitted'
         && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data);
-      // Resubmit before review: same pair, still in 'submitted' state on both sides.
-      allow update: if anyStaff() && resource.data.evaluatorId == request.auth.uid && resource.data.status == 'submitted'
+      // Resubmit: same pair, saved back as 'submitted'. Draft 0.34: also allowed from 'approved', so an evaluator can
+      // answer questions added after they submitted; it then goes back to 'submitted' for HR/Director to review again.
+      // The marks themselves are protected in private/scores below (earlier answers can't be dropped once approved).
+      allow update: if anyStaff() && resource.data.evaluatorId == request.auth.uid && resource.data.status in ['submitted', 'approved']
         && request.resource.data.evaluatorId == resource.data.evaluatorId && request.resource.data.evaluateeId == resource.data.evaluateeId
         && request.resource.data.status == 'submitted'
         && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data);
@@ -1017,7 +1039,12 @@ service cloud.firestore {
         allow update: if anyStaff()
           && exists(evalDoc())
           && get(evalDoc()).data.evaluatorId == request.auth.uid
-          && get(evalDoc()).data.status == 'submitted'
+          // Draft 0.34: while 'submitted' the evaluator may change anything; once 'approved' only by ADDING answers
+          // (new questions), and the evaluation must go back to 'submitted' in the same write for re-review.
+          && (get(evalDoc()).data.status == 'submitted'
+            || (get(evalDoc()).data.status == 'approved'
+                && getAfter(evalDoc()).data.status == 'submitted'
+                && request.resource.data.ratings.size() > resource.data.ratings.size()))
           && request.resource.data.ratings is list && request.resource.data.averageRating is number;
         allow delete: if false;
       }

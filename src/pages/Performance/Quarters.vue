@@ -4,7 +4,7 @@
     <div class="page-head">
       <div>
         <h1>Quarterly management</h1>
-        <div class="sub">Create and configure performance evaluation quarters. Prototype data model — see Stage 3 design notes.</div>
+        <div class="sub">Create and configure performance evaluation quarters. Each quarter goes Draft → Active → Finalized.</div>
       </div>
       <div class="head-tools">
         <button class="act-pill" @click="showStatusHelp = true">What does each status mean?</button>
@@ -25,7 +25,7 @@
               <td>{{ q.startDate }} – {{ q.endDate }}</td>
               <td>{{ countFor(q.id) }}</td>
               <td @click.stop>
-                <select v-if="canEdit" class="select" :value="q.status" :title="STATUS_HELP[q.status]" @change="changeStatus(q, $event.target.value)">
+                <select v-if="canEdit" class="select" :value="normalizeStatus(q.status)" :title="STATUS_HELP[normalizeStatus(q.status)]" @change="changeStatus(q, $event.target.value)">
                   <option v-for="s in STATUSES" :key="s" :value="s" :title="STATUS_HELP[s]">{{ statusLabel(s) }}</option>
                 </select>
                 <span v-else class="pill" :class="pillClass(q.status)">{{ statusLabel(q.status) }}</span>
@@ -69,7 +69,7 @@
         </div>
         <p class="note" :class="{ error: weightTotal !== 100 }">Weights add up to {{ weightTotal }} (must be 100).</p>
         <FormField label="Minimum valid COH evaluations" type="number" min="1" v-model="form.minCohEvaluations" :disabled="fieldsDisabled" />
-        <p class="note" v-if="!fieldsDisabled && form.status !== 'draft'">This quarter is {{ statusLabel(form.status).toLowerCase() }} — changing dates or weights now can affect scores already calculated against it.</p>
+        <p class="note" v-if="!fieldsDisabled && normalizeStatus(form.status) !== 'draft'">This quarter is {{ statusLabel(form.status).toLowerCase() }} — changing dates or weights now can affect scores already calculated against it.</p>
         <div class="modal-foot">
           <button class="btn" @click="form = null">{{ fieldsDisabled ? 'Close' : 'Cancel' }}</button>
           <button class="btn btn-primary" v-if="!fieldsDisabled" :disabled="saving" @click="save">Save</button>
@@ -100,7 +100,7 @@
     <div class="modal-back" v-if="deleting" @click.self="deleting = null">
       <div class="modal" style="max-width: 460px;">
         <h2 style="margin-top:0;">Delete "{{ deleting.name }}"?</h2>
-        <p class="muted" v-if="deleting.status !== 'draft'">It's {{ statusLabel(deleting.status).toLowerCase() }} — its participants, evaluations and results stay in Firestore, but you won't be able to reach them from this page anymore.</p>
+        <p class="muted" v-if="normalizeStatus(deleting.status) !== 'draft'">It's {{ statusLabel(deleting.status).toLowerCase() }} — its participants, evaluations and results stay in Firestore, but you won't be able to reach them from this page anymore.</p>
         <div class="modal-foot">
           <button class="btn" @click="deleting = null">Cancel</button>
           <button class="btn btn-primary" :disabled="saving" @click="remove(deleting)">Delete quarter</button>
@@ -133,9 +133,10 @@ import { useSession } from '@/stores/session.js';
 import { can } from '@/lib/access.js';
 import { listStaff } from '@/lib/agreements/data.js';
 import {
-  listQuarters, createQuarter, updateQuarter, deleteQuarter, setStatus, STATUSES,
+  listQuarters, createQuarter, updateQuarter, deleteQuarter, setStatus,
   listParticipants, setParticipants, DEFAULT_WEIGHTS
 } from '@/lib/performance/quarters.js';
+import { STATUSES, STATUS_LABELS, STATUS_HELP, normalizeStatus } from '@/lib/performance/quarterStatus.js';
 
 const session = useSession();
 const canEdit = computed(() => session.role === 'director' || can(session, 'performance.edit'));
@@ -157,18 +158,9 @@ const selectedUids = ref([]);
 const fieldsDisabled = computed(() => viewOnly.value);
 const weightTotal = computed(() => !form.value ? 0 : Number(form.value.weights.coh) + Number(form.value.weights.kpi) + Number(form.value.weights.tms));
 
-const STATUS_LABELS = { draft: 'Draft', upcoming: 'Upcoming', active: 'Active', evaluation: 'Evaluation period', pendingApproval: 'Pending approval', finalized: 'Finalized', archived: 'Archived' };
-const STATUS_HELP = {
-  draft: 'Being configured by Director/HR. Not visible to participants yet.',
-  upcoming: 'Configuration locked in; participants can see it\'s coming, but no actions are open yet.',
-  active: 'KPIs are assigned and employees work against them. COH and KPI self-assessment are not open yet.',
-  evaluation: 'COH peer evaluation and KPI self-assessment are open for every participant.',
-  pendingApproval: 'Evaluation window closed. Director/HR review COH evaluations, KPI submissions, TMS sync and discussions.',
-  finalized: 'Results are locked and released to employees. Read-only except through an authorized correction.',
-  archived: 'A past finalized quarter, kept for historical comparison.'
-};
-const statusLabel = s => STATUS_LABELS[s] || s;
-const pillClass = s => ({ draft: 'grey', upcoming: 'blue', active: 'blue', evaluation: 'amber', pendingApproval: 'amber', finalized: 'green', archived: 'grey' }[s] || 'grey');
+// Old quarters saved with a previous status (upcoming, evaluation, pendingApproval, archived) show as the nearest of the three.
+const statusLabel = s => STATUS_LABELS[normalizeStatus(s)];
+const pillClass = s => ({ draft: 'grey', active: 'amber', finalized: 'green' }[normalizeStatus(s)]);
 const showStatusHelp = ref(false);
 const deleting = ref(null);
 const countFor = id => participantCounts[id] ?? '—';
@@ -187,7 +179,7 @@ function openCreate() {
   viewOnly.value = false;
   form.value = { status: 'draft', name: '', startDate: '', endDate: '', evaluationStart: '', evaluationEnd: '', cohDeadline: '', kpiDeadline: '', reviewDeadline: '', finalizationDate: '', minCohEvaluations: 1, weights: { ...DEFAULT_WEIGHTS } };
 }
-// Double-click a row (or the Details button): opens read-only, with an inline Edit button for draft quarters.
+// Double-click a row (or the Details button): opens read-only, with an inline Edit button.
 function openDetails(q) {
   viewOnly.value = true;
   form.value = { ...q, weights: { ...DEFAULT_WEIGHTS, ...q.weights } };
@@ -203,10 +195,9 @@ async function save() {
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
 
-// The dropdown allows jumping directly to any status, not just the next one in sequence — matches the same
-// "edit/change at any status" business rule as the quarter config itself (see updateQuarter/deleteQuarter).
+// The dropdown can jump to any of the three statuses, same "change at any status" business rule as the config.
 async function changeStatus(q, newStatus) {
-  if (newStatus === q.status) return;
+  if (newStatus === normalizeStatus(q.status) && newStatus === q.status) return;
   saving.value = true; error.value = '';
   try { await setStatus(q.id, newStatus); okMsg.value = `"${q.name}" is now ${statusLabel(newStatus).toLowerCase()}.`; await load(); }
   catch (e) { error.value = e.message; } finally { saving.value = false; }
