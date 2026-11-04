@@ -426,7 +426,7 @@ export default {
 .who { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .tag.st-edited { background: #E6EEFB; color: #2B5DB8; }
 .rep-modal { max-width: 640px; }
-.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
 .v-purpose { grid-column: 1 / -1; }
 .v-purpose b { white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 600; line-height: 1.5; }
 .purpose-box { min-height: 84px !important; resize: vertical; line-height: 1.5; padding-top: 10px; }
