@@ -58,7 +58,27 @@
               <div><span class="kpi-muted">Task score</span><b>{{ taskScoreText(a) }}</b></div>
             </div>
 
-            <template v-if="!['approved', 'rejected'].includes(mySub(a.id)?.status)">
+            <div class="kpi-task-details" v-if="a.target || a.description || a.completionCriteria">
+              <details style="margin-bottom: 12px;">
+                <summary style="cursor: pointer; font-weight: 500; color: var(--text); margin-bottom: 8px;">KPI Details</summary>
+                <div style="padding-left: 12px; border-left: 2px solid var(--border);">
+                  <div v-if="a.target" style="margin-bottom: 8px;">
+                    <span class="kpi-muted">Target</span>
+                    <p style="margin: 4px 0; color: var(--text);">{{ a.target }}</p>
+                  </div>
+                  <div v-if="a.description" style="margin-bottom: 8px;">
+                    <span class="kpi-muted">Description</span>
+                    <p style="margin: 4px 0; color: var(--text);">{{ a.description }}</p>
+                  </div>
+                  <div v-if="a.completionCriteria">
+                    <span class="kpi-muted">Completion Criteria</span>
+                    <p style="margin: 4px 0; color: var(--text);">{{ a.completionCriteria }}</p>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <template v-if="!['approved', 'rejected', 'done'].includes(mySub(a.id)?.status)">
               <div class="field"><label>Your completed date</label><input class="input" type="date" v-model="drafts[a.id].completionTimestamp"></div>
               <div class="field"><label>Self-rating (1–5)</label>
                 <RatingPicker variant="buttons" v-model="drafts[a.id].selfRating" label="Self-rating" />
@@ -70,13 +90,57 @@
               </button>
             </template>
             <template v-else>
-              <div class="kpi-rating-compare">
-                <div><span class="kpi-muted">Your rating</span><b>{{ mySub(a.id)?.selfRating }} / 5</b></div>
-                <div><span class="kpi-muted">Supervisor rating</span><b>{{ mySub(a.id)?.finalApprovedRating ?? '—' }} / 5</b></div>
+              <!-- Rating comparison section -->
+              <div class="kpi-rating-section" :class="{ 'discussion-needed': mySub(a.id)?.status === 'discussionRequested' }">
+                <div class="kpi-rating-compare">
+                  <div>
+                    <span class="kpi-muted">Your rating</span>
+                    <div style="margin-top: 6px;">
+                      <RatingPicker :model-value="mySub(a.id)?.selfRating" disabled label="Your rating" />
+                    </div>
+                  </div>
+                  <div>
+                    <span class="kpi-muted">Supervisor rating</span>
+                    <div style="margin-top: 6px;">
+                      <RatingPicker :model-value="mySub(a.id)?.directorRating || mySub(a.id)?.finalApprovedRating" disabled label="Supervisor rating" />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Discussion chat section -->
+                <div v-if="mySub(a.id)?.status === 'discussionRequested' || mySub(a.id)?.status === 'resubmitted'" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                  <h4 style="margin: 0 0 12px; font-size: 14px;">Supervisor's feedback</h4>
+                  <div class="kpi-chat-box">
+                    <div class="kpi-chat-message supervisor">
+                      <div class="kpi-chat-header">
+                        <span class="kpi-chat-name">Supervisor</span>
+                        <span class="kpi-chat-time">{{ formatWhen(mySub(a.id)?.ratedAt) }}</span>
+                      </div>
+                      <p class="kpi-chat-text">{{ mySub(a.id)?.directorComments || mySub(a.id)?.reviewerComments || '(no comment)' }}</p>
+                    </div>
+                  </div>
+
+                  <!-- Reply input for discussion -->
+                  <div v-if="mySub(a.id)?.status === 'discussionRequested'" style="margin-top: 12px;">
+                    <textarea class="input" v-model="discussionReplies[a.id]" placeholder="Reply to supervisor..." style="font-size: 13px; min-height: 60px;"></textarea>
+                    <button class="btn btn-primary" style="margin-top: 8px; width: 100%;" @click="submitDiscussionReply(a)" :disabled="saving">
+                      {{ saving ? 'Sending...' : 'Send reply' }}
+                    </button>
+                  </div>
+
+                  <!-- For resubmitted, show submit button -->
+                  <div v-else-if="mySub(a.id)?.status === 'resubmitted'" style="margin-top: 12px;">
+                    <button class="btn btn-primary" style="width: 100%;" @click="submitMine(a)" :disabled="saving">
+                      {{ saving ? 'Submitting...' : 'Resubmit for approval' }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- For done/approved status -->
+                <p v-else class="kpi-muted" style="font-size:13px; margin-top: 12px;" v-if="mySub(a.id)?.directorComments || mySub(a.id)?.reviewerComments">
+                  <b>Supervisor comment:</b> {{ mySub(a.id)?.directorComments || mySub(a.id)?.reviewerComments }}
+                </p>
               </div>
-              <p class="kpi-muted" style="font-size:13px;" v-if="mySub(a.id)?.reviewerComments">Reviewer: {{ mySub(a.id)?.reviewerComments }}</p>
-              <button class="act-pill" @click="askDiscussion(a)" v-if="mySub(a.id)?.discussionStatus === 'none'">Request discussion</button>
-              <span class="pill amber" v-else-if="mySub(a.id)?.discussionStatus !== 'resolved'">Discussion {{ mySub(a.id)?.discussionStatus }}</span>
             </template>
           </div>
           <div class="kpi-card-empty" v-if="!myAssignments.length">No KPIs assigned to you this quarter.</div>
@@ -247,11 +311,14 @@
             <p class="kpi-muted" style="margin: 8px 0; font-size: 13px;">{{ reviewing.submission.selfComments || '(no comments)' }}</p>
 
             <div v-if="discussionThread" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-              <h3 style="margin: 0 0 10px;">Discussion history</h3>
-              <div class="kpi-discussion-thread">
-                <div v-for="msg in discussionThread.thread" :key="msg.at" class="kpi-thread-msg" :class="{ 'by-director': msg.role === 'director' }">
-                  <div class="kpi-thread-head"><b>{{ msg.by }}</b> <span class="kpi-muted">{{ formatWhen(msg.at) }}</span></div>
-                  <p class="kpi-thread-text">{{ msg.message }}</p>
+              <h3 style="margin: 0 0 12px; font-size: 14px;">Discussion chat</h3>
+              <div class="kpi-chat-box" style="max-height: 250px;">
+                <div v-for="msg in discussionThread.thread" :key="msg.at" class="kpi-chat-message" :class="{ 'supervisor': msg.role === 'director' }">
+                  <div class="kpi-chat-header">
+                    <span class="kpi-chat-name">{{ msg.role === 'director' ? '👤 Supervisor' : '👤 Employee' }}</span>
+                    <span class="kpi-chat-time">{{ formatWhen(msg.at) }}</span>
+                  </div>
+                  <p class="kpi-chat-text">{{ msg.message }}</p>
                 </div>
               </div>
             </div>
@@ -291,6 +358,8 @@ import { ref, reactive, computed, watch, onMounted } from 'vue';
 import FormField from '@/components/FormField.vue';
 import RatingPicker from '@/components/RatingPicker.vue';
 import { useSession } from '@/stores/session.js';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase.js';
 import { listQuarters, listParticipants, getQuarter } from '@/lib/performance/quarters.js';
 import {
   listAssignmentsFor, listAllAssignments, listSubmissionsFor, totalWeightage, kpiScoreFor,
@@ -334,6 +403,7 @@ const reviewRating = ref(3);
 const reviewComments = ref('');
 const reviewReason = ref('');
 const discussionThread = ref(null);
+const discussionReplies = reactive({});
 
 const mySub = id => mySubs.value[id] || null;
 // Uses this specific task's Director-configured early/on-time/overdue rule when set, otherwise the app-wide
@@ -565,6 +635,20 @@ async function reopenForDiscussion() {
     okMsg.value = 'KPI reopened and sent back for discussion.'; reviewing.value = null; await load();
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
+
+async function submitDiscussionReply(a) {
+  const reply = discussionReplies[a.id];
+  if (!reply || !reply.trim()) { error.value = 'Please type a message.'; return; }
+  saving.value = true; error.value = '';
+  try {
+    await postDiscussionReply(a.id, reply);
+    discussionReplies[a.id] = '';
+    // Update status to resubmitted
+    await updateDoc(doc(db, 'kpiSubmissions', a.id), { status: 'resubmitted' });
+    okMsg.value = 'Reply sent. Please resubmit when ready for approval.';
+    await load();
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
 </script>
 
 <style scoped>
@@ -608,7 +692,54 @@ async function reopenForDiscussion() {
 .kpi-rating-compare > div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .kpi-rating-compare b { font-size: 16px; color: var(--text); }
 
-.kpi-review-section { }
+.kpi-review-section {
+  padding: 12px; background: var(--chip); border-radius: var(--radius);
+}
+
+.kpi-review-section.discussion-needed {
+  background: var(--orange-soft); border: 2px solid var(--orange);
+}
+
+.kpi-rating-section {
+  padding: 12px; background: var(--surface); border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.kpi-rating-section.discussion-needed {
+  border: 2px solid var(--orange); background: var(--orange-soft);
+  box-shadow: 0 0 0 4px rgba(255, 152, 0, 0.1);
+}
+
+.kpi-chat-box {
+  background: var(--chip); border-radius: var(--radius); padding: 10px;
+  max-height: 200px; overflow-y: auto;
+}
+
+.kpi-chat-message {
+  background: var(--surface); padding: 10px; border-radius: 6px;
+  margin-bottom: 8px; font-size: 13px;
+}
+
+.kpi-chat-message.supervisor {
+  border-left: 4px solid var(--accent);
+}
+
+.kpi-chat-header {
+  display: flex; justify-content: space-between; gap: 8px;
+  margin-bottom: 6px; font-size: 12px;
+}
+
+.kpi-chat-name {
+  font-weight: 600; color: var(--text);
+}
+
+.kpi-chat-time {
+  color: var(--text-2); font-size: 11px;
+}
+
+.kpi-chat-text {
+  margin: 0; color: var(--text); line-height: 1.4; word-wrap: break-word;
+}
 
 .kpi-discussion-thread {
   display: flex; flex-direction: column; gap: 10px; background: var(--chip); padding: 10px; border-radius: var(--radius);
