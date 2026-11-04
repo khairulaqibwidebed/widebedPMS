@@ -24,7 +24,7 @@
           <thead><tr><th>Employee</th><th>COH</th><th>KPI</th><th>TMS</th><th>Total</th><th>Ready</th><th></th></tr></thead>
           <tbody>
             <tr v-for="r in results" :key="r.employeeId">
-              <td>{{ nameOf(r.employeeId) }}</td>
+              <td>{{ nameOf(r.employeeId) }} <small class="muted" v-if="r.cohOnly">· Director, COH only</small></td>
               <td>{{ cell(r.cohScore, r.componentStatuses.coh) }}</td>
               <td>{{ cell(r.kpiScore, r.componentStatuses.kpi) }}</td>
               <td>{{ cell(r.tmsScore, r.componentStatuses.tms) }}</td>
@@ -43,6 +43,7 @@
       <ul style="font-size:13px; color:var(--text-2); margin:0 0 14px; padding-left:18px;">
         <li>{{ pendingCount }} of {{ results.length }} participant(s) have an incomplete component.</li>
         <li>Quarter status: {{ quarter?.status }}.</li>
+        <li>Directors are scored on COH only: their COH result is scaled to a score out of 100.</li>
       </ul>
       <button class="btn btn-primary" v-if="quarter?.status !== 'finalized'" :disabled="busy || !canFinalize" @click="dialog = 'finalize'">Finalize quarter</button>
       <button class="btn" v-else :disabled="busy" @click="correctionReason = ''; dialog = 'correction'">Request correction</button>
@@ -127,7 +128,8 @@ const correctionReason = ref('');
 const revisions = ref([]);
 
 const nameOf = uid => staff.value.find(e => e.uid === uid)?.name || uid;
-const cell = (score, status) => status === 'insufficientData' ? 'Insufficient data' : status === 'pending' ? 'Pending' : status === 'n/a' ? 'N/A' : score != null ? score.toFixed(2) : '—';
+const cell = (score, status) => status === 'insufficientData' ? 'Insufficient data' : status === 'pending' ? 'Pending'
+  : status === 'n/a' ? 'N/A' : status === 'notApplicable' ? 'Not scored' : score != null ? score.toFixed(2) : '—';
 const formatWhen = ts => ts?.toDate ? ts.toDate().toLocaleString() : '—';
 const pendingCount = computed(() => results.value.filter(r => r.finalScore == null).length);
 const canFinalize = computed(() => readyToFinalize(results.value) && quarter.value?.status !== 'finalized');

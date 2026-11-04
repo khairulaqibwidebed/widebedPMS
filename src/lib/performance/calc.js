@@ -86,3 +86,19 @@ export function tmsScoreFromCounts(totalTasks, completedTasks, tmsWeight) {
   if (totalTasks === 0) return { status: 'n/a', score: null };
   return { status: 'ok', score: Math.round((completedTasks / totalTasks) * tmsWeight * 100) / 100 };
 }
+
+// Who is scored on what (confirmed business rule): Directors are scored on COH only — no KPI and no TMS.
+// Everyone else is scored on all three components.
+export const isCohOnly = role => role === 'director';
+
+// Combines the three component results into the final /100 score, or null while something is still outstanding.
+//  - Everyone else: COH + KPI + TMS (TMS 'n/a' — no eligible tasks — counts as 0, as before).
+//  - COH-only (Directors): the COH result scaled up to /100, e.g. 25.2 of a 30-point COH weight -> 84.
+export function finalScoreFor({ coh, kpi, tms }, weights, { cohOnly = false } = {}) {
+  if (cohOnly) {
+    if (coh.status !== 'ok' || !Number(weights?.coh)) return null;
+    return Math.round((coh.score / Number(weights.coh)) * 100 * 100) / 100;
+  }
+  const allReady = coh.status === 'ok' && kpi.status === 'ok' && (tms.status === 'ok' || tms.status === 'n/a');
+  return allReady ? Math.round(((coh.score || 0) + (kpi.score || 0) + (tms.score || 0)) * 100) / 100 : null;
+}
