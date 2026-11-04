@@ -109,14 +109,25 @@
 
                 <!-- Discussion chat section -->
                 <div v-if="mySub(a.id)?.status === 'discussionRequested' || mySub(a.id)?.status === 'resubmitted'" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-                  <h4 style="margin: 0 0 12px; font-size: 14px;">Supervisor's feedback</h4>
-                  <div class="kpi-chat-box">
-                    <div class="kpi-chat-message supervisor">
-                      <div class="kpi-chat-header">
-                        <span class="kpi-chat-name">Supervisor</span>
-                        <span class="kpi-chat-time">{{ formatWhen(mySub(a.id)?.ratedAt) }}</span>
+                  <h4 style="margin: 0 0 12px; font-size: 14px;">💬 Discussion Chat</h4>
+                  <div class="kpi-discussion-chat" v-if="getEmployeeDiscussionThread(a.id)">
+                    <div v-for="comment in getEmployeeDiscussionThread(a.id).thread" :key="comment.id" class="kpi-comment" v-if="!comment.deleted">
+                      <div class="kpi-comment-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
+                        {{ initialOf(comment.by) }}
                       </div>
-                      <p class="kpi-chat-text">{{ mySub(a.id)?.directorComments || mySub(a.id)?.reviewerComments || '(no comment)' }}</p>
+                      <div class="kpi-comment-body">
+                        <div class="kpi-comment-header">
+                          <span class="kpi-comment-name">{{ comment.by }}</span>
+                          <span class="kpi-comment-role">{{ comment.role === 'director' ? 'Supervisor' : 'Employee' }}</span>
+                          <span class="kpi-comment-time">{{ formatWhen(comment.at) }}</span>
+                          <span v-if="comment.edited" class="kpi-comment-edited">edited</span>
+                        </div>
+                        <p class="kpi-comment-text">{{ comment.message }}</p>
+                        <div class="kpi-comment-actions" v-if="comment.byUid === session.user.uid">
+                          <button class="kpi-action-btn" @click="startEditComment(comment)">Edit</button>
+                          <button class="kpi-action-btn" @click="removeComment(a.id, comment.id)">Delete</button>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -431,8 +442,10 @@ const discussionThread = ref(null);
 const discussionReplies = reactive({});
 const editingComment = ref(null);
 const editingCommentText = ref('');
+const employeeDiscussionThreads = reactive({});
 
 const mySub = id => mySubs.value[id] || null;
+const getEmployeeDiscussionThread = assignmentId => employeeDiscussionThreads[assignmentId] || null;
 // Uses this specific task's Director-configured early/on-time/overdue rule when set, otherwise the app-wide
 // default (DEFAULT_DEADLINE_THRESHOLDS, unchanged) — suggestDeadlineRating itself never changed.
 const suggestion = a => suggestDeadlineRating(a.deadline, drafts[a.id]?.completionTimestamp || null, a.scoringRules ? customThresholds(a.scoringRules) : undefined);
@@ -536,6 +549,13 @@ async function load() {
       if (!d.seeded) {
         const existing = mySubs.value[a.id];
         Object.assign(d, { selfRating: existing?.selfRating ?? null, selfComments: existing?.selfComments || '', completionTimestamp: existing?.completionTimestamp || '', seeded: true });
+      }
+      // Load discussion threads for KPIs in discussion
+      if (mySubs.value[a.id]?.status === 'discussionRequested' || mySubs.value[a.id]?.status === 'resubmitted') {
+        try {
+          const thread = await getDiscussionThread(a.id);
+          if (thread) employeeDiscussionThreads[a.id] = thread;
+        } catch (e) { console.warn('Failed to load discussion thread:', e); }
       }
     }
     if (canManageKpi.value) {
