@@ -18,7 +18,7 @@
 import { ARRANGEMENTS, effectiveRates, unitStatement, byUnit } from './engine.js';
 
 // Raise when what a summary holds or how it is worked out changes: every summary is then worked out again once.
-export const SUMMARY_VERSION = 1;
+export const SUMMARY_VERSION = 2;   // 2: Booking.com method changed (3 Nov 2026), so saved summaries are worked out again
 export const noneId = propertyId => `${propertyId}__none`;
 export const isNone = unitId => /__none$/.test(unitId || '');
 export const unitMonthId = (unitId, month) => `${unitId}_${month}`;

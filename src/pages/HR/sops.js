@@ -12,7 +12,7 @@ export const SOPS = {
     steps: ['Fill in the salary advance request form below and give it to HR.',
       'You can ask for up to 50% of one month\'s basic salary, once a month.',
       'Your manager and HR approve or reject the request within 3 working days.',
-      'Finance pays the approved advance by bank transfer.',
+      'Accounting pays the approved advance by bank transfer.',
       'The advance is deducted in full from your next salary.'],
     docs: [['Salary advance request form.pdf', '9 Oct 2026']] },
   allowance: { label: 'Allowance SOP', title: 'Allowance SOP', sub: 'Allowances you can claim and when deductions apply', stepsTitle: 'Steps to follow',

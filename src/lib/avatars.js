@@ -4,7 +4,7 @@
 // No picture = the first letter of their name on a circle in their role colour.
 import { reactive } from 'vue';
 import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { db, ROLE_LABEL, CUSTOM_ROLES } from './firebase.js';
+import { db, ROLE_LABEL, CUSTOM_ROLES, BUILTIN_TAG } from './firebase.js';
 
 // Role colours (also used by the role badges). Solid enough for a white letter in light and dark mode.
 export const ROLE_COLOR = {
@@ -16,7 +16,8 @@ export const roleColor = role => ROLE_COLOR[roleKey(role)] || CUSTOM_ROLES[roleK
 export function roleKey(r) {
   if (!r) return null;
   if (ROLE_COLOR[r]) return r;
-  return Object.keys(ROLE_LABEL).find(k => ROLE_LABEL[k] === r) || String(r).toLowerCase();
+  // the name shown now, or the fixed word saved on older records ("Finance" for the role shown as Accounting)
+  return Object.keys(ROLE_LABEL).find(k => ROLE_LABEL[k] === r) || Object.keys(BUILTIN_TAG).find(k => BUILTIN_TAG[k] === r) || String(r).toLowerCase();
 }
 // Inline style for a role badge or tag in that role's colour (see .role-tint in app.css).
 export const roleTint = role => ({ '--rc': roleColor(role) });

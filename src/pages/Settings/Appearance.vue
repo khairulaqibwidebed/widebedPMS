@@ -10,7 +10,7 @@
         <button class="btn btn-primary">+ Add line</button>
         <button class="btn">Cancel</button>
         <span class="pill green">Completed</span><span class="pill amber">Estimated</span><span class="pill grey">Draft</span>
-        <span class="role-badge">Finance</span>
+        <span class="role-badge">Accounting</span>
         <span class="editlink">Edit ›</span>
       </div>
     </div>

@@ -241,7 +241,7 @@ const me = useSession();
 const TABS = [{ key: 'checklist', label: 'Checklist' }, { key: 'how', label: 'How Widebed works' }, { key: 'who', label: 'Who to ask' },
   { key: 'walk', label: 'PMS walkthrough' }, { key: 'faq', label: 'FAQ & glossary' }];
 const WHO = [
-  { team: 'Finance', what: 'Statements, payouts, expenses, invoices' },
+  { team: 'Accounting', what: 'Statements, payouts, expenses, invoices' },
   { team: 'Operations', what: 'Check-ins, guests, smart-lock passcodes' },
   { team: 'Admin', what: 'Units, vendors, repairs' },
   { team: 'HR', what: 'Leave, payroll, internship forms' },
@@ -252,12 +252,12 @@ const HOW = [
   { title: 'What we do', text: 'Widebed looks after serviced apartments for unit owners in Malaysia. Each unit is either rented out as short stays or to a long-term tenant, and the owner is paid once a month.' },
   { title: 'Short-term and long-term stays', text: '- **Short-term** is 29 nights or less. Guests book through sites like Booking.com, Agoda or Trip.com, or directly. Utilities are included in the booking price and Widebed pays them.\n- **Long-term** is 30 nights or more. The tenant pays a 2-month deposit (always required), pays utilities directly, and pays rent the day before each new cycle to get the next smart-lock passcode.' },
   { title: 'Owners and their arrangements', text: '- **Fixed rent**: the owner gets the same amount every month, and Widebed keeps the booking money.\n- **Profit share 40%** (daily stays): 20% service fee plus 20% utilities, taken from the month\'s total.\n- **Profit share 20%** (monthly stays).\n- **Long-term tenant**: 10% fee plus SST on the fee.' },
-  { title: 'What eZee does and what the PMS does', text: 'eZee is the booking system: every stay, check-in and check-out lives there. The PMS is Widebed\'s owner and finance layer. Finance uploads the eZee report, the PMS works out each unit\'s statement, Finance checks it and completes the month, and the owner is paid with a PDF statement.' }
+  { title: 'What eZee does and what the PMS does', text: 'eZee is the booking system: every stay, check-in and check-out lives there. The PMS is Widebed\'s owner and finance layer. Accounting uploads the eZee report, the PMS works out each unit\'s statement, Accounting checks it and completes the month, and the owner is paid with a PDF statement.' }
 ];
-const DAY_ONE = ['PMS login (HR asks the Director to invite you; you get an email to set your own password)', 'Company email', 'Laptop and office Wi-Fi (IT)', 'eZee access, if your role uses it (Operations or Finance)', 'Company Google Drive folder for your team'];
+const DAY_ONE = ['PMS login (HR asks the Director to invite you; you get an email to set your own password)', 'Company email', 'Laptop and office Wi-Fi (IT)', 'eZee access, if your role uses it (Operations or Accounting)', 'Company Google Drive folder for your team'];
 const DAY_ONE_NOTE = 'Intern accounts carry an "Intern" label and can only open what their role allows.';
 const WALK = {
-  Finance: [
+  Accounting: [
     { title: 'Upload the eZee report', text: 'Export the month from eZee (CSV or Excel) and drop it on the Upload page. Cancelled bookings (no room number) are set aside.', page: 'Upload', to: '/Finance/upload' },
     { title: 'Add expenses as they happen', text: 'Each repair, bill or reimbursement goes on its unit, with the receipt. Lines can be edited with a reason until that unit\'s statement is completed.', page: 'Expenses', to: '/Finance/expenses' },
     { title: 'Check each unit statement', text: 'Type the exact Trip.com amounts, look at anything marked Estimated or Negative.', page: 'Month-end payout', to: '/Finance/month-end' },
@@ -267,7 +267,7 @@ const WALK = {
   Operations: [
     { title: 'Check-ins follow eZee', text: 'Guests and stays are handled in eZee as today.' },
     { title: 'Raise a ticket for any unit problem', text: 'Tag the team who should handle it, attach photos.', page: 'Issues', to: '/Operations/issues' },
-    { title: 'Smart-lock passcodes', text: 'Passcodes are set by hand after Finance verifies the rent payment.' }
+    { title: 'Smart-lock passcodes', text: 'Passcodes are set by hand after Accounting verifies the rent payment.' }
   ],
   'Everyone': [
     { title: 'Find any page', text: 'Press Ctrl K and type part of a page name.' },
@@ -278,10 +278,10 @@ const WALK = {
 const FAQ = [
   { q: 'Why does a booking count in the month the guest leaves?', a: 'Revenue is counted on the check-out date, so a stay from 28 Sep to 2 Oct belongs to October.' },
   { q: 'What is a long-term stay?', a: '30 nights or more. 29 nights or less is short-term.' },
-  { q: 'Why is the Trip.com amount "Estimated"?', a: 'Trip.com takes a commission that is not in the eZee report. The PMS estimates 15% until Finance types the exact amount on the booking line.' },
+  { q: 'Why is the Trip.com amount "Estimated"?', a: 'Trip.com takes a commission that is not in the eZee report. The PMS estimates 15% until Accounting types the exact amount on the booking line.' },
   { q: 'What happens when an owner\'s month is negative?', a: 'The owner gets nothing that month and the negative balance is carried forward to the next month as an expense line.' },
   { q: 'Can a completed statement be changed?', a: 'Not directly. A Director can reopen it, which makes a new revision and keeps the old PDF.' },
-  { q: 'Are invoices sent to tenants automatically?', a: 'No. Every invoice needs Finance approval first and is never sent automatically.' }
+  { q: 'Are invoices sent to tenants automatically?', a: 'No. Every invoice needs Accounting approval first and is never sent automatically.' }
 ];
 const GLOSS = [
   ['eZee', 'The booking system Widebed uses for every stay'],
@@ -292,7 +292,7 @@ const GLOSS = [
   ['SST', 'Sales and service tax, 8%'],
   ['Tourism Tax', 'RM 10 per unit per night for non-Malaysian guests'],
   ['Deposit', '2 months, required for every long-term tenant'],
-  ['Completed', 'A month that Finance has approved; its statements are locked PDFs']
+  ['Completed', 'A month that Accounting has approved; its statements are locked PDFs']
 ];
 // Checklist content lives in playbook/onboarding (HR and Directors edit it); until the first save the stages above show.
 // Each item has an id so ticks stay with the item when the list is edited. Each person's ticks are in
@@ -307,7 +307,7 @@ export default {
       TABS, how: copy(HOW), who: copy(WHO), dayOne: [...DAY_ONE], dayOneNote: DAY_ONE_NOTE, walk: copy(WALK), faq: copy(FAQ), gloss: copy(GLOSS),
       editTab: '', askLeave: false, goTab: '', dc: {}, newRole: '', stages: withIds(STAGES), newcomers: [],
       seesAll: ['director', 'hr'].includes(me.role), canEdit: ['director', 'hr'].includes(me.role), intern: !!me.intern,
-      tab: 'checklist', walkRole: me.role === 'finance' ? 'Finance' : 'Everyone', ticks: {},
+      tab: 'checklist', walkRole: me.role === 'finance' ? 'Accounting' : 'Everyone', ticks: {},
       loading: true, error: '', editing: false, draft: [], editErr: '', busy: false
     };
   },
@@ -322,7 +322,12 @@ export default {
         if (Array.isArray(c.who)) this.who = c.who;
         if (Array.isArray(c.dayOne)) this.dayOne = c.dayOne;
         if (typeof c.dayOneNote === 'string') this.dayOneNote = c.dayOneNote;
-        if (c.walk && typeof c.walk === 'object') { this.walk = c.walk; if (!this.walk[this.walkRole]) this.walkRole = Object.keys(this.walk)[0] || this.walkRole; }
+        if (c.walk && typeof c.walk === 'object') {
+          this.walk = c.walk;
+          // A walkthrough saved before the rename (4 Nov 2026) is still called "Finance": open that one for the Accounting team
+          if (!this.walk[this.walkRole] && this.walkRole === 'Accounting' && this.walk.Finance) this.walkRole = 'Finance';
+          if (!this.walk[this.walkRole]) this.walkRole = Object.keys(this.walk)[0] || this.walkRole;
+        }
         if (Array.isArray(c.faq)) this.faq = c.faq;
         if (Array.isArray(c.gloss)) this.gloss = c.gloss;
       }

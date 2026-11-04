@@ -78,7 +78,7 @@
       <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l7 7h-4.5v6h-5v-6H5z"/></svg>
       <b>{{ allMode ? 'Drag all the property files here, or' : `Drag the ${{ properties: 'properties', owners: 'unit owners', bookings: 'booking details' }[kind]} file here, or` }}</b>
       <span class="btn">{{ allMode ? 'Choose files' : 'Choose file' }}</span>
-      <small>{{ kind === 'bookings' ? '.xlsx or .csv · Willow Booking Details sheet · one booking per row (leave ID empty for a new one)' : kind === 'properties' ? '.xlsx or .csv · one property per row' : allMode ? '.xlsx or .csv · select several files at once (Ctrl+A in the folder) · one property per file or sheet' : '.xlsx or .csv · one unit per row · Finance\'s Owner List works as it is (pick the sheet after)' }}</small>
+      <small>{{ kind === 'bookings' ? '.xlsx or .csv · Willow Booking Details sheet · one booking per row (leave ID empty for a new one)' : kind === 'properties' ? '.xlsx or .csv · one property per row' : allMode ? '.xlsx or .csv · select several files at once (Ctrl+A in the folder) · one property per file or sheet' : '.xlsx or .csv · one unit per row · Accounting\'s Owner List works as it is (pick the sheet after)' }}</small>
       <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" :multiple="allMode" hidden @change="pick($event.target.files); $event.target.value = ''">
     </label>
 

@@ -3,7 +3,7 @@
 // rules check (rules are not filters): tickets tagged to the role plus tickets the person raised, inquiries
 // assigned to the person, and so on. A Director using "View as" passes the same checks.
 // Nothing here reads a private/ document except the complaint subject on the HR dashboard (HR and Directors only).
-import { db, ROLE_LABEL } from './firebase.js';
+import { db, ROLE_LABEL, issueTagOf } from './firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, getCountFromServer } from 'firebase/firestore';
 import { dayOffset } from './format.js';
 import { STAGES, withIds } from '@/pages/Playbook/onboarding-stages.js';
@@ -15,7 +15,7 @@ const LIST_LIMIT = 500;   // same as the Issues page
 // ---- Tickets: tagged to the role, or raised by me (Directors read every ticket, but the dashboard asks the same way) ----
 // tagOnly: the IT dashboard counts tickets tagged IT only.
 export async function loadMyTickets(role, uid, { tagOnly = false } = {}) {
-  const col = collection(db, 'issues'), tag = ROLE_LABEL[role] || role;
+  const col = collection(db, 'issues'), tag = issueTagOf(role);   // tickets are saved with "Finance" for the Accounting role
   const snaps = await Promise.all([
     getDocs(query(col, where('tags', 'array-contains', tag), limit(LIST_LIMIT))),
     tagOnly ? null : getDocs(query(col, where('raisedByUid', '==', uid), limit(LIST_LIMIT)))
@@ -165,4 +165,37 @@ export async function loadListingCounts() {
   const notLive = list.filter(x => x.status !== 'live');
   return { count: list.length, notLive: notLive.length, forMarketing: notLive.filter(x => x.payment?.confirmed).length,
     unsigned: notLive.filter(x => !x.agreement?.signed && x.agreement?.skipped).length };
+}
+
+// ---- Custom-role dashboards (4 Nov 2026): one "your work" card per ticked page, chosen automatically ----
+// Each loader is one or two small queries. Cards with something waiting come first; empty ones shrink to a line.
+
+// Tickets tagged to the role or raised by me that are still open. "Waiting on you" = open, tagged to the role, and the
+// last word wasn't mine (same test as the Issues page's "Needs a reply").
+export async function loadIssueCard(role, uid, myLabel) {
+  const tag = issueTagOf(role);
+  const list = await loadMyTickets(role, uid);
+  const ms = t => (t?.toMillis ? t.toMillis() : 0);
+  const newest = [...list].sort((a, b) => ms(b.updatedAt || b.createdAt) - ms(a.updatedAt || a.createdAt));
+  const waiting = newest.filter(t => t.status === 'open' && (t.tags || []).includes(tag) && (t.lastBy || t.raisedBy) !== myLabel);
+  return { open: list.filter(t => t.status === 'open').length, progress: list.filter(t => t.status === 'progress').length,
+    waiting, latest: newest.slice(0, 5) };
+}
+
+// Offline payments marked Unknown (someone has to fill in who paid and for what)
+export async function loadUnknownPayments() {
+  const snap = await getDocs(query(collection(db, 'offlinePayments'), where('status', '==', 'Unknown'), limit(50)));
+  const list = rows(snap).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  return { count: list.length, latest: list.slice(0, 3) };
+}
+
+// Agreements ending in the next 30 days that aren't renewed or closed yet; "mine" = I'm in charge of it or created it
+export async function loadRenewalsDue(uid) {
+  const today = dayOffset(0), in30 = dayOffset(30);
+  const snap = await getDocs(query(collection(db, 'agreementRecords'), where('endDate', '>=', today), where('endDate', '<=', in30), limit(200)));
+  const inCharge = r => (Array.isArray(r.inCharge) ? r.inCharge : r.inCharge?.uid ? [r.inCharge] : []);
+  const list = rows(snap).filter(r => r.status !== 'archived' && !['renewed', 'notRenewing'].includes(r.renewal?.state || ''))
+    .map(r => ({ ...r, mine: inCharge(r).some(p => p.uid === uid) || r.createdBy === uid }))
+    .sort((a, b) => a.endDate.localeCompare(b.endDate));
+  return { count: list.length, mine: list.filter(r => r.mine), latest: list.slice(0, 5) };
 }
