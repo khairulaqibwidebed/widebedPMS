@@ -3,7 +3,7 @@
 // performanceQuarters/{id}      { name, startDate, endDate, evaluationStart, evaluationEnd, cohDeadline, kpiDeadline,
 //                                  reviewDeadline, finalizationDate, status, departmentIds: [string],
 //                                  minCohEvaluations, weights: { coh, kpi, tms } }
-// performanceParticipants/{quarterId}_{uid}  { quarterId, employeeId, employeeName, departmentId, position,
+// performanceParticipants/{quarterId}_{uid}  { quarterId, employeeId, employeeName, role, departmentId, position,
 //                                  eligibilityStart, eligibilityEnd, participationStatus }
 //
 // Dates are plain 'YYYY-MM-DD' strings (matching months/{propertyId}_{month} elsewhere), not Firestore Timestamps,
@@ -120,6 +120,8 @@ export async function setParticipants(quarterId, selectedUids, employees) {
       if (selected.has(uid)) {
         batch.set(ref, {
           quarterId, employeeId: uid, employeeName: emp?.name || prior?.employeeName || 'Staff',
+          // Role decides what they're scored on (Directors: COH only — calc.js isCohOnly)
+          role: emp?.role || prior?.role || '',
           participationStatus: 'active',
           eligibilityStart: prior?.eligibilityStart || '', eligibilityEnd: prior?.eligibilityEnd || '',
           createdAt: prior?.createdAt || serverTimestamp()

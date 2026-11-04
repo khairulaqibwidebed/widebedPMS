@@ -4,7 +4,8 @@ import {
   cohScoreFromRatings,
   suggestDeadlineRating, DEFAULT_DEADLINE_THRESHOLDS, customThresholds,
   totalWeightage, kpiScoreFor,
-  attributeTasksFor, tmsScoreFromCounts
+  attributeTasksFor, tmsScoreFromCounts,
+  isCohOnly, finalScoreFor
 } from '../calc.js';
 
 describe('quarter weights and lifecycle', () => {
@@ -147,5 +148,29 @@ describe('TMS attribution and score (Phase 5.3/5.4)', () => {
   it('gives equal weight regardless of how many tasks are completed vs total', () => {
     expect(tmsScoreFromCounts(4, 2, 30).score).toBe(15);
     expect(tmsScoreFromCounts(10, 5, 30).score).toBe(15);
+  });
+});
+
+describe('final score and Directors (COH only)', () => {
+  const W = { coh: 30, kpi: 40, tms: 30 };
+  const ok = score => ({ status: 'ok', score });
+  it('only Directors are COH-only', () => {
+    expect(isCohOnly('director')).toBe(true);
+    expect(isCohOnly('hr')).toBe(false);
+    expect(isCohOnly(undefined)).toBe(false);
+  });
+  it('adds all three components for everyone else', () => {
+    expect(finalScoreFor({ coh: ok(25.2), kpi: ok(33.6), tms: ok(24) }, W)).toBe(82.8);
+  });
+  it('is null while KPI is still pending for everyone else', () => {
+    expect(finalScoreFor({ coh: ok(25.2), kpi: { status: 'pending', score: null }, tms: ok(24) }, W)).toBeNull();
+  });
+  it('scales COH to /100 for a Director, ignoring KPI and TMS entirely', () => {
+    const na = { status: 'notApplicable', score: null };
+    expect(finalScoreFor({ coh: ok(25.2), kpi: na, tms: na }, W, { cohOnly: true })).toBe(84);
+  });
+  it('is null for a Director until COH has enough evaluations', () => {
+    const na = { status: 'notApplicable', score: null };
+    expect(finalScoreFor({ coh: { status: 'insufficientData', score: null }, kpi: na, tms: na }, W, { cohOnly: true })).toBeNull();
   });
 });

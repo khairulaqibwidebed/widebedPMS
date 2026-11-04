@@ -150,6 +150,8 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useSession } from '@/stores/session.js';
 import { listQuarters, listParticipants } from '@/lib/performance/quarters.js';
+import { listStaff } from '@/lib/agreements/data.js';
+import { isCohOnly } from '@/lib/performance/calc.js';
 import {
   fetchEmployeeTasks, workspacesOf, dueInQuarter, localDay, countedElsewhere,
   saveSelection, refreshSnapshot, approveSnapshot, getSnapshot, listSnapshots, tmsScoreFromCounts
@@ -172,6 +174,7 @@ const isLocked = computed(() => ['finalized', 'archived'].includes(quarter.value
 const quarterName = id => quarters.value.find(q => q.id === id)?.name || id;
 
 const participants = ref([]);
+const staffRoles = ref(null);
 const snapshots = ref([]);
 const mySnapshot = ref(null);
 const snapOf = uid => snapshots.value.find(s => s.employeeId === uid) || null;
@@ -192,7 +195,11 @@ async function load() {
     if (!quarterId.value) return;
     mySnapshot.value = await getSnapshot(quarterId.value, session.user.uid);
     if (canManage.value) {
-      participants.value = (await listParticipants(quarterId.value)).filter(p => p.participationStatus === 'active');
+      // Directors are scored on COH only, so they have no KPIs / TMS tasks to set and are left out of this list.
+      // Role comes from the participant record, or the staff list for participants saved before roles were stored.
+      if (!staffRoles.value) { try { staffRoles.value = new Map((await listStaff()).map(e => [e.uid, e.role])); } catch (_) { staffRoles.value = new Map(); } }
+      participants.value = (await listParticipants(quarterId.value))
+        .filter(p => p.participationStatus === 'active' && !isCohOnly(p.role || staffRoles.value.get(p.employeeId)));
       snapshots.value = await listSnapshots(quarterId.value);
     }
   } catch (e) { error.value = e.message; } finally { loading.value = false; }

@@ -330,6 +330,8 @@ import {
 } from '@/lib/performance/kpi.js';
 import { avatarSrc, initialOf, roleColor } from '@/lib/avatars.js';
 import { computeResult } from '@/lib/performance/results.js';
+import { listStaff } from '@/lib/agreements/data.js';
+import { isCohOnly } from '@/lib/performance/calc.js';
 
 const session = useSession();
 // Confirmed business rule: KPI management (assign/edit/review) is Director-only — narrower than COH, which
@@ -350,6 +352,7 @@ const myAssignments = ref([]);
 const mySubs = ref({});
 const allRows = ref([]);
 const participants = ref([]);
+const staffRoles = ref(null);
 const employeeKpis = ref(null);
 const drafts = reactive({});
 
@@ -474,7 +477,11 @@ async function load() {
       }
     }
     if (canManageKpi.value) {
-      participants.value = (await listParticipants(quarterId.value)).filter(p => p.participationStatus === 'active');
+      // Directors are scored on COH only, so they have no KPIs / TMS tasks to set and are left out of this list.
+      // Role comes from the participant record, or the staff list for participants saved before roles were stored.
+      if (!staffRoles.value) { try { staffRoles.value = new Map((await listStaff()).map(e => [e.uid, e.role])); } catch (_) { staffRoles.value = new Map(); } }
+      participants.value = (await listParticipants(quarterId.value))
+        .filter(p => p.participationStatus === 'active' && !isCohOnly(p.role || staffRoles.value.get(p.employeeId)));
       const all = await listAllAssignments(quarterId.value);
       allRows.value = await listSubmissionsFor(all);
     }

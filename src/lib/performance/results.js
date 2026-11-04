@@ -15,6 +15,8 @@ import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { notifyUser } from '@/services/notificationService.js';
 import { exportFile } from '@/lib/agreements/table-io.js';
+import { listStaff } from '@/lib/agreements/data.js';
+import { isCohOnly, finalScoreFor } from './calc.js';
 import { getQuarter, setStatus, listParticipants, reopenForCorrection } from './quarters.js';
 import { cohScoreFor } from './coh.js';
 import { listAssignmentsFor, listSubmissionsFor, kpiScoreFor } from './kpi.js';
@@ -34,20 +36,40 @@ export async function audit(action, entity, details = '') {
 
 const resultId = (quarterId, uid) => `${quarterId}_${uid}`;
 export const getResult = (quarterId, uid) => one(doc(db, 'performanceResults', resultId(quarterId, uid)));
-export const listResults = async quarterId => rows(await getDocs(query(collection(db, 'performanceResults'), where('quarterId', '==', quarterId))));
+// Only people who are CURRENTLY active participants of this quarter. A result saved for someone who was later
+// unticked (or whose result was saved before they were removed) stays in Firestore for history, but is no longer
+// listed, finalized or exported for the quarter.
+export async function listResults(quarterId) {
+  const [all, parts] = await Promise.all([
+    getDocs(query(collection(db, 'performanceResults'), where('quarterId', '==', quarterId))).then(rows),
+    listParticipants(quarterId)
+  ]);
+  const active = new Set(parts.filter(p => p.participationStatus === 'active').map(p => p.employeeId));
+  return all.filter(r => active.has(r.employeeId));
+}
 
-// Computes (and saves, as a provisional draft) one employee's three components plus the combined score.
-// Returns the same shape whether or not everything is ready to finalize — callers check componentStatuses.
-//
-// Stage 2 fix: this used to unconditionally write approvalStatus: 'draft' and revisionNumber: 1 on every
-// recompute — which, after a correction set approvalStatus to 'pendingApproval' and bumped revisionNumber,
-// would have silently reset both the moment anyone clicked Recalculate. Now it only sets revisionNumber on
-// first-ever write (merge leaves an existing value alone when the key is absent), and never downgrades
-// approvalStatus away from 'pendingApproval' back to 'draft'.
-export async function computeResult(quarter, employeeUid) {
+// A person's PMS role: from their participant record (saved there since participants started storing it),
+// else from the staff list — so quarters set up before that still work without re-saving participants.
+let staffRoles = null;
+async function roleOf(quarterId, employeeUid) {
+  const part = await one(doc(db, 'performanceParticipants', `${quarterId}_${employeeUid}`));
+  if (part?.role) return part.role;
+  if (!staffRoles) {
+    try { staffRoles = new Map((await listStaff()).map(e => [e.uid, e.role])); } catch (_) { staffRoles = new Map(); }
+  }
+  return staffRoles.get(employeeUid) || '';
+}
+
+// Works out one employee's three components and the combined score, WITHOUT saving anything. Shared by
+// computeResult() (which saves) and liveResultFor() (My Performance, which only reads).
+const NOT_APPLICABLE = { status: 'notApplicable', score: null };
+
+async function gatherComponents(quarter, employeeUid, { cohOnly = false } = {}) {
   const { coh: cohWeight, kpi: kpiWeight, tms: tmsWeight } = quarter.weights;
 
   const coh = await cohScoreFor(quarter.id, employeeUid, quarter.minCohEvaluations || 1, cohWeight);
+  // Directors are scored on COH only: KPI and TMS aren't read at all.
+  if (cohOnly) return { coh, kpi: NOT_APPLICABLE, tms: NOT_APPLICABLE, snapshot: null };
 
   const assignments = await listAssignmentsFor(quarter.id, employeeUid);
   const subRows = await listSubmissionsFor(assignments);
@@ -57,15 +79,33 @@ export async function computeResult(quarter, employeeUid) {
   const snapshot = await getSnapshot(quarter.id, employeeUid);
   const tms = snapshot ? tmsScoreFromCounts(snapshot.totalTasks, snapshot.completedTasks, tmsWeight) : { status: 'n/a', score: null };
 
-  const allReady = coh.status === 'ok' && kpi.status === 'ok' && (tms.status === 'ok' || tms.status === 'n/a');
-  const finalScore = allReady ? Math.round(((coh.score || 0) + (kpi.score || 0) + (tms.score || 0)) * 100) / 100 : null;
+  return { coh, kpi, tms, snapshot };
+}
 
+
+// Computes (and saves, as a provisional draft) one employee's three components plus the combined score.
+// Returns the same shape whether or not everything is ready to finalize — callers check componentStatuses.
+//
+// Stage 2 fix: this used to unconditionally write approvalStatus: 'draft' and revisionNumber: 1 on every
+// recompute — which, after a correction set approvalStatus to 'pendingApproval' and bumped revisionNumber,
+// would have silently reset both the moment anyone clicked Recalculate. Now it only sets revisionNumber on
+// first-ever write (merge leaves an existing value alone when the key is absent), and never downgrades
+// approvalStatus away from 'pendingApproval' back to 'draft'. A finalized result is never touched at all —
+// changing it must go through requestCorrection().
+export async function computeResult(quarter, employeeUid, role) {
   const ref = doc(db, 'performanceResults', resultId(quarter.id, employeeUid));
   const prior = await one(ref);
+  if (prior?.approvalStatus === 'finalized') return prior;
+
+  const cohOnly = isCohOnly(role ?? await roleOf(quarter.id, employeeUid));
+  const { coh, kpi, tms, snapshot } = await gatherComponents(quarter, employeeUid, { cohOnly });
+  const finalScore = finalScoreFor({ coh, kpi, tms }, quarter.weights, { cohOnly });
+
   const data = {
     quarterId: quarter.id, employeeId: employeeUid,
     cohScore: coh.score, kpiScore: kpi.score, tmsScore: tms.score, finalScore,
     componentStatuses: { coh: coh.status, kpi: kpi.status, tms: tms.status },
+    cohOnly,
     calculationVersion: CALC_VERSION,
     snapshotRefs: { cohAverageRating: coh.averageRating, kpiRatedOf: kpi.total ? `${kpi.rated}/${kpi.total}` : null, tmsSnapshotId: snapshot?.id || null },
     approvalStatus: prior?.approvalStatus === 'pendingApproval' ? 'pendingApproval' : 'draft'
@@ -75,11 +115,38 @@ export async function computeResult(quarter, employeeUid) {
   return { ...prior, ...data };
 }
 
+// My Performance: the employee's marks as they stand right now, read-only (never writes). A finalized result
+// is returned exactly as locked. Otherwise KPI and TMS are worked out live from the latest approved ratings
+// and synced tasks; COH marks are private to HR/Director, so when the employee can't read them here, the COH
+// figure comes from the last saved calculation (refreshed whenever the Director approves a KPI, or
+// Recalculate is clicked) — or shows as waiting for review if there isn't one yet.
+// role: the viewer's own PMS role (My Performance passes session.role), so a Director sees a COH-only score.
+export async function liveResultFor(quarter, employeeUid, role) {
+  const saved = await getResult(quarter.id, employeeUid);
+  if (saved?.approvalStatus === 'finalized' || ['finalized', 'archived'].includes(quarter.status)) return saved;
+
+  const cohOnly = isCohOnly(role ?? await roleOf(quarter.id, employeeUid));
+  let { coh, kpi, tms } = await gatherComponents(quarter, employeeUid, { cohOnly });
+  if (coh.status === 'hidden' && saved?.componentStatuses?.coh && saved.componentStatuses.coh !== 'hidden') {
+    coh = { status: saved.componentStatuses.coh, score: saved.cohScore };
+  }
+
+  return {
+    ...(saved || {}), quarterId: quarter.id, employeeId: employeeUid,
+    cohScore: coh.score, kpiScore: kpi.score, tmsScore: tms.score,
+    finalScore: finalScoreFor({ coh, kpi, tms }, quarter.weights, { cohOnly }),
+    componentStatuses: { coh: coh.status, kpi: kpi.status, tms: tms.status }, cohOnly,
+    approvalStatus: saved?.approvalStatus || 'draft', live: true
+  };
+}
+
 export async function recomputeAll(quarterId) {
   const quarter = await getQuarter(quarterId);
   const parts = (await listParticipants(quarterId)).filter(p => p.participationStatus === 'active');
+  let roles = new Map();
+  try { roles = new Map((await listStaff()).map(e => [e.uid, e.role])); } catch (_) { /* fall back to participant roles */ }
   const results = [];
-  for (const p of parts) results.push(await computeResult(quarter, p.employeeId));
+  for (const p of parts) results.push(await computeResult(quarter, p.employeeId, p.role || roles.get(p.employeeId) || ''));
   audit('performance.results.recompute', `performanceQuarters/${quarterId}`, `${results.length} employee(s)`);
   return results;
 }
@@ -147,7 +214,8 @@ export const listRevisions = async (quarterId, employeeUid) => rows(await getDoc
 // Phase 12 (Excel export): reuses the same table-io.js exporter as Agreements, so there is one Excel-writing
 // code path in the app, not two. Component statuses print in place of a null score (never blank, never "0").
 export async function exportResultsReport(quarter, results, nameOf) {
-  const cell = (score, status) => status === 'insufficientData' ? 'Insufficient data' : status === 'pending' ? 'Pending' : status === 'n/a' ? 'N/A' : score;
+  const cell = (score, status) => status === 'insufficientData' ? 'Insufficient data' : status === 'pending' ? 'Pending'
+    : status === 'n/a' ? 'N/A' : status === 'notApplicable' ? 'Not scored (Director)' : status === 'hidden' ? 'Pending' : score;
   const header = ['Employee', 'COH (' + quarter.weights.coh + ')', 'KPI (' + quarter.weights.kpi + ')', 'TMS (' + quarter.weights.tms + ')', 'Final score', 'Approval status'];
   const rows = [header, ...results.map(r => [
     nameOf(r.employeeId), cell(r.cohScore, r.componentStatuses.coh), cell(r.kpiScore, r.componentStatuses.kpi),
