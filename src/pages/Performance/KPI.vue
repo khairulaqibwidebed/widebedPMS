@@ -109,7 +109,10 @@
 
                 <!-- Unified Discussion Chat -->
                 <div v-if="mySub(a.id)?.status === 'discussionRequested' || mySub(a.id)?.status === 'resubmitted'" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-                  <h4 style="margin: 0 0 12px; font-size: 14px;">💬 Discussion Chat</h4>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="margin: 0; font-size: 14px;">💬 Discussion Chat</h4>
+                    <button class="btn" style="font-size: 12px; padding: 6px 12px;" @click="openChatModal(a.id)">Open Full Chat</button>
+                  </div>
 
                   <!-- Chat Messages -->
                   <div class="kpi-chat-container">
@@ -349,7 +352,10 @@
             <p class="kpi-muted" style="margin: 8px 0; font-size: 13px;">{{ reviewing.submission.selfComments || '(no comments)' }}</p>
 
             <div v-if="discussionThread && discussionThread.thread && discussionThread.thread.length > 0" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-              <h3 style="margin: 0 0 16px; font-size: 14px;">💬 Discussion Chat</h3>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 14px;">💬 Discussion Chat</h3>
+                <button class="btn" style="font-size: 12px; padding: 6px 12px;" @click="openChatModal(reviewing.assignment.id)">Open Full Chat</button>
+              </div>
               <div class="kpi-chat-container">
                 <div class="kpi-discussion-chat">
                   <div v-for="comment in discussionThread.thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-chat-msg" :class="{ 'by-me': comment.byUid === session.user.uid }">
@@ -414,6 +420,135 @@
               <button class="btn btn-primary" @click="reopenForDiscussion">Reopen & Send Back for Discussion</button>
             </template>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI Discussion Chat Modal -->
+    <div class="modal-back" v-if="chatModalOpen" @click.self="chatModalOpen = null">
+      <div class="chat-modal" style="display: flex; flex-direction: column; max-width: 700px; max-height: 90vh;">
+        <!-- Header with KPI Title -->
+        <div class="chat-modal-header">
+          <div>
+            <h2 style="margin: 0; font-size: 18px;">KPI Discussion</h2>
+            <p class="muted" style="margin: 4px 0 0;">{{ chatModalOpen?.assignment?.title }}</p>
+          </div>
+          <button style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-2);" @click="chatModalOpen = null">✕</button>
+        </div>
+
+        <!-- Chat Messages Area -->
+        <div class="chat-modal-body" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <!-- Rating Proposal Card (First Message) -->
+          <div v-if="currentConversation && currentConversation.messages && currentConversation.messages.length > 0" class="chat-rating-proposal">
+            <div class="rating-proposal-header">
+              <div class="kpi-chat-avatar" :style="{ backgroundColor: roleColor('director') }">
+                {{ initialOf(chatModalOpen?.assignment?.directorName || 'Supervisor') }}
+              </div>
+              <div>
+                <div style="font-weight: 500;">{{ chatModalOpen?.assignment?.directorName || 'Supervisor' }}</div>
+                <div style="font-size: 12px; color: var(--text-2);">Proposed a rating for your review</div>
+              </div>
+            </div>
+
+            <div class="rating-proposal-content">
+              <p style="margin: 12px 0; line-height: 1.5;">{{ chatModalOpen?.submission?.directorComments || 'No comments provided' }}</p>
+
+              <div class="rating-proposal-cards">
+                <div class="rating-card">
+                  <div style="font-size: 12px; color: var(--text-2); margin-bottom: 8px;">Supervisor's Proposed Rating</div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="font-size: 20px;">{{ '⭐'.repeat(chatModalOpen?.submission?.directorRating || 0) }}</div>
+                    <b style="font-size: 16px;">{{ chatModalOpen?.submission?.directorRating || 0 }}/5</b>
+                  </div>
+                </div>
+                <div class="rating-card">
+                  <div style="font-size: 12px; color: var(--text-2); margin-bottom: 8px;">Your Self-Rating</div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="font-size: 20px;">{{ '⭐'.repeat(chatModalOpen?.submission?.selfRating || 0) }}</div>
+                    <b style="font-size: 16px;">{{ chatModalOpen?.submission?.selfRating || 0 }}/5</b>
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.1);">
+                <span style="font-size: 12px; background: var(--orange-soft); color: var(--orange); padding: 4px 8px; border-radius: 4px; display: inline-block;">
+                  💬 DISCUSSION REQUESTED
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Message History -->
+          <template v-if="currentConversation && currentConversation.messages">
+            <div v-for="msg in currentConversation.messages.filter(m => m.type !== 'rating_proposed')" :key="msg.id" :class="{ 'chat-msg-system': msg.type === 'system', 'chat-msg-user': msg.type !== 'system' }">
+              <!-- System Messages -->
+              <template v-if="msg.type === 'system'">
+                <div class="chat-system-message">
+                  <span v-if="msg.subType === 'rating_changed'">📌 Rating changed to {{ msg.details?.newRating }}/5</span>
+                  <span v-else-if="msg.subType === 'rating_approved'">✅ Rating approved as {{ msg.details?.finalRating }}/5</span>
+                  <span v-else-if="msg.subType === 'reopened'">🔄 KPI reopened for further discussion</span>
+                  <span v-else>{{ msg.text }}</span>
+                  <span style="font-size: 11px; color: var(--text-2); margin-left: 8px;">{{ formatWhen(msg.timestamp) }}</span>
+                </div>
+              </template>
+
+              <!-- Regular Messages -->
+              <template v-else-if="!msg.deleted">
+                <div class="chat-msg" :class="{ 'by-me': msg.senderUid === session.user.uid }">
+                  <div class="kpi-chat-avatar" :style="{ backgroundColor: roleColor(msg.senderRole) }">
+                    {{ initialOf(msg.senderName) }}
+                  </div>
+                  <div class="kpi-chat-bubble">
+                    <div class="kpi-chat-msg-header">
+                      <span class="kpi-chat-sender">{{ msg.senderName }}</span>
+                      <span class="kpi-chat-badge">{{ msg.senderRole === 'director' ? 'Supervisor' : 'Employee' }}</span>
+                      <span class="kpi-chat-time">{{ formatWhen(msg.timestamp) }}</span>
+                      <span v-if="msg.editedAt" class="kpi-chat-edited">(edited)</span>
+                    </div>
+                    <p class="kpi-chat-msg-text" style="white-space: pre-wrap; word-break: break-word;">{{ msg.text }}</p>
+                    <div class="kpi-chat-actions" v-if="msg.senderUid === session.user.uid">
+                      <button class="kpi-chat-action" @click="editingMessageId = msg.id; editingMessageText = msg.text;">✏️ Edit</button>
+                      <button class="kpi-chat-action" @click="deleteMessageFromChat(msg.id)">🗑️ Delete</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Edit Input for Message -->
+                <div v-if="editingMessageId === msg.id" style="display: flex; gap: 8px; align-items: flex-end;">
+                  <textarea class="input" v-model="editingMessageText" style="flex: 1; min-height: 60px;"></textarea>
+                  <div style="display: flex; gap: 8px;">
+                    <button class="btn" @click="editingMessageId = null">Cancel</button>
+                    <button class="btn btn-primary" @click="saveEditMessage(msg.id)" :disabled="saving">Save</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+          <div v-else style="text-align: center; color: var(--text-2); padding: 20px;">No messages yet</div>
+        </div>
+
+        <!-- Chat Input Area -->
+        <div class="chat-modal-footer">
+          <textarea
+            v-model="chatInput"
+            placeholder="Type your response... (Ctrl+Enter to send)"
+            class="chat-input"
+            @keydown.enter.ctrl="sendChatMessage"
+            style="resize: vertical; min-height: 60px;"
+          ></textarea>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--chip); border-radius: 0 0 var(--radius) var(--radius);">
+            <span style="font-size: 11px; color: var(--text-2);">Ctrl+Enter to send</span>
+            <button class="btn btn-primary" @click="sendChatMessage" :disabled="saving || !chatInput?.trim()">
+              {{ saving ? 'Sending...' : 'Send' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Director Action Buttons -->
+        <div v-if="session.role === 'director' && chatModalOpen?.submission?.status !== 'done'" style="padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px;">
+          <button class="btn" @click="chatModalOpen = null">Close Chat</button>
+          <button class="btn" @click="reopenChatForReview" :disabled="saving">Continue Discussion</button>
+          <button class="btn btn-primary" @click="approveChatRating" :disabled="saving">Approve Rating</button>
         </div>
       </div>
     </div>
@@ -762,6 +897,95 @@ async function removeComment(submissionId, commentId) {
     discussionThread.value = await getDiscussionThread(submissionId);
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
+
+async function openChatModal(assignmentId) {
+  const row = allRows.value.find(r => r.assignment.id === assignmentId) ||
+              myAssignments.value.find(a => a.id === assignmentId);
+  if (!row) return;
+  chatModalOpen.value = row.assignment && row.submission ? { assignment: row.assignment, submission: row.submission } : null;
+  if (!chatModalOpen.value) chatModalOpen.value = { assignment: row, submission: mySubs.value[assignmentId] };
+
+  saving.value = true;
+  try {
+    const conv = await getConversation(assignmentId);
+    currentConversation.value = conv;
+    await markConversationAsRead(assignmentId, session.user.uid);
+    chatInput.value = '';
+  } catch (e) {
+    error.value = 'Failed to load discussion: ' + e.message;
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function sendChatMessage() {
+  if (!chatInput.value?.trim()) return;
+  if (!chatModalOpen.value) return;
+  saving.value = true; error.value = '';
+  try {
+    const assignmentId = chatModalOpen.value.assignment?.id;
+    await addChatMessage(assignmentId, {
+      text: chatInput.value.trim(),
+      senderName: session.user.name,
+      senderUid: session.user.uid,
+      senderRole: session.role,
+      timestamp: new Date().toISOString()
+    });
+    chatInput.value = '';
+    const conv = await getConversation(assignmentId);
+    currentConversation.value = conv;
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
+
+async function saveEditMessage(messageId) {
+  if (!editingMessageText.value?.trim()) { error.value = 'Message cannot be empty.'; return; }
+  const assignmentId = chatModalOpen.value?.assignment?.id;
+  if (!assignmentId) return;
+  saving.value = true; error.value = '';
+  try {
+    await editChatMessage(assignmentId, messageId, editingMessageText.value.trim());
+    editingMessageId.value = null;
+    const conv = await getConversation(assignmentId);
+    currentConversation.value = conv;
+    okMsg.value = 'Message updated.';
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
+
+async function deleteMessageFromChat(messageId) {
+  if (!confirm('Delete this message? This cannot be undone.')) return;
+  const assignmentId = chatModalOpen.value?.assignment?.id;
+  if (!assignmentId) return;
+  saving.value = true; error.value = '';
+  try {
+    await deleteChatMessage(assignmentId, messageId);
+    const conv = await getConversation(assignmentId);
+    currentConversation.value = conv;
+    okMsg.value = 'Message deleted.';
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
+
+async function approveChatRating() {
+  const assignmentId = chatModalOpen.value?.assignment?.id;
+  if (!assignmentId) return;
+  if (!chatModalOpen.value?.submission?.directorRating) { error.value = 'No rating to approve.'; return; }
+  saving.value = true; error.value = '';
+  try {
+    await approveKpiRating(assignmentId, {
+      directorRating: chatModalOpen.value.submission.directorRating,
+      directorComments: chatModalOpen.value.submission.directorComments
+    });
+    okMsg.value = 'KPI approved.';
+    chatModalOpen.value = null;
+    await load();
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
+
+async function reopenChatForReview() {
+  const assignmentId = chatModalOpen.value?.assignment?.id;
+  if (!assignmentId) return;
+  chatModalOpen.value = null;
+  reviewing.value = allRows.value.find(r => r.assignment.id === assignmentId);
+}
 </script>
 
 <style scoped>
@@ -865,6 +1089,79 @@ async function removeComment(submissionId, commentId) {
 .kpi-chat-msg-header {
   display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
   flex-wrap: wrap; font-size: 12px;
+}
+
+/* Chat Modal Styles */
+.chat-modal {
+  background: var(--surface); border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+  display: flex; flex-direction: column;
+}
+
+.chat-modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px; border-bottom: 1px solid var(--border);
+  background: var(--chip);
+}
+
+.chat-modal-body {
+  flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+
+.chat-modal-footer {
+  border-top: 1px solid var(--border); display: flex; flex-direction: column;
+}
+
+.chat-input {
+  border: none; background: var(--surface); padding: 12px; font-family: inherit; font-size: 14px;
+  color: var(--text); border-radius: 0;
+}
+
+.chat-input::placeholder {
+  color: var(--text-2);
+}
+
+/* Rating Proposal Card */
+.chat-rating-proposal {
+  background: var(--orange-soft); border: 2px solid var(--orange); border-radius: var(--radius);
+  padding: 16px; margin-bottom: 8px;
+}
+
+.rating-proposal-header {
+  display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start;
+}
+
+.rating-proposal-content {
+  margin-left: 48px;
+}
+
+.rating-proposal-cards {
+  display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap;
+}
+
+.rating-card {
+  flex: 1; min-width: 150px; background: rgba(255,255,255,0.5); padding: 12px;
+  border-radius: 8px; border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+/* Chat Messages */
+.chat-msg {
+  display: flex; gap: 10px; align-items: flex-end; animation: slideIn 0.3s ease;
+}
+
+.chat-msg.by-me {
+  flex-direction: row-reverse;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* System Messages */
+.chat-system-message {
+  text-align: center; color: var(--text-2); font-size: 12px;
+  padding: 12px; background: var(--chip); border-radius: var(--radius);
+  margin: 8px 0;
 }
 
 .kpi-chat-sender {
