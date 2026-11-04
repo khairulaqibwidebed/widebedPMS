@@ -107,60 +107,14 @@
                   </div>
                 </div>
 
-                <!-- Unified Discussion Chat -->
+                <!-- Discussion Status - Open Full Chat -->
                 <div v-if="mySub(a.id)?.status === 'discussionRequested' || mySub(a.id)?.status === 'resubmitted'" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <h4 style="margin: 0; font-size: 13px; font-weight: 500;">💬 Supervisor Feedback</h4>
-                    <button class="btn" style="font-size: 11px; padding: 6px 10px; white-space: nowrap;" @click="openChatModal(a.id)">📧 Full Chat</button>
-                  </div>
-
-                  <!-- Chat Messages -->
-                  <div class="kpi-chat-container">
-                    <div v-if="getEmployeeDiscussionThread(a.id)?.thread && getEmployeeDiscussionThread(a.id).thread.length > 0" class="kpi-discussion-chat">
-                      <div v-for="comment in getEmployeeDiscussionThread(a.id).thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-chat-msg" :class="{ 'by-me': comment.byUid === session.user.uid }">
-                        <div class="kpi-chat-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
-                          {{ initialOf(comment.by) }}
-                        </div>
-                        <div class="kpi-chat-bubble">
-                          <div class="kpi-chat-msg-header">
-                            <span class="kpi-chat-sender">{{ comment.by }}</span>
-                            <span class="kpi-chat-badge">{{ comment.role === 'director' ? 'Supervisor' : 'Employee' }}</span>
-                            <span class="kpi-chat-time">{{ formatWhen(comment.at) }}</span>
-                            <span v-if="comment.edited" class="kpi-chat-edited">(edited)</span>
-                          </div>
-                          <p class="kpi-chat-msg-text">{{ comment.message }}</p>
-                          <div class="kpi-chat-actions" v-if="comment.byUid === session.user.uid">
-                            <button class="kpi-chat-action" @click="startEditComment(comment)">✏️ Edit</button>
-                            <button class="kpi-chat-action" @click="removeComment(a.id, comment.id)">🗑️ Delete</button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div v-else class="kpi-chat-empty">
-                      No messages yet. Start the discussion!
-                    </div>
-                  </div>
-
-                  <!-- Chat Input -->
-                  <div class="kpi-chat-input-section">
-                    <textarea
-                      v-model="discussionReplies[a.id]"
-                      :placeholder="mySub(a.id)?.status === 'resubmitted' ? 'Add more comments...' : 'Reply to supervisor...'"
-                      class="kpi-chat-input"
-                      @keydown.enter.ctrl="submitDiscussionReply(a)"
-                    ></textarea>
-                    <div class="kpi-chat-input-actions">
-                      <span class="kpi-chat-hint">Ctrl+Enter to send</span>
-                      <button class="btn btn-primary" @click="submitDiscussionReply(a)" :disabled="saving || !discussionReplies[a.id]?.trim()">
-                        {{ saving ? 'Sending...' : 'Send' }}
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- For resubmitted, show resubmit option -->
-                  <div v-if="mySub(a.id)?.status === 'resubmitted'" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
-                    <button class="btn btn-primary" style="width: 100%;" @click="submitMine(a)" :disabled="saving">
-                      {{ saving ? 'Submitting...' : 'Resubmit for approval' }}
+                  <button class="btn btn-primary" style="width: 100%; font-size: 12px; padding: 10px; margin-bottom: 12px;" @click="openChatModal(a.id)">
+                    📧 Open Discussion Chat
+                  </button>
+                  <div v-if="mySub(a.id)?.status === 'resubmitted'">
+                    <button class="btn btn-primary" style="width: 100%; font-size: 12px; padding: 8px;" @click="submitMine(a)" :disabled="saving">
+                      {{ saving ? 'Submitting...' : 'Resubmit for Approval' }}
                     </button>
                   </div>
                 </div>
@@ -345,56 +299,17 @@
         <div style="flex: 1; overflow-y: auto; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 16px; margin: 12px 0;">
           <!-- Employee Self-Assessment Section -->
           <div class="kpi-review-section">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
-              <h3 style="margin: 0;">Employee self-assessment</h3>
-              <button v-if="reviewing.submission.status === 'discussionRequested' || reviewing.submission.status === 'resubmitted'" class="btn" style="font-size: 11px; padding: 6px 10px; white-space: nowrap;" @click="openChatModal(reviewing.assignment.id)">📧 Full Chat</button>
-            </div>
+            <h3 style="margin: 0 0 12px;">Employee self-assessment</h3>
             <div class="kpi-rating-compare">
               <div><span class="kpi-muted">Self-rating</span><b>{{ reviewing.submission.selfRating }} / 5</b></div>
               <div><span class="kpi-muted">Completion date</span><b>{{ reviewing.submission.completionTimestamp || '—' }}</b></div>
             </div>
             <p class="kpi-muted" style="margin: 8px 0; font-size: 13px;">{{ reviewing.submission.selfComments || '(no comments)' }}</p>
 
-            <div v-if="discussionThread && discussionThread.thread && discussionThread.thread.length > 0" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-              <h4 style="margin: 0 0 12px; font-size: 13px;">💬 Discussion History</h4>
-              <div class="kpi-chat-container">
-                <div class="kpi-discussion-chat">
-                  <div v-for="comment in discussionThread.thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-chat-msg" :class="{ 'by-me': comment.byUid === session.user.uid }">
-                    <div class="kpi-chat-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
-                      {{ initialOf(comment.by) }}
-                    </div>
-                    <div class="kpi-chat-bubble">
-                      <div class="kpi-chat-msg-header">
-                        <span class="kpi-chat-sender">{{ comment.by }}</span>
-                        <span class="kpi-chat-badge">{{ comment.role === 'director' ? 'Supervisor' : 'Employee' }}</span>
-                        <span class="kpi-chat-time">{{ formatWhen(comment.at) }}</span>
-                        <span v-if="comment.edited" class="kpi-chat-edited">(edited)</span>
-                      </div>
-                      <p class="kpi-chat-msg-text">{{ comment.message }}</p>
-                      <div class="kpi-chat-actions" v-if="comment.byUid === session.user.uid">
-                        <button class="kpi-chat-action" @click="startEditComment(comment)">✏️ Edit</button>
-                        <button class="kpi-chat-action" @click="removeComment(discussionThread.submissionId, comment.id)">🗑️ Delete</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Chat input for director to continue discussion -->
-                <div class="kpi-chat-input-section">
-                  <textarea
-                    v-model="reviewComments"
-                    placeholder="Reply to discussion or add comments..."
-                    class="kpi-chat-input"
-                    @keydown.enter.ctrl="postReply"
-                  ></textarea>
-                  <div class="kpi-chat-input-actions">
-                    <span class="kpi-chat-hint">Ctrl+Enter to send</span>
-                    <button class="btn" @click="postReply" :disabled="saving || !reviewComments?.trim()">
-                      {{ saving ? 'Sending...' : 'Reply' }}
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <div v-if="reviewing.submission.status === 'discussionRequested' || reviewing.submission.status === 'resubmitted'" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+              <button class="btn btn-primary" style="width: 100%; font-size: 12px; padding: 10px;" @click="openChatModal(reviewing.assignment.id)">
+                📧 Open Discussion Chat
+              </button>
             </div>
           </div>
         </div>
