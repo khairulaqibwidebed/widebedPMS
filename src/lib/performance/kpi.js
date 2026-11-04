@@ -273,4 +273,39 @@ export const listDiscussions = async quarterId => {
   return allDocs.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.employeeId === s.user.uid || d.directorId === s.user.uid);
 }
 
+// Map old status values to new ones for data migration
+function migrateStatus(oldStatus) {
+  const map = {
+    'notStarted': 'notStarted',
+    'inProgress': 'submitted',
+    'submitted': 'submitted',
+    'underReview': 'pendingReview',
+    'revisionRequested': 'discussionRequested',
+    'approved': 'done',
+    'rejected': 'done',
+    'pendingReview': 'pendingReview',
+    'discussionRequested': 'discussionRequested',
+    'resubmitted': 'resubmitted',
+    'done': 'done'
+  };
+  return map[oldStatus] || 'notStarted';
+}
+
+export async function migrateKpiStatuses(quarterId) {
+  const all = await listAllAssignments(quarterId);
+  let migrated = 0;
+
+  for (const assignment of all) {
+    const sub = await getSubmission(assignment.id);
+    if (sub && sub.status !== migrateStatus(sub.status)) {
+      const newStatus = migrateStatus(sub.status);
+      console.log(`Migrating ${assignment.id}: ${sub.status} → ${newStatus}`);
+      await updateDoc(doc(db, 'kpiSubmissions', assignment.id), { status: newStatus });
+      migrated++;
+    }
+  }
+  console.log(`Migration complete: ${migrated} submissions updated`);
+  return migrated;
+}
+
 // (kpiScoreFor, totalWeightage, suggestDeadlineRating, DEFAULT_DEADLINE_THRESHOLDS live in ./calc.js — pure, unit-tested.)

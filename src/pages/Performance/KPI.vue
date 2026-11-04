@@ -333,19 +333,29 @@ const suggestion = a => suggestDeadlineRating(a.deadline, drafts[a.id]?.completi
 // Four display-only buckets (Not Submitted / Submitted / Pending / Done) over the five real stored statuses —
 // the underlying kpiSubmissions.status values and the scoring they feed are unchanged, only how they're shown.
 function simpleStatus(s) {
+  // Handle new status values
   if (s === 'submitted') return 'Submitted';
   if (s === 'pendingReview') return 'Pending Review';
   if (s === 'discussionRequested') return 'Discussion Requested';
   if (s === 'resubmitted') return 'Resubmitted';
   if (s === 'done') return 'Done';
+  // Handle old status values for backwards compatibility
+  if (s === 'approved' || s === 'rejected') return 'Done';
+  if (s === 'revisionRequested' || s === 'underReview') return 'Pending Review';
+  if (s === 'inProgress') return 'Submitted';
   return 'Not Submitted';
 }
 function simpleStatusClass(s) {
+  // Handle new status values
   if (s === 'submitted') return 'amber';
   if (s === 'pendingReview') return 'blue';
   if (s === 'discussionRequested') return 'orange';
   if (s === 'resubmitted') return 'blue';
   if (s === 'done') return 'green';
+  // Handle old status values
+  if (s === 'approved' || s === 'rejected') return 'green';
+  if (s === 'revisionRequested' || s === 'underReview') return 'blue';
+  if (s === 'inProgress') return 'amber';
   return 'grey';
 }
 
@@ -369,13 +379,16 @@ const kpiMaxMarks = computed(() => quarter.value?.weights?.kpi ?? 40);
 const taskMaxPoints = a => Math.round((Number(a.weightage || 0) / 100) * kpiMaxMarks.value * 100) / 100;
 function taskScoreText(a, sub) {
   if (sub) {
-    const ratingUsed = sub.finalApprovedRating ?? sub.selfRating ?? null;
+    // Handle both new (directorRating/finalApprovedRating) and old field names
+    const dirRating = sub.directorRating ?? sub.finalApprovedRating;
+    const ratingUsed = dirRating ?? sub.selfRating ?? null;
     const max = taskMaxPoints(a);
     if (ratingUsed == null) return `— / ${max}`;
     return `${Math.round((ratingUsed / 5) * max * 100) / 100} / ${max}`;
   }
   const subFromMap = (employeeKpis.value ? subOf(a.id) : mySub(a.id));
-  const ratingUsed = subFromMap?.finalApprovedRating ?? subFromMap?.selfRating ?? null;
+  const dirRating = subFromMap?.directorRating ?? subFromMap?.finalApprovedRating;
+  const ratingUsed = dirRating ?? subFromMap?.selfRating ?? null;
   const max = taskMaxPoints(a);
   if (ratingUsed == null) return `— / ${max}`;
   return `${Math.round((ratingUsed / 5) * max * 100) / 100} / ${max}`;
@@ -488,8 +501,10 @@ async function submitMine(a) {
 
 async function openReview(row) {
   reviewing.value = row;
-  reviewRating.value = row.submission.directorRating || row.submission.selfRating || 3;
-  reviewComments.value = row.submission.directorComments || '';
+  // Handle both new (directorRating) and old (finalApprovedRating) field names
+  const dirRating = row.submission?.directorRating ?? row.submission?.finalApprovedRating;
+  reviewRating.value = dirRating || row.submission?.selfRating || 3;
+  reviewComments.value = row.submission?.directorComments || row.submission?.reviewerComments || '';
   discussionThread.value = await getDiscussionThread(row.assignment.id);
 }
 
