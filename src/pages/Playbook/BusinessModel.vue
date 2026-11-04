@@ -67,7 +67,7 @@ const DEFAULT = {
     { title: 'How Widebed earns money', body: 'Each owner signs one of four arrangements:\n• Fixed rent: Widebed pays the owner a fixed amount every month and keeps the rest.\n• Profit share 40% (daily stays): 20% service fee + 20% utilities, taken from the monthly total.\n• Profit share 20% (monthly stays).\n• Long-term tenant: 10% fee plus SST on the fee.' },
     { title: 'Who pays what', body: '• Booking sites (OTAs) take their commission before Widebed is paid; the commission is set per unit.\n• Short stays: utilities are in the booking price and Widebed pays them. Long-term tenants pay utilities directly; on vacant or blocked days the owner pays.\n• Owner expenses (repairs, bills) are taken off the owner\'s statement after Widebed\'s fee.\n• SST 8% is paid by Widebed. Tourism Tax is RM 10 per unit per night for non-Malaysian guests.' },
     { title: 'Where bookings come from', body: 'Booking.com, Agoda, Trip.com, Traveloka, Tiket, Expedia, and direct bookings. Each site takes a commission before Widebed gets paid, and that commission is set per unit.' },
-    { title: 'One month of money', body: '1. Guests book; eZee records every stay.\n2. Finance uploads the eZee report into the PMS.\n3. The PMS works out each unit\'s statement.\n4. Finance checks it and clicks Approve & complete.\n5. The owner is paid and gets a PDF statement.' }
+    { title: 'One month of money', body: '1. Guests book; eZee records every stay.\n2. Accounting uploads the eZee report into the PMS.\n3. The PMS works out each unit\'s statement.\n4. Accounting checks it and clicks Approve & complete.\n5. The owner is paid and gets a PDF statement.' }
   ],
   terms: [
     { term: 'eZee', meaning: 'The booking system Widebed uses for every stay' },

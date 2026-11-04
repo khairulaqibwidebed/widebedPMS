@@ -195,7 +195,7 @@ export function bookingPTO(b, rates) {
   if (otaKey === 'ctrip' && v.ctrip?.finalPto != null) {
     // From Finance's completed statement (a reference file): their amount is final. The file has no guest-paid figure.
     method = 'Ctrip'; final = true; pto = num(v.ctrip.finalPto); guestPaid = null; platform = null;
-    note = "Trip.com amount from Finance's statement (final).";
+    note = "Trip.com amount from Accounting's statement (final).";
   } else if (otaKey === 'ctrip' && num(v.ctrip?.guestPaid) > 0) {
     method = 'Ctrip'; guestPaid = num(v.ctrip.guestPaid);
     platform = guestPaid - (AU + AX); pto = guestPaid / 1.08 - platform;

@@ -98,9 +98,9 @@
       <section class="card">
         <div class="card-head"><h2>{{ `Owners · ${shownOwners().length}` }}</h2>
           <div class="pills"><button class="pill-btn" :class="{ on: !showInactive }" @click="showInactive = false">Active</button><button class="pill-btn" :class="{ on: showInactive }" @click="showInactive = true">Deactivated</button></div></div>
-        <p class="card-intro" v-if="canEdit">Owner names and contact details are personal data (PDPA): Finance, Directors and Marketing see them. Click an owner to edit. Bank details stay with Finance.</p>
-        <p class="card-intro" v-else-if="viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Finance and Directors. This list shows each owner's units only.</p>
-        <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Finance and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.
+        <p class="card-intro" v-if="canEdit">Owner names and contact details are personal data (PDPA): Accounting, Directors and Marketing see them. Click an owner to edit. Bank details stay with Accounting.</p>
+        <p class="card-intro" v-else-if="viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Accounting and Directors. This list shows each owner's units only.</p>
+        <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Accounting and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.
           Owner details can later come from the Google Sheet staff already keep (cached copy plus Sync now).</p>
         <div class="toolbar tb-split"><input class="input" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"><button class="btn btn-primary" @click="openOwnerForm(null)" v-if="canAdd">+ Add owner</button></div>
         <Paged :items="shownOwners()" v-slot="{ pageRows }">
@@ -178,7 +178,7 @@
           </table>
         </div>
         </Paged>
-        <div class="card-foot" v-if="!viewOnly"><span>Invoice and receipt PDFs are made from a booking, approved by Finance, saved to the company Google Drive and listed on Finance › Invoices & Receipts. Nothing is sent automatically.</span></div>
+        <div class="card-foot" v-if="!viewOnly"><span>Invoice and receipt PDFs are made from a booking, approved by Accounting, saved to the company Google Drive and listed on Accounting › Invoices & Receipts. Nothing is sent automatically.</span></div>
       </section>
     </div>
 
@@ -190,7 +190,7 @@
         <form class="drawer-body" id="bkForm" @submit.prevent="saveBooking()">
           <p class="help">{{ `${bk.propertyName || ''} · ${bk.unitCode || bk.unitId || ''} · ${bk.source === 'import' ? 'Imported from Willow' : bk.source === 'direct' ? 'Direct booking' : 'From an Offline inquiry'}` }}</p>
           <p class="help" v-if="bk.inquiryId && canOpenInquiry"><RouterLink class="navlink" :to="`/Operations/offline-inquiries?id=${bk.inquiryId}`">{{ `Open inquiry ${bk.inquiryId}` }}</RouterLink></p>
-          <div class="form-sec">Guest <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· private, Finance, Directors and Operations only</span></div>
+          <div class="form-sec">Guest <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· private, Accounting, Directors and Operations only</span></div>
           <div class="field"><label>Name</label><input class="input" v-model="bk.f.name" :disabled="!guestEditable()"></div>
           <div class="field"><label>Phone</label><input class="input" v-model="bk.f.phone" :disabled="!guestEditable()"></div>
           <div class="field"><label>Email</label><input class="input" id="bkEmail" v-model="bk.f.email" :disabled="!guestEditable()"></div>
@@ -211,13 +211,13 @@
             <div class="field"><label>Next passcode</label><input class="input" v-model="bk.f.nextDoorPasscode" :disabled="!bkEdit"></div>
             <div class="field"><label>Next expires</label><input class="input" type="date" v-model="bk.f.nextExpiryDate" :disabled="!bkEdit"></div>
           </template>
-          <div class="form-sec">Payments <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· from Finance › Offline Payments</span></div>
+          <div class="form-sec">Payments <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· from Accounting › Offline Payments</span></div>
           <template v-if="bk.payments">
             <p class="help" v-if="!bk.payments.length">{{ bk.amount ? `No payment records. Older booking: RM ${amt(bk.amount)} paid.` : 'No payment recorded yet.' }}</p>
             <div class="pay-row" v-for="x in bk.payments" :key="x.id"><span>{{ `${dmy(x.date)}${x.mode ? ' · ' + x.mode : ''}${x.bankRef ? ' · ' + x.bankRef : ''}` }}</span><b>{{ `RM ${amt(x.amount)}` }}</b><span class="tag">{{ x.status }}</span></div>
             <p class="help" v-if="bk.payments.length > 1">{{ `Total RM ${amt(bk.payments.reduce((a, x) => a + (Number(x.amount) || 0), 0))}` }}</p>
           </template>
-          <p class="help" v-else>Payments are visible to Finance, Directors and Operations.</p>
+          <p class="help" v-else>Payments are visible to Accounting, Directors and Operations.</p>
           <template v-if="bk.payments && bkCal().length">
             <div class="form-sec">Rent summary</div>
             <div class="cal-row" v-if="bkLong()"><span>Monthly rent</span><b>{{ `RM ${amt(Number(bk.f.rent) || Number(bk.monthlyRent) || 0)}` }}</b></div>
@@ -274,7 +274,7 @@
       </div>
       <section class="card">
         <h2 class="t">{{ `Units · ${units.length}` }}</h2>
-        <p class="card-intro" v-if="viewOnly">{{ `Every unit in this property with its owner code, type and rooms. ${canAdd ? 'You can add a unit; changes to' : 'Changes to'} units, fees and rent are made by Finance and Directors.` }}</p>
+        <p class="card-intro" v-if="viewOnly">{{ `Every unit in this property with its owner code, type and rooms. ${canAdd ? 'You can add a unit; changes to' : 'Changes to'} units, fees and rent are made by Accounting and Directors.` }}</p>
         <p class="card-intro" v-else>Click a unit to change its settings (arrangement, owner, fixed rent, eZee name, status). Saving asks which month the change starts from and why, so completed months never change. Every change goes in the audit log below.</p>
         <div class="toolbar">
           <input class="input" type="search" placeholder="Search unit or owner" v-model="search" aria-label="Search unit">
@@ -381,7 +381,7 @@
     <div v-show="onProperty() && ptab === 'ota'" v-if="!viewOnly">
       <section class="card">
         <div class="card-head"><h2>OTA commission and payout type</h2><span class="help">{{ rates.current ? `In force for ${monthName(asOf)}` : '' }}</span></div>
-        <p class="card-intro">Net: the site pays Widebed after taking its commission. Gross: the site invoices its commission separately. Ctrip uses its rate only as an estimate until Finance types the Trip.com amount.</p>
+        <p class="card-intro">Net: the site pays Widebed after taking its commission. Gross: the site invoices its commission separately. Ctrip uses its rate only as an estimate until Accounting types the Trip.com amount.</p>
         <div class="table-wrap">
           <table class="table">
             <thead><tr><th>Channel</th><th>Payout</th><th class="num">Commission %</th><th class="num">Payment fee %</th><th>How the guest price is worked out</th></tr></thead>
@@ -442,12 +442,12 @@
             <p class="help from-listing" v-if="u.fromListing">{{ `Filled in from new owner listing ${u.fromListing.listingId}. Check the details, then Save unit.` }}</p>
             <div class="field"><label for="uCode" class="req">Unit code</label>
               <input class="input" id="uCode" v-model="u.unitCode" :readonly="!u.isNew" :placeholder="`${property().code || 'DM'} 1615`">
-              <span class="help" v-show="u.isNew">{{ property().code ? `Starts with this property's code (${property().code}), then the floor and unit, e.g. ${property().code} 0719. You can change it.` : 'This property has no short code yet. Type the unit code as Finance writes it.' }}</span></div>
+              <span class="help" v-show="u.isNew">{{ property().code ? `Starts with this property's code (${property().code}), then the floor and unit, e.g. ${property().code} 0719. You can change it.` : 'This property has no short code yet. Type the unit code as Accounting writes it.' }}</span></div>
             <div class="field"><label for="uAlias">Other eZee names for this unit</label>
               <input class="input" id="uAlias" v-model="u.aliases" placeholder="e.g. DM 1509-2"><span class="help">Comma between names. Bookings under these names count for this unit on the next upload.</span></div>
             <div class="field"><label for="uOwner">Owner</label>
               <OptionPicker class="full-pick" v-model="u.ownerId" :options="ownerOptions(u)" label="Owner" searchable :disabled="viewOnly && !u.isNew" />
-              <span class="help">{{ viewOnly && !u.isNew ? 'A change of owner is made by Finance or a Director.' : 'Not in the list? Add them on the Owners tab first.' }}</span></div>
+              <span class="help">{{ viewOnly && !u.isNew ? 'A change of owner is made by Accounting or a Director.' : 'Not in the list? Add them on the Owners tab first.' }}</span></div>
             <div class="form-sec">Unit details</div>
             <div class="field"><label for="uType">Unit type</label>
               <OptionPicker class="full-pick" v-model="u.info.type" :options="unitTypeOptions" label="Unit type" searchable add-label="Type" @add="addUnitType" /></div>
@@ -486,7 +486,7 @@
                 <label class="help" style="height:40px;display:flex;align-items:center;gap:8px"><input type="checkbox" v-model="u.active"> Active</label></div>
             </div>
             </template>
-            <p class="help" v-else>Arrangement, fixed rent and fees are set by Finance or a Director after the unit is added.</p>
+            <p class="help" v-else>Arrangement, fixed rent and fees are set by Accounting or a Director after the unit is added.</p>
             <div class="field"><label for="uWhy" class="req">Reason (audit log)</label><textarea class="input" id="uWhy" v-model="u.reason" placeholder="e.g. New owner agreement from June"></textarea></div>
             <template v-if="!viewOnly">
             <hr class="divider">
@@ -536,7 +536,7 @@
               <div class="field"><label for="pEzName">Name in the eZee report</label><input class="input" id="pEzName" v-model="np.info.ezeeName" placeholder="As it appears in the export"></div>
             </div>
             <div class="field" v-show="np.id"><label for="pWhy" class="req">Reason (audit log)</label><input class="input" id="pWhy" v-model="np.reason" placeholder="e.g. New TNB account number"></div>
-            <p class="help" v-show="!np.id">{{ viewOnly ? 'After saving, add its units from the Units tab. It starts with the standard OTA rates; Finance or a Director can change them. The change is recorded in the audit log.'
+            <p class="help" v-show="!np.id">{{ viewOnly ? 'After saving, add its units from the Units tab. It starts with the standard OTA rates; Accounting or a Director can change them. The change is recorded in the audit log.'
               : 'After saving, add its units from the Units tab. It starts with the standard OTA rates (change them under OTA commissions). The change is recorded in the audit log.' }}</p>
           </form>
           <div class="drawer-foot"><button class="btn" @click="propOpen = false">Cancel</button><button class="btn btn-primary" type="submit" form="propForm" :disabled="busy">{{ np.id ? 'Save property' : 'Add property' }}</button></div>
@@ -573,7 +573,7 @@
                 </div>
               </div>
             </template>
-            <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ canEdit ? '· private, Finance, Directors and Marketing only' : viewOnly ? '· private: once saved, only Finance and Directors see them' : '· private, Finance and Directors only' }}</span></div>
+            <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ canEdit ? '· private, Accounting, Directors and Marketing only' : viewOnly ? '· private: once saved, only Accounting and Directors see them' : '· private, Accounting and Directors only' }}</span></div>
             <div class="grid-fields">
               <div class="field"><label for="oName" class="req">Full name</label><input class="input" id="oName" v-model="o.fullName" placeholder="e.g. Owner A"></div>
               <div class="field"><label for="oIc">IC / passport</label><input class="input" id="oIc" v-model="o.ic"></div>
@@ -593,7 +593,7 @@
               <div class="field"><label for="oAcc">Bank account</label><input class="input" id="oAcc" v-model="o.bankAccount" inputmode="numeric"></div>
             </div>
             </template>
-            <p class="help" v-else>Bank details are added by Finance or a Director.</p>
+            <p class="help" v-else>Bank details are added by Accounting or a Director.</p>
             <div class="field" v-show="!o.isNew"><label for="oWhy" class="req">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
             <template v-if="!o.isNew && o.active !== false && !viewOnly">
               <div class="confirm-box" v-show="o.deactivating">
@@ -1223,7 +1223,7 @@ export default {
           if (!share && !fixed) continue;
           const t = fixed ? { arrangement: 'fixedRent', fixedRentAmount: fixed[1] } : { arrangement: share[1], ...(share[2] || {}) };
           b.set(doc(db, 'units', x.id, 'terms', `${this.asOf}_${ts}`), { fixedRentAmount: null, serviceFeePct: null, utilityFeePct: null, sstOnFeePct: null, otaOverrides: null,
-            ...t, effectiveFrom: this.asOf, reason: 'Starter settings (Upload CSV test page, Finance Sep 2026 set-up)', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+            ...t, effectiveFrom: this.asOf, reason: 'Starter settings (Upload CSV test page, Accounting Sep 2026 set-up)', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
           markFrom(b, this.propertyId, this.asOf, x.id);
           n++;
         }

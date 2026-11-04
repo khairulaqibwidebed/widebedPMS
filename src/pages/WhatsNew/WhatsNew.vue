@@ -127,7 +127,7 @@ import { notifyRole } from '@/services/notificationService.js';
 
 // Patch note sections, in the order they show. Older posts saved one "body" field; it shows as Changes.
 const SECTIONS = [
-  { key: 'added', label: 'New', short: 'new', hint: 'e.g. Finance can mark a statement Paid with a pay slip' },
+  { key: 'added', label: 'New', short: 'new', hint: 'e.g. Accounting can mark a statement Paid with a pay slip' },
   { key: 'changed', label: 'Changes', short: 'changed', hint: 'e.g. Pull back now asks for a reason in a pop-up' },
   { key: 'fixed', label: 'Fixes', short: 'fixed', hint: 'e.g. Owner share showed 9.26 instead of 100' }
 ];

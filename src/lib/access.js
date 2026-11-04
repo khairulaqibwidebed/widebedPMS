@@ -10,12 +10,12 @@
 // Every page that can be ticked. group = heading in the tick table.
 // viewOnly = only a View box (nothing to change on the page). editOnly = everyone views it; only Edit is tickable.
 export const PAGES = [
-  { key: 'reports',          label: 'Reports',                       group: 'Finance',     to: ['/Reports'] },
-  { key: 'ezeeUpload',       label: 'Upload eZee Report',            group: 'Finance',     to: ['/Finance/upload'] },
-  { key: 'expenses',         label: 'Expenses & Others',             group: 'Finance',     to: ['/Finance/expenses'] },
-  { key: 'monthEnd',         label: 'Month-End Payout',              group: 'Finance',     to: ['/Finance/month-end'] },
-  { key: 'invoices',         label: 'Invoices & Receipts',           group: 'Finance',     to: ['/Finance/invoices'] },
-  { key: 'offlinePayments',  label: 'Offline Payments',              group: 'Finance',     to: ['/Finance/offline-payments'] },
+  { key: 'reports',          label: 'Reports',                       group: 'Accounting',     to: ['/Reports'] },
+  { key: 'ezeeUpload',       label: 'Upload eZee Report',            group: 'Accounting',     to: ['/Finance/upload'] },
+  { key: 'expenses',         label: 'Expenses & Others',             group: 'Accounting',     to: ['/Finance/expenses'] },
+  { key: 'monthEnd',         label: 'Month-End Payout',              group: 'Accounting',     to: ['/Finance/month-end'] },
+  { key: 'invoices',         label: 'Invoices & Receipts',           group: 'Accounting',     to: ['/Finance/invoices'] },
+  { key: 'offlinePayments',  label: 'Offline Payments',              group: 'Accounting',     to: ['/Finance/offline-payments'] },
   { key: 'portfolio',        label: 'Owners, Properties & Bookings', group: 'Portfolio',   to: ['/Portfolio/owners', '/Portfolio/properties', '/Portfolio/bookings'] },
   { key: 'bulkUpload',       label: 'Bulk Upload',                   group: 'Portfolio',   to: ['/Portfolio/bulk-upload'] },
   { key: 'offlineInquiries', label: 'Offline Inquiries',             group: 'Operations',  to: ['/Operations/offline-inquiries'] },
@@ -32,12 +32,12 @@ export const PAGES = [
 // Content rows only have an Edit tick (everyone can read them). The saved ticks still use the '<key>.view' / '<key>.edit' names above,
 // so the security rules and the sidebar work as before.
 export const ACCESS_ROWS = [
-  { id: 'reports', label: 'Reports', group: 'Finance', keys: ['reports'] },
-  { id: 'ezeeUpload', label: 'Upload eZee Report', group: 'Finance', keys: ['ezeeUpload'] },
-  { id: 'expenses', label: 'Expenses & Others', group: 'Finance', keys: ['expenses'] },
-  { id: 'monthEnd', label: 'Month-End Payout', group: 'Finance', keys: ['monthEnd'] },
-  { id: 'invoices', label: 'Invoices & Receipts', group: 'Finance', keys: ['invoices'] },
-  { id: 'offlinePayments', label: 'Offline Payments', group: 'Finance', keys: ['offlinePayments'] },
+  { id: 'reports', label: 'Reports', group: 'Accounting', keys: ['reports'] },
+  { id: 'ezeeUpload', label: 'Upload eZee Report', group: 'Accounting', keys: ['ezeeUpload'] },
+  { id: 'expenses', label: 'Expenses & Others', group: 'Accounting', keys: ['expenses'] },
+  { id: 'monthEnd', label: 'Month-End Payout', group: 'Accounting', keys: ['monthEnd'] },
+  { id: 'invoices', label: 'Invoices & Receipts', group: 'Accounting', keys: ['invoices'] },
+  { id: 'offlinePayments', label: 'Offline Payments', group: 'Accounting', keys: ['offlinePayments'] },
   { id: 'portfolio', label: 'Owners, Properties & Bookings', group: 'Portfolio', keys: ['portfolio'] },
   { id: 'bulkUpload', label: 'Bulk Upload', group: 'Portfolio', keys: ['bulkUpload'] },
   { id: 'offlineInquiries', label: 'Offline Inquiries', group: 'Operations', keys: ['offlineInquiries'] },
@@ -54,7 +54,7 @@ export const rowPerms = row => row.keys.flatMap(k => { const p = PAGES.find(x =>
 
 // One line under some groups in the tick table, so it's clear what a tick really gives.
 export const GROUP_NOTES = {
-  Finance: 'Any Finance page lets them read the finance data. Any Finance Edit lets them change it.',
+  Accounting: 'Any Accounting page lets them read the finance data. Any Accounting Edit lets them change it.',
   Portfolio: 'Edit includes owners\' bank details and unit terms.',
   Content: 'Everyone can read these. Edit lets them change the text.',
   Agreements: 'Everyone can fill in agreements and see the records. This tick lets them change forms, formulas, templates and where fields print.',

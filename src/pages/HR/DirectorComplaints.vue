@@ -101,7 +101,7 @@
                 </div>
                 <p class="help" v-else-if="!notesLoading">No notes yet.</p>
                 <div class="compose">
-                  <textarea class="input" v-model="noteText" maxlength="2000" placeholder="e.g. Discussed with Finance on 5 Nov" aria-label="Director note"></textarea>
+                  <textarea class="input" v-model="noteText" maxlength="2000" placeholder="e.g. Discussed with Accounting on 5 Nov" aria-label="Director note"></textarea>
                   <button class="btn" :disabled="busy || !noteText.trim()" @click="note()">Add note</button>
                 </div>
               </section>

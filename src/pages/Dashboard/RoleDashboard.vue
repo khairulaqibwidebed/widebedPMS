@@ -132,7 +132,7 @@
               </template>
               </Capped>
               <div class="empty" v-show="!d.uploads.length">No eZee report uploaded yet.</div>
-              <div class="note" v-show="d.uploads.length">Last 5 uploads. Finance uploads on Upload eZee report.</div>
+              <div class="note" v-show="d.uploads.length">Last 5 uploads. Accounting uploads on Upload eZee report.</div>
             </div>
           </section>
           <section class="card" ref="changes">

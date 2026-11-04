@@ -91,7 +91,7 @@
         <h2>What each role can do</h2>
       <div class="role-list">
         <div><b>Director</b><span>Everything, including Staff accounts and Director Override.</span></div>
-        <div><b>Finance</b><span>Upload eZee, expenses, month-end payout, exports.</span></div>
+        <div><b>Accounting</b><span>Upload eZee, expenses, month-end payout, exports.</span></div>
         <div><b>IT</b><span>View-only, personal details hidden, except on Issues: raises, comments on and completes tickets tagged IT. Sees Issues, offline inquiries (no names), Playbook and SOPs for now.</span></div>
         <div><b>Operations</b><span>Issues, offline inquiries assigned to them, booking forms, Playbook and SOPs.</span></div>
         <div><b>HR</b><span>SOP pages, complaints, Playbook, Staff accounts and Audit log, Issues.</span></div>
@@ -188,7 +188,7 @@
                 </label>
                 <div class="field">
                   <label for="sReason">Reason for the change</label>
-                  <textarea class="input" id="sReason" v-model="panel.reason" placeholder="e.g. Covers Expenses while Finance is on leave"></textarea>
+                  <textarea class="input" id="sReason" v-model="panel.reason" placeholder="e.g. Covers Expenses while Accounting is on leave"></textarea>
                   <span class="help">Saved in the audit log with your name.</span>
                 </div>
                 <hr class="divider">
@@ -477,6 +477,8 @@ export default {
     .info-btn:hover { background: var(--accent-soft); }
     .staff-filters { margin-bottom: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
     .staff-table td { white-space: nowrap; }
+    /* Long names wrap onto the next line instead of widening the table (4 Nov 2026) */
+    .staff-table td:first-child { white-space: normal; overflow-wrap: anywhere; min-width: 140px; max-width: 220px; }
     .custom-tag { margin: 0 0 0 6px; }
     .name-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; }
     .name-btn:hover { text-decoration: underline; }

@@ -37,7 +37,8 @@ const routes = [
   page('/Operations/issues', () => import('./pages/Operations/Issues.vue'), 'Issues', ALL),
   ticked('/Operations/offline-inquiries', () => import('./pages/Operations/SalesLeads.vue'), 'Offline Inquiries', 'offlineInquiries'),
   { path: '/Operations/sales-leads', redirect: to => ({ path: '/Operations/offline-inquiries', query: to.query }) },
-  ticked('/Operations/booking-forms', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
+  // One address per form (tabs); the old /Operations/booking-forms opens the Reservation tab
+  ticked('/Operations/booking-forms/:form(reservation|utility|property)?', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
 
   ticked('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'New Owner Listings', 'newOwnerListings'),
   { path: '/Procurement/new-listings', redirect: to => ({ path: '/Procurement/new-owner-listings', query: to.query }) },

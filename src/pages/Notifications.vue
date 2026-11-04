@@ -25,7 +25,7 @@ const okMsg = ref("")
 // Area of a notification, from its type
 const AREAS = [
   { key: "issues", label: "Issues", types: ["issue"] },
-  { key: "finance", label: "Finance", types: ["statement", "payment", "expense"] },
+  { key: "finance", label: "Accounting", types: ["statement", "payment", "expense"] },
   { key: "leads", label: "Leads", types: ["inquiry"] },
   { key: "listings", label: "Listings", types: ["listing"] },
   { key: "agreements", label: "Agreements", types: ["agreement"] },
