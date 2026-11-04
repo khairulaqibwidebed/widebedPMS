@@ -1,6 +1,13 @@
 rules_version = '2';
-<<<<<<< HEAD
-// Widebed PMS Firestore rules. Draft 0.23, 3 Nov 2026: Performance Management Stage 1 + Stage 2 (audit
+// Widebed PMS Firestore rules. Draft 0.26, 4 Nov 2026: COH evaluation marks are no longer on the evaluatee-readable
+// cohEvaluations document — they live in a private/scores sub-document only the evaluator and HR/Director can read,
+// so the person being rated never sees the exact score a specific colleague gave them (evaluator identity stays
+// visible, by the existing confirmed business rule).
+// Draft 0.25, 4 Nov 2026 (Khairul): HR opening a New staff complaint marks it Read by HR (status 'read').
+// Draft 0.24, 4 Nov 2026 (Khairul, on top of Neo's Draft 0.23 below): push notifications
+// (pushTokens/{token}, one per device, written and read only by the person signed in there; api/push.js reads them with the
+// service account) and Finance/Director may permanently delete a booking that was removed by hand on Month-end.
+// Draft 0.23, 3 Nov 2026 (Neo): Performance Management Stage 1 + Stage 2 (audit
 // remediation): performanceQuarters update is split into a draft-only full-edit branch, a status-only
 // lifecycle-advance branch, and a Director-only finalized->pendingApproval reopen branch, so a quarter's
 // config can't be changed once it leaves draft. performanceResults no longer has an unconditional Director
@@ -13,9 +20,6 @@ rules_version = '2';
 // reapplies Draft "Stage 1" fixes that were dropped when this file was rebased from an older snapshot while
 // Draft 0.21/0.22 notification work landed — see PERFORMANCE_MANAGEMENT_HANDOFF.md.)
 // Draft 0.22, 3 Nov 2026: Notifications page clean-up: the recipient may delete a notification
-=======
-// Widebed PMS Firestore rules. Draft 0.22, 3 Nov 2026: Notifications page clean-up: the recipient may delete a notification
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
 // sent to them personally, and hide a team (role) notification for themselves only (hiddenBy).
 // Draft 0.21, 3 Nov 2026 (Khairul + Neo combined): Neo's merge (below) plus Khairul's
 // Draft 0.21: notifications may go to roles made on the Roles page (roles/{id} exists), not only the 7 built-in roles.
@@ -47,11 +51,10 @@ rules_version = '2';
 // Draft 0.10, 27 Oct 2026: (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
 // (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
 // 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
-<<<<<<< HEAD
-// History: 0.23 Performance Management Stage 1+2 (security fixes, revision workflow). 0.22 clear notifications (delete own, hide team ones). 0.21 notifications to custom roles; Performance Management collections (Neo's merge). 0.20 ticket quotes & invoices. 0.19 What's New.
-=======
-// History: 0.22 clear notifications (delete own, hide team ones). 0.21 notifications to custom roles; Performance Management collections (Neo's merge). 0.20 ticket quotes & invoices. 0.19 What's New.
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
+// History: 0.26 COH marks moved to a private sub-document (evaluatee can't read scores). 0.25 HR complaint read-marking.
+// 0.24 push notifications; Finance/Director delete a hand-removed booking. 0.23 Performance Management Stage 1+2
+// (security fixes, revision workflow). 0.22 clear notifications (delete own, hide team ones). 0.21 notifications to
+// custom roles; Performance Management collections (Neo's merge). 0.20 ticket quotes & invoices. 0.19 What's New.
 // 0.18 agreement renewals (staff list readable); owner payment status, custom role delete. 0.17 delete fill-in
 // links; Roles page. 0.16 booking numbers, Willow booking import, Operations edit bookings, offline payments for
 // Operations. 0.15 master files, fill-in links (Neo). 0.14 Agreements. 0.13 utility bills, door passcodes, offline
@@ -407,7 +410,8 @@ service cloud.firestore {
     match /bookings/{reservationNo} {
       allow read: if staff() || isOps() || opsRole();
       allow create, update: if finOrDir();
-      allow delete: if false;
+      // Draft 0.24 (Khairul): only a booking already removed by hand on Month-end (cancelled + removedByHand), by Finance/Director
+      allow delete: if finOrDir() && resource.data.status == 'cancelled' && resource.data.get('removedByHand', null) != null;
     }
 
     // Each unit's payout per month: completed statements, and Finance's past statements uploaded as reference.
@@ -694,6 +698,15 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Draft 0.24 (Khairul): push notifications. One document per device (the id is the Firebase Cloud Messaging token), holding
+    // the uid of the person signed in there. A browser that someone else signs into is taken over by them (same device).
+    // Only that person reads or removes it; api/push.js reads them with the service account to send pushes.
+    match /pushTokens/{token} {
+      allow read, delete: if anyStaff() && resource.data.uid == request.auth.uid;
+      allow create, update: if anyStaff() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'role', 'device', 'updatedAt']);
+    }
+
     // Notifications: one document per recipient target. recipientUid = one person; recipientRole = everyone in
     // that role (read state is per person in readBy). Both keys are always written, the unused one as null.
     // Anyone signed in with a role may send one, but only as themselves and only with an in-app link.
@@ -783,7 +796,11 @@ service cloud.firestore {
       // Director complaints: HR sends (Directors too, so the form can be tried out).
       allow create: if hrOrDir() && request.resource.data.kind == 'director' && request.resource.data.read == false
         && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'read']);
-      // Only a Director opening a Director complaint marks it read. Staff complaints are never changed.
+      // Draft 0.25: HR opening a New staff complaint marks it Read by HR; the only change ever made to a staff complaint.
+      allow update: if isHR() && resource.data.kind == 'staff' && resource.data.status == 'new'
+        && changed().hasOnly(['status', 'readAt', 'readBy'])
+        && request.resource.data.status == 'read' && request.resource.data.readBy == request.auth.uid;
+      // Only a Director opening a Director complaint marks it read.
       allow update: if isDirector() && resource.data.kind == 'director'
         && changed().hasOnly(['read', 'readAt', 'readBy'])
         && request.resource.data.read == true && request.resource.data.readBy == request.auth.uid;
@@ -820,7 +837,6 @@ service cloud.firestore {
       }
     }
 
-<<<<<<< HEAD
     // ================= Performance management (Stage 1+2 security/revision fixes, 3 Nov 2026) =================
     // performance.edit is not yet in presetFor()/PRESETS — until it's added, only the Director can write.
     // Everyone reads quarter config (deadlines, status) so excluded employees can be told why they see nothing further.
@@ -840,103 +856,82 @@ service cloud.firestore {
     // evaluation requires every employee to see who else is eligible this quarter in order to rate them.
     match /performanceParticipants/{id} {
       allow read: if anyStaff();
-=======
-    // ================= Performance management (Stage 4 draft, 3 Nov 2026) =================
-    // performance.edit is not yet in presetFor()/PRESETS — until it's added, only the Director can write.
-    // Everyone reads quarter config (deadlines, status) so excluded employees can be told why they see nothing further.
-    match /performanceQuarters/{id} {
-      allow read: if anyStaff();
-      allow create, update: if isDirector() || can('performance.edit');
-      allow delete: if false;
-    }
-
-    // Each person reads their own participation row; HR/Director (performance.edit) read everyone's.
-    match /performanceParticipants/{id} {
-      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
       allow create, update: if isDirector() || can('performance.edit');
       allow delete: if false;
     }
 
     // COH questions: everyone reads (so they know what they're being rated on); only performance.edit changes them.
-<<<<<<< HEAD
     // Confirmed business rule: COH questions are Director/HR only — not the generic performance.edit tick that
     // gates other Performance admin actions, since question wording is a Code of Conduct/HR policy matter.
     match /cohQuestions/{id} {
       allow read: if anyStaff();
       allow create, update: if hrOrDir();
-=======
-    match /cohQuestions/{id} {
-      allow read: if anyStaff();
-      allow create, update: if isDirector() || can('performance.edit');
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
       allow delete: if false;
     }
 
     // COH evaluations: evaluator identity is always visible to the evaluatee and to HR/Director (confirmed
     // requirement, not an anonymous system). The id itself (quarterId_evaluatorUid_evaluateeUid) stops one
     // evaluator from rating the same colleague twice under two different documents.
+    // The SCORE is not on this document (see private/scores below) — by business rule, the person being rated
+    // never sees the mark a specific evaluator gave them, only that the evaluation happened and who gave it.
     match /cohEvaluations/{id} {
-<<<<<<< HEAD
       // Director and HR always see every evaluation (Team overview monitoring), regardless of whether they
       // hold the generic performance.edit tick — same confirmed business rule as cohQuestions above.
       allow read: if isDirector() || isHR() || can('performance.edit')
-=======
-      allow read: if isDirector() || can('performance.edit')
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
         || resource.data.evaluatorId == request.auth.uid || resource.data.evaluateeId == request.auth.uid;
       allow create: if anyStaff() && request.resource.data.evaluatorId == request.auth.uid
         && request.resource.data.evaluateeId != request.auth.uid
         && id == request.resource.data.quarterId + '_' + request.resource.data.evaluatorId + '_' + request.resource.data.evaluateeId
-        && request.resource.data.status == 'submitted';
+        && request.resource.data.status == 'submitted'
+        && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data);
       // Resubmit before review: same pair, still in 'submitted' state on both sides.
       allow update: if anyStaff() && resource.data.evaluatorId == request.auth.uid && resource.data.status == 'submitted'
         && request.resource.data.evaluatorId == resource.data.evaluatorId && request.resource.data.evaluateeId == resource.data.evaluateeId
-        && request.resource.data.status == 'submitted';
+        && request.resource.data.status == 'submitted'
+        && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data);
       // HR/Director approve: only the review fields change.
       allow update: if (isDirector() || can('performance.edit'))
         && changed().hasOnly(['status', 'reviewedBy', 'reviewedAt']) && request.resource.data.status == 'approved';
       allow delete: if false;
+
+      // The actual marks: readable by the evaluator (it's their own input) and HR/Director (monitoring and
+      // official score calculation, see results.js::cohScoreFor) — never by the evaluatee. Immutable once
+      // written; a correction is a resubmit of the whole evaluation (both documents), not a patch here.
+      match /private/scores {
+        allow read: if isDirector() || isHR() || can('performance.edit')
+          || get(/databases/$(database)/documents/cohEvaluations/$(id)).data.evaluatorId == request.auth.uid;
+        allow create: if anyStaff()
+          && get(/databases/$(database)/documents/cohEvaluations/$(id)).data.evaluatorId == request.auth.uid
+          && request.resource.data.ratings is list && request.resource.data.averageRating is number;
+        allow update: if anyStaff()
+          && get(/databases/$(database)/documents/cohEvaluations/$(id)).data.evaluatorId == request.auth.uid
+          && get(/databases/$(database)/documents/cohEvaluations/$(id)).data.status == 'submitted'
+          && request.resource.data.ratings is list && request.resource.data.averageRating is number;
+        allow delete: if false;
+      }
     }
 
     // KPI assignments: HR/Director create and edit; the employee and HR/Director read.
-<<<<<<< HEAD
-    // Confirmed business rule: KPI management (assigning, editing, reviewing) is Director-only — not the
-    // generic performance.edit tick. An employee still reads their own assignment/submission either way.
     match /kpiAssignments/{id} {
       allow read: if isDirector() || resource.data.employeeId == request.auth.uid;
       allow create, update: if isDirector();
-=======
-    match /kpiAssignments/{id} {
-      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
-      allow create, update: if isDirector() || can('performance.edit');
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
       allow delete: if false;
     }
 
     // KPI submissions: the employee submits their own self-assessment (status 'submitted', no final rating set
     // yet); only HR/Director can set finalApprovedRating / reviewerId, and only by changing review fields.
     match /kpiSubmissions/{id} {
-<<<<<<< HEAD
       allow read: if isDirector() || resource.data.employeeId == request.auth.uid;
       // The employee submits or resubmits their own self-assessment, but never once it's already been
       // approved or rejected (matches the KPI.vue UI, which hides the submit form at that point) — otherwise
       // an employee could write status back to 'submitted' with nulled-out review fields and erase a
       // reviewer's decision.
       allow create, update: if (resource == null || (resource.data.employeeId == request.auth.uid && !(resource.data.status in ['approved', 'rejected'])))
-=======
-      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
-      allow create, update: if (resource == null || resource.data.employeeId == request.auth.uid)
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
         && request.resource.data.employeeId == request.auth.uid
         && request.resource.data.status == 'submitted'
         && request.resource.data.get('finalApprovedRating', null) == null
         && request.resource.data.get('reviewerId', null) == null;
-<<<<<<< HEAD
       allow update: if isDirector()
-=======
-      allow update: if (isDirector() || can('performance.edit'))
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
         && changed().hasOnly(['status', 'revisedRating', 'finalApprovedRating', 'reviewerId', 'reviewerComments', 'reviewReason', 'reviewedAt', 'history']);
       // The employee's own discussion-status flip, set alongside their performanceDiscussions request.
       allow update: if resource.data.employeeId == request.auth.uid && changed().hasOnly(['discussionStatus']);
@@ -959,7 +954,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-<<<<<<< HEAD
     // Final combined results, and the Stage 2 revision trail. Nobody — Director included — can write once
     // approvalStatus is 'finalized', EXCEPT the one deliberate correction path: Director, going straight from
     // 'finalized' to 'pendingApproval', bumping revisionNumber by exactly 1 and recording who/why. The app
@@ -982,15 +976,6 @@ service cloud.firestore {
         allow create: if isDirector();
         allow update, delete: if false;
       }
-=======
-    // Final combined results: the employee reads their own (finalized or not); HR/Director read and write.
-    // Once approvalStatus is 'finalized', only the Director may touch it again (an authorized correction).
-    match /performanceResults/{id} {
-      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
-      allow create, update: if can('performance.edit') && (resource == null || resource.data.get('approvalStatus', 'draft') != 'finalized');
-      allow create, update: if isDirector();
-      allow delete: if false;
->>>>>>> 49e7488ce3f9e1826de54d05be8825448320b785
     }
 
     // ================= Agreements (Draft 0.14, 0.15) =================

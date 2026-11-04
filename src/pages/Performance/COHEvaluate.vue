@@ -41,8 +41,8 @@
               <div class="coh-muted">haven't yet</div>
             </div>
             <div class="coh-standing-item">
-              <div class="coh-standing-value">{{ myAverageRating != null ? myAverageRating.toFixed(2) : '—' }}<small v-if="myAverageRating != null"> / 5</small></div>
-              <div class="coh-muted">your average · {{ totalCount }} eligible this quarter</div>
+              <div class="coh-standing-value">{{ totalCount }}</div>
+              <div class="coh-muted">eligible this quarter · your overall score is on My Performance</div>
             </div>
           </div>
 
@@ -92,7 +92,6 @@
             <div class="coh-received-title">Evaluations you've received this quarter</div>
             <div class="coh-received-row" v-for="e in received" :key="e.id">
               <span>{{ e.evaluatorNameSnapshot }}</span>
-              <span class="coh-strong">{{ e.averageRating.toFixed(2) }} / 5</span>
               <span class="coh-muted">{{ formatWhen(e.submittedAt) }}</span>
             </div>
           </div>
@@ -300,9 +299,6 @@ const formatWhen = ts => ts?.toDate ? ts.toDate().toLocaleDateString() : '—';
 // are both drawn from that same roster.
 const evaluatedMeCount = computed(() => received.value.length);
 const notYetEvaluatedMeCount = computed(() => Math.max(0, totalCount.value - evaluatedMeCount.value));
-const myAverageRating = computed(() => evaluatedMeCount.value
-  ? Math.round((received.value.reduce((s, e) => s + e.averageRating, 0) / evaluatedMeCount.value) * 100) / 100
-  : null);
 
 // ---- Director/HR: team overview (every employee's received-evaluation count and average, not just your own) ----
 const monitorParticipants = ref([]);
