@@ -18,40 +18,116 @@
 
     <div class="pills" role="group" style="margin-bottom:12px;" v-if="canManageKpi">
       <button class="pill-btn" :class="{ on: tab === 'mine' }" @click="tab = 'mine'">My KPIs</button>
-      <button class="pill-btn" :class="{ on: tab === 'admin' }" @click="tab = 'admin'">All employees</button>
+      <button class="pill-btn" :class="{ on: tab === 'admin' }" @click="tab = 'admin'">Review KPIs</button>
+      <button class="pill-btn" :class="{ on: tab === 'director' }" @click="tab = 'director'">All employees</button>
     </div>
 
     <template v-if="!loading && tab === 'mine'">
-      <div class="card" v-for="a in myAssignments" :key="a.id" style="margin-bottom:12px;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline;">
-          <h3 style="margin:0;">{{ a.title }}</h3>
-          <span class="pill" :class="statusPill(mySub(a.id)?.status)">{{ statusLabel(mySub(a.id)?.status) }}</span>
-        </div>
-        <p class="muted" style="margin:6px 0;">{{ a.description }}</p>
-        <p style="font-size:13px; margin:0 0 10px;">Weight {{ a.weightage }}% · Target: {{ a.target || '—' }} · Deadline {{ a.deadline || 'none' }}</p>
+      <div class="kpi-panel">
+        <h2 class="sr-only">KPI self-evaluation</h2>
 
-        <template v-if="!['approved', 'rejected'].includes(mySub(a.id)?.status)">
-          <div class="field"><label>Completion date</label><input class="input" type="date" v-model="drafts[a.id].completionTimestamp"></div>
-          <div class="field"><label>Self-rating (1–5)</label>
-            <RatingPicker v-model="drafts[a.id].selfRating" label="Self-rating" />
-            <span class="muted" style="margin-left:8px; font-size:12px;" v-if="suggestion(a) != null">suggested {{ suggestion(a) }} based on deadline</span>
+        <div class="kpi-summary">
+          <div class="kpi-summary-score">
+            <div class="kpi-summary-value">{{ myScore.score != null ? myScore.score.toFixed(2) : '—' }}<small> / {{ kpiMaxMarks }}</small></div>
+            <div class="kpi-muted">{{ myScoreStatusText }}</div>
           </div>
-          <div class="field"><label>Comments</label><textarea class="input" v-model="drafts[a.id].selfComments"></textarea></div>
-          <div class="field"><label>Evidence link</label><input class="input" v-model="drafts[a.id].evidenceLink" placeholder="https://…"></div>
-          <button class="btn btn-primary" :disabled="saving" @click="submitMine(a)">Submit self-assessment</button>
-        </template>
-        <template v-else>
-          <p style="font-size:13px;">Final rating: <b>{{ mySub(a.id)?.finalApprovedRating }}</b> / 5
-            <span class="muted" v-if="mySub(a.id)?.selfRating !== mySub(a.id)?.finalApprovedRating">(you self-rated {{ mySub(a.id)?.selfRating }})</span></p>
-          <p class="muted" style="font-size:13px;" v-if="mySub(a.id)?.reviewerComments">Reviewer: {{ mySub(a.id)?.reviewerComments }}</p>
-          <button class="act-pill" @click="askDiscussion(a)" v-if="mySub(a.id)?.discussionStatus === 'none'">Request discussion</button>
-          <span class="pill amber" v-else-if="mySub(a.id)?.discussionStatus !== 'resolved'">Discussion {{ mySub(a.id)?.discussionStatus }}</span>
-        </template>
+          <div class="kpi-summary-stats">
+            <div class="kpi-stat"><b>{{ myDoneCount }}</b><span class="kpi-muted">done</span></div>
+            <div class="kpi-stat"><b>{{ myAssignments.length - myDoneCount }}</b><span class="kpi-muted">in progress</span></div>
+            <div class="kpi-stat"><b :class="{ 'kpi-warn': myAssignments.length > 0 && myTotalWeightage !== 100 }">{{ myTotalWeightage }}%</b><span class="kpi-muted">weightage</span></div>
+          </div>
+        </div>
+
+        <div class="notice warn" v-if="myAssignments.length > 0 && myTotalWeightage !== 100">
+          Your assigned KPIs total {{ myTotalWeightage }}%, not 100% — ask your supervisor to fix the weightages before you can submit.
+        </div>
+
+        <div class="kpi-cards">
+          <div class="kpi-task-card" v-for="a in myAssignments" :key="a.id">
+            <div class="kpi-task-head">
+              <div style="min-width:0;">
+                <div class="kpi-task-title">{{ a.title }}</div>
+                <p class="kpi-task-desc" v-if="a.description">{{ a.description }}</p>
+              </div>
+              <span class="kpi-status-badge" :class="simpleStatusClass(mySub(a.id)?.status)">{{ simpleStatus(mySub(a.id)?.status) }}</span>
+            </div>
+
+            <div class="kpi-task-meta">
+              <div><span class="kpi-muted">Due</span><b>{{ a.deadline || 'No deadline' }}</b></div>
+              <div><span class="kpi-muted">Weight</span><b>{{ a.weightage }}%</b></div>
+              <div><span class="kpi-muted">Task score</span><b>{{ taskScoreText(a) }}</b></div>
+            </div>
+
+            <template v-if="!['approved', 'rejected'].includes(mySub(a.id)?.status)">
+              <div class="field"><label>Your completed date</label><input class="input" type="date" v-model="drafts[a.id].completionTimestamp"></div>
+              <div class="field"><label>Self-rating (1–5)</label>
+                <RatingPicker variant="buttons" v-model="drafts[a.id].selfRating" label="Self-rating" />
+                <span class="kpi-muted" style="font-size:12px; display:block; margin-top:6px;" v-if="suggestion(a) != null">Deadline-based suggestion: {{ suggestion(a) }} — you still choose your own rating.</span>
+              </div>
+              <div class="field"><label>Comments</label><textarea class="input" v-model="drafts[a.id].selfComments"></textarea></div>
+              <button class="btn btn-primary" :disabled="saving || myTotalWeightage !== 100 || drafts[a.id].selfRating == null" @click="submitMine(a)">
+                {{ mySub(a.id) ? 'Resubmit self-assessment' : 'Submit self-assessment' }}
+              </button>
+            </template>
+            <template v-else>
+              <div class="kpi-rating-compare">
+                <div><span class="kpi-muted">Your rating</span><b>{{ mySub(a.id)?.selfRating }} / 5</b></div>
+                <div><span class="kpi-muted">Supervisor rating</span><b>{{ mySub(a.id)?.finalApprovedRating ?? '—' }} / 5</b></div>
+              </div>
+              <p class="kpi-muted" style="font-size:13px;" v-if="mySub(a.id)?.reviewerComments">Reviewer: {{ mySub(a.id)?.reviewerComments }}</p>
+              <button class="act-pill" @click="askDiscussion(a)" v-if="mySub(a.id)?.discussionStatus === 'none'">Request discussion</button>
+              <span class="pill amber" v-else-if="mySub(a.id)?.discussionStatus !== 'resolved'">Discussion {{ mySub(a.id)?.discussionStatus }}</span>
+            </template>
+          </div>
+          <div class="kpi-card-empty" v-if="!myAssignments.length">No KPIs assigned to you this quarter.</div>
+        </div>
       </div>
-      <div class="card" v-if="!myAssignments.length"><p class="muted">No KPIs assigned to you this quarter.</p></div>
     </template>
 
+    <!-- Director Review Dashboard -->
     <template v-if="!loading && tab === 'admin' && canManageKpi">
+      <div class="card" style="margin-bottom: 16px;">
+        <h3 style="margin-top: 0;">Submissions pending review</h3>
+        <p class="sub" style="margin: 0 0 12px;">KPIs awaiting your rating and decision.</p>
+        <div class="table-wrap">
+          <table class="table hover-rows">
+            <thead><tr><th>Employee</th><th>KPI</th><th>Self-rating</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="row in allRows.filter(r => ['submitted', 'discussionRequested', 'resubmitted'].includes(r.submission?.status))" :key="row.assignment.id">
+                <td>{{ row.assignment.employeeName }}</td>
+                <td>{{ row.assignment.title }}</td>
+                <td>{{ row.submission.selfRating }} / 5</td>
+                <td><span class="pill" :class="statusClass(row.submission.status)">{{ statusLabel(row.submission.status) }}</span></td>
+                <td><button class="act-pill" @click="openReview(row)">Review</button></td>
+              </tr>
+              <tr v-if="!allRows.some(r => ['submitted', 'discussionRequested', 'resubmitted'].includes(r.submission?.status))"><td colspan="5" class="muted">Nothing pending.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top: 0;">Approved KPIs</h3>
+        <div class="table-wrap">
+          <table class="table hover-rows">
+            <thead><tr><th>Employee</th><th>KPI</th><th>Self-rating</th><th>Your rating</th><th>Final score</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="row in allRows.filter(r => r.submission?.status === 'done')" :key="row.assignment.id">
+                <td>{{ row.assignment.employeeName }}</td>
+                <td>{{ row.assignment.title }}</td>
+                <td>{{ row.submission.selfRating }} / 5</td>
+                <td>{{ row.submission.finalApprovedRating }} / 5</td>
+                <td>{{ taskScoreText(row.assignment, row.submission) }}</td>
+                <td><button class="act-pill" @click="openReview(row)">View</button></td>
+              </tr>
+              <tr v-if="!allRows.some(r => r.submission?.status === 'done')"><td colspan="6" class="muted">No approved KPIs yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+
+    <template v-if="!loading && tab === 'director' && canManageKpi">
       <div class="card" style="margin-bottom:16px;">
         <h3 style="margin-top:0;">All employees — {{ participants.length }}</h3>
         <p class="sub" style="margin:0 0 12px;">Click an employee to see their assigned KPIs, add a new one, or edit an existing one.</p>
@@ -100,20 +176,22 @@
         <h2>{{ employeeKpis.employeeName }}'s KPIs</h2>
         <div class="table-wrap">
           <table class="table hover-rows">
-            <thead><tr><th>KPI</th><th>Weight</th><th>Deadline</th><th>Self-rating</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>KPI</th><th>Weight</th><th>Deadline</th><th>Self</th><th>Supervisor</th><th>Score</th><th>Status</th><th></th></tr></thead>
             <tbody>
               <tr v-for="a in kpisFor(employeeKpis.employeeId)" :key="a.id" :class="{ 'row-selected': editingId === a.id }">
                 <td>{{ a.title }}</td>
                 <td>{{ a.weightage }}%</td>
                 <td>{{ a.deadline || '—' }}</td>
                 <td>{{ subOf(a.id)?.selfRating ?? '—' }}</td>
-                <td><span class="pill" :class="statusPill(subOf(a.id)?.status)">{{ statusLabel(subOf(a.id)?.status) }}</span></td>
+                <td>{{ subOf(a.id)?.finalApprovedRating ?? '—' }}</td>
+                <td>{{ taskScoreText(a) }}</td>
+                <td><span class="kpi-status-badge" :class="simpleStatusClass(subOf(a.id)?.status)">{{ simpleStatus(subOf(a.id)?.status) }}</span></td>
                 <td style="display:flex; gap:6px;">
                   <button class="act-pill" @click="startEdit(a)">Edit</button>
                   <button class="act-pill" v-if="subOf(a.id)?.status === 'submitted'" @click="openReview({ assignment: a, submission: subOf(a.id) }); employeeKpis = null">Review</button>
                 </td>
               </tr>
-              <tr v-if="!kpisFor(employeeKpis.employeeId).length"><td colspan="6" class="muted">No KPIs assigned yet.</td></tr>
+              <tr v-if="!kpisFor(employeeKpis.employeeId).length"><td colspan="8" class="muted">No KPIs assigned yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -128,11 +206,20 @@
           </div>
           <FormField label="Description" v-model="assignForm.description" />
           <FormField label="Completion criteria" v-model="assignForm.completionCriteria" />
-          <p class="note">
+          <p class="note" :class="{ error: Number(otherWeightage) + Number(assignForm.weightage || 0) !== 100 }">
             Weightage so far (excluding this one): {{ otherWeightage }}% + {{ assignForm.weightage || 0 }}% here
-            = {{ Number(otherWeightage) + Number(assignForm.weightage || 0) }}% (must reach exactly 100%)
+            = {{ Number(otherWeightage) + Number(assignForm.weightage || 0) }}% (must reach exactly 100% across all this employee's KPIs)
           </p>
-          <div style="display:flex; gap:8px;">
+
+          <p class="kpi-muted" style="font-size:12px; margin:12px 0 8px;">Deadline-based scoring for this task (optional — leave blank to use the default: 7+ days early = 5, 4–6 early = 4, 1–3 early = 4, on-time = 3, late = 1).</p>
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px;">
+            <FormField label="Early if ≥ (days)" type="number" min="1" v-model="assignForm.scoringRules.earlyDays" />
+            <FormField label="Early rating" type="number" min="1" max="5" v-model="assignForm.scoringRules.earlyRating" />
+            <FormField label="On-time rating" type="number" min="1" max="5" v-model="assignForm.scoringRules.onTimeRating" />
+            <FormField label="Overdue rating" type="number" min="1" max="5" v-model="assignForm.scoringRules.overdueRating" />
+          </div>
+
+          <div style="display:flex; gap:8px; margin-top:12px;">
             <button class="btn btn-primary" :disabled="saving" @click="saveAssignForm">{{ editingId ? 'Save changes' : 'Add KPI' }}</button>
             <button class="btn" v-if="editingId" @click="startAdd">Cancel edit</button>
           </div>
@@ -144,22 +231,45 @@
       </div>
     </div>
 
-    <!-- Review modal -->
+    <!-- Director Review Modal -->
     <div class="modal-back" v-if="reviewing" @click.self="reviewing = null">
-      <div class="modal">
-        <h2>Review — {{ reviewing.assignment.title }}</h2>
-        <p class="muted">{{ reviewing.assignment.employeeName }} self-rated {{ reviewing.submission.selfRating }} / 5.</p>
-        <div class="field"><label>Revised rating (only used if you choose "Revise")</label>
-          <RatingPicker v-model="reviewRating" label="Revised rating" />
+      <div class="modal" style="max-width: 720px; max-height: 90vh; display: flex; flex-direction: column;">
+        <h2>Review KPI — {{ reviewing.assignment.title }}</h2>
+        <p class="muted">{{ reviewing.assignment.employeeName }} | Completed: {{ reviewing.submission.completionTimestamp || '—' }} | Due: {{ reviewing.assignment.deadline || '—' }}</p>
+
+        <div style="flex: 1; overflow-y: auto; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 16px; margin: 12px 0;">
+          <div class="kpi-review-section">
+            <h3 style="margin: 0 0 10px;">Employee self-assessment</h3>
+            <div class="kpi-rating-compare">
+              <div><span class="kpi-muted">Self-rating</span><b>{{ reviewing.submission.selfRating }} / 5</b></div>
+              <div><span class="kpi-muted">Completion date</span><b>{{ reviewing.submission.completionTimestamp || '—' }}</b></div>
+            </div>
+            <p class="kpi-muted" style="margin: 8px 0; font-size: 13px;">{{ reviewing.submission.selfComments || '(no comments)' }}</p>
+
+            <div v-if="discussionThread" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+              <h3 style="margin: 0 0 10px;">Discussion history</h3>
+              <div class="kpi-discussion-thread">
+                <div v-for="msg in discussionThread.thread" :key="msg.at" class="kpi-thread-msg" :class="{ 'by-director': msg.role === 'director' }">
+                  <div class="kpi-thread-head"><b>{{ msg.by }}</b> <span class="kpi-muted">{{ formatWhen(msg.at) }}</span></div>
+                  <p class="kpi-thread-text">{{ msg.message }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <FormField label="Reviewer comments" v-model="reviewComments" />
-        <FormField label="Reason (required if revising or rejecting)" v-model="reviewReason" />
-        <div class="modal-foot">
-          <button class="btn" @click="reviewing = null">Cancel</button>
-          <button class="btn" @click="doReview('requestEvidence')">Request evidence</button>
-          <button class="btn" @click="doReview('reject')">Reject</button>
-          <button class="btn" @click="doReview('revise')">Revise</button>
-          <button class="btn btn-primary" @click="doReview('accept')">Accept self-rating</button>
+
+        <div style="padding: 16px; background: var(--surface);">
+          <h3 style="margin: 0 0 12px;">Your review</h3>
+          <div class="field"><label>Your rating (1–5)</label>
+            <RatingPicker v-model="reviewRating" label="Director rating" />
+          </div>
+          <FormField label="Comments" v-model="reviewComments" type="textarea" />
+          <div class="modal-foot">
+            <button class="btn" @click="reviewing = null">Cancel</button>
+            <button class="btn" v-if="reviewing.submission.status === 'discussionRequested' || reviewing.submission.status === 'resubmitted'" @click="postReply">Reply & Continue Discussion</button>
+            <button class="btn" @click="sendBack">Send Back for Discussion</button>
+            <button class="btn btn-primary" @click="approve">Approve Final Rating</button>
+          </div>
         </div>
       </div>
     </div>
@@ -171,10 +281,12 @@ import { ref, reactive, computed, watch, onMounted } from 'vue';
 import FormField from '@/components/FormField.vue';
 import RatingPicker from '@/components/RatingPicker.vue';
 import { useSession } from '@/stores/session.js';
-import { listQuarters, listParticipants } from '@/lib/performance/quarters.js';
+import { listQuarters, listParticipants, getQuarter } from '@/lib/performance/quarters.js';
 import {
-  listAssignmentsFor, listAllAssignments, listSubmissionsFor, totalWeightage,
-  createAssignment, updateAssignment, submitSelfAssessment, reviewSubmission, requestDiscussion, suggestDeadlineRating
+  listAssignmentsFor, listAllAssignments, listSubmissionsFor, totalWeightage, kpiScoreFor,
+  createAssignment, updateAssignment, submitSelfAssessment, provideDirectorReview, sendBackForDiscussion,
+  approveKpiRating, rerateKpi, postDiscussionReply, postDirectorReply, getDiscussionThread,
+  suggestDeadlineRating, customThresholds, getSubmission
 } from '@/lib/performance/kpi.js';
 
 const session = useSession();
@@ -186,11 +298,12 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
 const okMsg = ref('');
-// Director lands on the employee list by default; everyone else only ever sees their own KPIs.
+// Director lands on the review dashboard by default; everyone else only ever sees their own KPIs.
 const tab = ref(session.role === 'director' ? 'admin' : 'mine');
 
 const quarters = ref([]);
 const quarterId = ref('');
+const quarter = ref(null);
 const myAssignments = ref([]);
 const mySubs = ref({});
 const allRows = ref([]);
@@ -199,7 +312,8 @@ const employeeKpis = ref(null);
 const drafts = reactive({});
 
 const editingId = ref(null);
-const assignForm = ref({ title: '', description: '', target: '', weightage: '', deadline: '', completionCriteria: '' });
+const blankScoringRules = () => ({ earlyDays: '', earlyRating: '', onTimeRating: '', overdueRating: '' });
+const assignForm = ref({ title: '', description: '', target: '', weightage: '', deadline: '', completionCriteria: '', scoringRules: blankScoringRules() });
 const otherWeightage = computed(() => {
   if (!employeeKpis.value) return 0;
   return totalWeightage(kpisFor(employeeKpis.value.employeeId).filter(a => a.id !== editingId.value));
@@ -209,13 +323,73 @@ const reviewing = ref(null);
 const reviewRating = ref(3);
 const reviewComments = ref('');
 const reviewReason = ref('');
+const discussionThread = ref(null);
 
 const mySub = id => mySubs.value[id] || null;
-const suggestion = a => suggestDeadlineRating(a.deadline, drafts[a.id]?.completionTimestamp || null);
+// Uses this specific task's Director-configured early/on-time/overdue rule when set, otherwise the app-wide
+// default (DEFAULT_DEADLINE_THRESHOLDS, unchanged) — suggestDeadlineRating itself never changed.
+const suggestion = a => suggestDeadlineRating(a.deadline, drafts[a.id]?.completionTimestamp || null, a.scoringRules ? customThresholds(a.scoringRules) : undefined);
 
-const STATUS_LABELS = { notStarted: 'Not started', inProgress: 'In progress', submitted: 'Submitted', underReview: 'Under review', revisionRequested: 'Revision requested', approved: 'Approved', rejected: 'Rejected' };
-const statusLabel = s => STATUS_LABELS[s] || 'Not started';
-const statusPill = s => ({ approved: 'green', rejected: 'red', submitted: 'amber', revisionRequested: 'amber' }[s] || 'grey');
+// Four display-only buckets (Not Submitted / Submitted / Pending / Done) over the five real stored statuses —
+// the underlying kpiSubmissions.status values and the scoring they feed are unchanged, only how they're shown.
+function simpleStatus(s) {
+  if (s === 'submitted') return 'Submitted';
+  if (s === 'pendingReview') return 'Pending Review';
+  if (s === 'discussionRequested') return 'Discussion Requested';
+  if (s === 'resubmitted') return 'Resubmitted';
+  if (s === 'done') return 'Done';
+  return 'Not Submitted';
+}
+function simpleStatusClass(s) {
+  if (s === 'submitted') return 'amber';
+  if (s === 'pendingReview') return 'blue';
+  if (s === 'discussionRequested') return 'orange';
+  if (s === 'resubmitted') return 'blue';
+  if (s === 'done') return 'green';
+  return 'grey';
+}
+
+function statusLabel(s) {
+  return { 'submitted': 'Submitted', 'pendingReview': 'Pending Review', 'discussionRequested': 'Discussion Requested', 'resubmitted': 'Resubmitted', 'done': 'Done' }[s] || 'Not Submitted';
+}
+function statusClass(s) {
+  return { 'submitted': 'amber', 'pendingReview': 'blue', 'discussionRequested': 'orange', 'resubmitted': 'blue', 'done': 'green' }[s] || 'grey';
+}
+
+function formatWhen(timestamp) {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  return d.toLocaleString();
+}
+
+// Max 40 marks (or whatever the quarter's actually configured for KPI) split across tasks by weightage; each
+// task's live score uses the supervisor's rating once reviewed, else the employee's own self-rating as a
+// provisional preview — never silently zero before either exists.
+const kpiMaxMarks = computed(() => quarter.value?.weights?.kpi ?? 40);
+const taskMaxPoints = a => Math.round((Number(a.weightage || 0) / 100) * kpiMaxMarks.value * 100) / 100;
+function taskScoreText(a, sub) {
+  if (sub) {
+    const ratingUsed = sub.finalApprovedRating ?? sub.selfRating ?? null;
+    const max = taskMaxPoints(a);
+    if (ratingUsed == null) return `— / ${max}`;
+    return `${Math.round((ratingUsed / 5) * max * 100) / 100} / ${max}`;
+  }
+  const subFromMap = (employeeKpis.value ? subOf(a.id) : mySub(a.id));
+  const ratingUsed = subFromMap?.finalApprovedRating ?? subFromMap?.selfRating ?? null;
+  const max = taskMaxPoints(a);
+  if (ratingUsed == null) return `— / ${max}`;
+  return `${Math.round((ratingUsed / 5) * max * 100) / 100} / ${max}`;
+}
+
+const myTotalWeightage = computed(() => totalWeightage(myAssignments.value));
+const myDoneCount = computed(() => myAssignments.value.filter(a => ['approved', 'rejected'].includes(mySub(a.id)?.status)).length);
+const myScore = computed(() => kpiScoreFor(myAssignments.value, mySubs.value, kpiMaxMarks.value));
+const myScoreStatusText = computed(() => {
+  const s = myScore.value;
+  if (s.status === 'n/a') return 'No KPIs assigned this quarter';
+  if (s.status === 'pending') return `${s.rated} of ${s.total} tasks reviewed so far`;
+  return 'All tasks reviewed';
+});
 
 async function load() {
   loading.value = true;
@@ -223,10 +397,27 @@ async function load() {
     quarters.value = (await listQuarters()).filter(q => q.status !== 'draft' && q.status !== 'archived');
     if (!quarterId.value && quarters.value.length) quarterId.value = quarters.value[0].id;
     if (!quarterId.value) return;
+    quarter.value = await getQuarter(quarterId.value);
     myAssignments.value = await listAssignmentsFor(quarterId.value, session.user.uid);
-    for (const a of myAssignments.value) if (!drafts[a.id]) drafts[a.id] = { selfRating: 3, selfComments: '', completionTimestamp: '', evidenceLink: '' };
+    // Seed a blank draft for every assignment IMMEDIATELY, before the next await — myAssignments.value just
+    // changed, which can trigger a re-render on the next microtask tick (any await is a scheduler checkpoint).
+    // If drafts[a.id] isn't guaranteed to exist yet at that point, the template crashes reading
+    // drafts[a.id].completionTimestamp. This also means a transient failure fetching submissions below (e.g.
+    // a permission hiccup on a brand-new, not-yet-submitted task) can no longer break the whole page.
+    for (const a of myAssignments.value) if (!drafts[a.id]) drafts[a.id] = { selfRating: null, selfComments: '', completionTimestamp: '', seeded: false };
     const subRows = await listSubmissionsFor(myAssignments.value);
     mySubs.value = Object.fromEntries(subRows.map(r => [r.assignment.id, r.submission]));
+    // selfRating starts null, not a default of 3 — a pre-highlighted "Good" that nobody actually chose would
+    // let an employee submit without ever touching the rating picker (same category of bug fixed in the COH
+    // redesign). The Submit button stays disabled until a real rating is picked. Only seed from the existing
+    // submission once, so this doesn't clobber whatever the employee is already mid-typing on a later reload.
+    for (const a of myAssignments.value) {
+      const d = drafts[a.id];
+      if (!d.seeded) {
+        const existing = mySubs.value[a.id];
+        Object.assign(d, { selfRating: existing?.selfRating ?? null, selfComments: existing?.selfComments || '', completionTimestamp: existing?.completionTimestamp || '', seeded: true });
+      }
+    }
     if (canManageKpi.value) {
       participants.value = (await listParticipants(quarterId.value)).filter(p => p.participationStatus === 'active');
       const all = await listAllAssignments(quarterId.value);
@@ -243,24 +434,38 @@ function openEmployeeKpis(p) { employeeKpis.value = p; startAdd(); }
 
 function startAdd() {
   editingId.value = null;
-  assignForm.value = { title: '', description: '', target: '', weightage: '', deadline: '', completionCriteria: '' };
+  assignForm.value = { title: '', description: '', target: '', weightage: '', deadline: '', completionCriteria: '', scoringRules: blankScoringRules() };
 }
 function startEdit(a) {
   editingId.value = a.id;
-  assignForm.value = { title: a.title, description: a.description || '', target: a.target || '', weightage: a.weightage, deadline: a.deadline || '', completionCriteria: a.completionCriteria || '' };
+  assignForm.value = {
+    title: a.title, description: a.description || '', target: a.target || '', weightage: a.weightage,
+    deadline: a.deadline || '', completionCriteria: a.completionCriteria || '',
+    scoringRules: a.scoringRules ? { ...a.scoringRules } : blankScoringRules()
+  };
+}
+// null unless every field was actually filled in — a half-filled override would silently apply default values
+// for the fields left blank, which isn't what "leave blank to use the default" should mean.
+function builtScoringRules() {
+  const r = assignForm.value.scoringRules;
+  const filled = ['earlyDays', 'earlyRating', 'onTimeRating', 'overdueRating'].every(k => r[k] !== '' && r[k] != null);
+  if (!filled) return null;
+  return { earlyDays: Number(r.earlyDays), earlyRating: Number(r.earlyRating), onTimeRating: Number(r.onTimeRating), overdueRating: Number(r.overdueRating) };
 }
 async function saveAssignForm() {
   if (!assignForm.value.title || !assignForm.value.weightage) { error.value = 'Title and weightage are required.'; return; }
   saving.value = true; error.value = '';
   try {
+    const patch = {
+      title: assignForm.value.title, description: assignForm.value.description, target: assignForm.value.target,
+      weightage: Number(assignForm.value.weightage), deadline: assignForm.value.deadline,
+      completionCriteria: assignForm.value.completionCriteria, scoringRules: builtScoringRules()
+    };
     if (editingId.value) {
-      await updateAssignment(editingId.value, {
-        title: assignForm.value.title, description: assignForm.value.description, target: assignForm.value.target,
-        weightage: Number(assignForm.value.weightage), deadline: assignForm.value.deadline, completionCriteria: assignForm.value.completionCriteria
-      });
+      await updateAssignment(editingId.value, patch);
       okMsg.value = 'KPI updated.';
     } else {
-      await createAssignment({ ...assignForm.value, quarterId: quarterId.value, employeeId: employeeKpis.value.employeeId, employeeName: employeeKpis.value.employeeName });
+      await createAssignment({ ...patch, quarterId: quarterId.value, employeeId: employeeKpis.value.employeeId, employeeName: employeeKpis.value.employeeName });
       okMsg.value = 'KPI added.';
     }
     const keepOpenFor = employeeKpis.value;
@@ -271,32 +476,118 @@ async function saveAssignForm() {
 }
 
 async function submitMine(a) {
+  const d = drafts[a.id];
+  if (d.selfRating == null) { error.value = 'Choose a self-rating before submitting.'; return; }
+  if (myTotalWeightage.value !== 100) { error.value = 'Your KPI weightages must total 100% before you can submit.'; return; }
   saving.value = true; error.value = '';
   try {
-    const d = drafts[a.id];
-    const evidence = d.evidenceLink ? [{ type: 'link', url: d.evidenceLink }] : [];
-    await submitSelfAssessment(a, { selfRating: d.selfRating, selfComments: d.selfComments, evidence, completionTimestamp: d.completionTimestamp });
+    await submitSelfAssessment(a, { selfRating: d.selfRating, selfComments: d.selfComments, completionTimestamp: d.completionTimestamp });
     okMsg.value = 'Self-assessment submitted.'; await load();
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
 
-function openReview(row) { reviewing.value = row; reviewRating.value = row.submission.selfRating; reviewComments.value = ''; reviewReason.value = ''; }
-async function doReview(decision) {
-  if (['revise', 'reject'].includes(decision) && !reviewReason.value) { error.value = 'A reason is required for that decision.'; return; }
+async function openReview(row) {
+  reviewing.value = row;
+  reviewRating.value = row.submission.directorRating || row.submission.selfRating || 3;
+  reviewComments.value = row.submission.directorComments || '';
+  discussionThread.value = await getDiscussionThread(row.assignment.id);
+}
+
+async function sendBack() {
+  if (!reviewRating.value) { error.value = 'Please provide a rating.'; return; }
+  if (!reviewComments.value) { error.value = 'Please add comments.'; return; }
   saving.value = true; error.value = '';
   try {
-    await reviewSubmission(reviewing.value.assignment.id, { decision, rating: reviewRating.value, reviewerComments: reviewComments.value, reviewReason: reviewReason.value });
-    okMsg.value = 'Review saved.'; reviewing.value = null; await load();
+    await sendBackForDiscussion(reviewing.value.assignment.id, { directorRating: reviewRating.value, directorComments: reviewComments.value });
+    okMsg.value = 'KPI sent back for discussion.'; reviewing.value = null; await load();
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
 
-async function askDiscussion(a) {
-  const reason = window.prompt('Why would you like to discuss this KPI rating?');
-  if (!reason) return;
-  try { await requestDiscussion(quarterId.value, a.id, reason); okMsg.value = 'Discussion requested.'; await load(); } catch (e) { error.value = e.message; }
+async function approve() {
+  if (!reviewRating.value) { error.value = 'Please provide a final rating.'; return; }
+  saving.value = true; error.value = '';
+  try {
+    await approveKpiRating(reviewing.value.assignment.id, { directorRating: reviewRating.value, directorComments: reviewComments.value });
+    okMsg.value = 'KPI approved and finalized.'; reviewing.value = null; await load();
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
+}
+
+async function postReply() {
+  if (!reviewComments.value) { error.value = 'Please add a comment.'; return; }
+  saving.value = true; error.value = '';
+  try {
+    await postDirectorReply(reviewing.value.assignment.id, reviewComments.value);
+    okMsg.value = 'Reply posted.'; reviewComments.value = '';
+    discussionThread.value = await getDiscussionThread(reviewing.value.assignment.id);
+  } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
 </script>
 
 <style scoped>
 .row-selected { background: var(--hover); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Follows the account's theme (Settings > Appearance) throughout, same as the COH redesign — var(--surface),
+   var(--accent) etc. already flip for light/dark mode, nothing here is a fixed palette. */
+.kpi-muted { color: var(--text-2); font-size: 12px; }
+
+.kpi-summary {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 16px;
+}
+.kpi-summary-value { font-size: 28px; font-weight: 700; color: var(--text); }
+.kpi-summary-value small { font-size: 14px; font-weight: 500; color: var(--text-2); }
+.kpi-summary-stats { display: flex; gap: 22px; }
+.kpi-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.kpi-stat b { font-size: 18px; color: var(--text); }
+.kpi-stat .kpi-warn { color: var(--amber); }
+
+.kpi-cards { display: flex; flex-direction: column; gap: 12px; }
+.kpi-card-empty { color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; text-align: center; }
+
+.kpi-task-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.kpi-task-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.kpi-task-title { font-weight: 600; font-size: 15px; color: var(--text); }
+.kpi-task-desc { font-size: 13px; color: var(--text-2); margin: 4px 0 0; }
+
+.kpi-status-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; background: var(--chip); color: var(--text-2); }
+.kpi-status-badge.amber { background: var(--amber-soft); color: var(--amber); }
+.kpi-status-badge.blue { background: var(--blue-soft); color: var(--blue); }
+.kpi-status-badge.green { background: var(--green-soft); color: var(--green); }
+.kpi-status-badge.red { background: var(--red-soft); color: var(--red); }
+
+.kpi-task-meta { display: flex; gap: 20px; flex-wrap: wrap; margin: 10px 0 14px; padding: 10px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.kpi-task-meta > div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.kpi-task-meta b { color: var(--text); }
+
+.kpi-rating-compare { display: flex; gap: 24px; margin-bottom: 8px; }
+.kpi-rating-compare > div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.kpi-rating-compare b { font-size: 16px; color: var(--text); }
+
+.kpi-review-section { }
+
+.kpi-discussion-thread {
+  display: flex; flex-direction: column; gap: 10px; background: var(--chip); padding: 10px; border-radius: var(--radius);
+}
+
+.kpi-thread-msg {
+  background: var(--surface); padding: 10px 12px; border-radius: 6px; font-size: 13px;
+}
+
+.kpi-thread-msg.by-director { border-left: 3px solid var(--accent); }
+
+.kpi-thread-head {
+  display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; font-size: 12px;
+}
+
+.kpi-thread-head b { color: var(--text); }
+
+.kpi-thread-text {
+  margin: 0; color: var(--text); line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .kpi-summary { flex-direction: column; align-items: flex-start; }
+  .kpi-task-meta { gap: 12px; }
+}
 </style>

@@ -1,5 +1,25 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.26, 4 Nov 2026: COH evaluation marks are no longer on the evaluatee-readable
+// Widebed PMS Firestore rules. Draft 0.31, 4 Nov 2026 (Neo): KPI Director Review workflow—
+// kpiSubmissions enhanced with director review fields (directorRating, directorComments, discussionStatus,
+// discussionHistory, discussionThreadId). Employee can resubmit/discuss while director can send back,
+// re-rate, or approve. Discussion threads in kpiDiscussions/{id} allow back-and-forth before final approval.
+// Draft 0.30, 4 Nov 2026 (merge): Khairul's Draft 0.29 (Director complaint
+// threads/photos) rebased onto a snapshot that predated six read-rule fixes from earlier the same day — those
+// are reapplied here. The bug: cohEvaluations/kpiAssignments/kpiSubmissions/performanceDiscussions/
+// performanceTmsSnapshots/performanceResults all checked resource.data.<field> without first handling
+// resource == null. Firestore errors out evaluating .data on a null resource (i.e. the document doesn't exist
+// yet), and a rule error means deny — so any getDoc() probing "does this exist yet" (a brand-new KPI task, an
+// evaluation that hasn't happened yet, etc.) got permission-denied instead of a normal "not found." Each of
+// the six now starts with (resource == null && anyStaff()) || so that probe is allowed through safely; no
+// other access was widened. PULL BEFORE EDITING, same as always — this file is edited by both Khairul and Neo.
+// Draft 0.29, 4 Nov 2026 (Khairul): Director complaints (HR to the Directors) get the same
+// conversation and photos: HR and Directors read and write complaints/{id}/thread and /images of a 'director' complaint.
+// Draft 0.28, 4 Nov 2026 (Khairul, on top of Neo's Draft 0.26 below): staff complaint follow-up
+// and photos put back (they were Khairul's 0.26 / 0.27 and missing from Neo's copy): HR sets Read by HR / In review / Closed;
+// complaints/{id}/thread (HR and the NAMED sender write, the sender reads); complaints/{id}/notes (HR only);
+// complaints/{id}/images (one shrunk photo each, read like the conversation). Nothing in them is ever edited or deleted.
+// PULL BEFORE EDITING: this file is edited by both Khairul and Neo, and the last publish wins.
+// Draft 0.26, 4 Nov 2026 (Neo): COH evaluation marks are no longer on the evaluatee-readable
 // cohEvaluations document — they live in a private/scores sub-document only the evaluator and HR/Director can read,
 // so the person being rated never sees the exact score a specific colleague gave them (evaluator identity stays
 // visible, by the existing confirmed business rule).
@@ -51,7 +71,9 @@ rules_version = '2';
 // Draft 0.10, 27 Oct 2026: (1) notifications: an anonymous complaint alert to HR may be created with no sender (createdByUid null);
 // (2) complaints: staff complaints are readable by HR only (Directors keep Director complaints).
 // 27 Oct (Khairul): Marketing may add and edit properties, units and owners (no money/bank) and edit New Owner Listings.
-// History: 0.26 COH marks moved to a private sub-document (evaluatee can't read scores). 0.25 HR complaint read-marking.
+// History: 0.30 six resource==null read-rule fixes reapplied. 0.29 Director complaint threads/photos. 0.28 staff
+// complaint thread/photos/notes. 0.26 COH marks moved to a private sub-document (evaluatee can't read scores).
+// 0.25 HR complaint read-marking.
 // 0.24 push notifications; Finance/Director delete a hand-removed booking. 0.23 Performance Management Stage 1+2
 // (security fixes, revision workflow). 0.22 clear notifications (delete own, hide team ones). 0.21 notifications to
 // custom roles; Performance Management collections (Neo's merge). 0.20 ticket quotes & invoices. 0.19 What's New.
@@ -800,11 +822,79 @@ service cloud.firestore {
       allow update: if isHR() && resource.data.kind == 'staff' && resource.data.status == 'new'
         && changed().hasOnly(['status', 'readAt', 'readBy'])
         && request.resource.data.status == 'read' && request.resource.data.readBy == request.auth.uid;
+      // Draft 0.28 (Khairul): HR moves a staff complaint to Read by HR, In review or Closed (Reopen = back to In review).
+      allow update: if isHR() && resource.data.kind == 'staff'
+        && changed().hasOnly(['status', 'statusAt', 'statusBy'])
+        && request.resource.data.status in ['read', 'review', 'closed'] && request.resource.data.statusBy == request.auth.uid;
       // Only a Director opening a Director complaint marks it read.
       allow update: if isDirector() && resource.data.kind == 'director'
         && changed().hasOnly(['read', 'readAt', 'readBy'])
         && request.resource.data.read == true && request.resource.data.readBy == request.auth.uid;
       allow delete: if false;
+      // Draft 0.28 (Khairul): the conversation with the sender. HR reads all; the named sender reads theirs; an anonymous
+      // sender's browser reads by the (random) id, like the status. HR writes any time (a closing note goes with the Close);
+      // the NAMED sender writes back while it isn't Closed. Text up to 2000 characters (or photos only), never changed.
+      match /thread/{tid} {
+        allow read: if isHR()
+          || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
+          || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
+        allow create: if complaintNow(id).kind == 'staff'
+          && newKeysOnly(['text', 'by', 'byName', 'byUid', 'closing', 'imageIds', 'createdAt'])
+          && request.resource.data.text is string && request.resource.data.text.size() <= 2000
+          && (request.resource.data.text.size() > 0
+            || (request.resource.data.get('imageIds', []) is list && request.resource.data.get('imageIds', []).size() > 0))
+          && request.resource.data.get('imageIds', []).size() <= 5
+          && request.resource.data.byUid == request.auth.uid
+          && ((isHR() && request.resource.data.by == 'hr')
+            || (request.resource.data.by == 'sender' && complaintNow(id).get('fromId', null) == request.auth.uid
+                && complaintNow(id).status != 'closed' && !('closing' in request.resource.data)));
+        // Draft 0.29: a Director complaint's conversation is between HR and the Directors
+        allow read: if hrOrDir() && complaintNow(id).kind == 'director';
+        allow create: if hrOrDir() && complaintNow(id).kind == 'director'
+          && newKeysOnly(['text', 'by', 'byName', 'byUid', 'imageIds', 'createdAt'])
+          && request.resource.data.text is string && request.resource.data.text.size() <= 2000
+          && (request.resource.data.text.size() > 0
+            || (request.resource.data.get('imageIds', []) is list && request.resource.data.get('imageIds', []).size() > 0))
+          && request.resource.data.get('imageIds', []).size() <= 5
+          && request.resource.data.byUid == request.auth.uid
+          && ((isHR() && request.resource.data.by == 'hr') || (isDirector() && request.resource.data.by == 'director'));
+        allow update, delete: if false;
+      }
+      // Draft 0.28 (Khairul): photos. Read by the same people as the conversation. Added with the complaint by its sender
+      // (an anonymous complaint: no uid, and only in the first 15 minutes after it was sent), or with a reply by HR or the
+      // named sender (not once Closed). Each record is one image, at most ~700 KB of text.
+      match /images/{img} {
+        allow read: if isHR()
+          || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
+          || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
+        allow create: if complaintNow(id).kind == 'staff'
+          && newKeysOnly(['data', 'w', 'h', 'size', 'scope', 'threadId', 'byUid', 'createdAt'])
+          && request.resource.data.data is string && request.resource.data.data.size() <= 700000
+          && ((request.resource.data.scope == 'complaint' && !('threadId' in request.resource.data)
+                && ((complaintNow(id).get('fromId', null) == request.auth.uid && request.resource.data.get('byUid', '') == request.auth.uid)
+                  || (anyStaff() && complaintNow(id).get('anonymous', false) == true && !('byUid' in request.resource.data)
+                      && request.time < complaintNow(id).createdAt + duration.value(15, 'm'))))
+            || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string
+                && request.resource.data.get('byUid', '') == request.auth.uid
+                && (isHR() || (complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed'))));
+        // Draft 0.29: Director complaints: HR and Directors read and add photos (with the complaint or a reply)
+        allow read: if hrOrDir() && complaintNow(id).kind == 'director';
+        allow create: if hrOrDir() && complaintNow(id).kind == 'director'
+          && newKeysOnly(['data', 'w', 'h', 'size', 'scope', 'threadId', 'byUid', 'createdAt'])
+          && request.resource.data.data is string && request.resource.data.data.size() <= 700000
+          && request.resource.data.get('byUid', '') == request.auth.uid
+          && (request.resource.data.scope == 'complaint' || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string));
+        allow update, delete: if false;
+      }
+      // Draft 0.28 (Khairul): HR's own notes on a staff complaint; nobody else reads them.
+      match /notes/{nid} {
+        allow read: if isHR();
+        allow create: if isHR() && complaintNow(id).kind == 'staff'
+          && newKeysOnly(['text', 'byName', 'byUid', 'createdAt'])
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+          && request.resource.data.byUid == request.auth.uid;
+        allow update, delete: if false;
+      }
       match /private/{docId} {
         allow read: if isHR() || (isDirector() && complaintNow(id).kind == 'director');
         allow read: if signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid;
@@ -877,7 +967,10 @@ service cloud.firestore {
     match /cohEvaluations/{id} {
       // Director and HR always see every evaluation (Team overview monitoring), regardless of whether they
       // hold the generic performance.edit tick — same confirmed business rule as cohQuestions above.
-      allow read: if isDirector() || isHR() || can('performance.edit')
+      // (resource == null && anyStaff()): getEvaluation() probes this exact id to check "have I already rated
+      // this colleague" before the doc exists — without this clause that probe gets permission-denied instead
+      // of a normal exists:false, breaking "Evaluate" the first time anyone opens a colleague.
+      allow read: if (resource == null && anyStaff()) || isDirector() || isHR() || can('performance.edit')
         || resource.data.evaluatorId == request.auth.uid || resource.data.evaluateeId == request.auth.uid;
       allow create: if anyStaff() && request.resource.data.evaluatorId == request.auth.uid
         && request.resource.data.evaluateeId != request.auth.uid
@@ -912,8 +1005,11 @@ service cloud.firestore {
     }
 
     // KPI assignments: HR/Director create and edit; the employee and HR/Director read.
+    // (resource == null && anyStaff()) lets a getDoc() that's just probing "does this exist yet" return
+    // exists:false instead of permission-denied — without it, resource.data errors on a missing document and
+    // the whole rule denies, which is what was breaking the KPI page for a brand-new, never-submitted task.
     match /kpiAssignments/{id} {
-      allow read: if isDirector() || resource.data.employeeId == request.auth.uid;
+      allow read: if (resource == null && anyStaff()) || isDirector() || resource.data.employeeId == request.auth.uid;
       allow create, update: if isDirector();
       allow delete: if false;
     }
@@ -921,7 +1017,7 @@ service cloud.firestore {
     // KPI submissions: the employee submits their own self-assessment (status 'submitted', no final rating set
     // yet); only HR/Director can set finalApprovedRating / reviewerId, and only by changing review fields.
     match /kpiSubmissions/{id} {
-      allow read: if isDirector() || resource.data.employeeId == request.auth.uid;
+      allow read: if (resource == null && anyStaff()) || isDirector() || resource.data.employeeId == request.auth.uid;
       // The employee submits or resubmits their own self-assessment, but never once it's already been
       // approved or rejected (matches the KPI.vue UI, which hides the submit form at that point) — otherwise
       // an employee could write status back to 'submitted' with nulled-out review fields and erase a
@@ -940,7 +1036,7 @@ service cloud.firestore {
 
     // Discussion requests: the employee who raised it, and HR/Director, read and resolve.
     match /performanceDiscussions/{id} {
-      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow read: if (resource == null && anyStaff()) || isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
       allow create: if request.resource.data.employeeId == request.auth.uid && request.resource.data.status == 'requested';
       allow update: if isDirector() || can('performance.edit');
       allow delete: if false;
@@ -949,7 +1045,7 @@ service cloud.firestore {
     // TMS performance snapshots: only HR/Director sync and approve (server-side TMS credentials never touch the
     // frontend — this just writes the result). The employee reads their own; isFinal is never flipped back to false.
     match /performanceTmsSnapshots/{id} {
-      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow read: if (resource == null && anyStaff()) || isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
       allow create, update: if (isDirector() || can('performance.edit')) && (resource == null || resource.data.get('isFinal', false) != true);
       allow delete: if false;
     }
@@ -960,7 +1056,7 @@ service cloud.firestore {
     // always writes a revisions/{rev} snapshot of the pre-correction values (results.js::requestCorrection)
     // before this write, so a correction is never silently applied over the original finalized numbers.
     match /performanceResults/{id} {
-      allow read: if isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow read: if (resource == null && anyStaff()) || isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
       allow create, update: if (isDirector() || can('performance.edit'))
         && (resource == null || resource.data.get('approvalStatus', 'draft') != 'finalized');
       allow update: if isDirector() && resource.data.get('approvalStatus', 'draft') == 'finalized'

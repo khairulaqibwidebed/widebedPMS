@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   weightsOk, canAdvance, nextStatus,
   cohScoreFromRatings,
-  suggestDeadlineRating, DEFAULT_DEADLINE_THRESHOLDS,
+  suggestDeadlineRating, DEFAULT_DEADLINE_THRESHOLDS, customThresholds,
   totalWeightage, kpiScoreFor,
   attributeTasksFor, tmsScoreFromCounts
 } from '../calc.js';
@@ -67,6 +67,20 @@ describe('KPI deadline-based rating suggestion (Phase 4.3)', () => {
     const custom = [{ minDaysEarly: 1, rating: 5 }, { minDaysEarly: -Infinity, rating: 2 }];
     expect(suggestDeadlineRating('2026-09-20', '2026-09-10', custom)).toBe(5);
     expect(suggestDeadlineRating('2026-09-20', '2026-09-21', custom)).toBe(2);
+  });
+});
+
+describe('customThresholds (Director-configured early/on-time/overdue)', () => {
+  it('builds a 3-tier threshold array suggestDeadlineRating understands', () => {
+    const t = customThresholds({ earlyDays: 5, earlyRating: 5, onTimeRating: 3, overdueRating: 1 });
+    expect(suggestDeadlineRating('2026-09-20', '2026-09-10', t)).toBe(5); // 10+ days early
+    expect(suggestDeadlineRating('2026-09-20', '2026-09-18', t)).toBe(3); // 2 days early, below the 5-day bar -> on-time bucket
+    expect(suggestDeadlineRating('2026-09-20', '2026-09-22', t)).toBe(1); // overdue
+  });
+  it('falls back to sensible defaults when given no config', () => {
+    expect(customThresholds()).toEqual([
+      { minDaysEarly: 3, rating: 5 }, { minDaysEarly: 0, rating: 3 }, { minDaysEarly: -Infinity, rating: 1 }
+    ]);
   });
 });
 
