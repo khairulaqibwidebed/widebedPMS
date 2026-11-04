@@ -107,40 +107,55 @@
                   </div>
                 </div>
 
-                <!-- Discussion chat section -->
+                <!-- Unified Discussion Chat -->
                 <div v-if="mySub(a.id)?.status === 'discussionRequested' || mySub(a.id)?.status === 'resubmitted'" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
                   <h4 style="margin: 0 0 12px; font-size: 14px;">💬 Discussion Chat</h4>
-                  <div class="kpi-discussion-chat" v-if="getEmployeeDiscussionThread(a.id)?.thread && getEmployeeDiscussionThread(a.id).thread.length > 0">
-                    <div v-for="comment in getEmployeeDiscussionThread(a.id).thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-comment">
-                      <div class="kpi-comment-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
-                        {{ initialOf(comment.by) }}
-                      </div>
-                      <div class="kpi-comment-body">
-                        <div class="kpi-comment-header">
-                          <span class="kpi-comment-name">{{ comment.by }}</span>
-                          <span class="kpi-comment-role">{{ comment.role === 'director' ? 'Supervisor' : 'Employee' }}</span>
-                          <span class="kpi-comment-time">{{ formatWhen(comment.at) }}</span>
-                          <span v-if="comment.edited" class="kpi-comment-edited">edited</span>
+
+                  <!-- Chat Messages -->
+                  <div class="kpi-chat-container">
+                    <div v-if="getEmployeeDiscussionThread(a.id)?.thread && getEmployeeDiscussionThread(a.id).thread.length > 0" class="kpi-discussion-chat">
+                      <div v-for="comment in getEmployeeDiscussionThread(a.id).thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-chat-msg" :class="{ 'by-me': comment.byUid === session.user.uid }">
+                        <div class="kpi-chat-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
+                          {{ initialOf(comment.by) }}
                         </div>
-                        <p class="kpi-comment-text">{{ comment.message }}</p>
-                        <div class="kpi-comment-actions" v-if="comment.byUid === session.user.uid">
-                          <button class="kpi-action-btn" @click="startEditComment(comment)">Edit</button>
-                          <button class="kpi-action-btn" @click="removeComment(a.id, comment.id)">Delete</button>
+                        <div class="kpi-chat-bubble">
+                          <div class="kpi-chat-msg-header">
+                            <span class="kpi-chat-sender">{{ comment.by }}</span>
+                            <span class="kpi-chat-badge">{{ comment.role === 'director' ? 'Supervisor' : 'Employee' }}</span>
+                            <span class="kpi-chat-time">{{ formatWhen(comment.at) }}</span>
+                            <span v-if="comment.edited" class="kpi-chat-edited">(edited)</span>
+                          </div>
+                          <p class="kpi-chat-msg-text">{{ comment.message }}</p>
+                          <div class="kpi-chat-actions" v-if="comment.byUid === session.user.uid">
+                            <button class="kpi-chat-action" @click="startEditComment(comment)">✏️ Edit</button>
+                            <button class="kpi-chat-action" @click="removeComment(a.id, comment.id)">🗑️ Delete</button>
+                          </div>
                         </div>
                       </div>
                     </div>
+                    <div v-else class="kpi-chat-empty">
+                      No messages yet. Start the discussion!
+                    </div>
                   </div>
 
-                  <!-- Reply input for discussion -->
-                  <div v-if="mySub(a.id)?.status === 'discussionRequested'" style="margin-top: 12px;">
-                    <textarea class="input" v-model="discussionReplies[a.id]" placeholder="Reply to supervisor..." style="font-size: 13px; min-height: 60px;"></textarea>
-                    <button class="btn btn-primary" style="margin-top: 8px; width: 100%;" @click="submitDiscussionReply(a)" :disabled="saving">
-                      {{ saving ? 'Sending...' : 'Send reply' }}
-                    </button>
+                  <!-- Chat Input -->
+                  <div class="kpi-chat-input-section">
+                    <textarea
+                      v-model="discussionReplies[a.id]"
+                      :placeholder="mySub(a.id)?.status === 'resubmitted' ? 'Add more comments...' : 'Reply to supervisor...'"
+                      class="kpi-chat-input"
+                      @keydown.enter.ctrl="submitDiscussionReply(a)"
+                    ></textarea>
+                    <div class="kpi-chat-input-actions">
+                      <span class="kpi-chat-hint">Ctrl+Enter to send</span>
+                      <button class="btn btn-primary" @click="submitDiscussionReply(a)" :disabled="saving || !discussionReplies[a.id]?.trim()">
+                        {{ saving ? 'Sending...' : 'Send' }}
+                      </button>
+                    </div>
                   </div>
 
-                  <!-- For resubmitted, show submit button -->
-                  <div v-else-if="mySub(a.id)?.status === 'resubmitted'" style="margin-top: 12px;">
+                  <!-- For resubmitted, show resubmit option -->
+                  <div v-if="mySub(a.id)?.status === 'resubmitted'" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
                     <button class="btn btn-primary" style="width: 100%;" @click="submitMine(a)" :disabled="saving">
                       {{ saving ? 'Submitting...' : 'Resubmit for approval' }}
                     </button>
@@ -335,23 +350,41 @@
 
             <div v-if="discussionThread && discussionThread.thread && discussionThread.thread.length > 0" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
               <h3 style="margin: 0 0 16px; font-size: 14px;">💬 Discussion Chat</h3>
-              <div class="kpi-discussion-chat">
-                <div v-for="comment in discussionThread.thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-comment">
-                  <div class="kpi-comment-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
-                    {{ initialOf(comment.by) }}
+              <div class="kpi-chat-container">
+                <div class="kpi-discussion-chat">
+                  <div v-for="comment in discussionThread.thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-chat-msg" :class="{ 'by-me': comment.byUid === session.user.uid }">
+                    <div class="kpi-chat-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
+                      {{ initialOf(comment.by) }}
+                    </div>
+                    <div class="kpi-chat-bubble">
+                      <div class="kpi-chat-msg-header">
+                        <span class="kpi-chat-sender">{{ comment.by }}</span>
+                        <span class="kpi-chat-badge">{{ comment.role === 'director' ? 'Supervisor' : 'Employee' }}</span>
+                        <span class="kpi-chat-time">{{ formatWhen(comment.at) }}</span>
+                        <span v-if="comment.edited" class="kpi-chat-edited">(edited)</span>
+                      </div>
+                      <p class="kpi-chat-msg-text">{{ comment.message }}</p>
+                      <div class="kpi-chat-actions" v-if="comment.byUid === session.user.uid">
+                        <button class="kpi-chat-action" @click="startEditComment(comment)">✏️ Edit</button>
+                        <button class="kpi-chat-action" @click="removeComment(discussionThread.submissionId, comment.id)">🗑️ Delete</button>
+                      </div>
+                    </div>
                   </div>
-                  <div class="kpi-comment-body">
-                    <div class="kpi-comment-header">
-                      <span class="kpi-comment-name">{{ comment.by }}</span>
-                      <span class="kpi-comment-role">{{ comment.role === 'director' ? 'Supervisor' : 'Employee' }}</span>
-                      <span class="kpi-comment-time">{{ formatWhen(comment.at) }}</span>
-                      <span v-if="comment.edited" class="kpi-comment-edited">edited</span>
-                    </div>
-                    <p class="kpi-comment-text">{{ comment.message }}</p>
-                    <div class="kpi-comment-actions" v-if="comment.byUid === session.user.uid">
-                      <button class="kpi-action-btn" @click="startEditComment(comment)">Edit</button>
-                      <button class="kpi-action-btn" @click="removeComment(discussionThread.submissionId, comment.id)">Delete</button>
-                    </div>
+                </div>
+
+                <!-- Chat input for director to continue discussion -->
+                <div class="kpi-chat-input-section">
+                  <textarea
+                    v-model="reviewComments"
+                    placeholder="Reply to discussion or add comments..."
+                    class="kpi-chat-input"
+                    @keydown.enter.ctrl="postReply"
+                  ></textarea>
+                  <div class="kpi-chat-input-actions">
+                    <span class="kpi-chat-hint">Ctrl+Enter to send</span>
+                    <button class="btn" @click="postReply" :disabled="saving || !reviewComments?.trim()">
+                      {{ saving ? 'Sending...' : 'Reply' }}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -784,65 +817,135 @@ async function removeComment(submissionId, commentId) {
   box-shadow: 0 0 0 4px rgba(255, 152, 0, 0.1);
 }
 
+.kpi-chat-container {
+  display: flex; flex-direction: column; gap: 12px;
+}
+
 .kpi-discussion-chat {
   display: flex; flex-direction: column; gap: 12px;
-  background: var(--chip); padding: 12px; border-radius: var(--radius);
-  max-height: 400px; overflow-y: auto;
+  background: var(--chip); padding: 16px; border-radius: var(--radius);
+  max-height: 400px; overflow-y: auto; min-height: 120px;
 }
 
-.kpi-comment {
-  display: flex; gap: 10px; padding: 12px;
-  background: var(--surface); border-radius: 6px; border: 1px solid var(--border);
+.kpi-chat-empty {
+  text-align: center; color: var(--text-2); padding: 24px;
+  font-style: italic;
 }
 
-.kpi-comment-avatar {
-  width: 40px; height: 40px; min-width: 40px;
+.kpi-chat-msg {
+  display: flex; gap: 10px; align-items: flex-end;
+}
+
+.kpi-chat-msg.by-me {
+  flex-direction: row-reverse;
+}
+
+.kpi-chat-avatar {
+  width: 36px; height: 36px; min-width: 36px;
   border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  color: white; font-weight: 600; font-size: 16px;
+  color: white; font-weight: 600; font-size: 14px;
 }
 
-.kpi-comment-body {
-  flex: 1; min-width: 0;
+.kpi-chat-bubble {
+  flex: 1; max-width: 70%;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 12px;
 }
 
-.kpi-comment-header {
+.kpi-chat-msg.by-me .kpi-chat-bubble {
+  background: var(--accent); border: 1px solid var(--accent);
+}
+
+.kpi-chat-msg-header {
   display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
-  flex-wrap: wrap; font-size: 13px;
+  flex-wrap: wrap; font-size: 12px;
 }
 
-.kpi-comment-name {
+.kpi-chat-sender {
   font-weight: 600; color: var(--text);
 }
 
-.kpi-comment-role {
+.kpi-chat-msg.by-me .kpi-chat-sender {
+  color: white;
+}
+
+.kpi-chat-badge {
   background: var(--chip); padding: 2px 6px; border-radius: 3px;
-  font-size: 11px; color: var(--text-2); font-weight: 500;
+  font-size: 10px; color: var(--text-2); font-weight: 500;
 }
 
-.kpi-comment-time {
-  color: var(--text-2); font-size: 12px;
+.kpi-chat-msg.by-me .kpi-chat-badge {
+  background: rgba(255,255,255,0.2); color: white;
 }
 
-.kpi-comment-edited {
-  color: var(--text-2); font-size: 11px; font-style: italic;
+.kpi-chat-time {
+  color: var(--text-2); font-size: 11px;
 }
 
-.kpi-comment-text {
-  margin: 8px 0 0 0; color: var(--text); line-height: 1.5;
+.kpi-chat-msg.by-me .kpi-chat-time {
+  color: rgba(255,255,255,0.7);
+}
+
+.kpi-chat-edited {
+  color: var(--text-2); font-size: 10px; font-style: italic;
+}
+
+.kpi-chat-msg.by-me .kpi-chat-edited {
+  color: rgba(255,255,255,0.7);
+}
+
+.kpi-chat-msg-text {
+  margin: 0; color: var(--text); line-height: 1.5;
   word-wrap: break-word; white-space: pre-wrap;
 }
 
-.kpi-comment-actions {
+.kpi-chat-msg.by-me .kpi-chat-msg-text {
+  color: white;
+}
+
+.kpi-chat-actions {
   display: flex; gap: 8px; margin-top: 8px;
 }
 
-.kpi-action-btn {
-  background: none; border: none; color: var(--text-2);
-  font-size: 12px; cursor: pointer; padding: 0; text-decoration: underline;
+.kpi-chat-action {
+  background: none; border: none; font-size: 11px; cursor: pointer;
+  padding: 0; color: var(--text-2); text-decoration: none;
 }
 
-.kpi-action-btn:hover {
+.kpi-chat-msg.by-me .kpi-chat-action {
+  color: rgba(255,255,255,0.8);
+}
+
+.kpi-chat-action:hover {
   color: var(--text);
+}
+
+.kpi-chat-msg.by-me .kpi-chat-action:hover {
+  color: white;
+}
+
+.kpi-chat-input-section {
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--chip); padding: 12px; border-radius: var(--radius);
+}
+
+.kpi-chat-input {
+  width: 100%; padding: 10px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--text);
+  font-family: inherit; resize: vertical; min-height: 60px;
+}
+
+.kpi-chat-input:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.kpi-chat-input-actions {
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+.kpi-chat-hint {
+  font-size: 11px; color: var(--text-2);
 }
 
 .kpi-chat-box {
