@@ -110,8 +110,8 @@
                 <!-- Discussion chat section -->
                 <div v-if="mySub(a.id)?.status === 'discussionRequested' || mySub(a.id)?.status === 'resubmitted'" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
                   <h4 style="margin: 0 0 12px; font-size: 14px;">💬 Discussion Chat</h4>
-                  <div class="kpi-discussion-chat" v-if="getEmployeeDiscussionThread(a.id)">
-                    <div v-for="comment in getEmployeeDiscussionThread(a.id).thread" :key="comment.id" class="kpi-comment" v-if="!comment.deleted">
+                  <div class="kpi-discussion-chat" v-if="getEmployeeDiscussionThread(a.id)?.thread && getEmployeeDiscussionThread(a.id).thread.length > 0">
+                    <div v-for="comment in getEmployeeDiscussionThread(a.id).thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-comment">
                       <div class="kpi-comment-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
                         {{ initialOf(comment.by) }}
                       </div>
@@ -333,10 +333,10 @@
             </div>
             <p class="kpi-muted" style="margin: 8px 0; font-size: 13px;">{{ reviewing.submission.selfComments || '(no comments)' }}</p>
 
-            <div v-if="discussionThread" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+            <div v-if="discussionThread && discussionThread.thread && discussionThread.thread.length > 0" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
               <h3 style="margin: 0 0 16px; font-size: 14px;">💬 Discussion Chat</h3>
               <div class="kpi-discussion-chat">
-                <div v-for="comment in discussionThread.thread" :key="comment.id" class="kpi-comment" v-if="!comment.deleted">
+                <div v-for="comment in discussionThread.thread.filter(c => !c.deleted)" :key="comment.id" class="kpi-comment">
                   <div class="kpi-comment-avatar" :style="{ backgroundColor: roleColor(comment.role) }">
                     {{ initialOf(comment.by) }}
                   </div>
