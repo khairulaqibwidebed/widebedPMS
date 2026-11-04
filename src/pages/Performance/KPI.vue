@@ -107,9 +107,8 @@
                   </div>
                 </div>
 
-
-                <!-- For done/approved status -->
-                <p v-else class="kpi-muted" style="font-size:13px; margin-top: 12px;" v-if="mySub(a.id)?.directorComments || mySub(a.id)?.reviewerComments">
+                <!-- Supervisor comment -->
+                <p v-if="mySub(a.id)?.directorComments || mySub(a.id)?.reviewerComments" class="kpi-muted" style="font-size:13px; margin-top: 12px;">
                   <b>Supervisor comment:</b> {{ mySub(a.id)?.directorComments || mySub(a.id)?.reviewerComments }}
                 </p>
               </div>
