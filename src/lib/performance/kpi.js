@@ -273,5 +273,4 @@ export const listDiscussions = async quarterId => {
   return allDocs.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.employeeId === s.user.uid || d.directorId === s.user.uid);
 }
 
-export const listDiscussions = async quarterId => rows(await getDocs(query(collection(db, 'performanceDiscussions'), where('quarterId', '==', quarterId))));
 // (kpiScoreFor, totalWeightage, suggestDeadlineRating, DEFAULT_DEADLINE_THRESHOLDS live in ./calc.js — pure, unit-tested.)
