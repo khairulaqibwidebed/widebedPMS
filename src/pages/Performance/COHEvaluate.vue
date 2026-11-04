@@ -369,17 +369,19 @@ async function openEvaluatee(p) {
   error.value = '';
   activeEvaluatee.value = p;
   currentIndex.value = 0;
-  questions.value = await listQuestions(quarter.value.id);
-  const existing = await getEvaluation(quarter.value.id, session.user.uid, p.employeeId);
-  readOnly.value = !!existing;
-  if (existing) {
-    // Submitted already: show exactly what was sent, never a silent default. (Fixes a pre-existing bug where
-    // every question defaulted to a rating of 3 instead of being genuinely unanswered until chosen.)
-    scores.value = questions.value.map(q => existing.ratings.find(r => r.questionId === q.id)?.score ?? null);
-  } else {
-    const draft = loadDraft(p.employeeId);
-    scores.value = questions.value.map((q, i) => draft?.scores?.[i] ?? null);
-  }
+  try {
+    questions.value = await listQuestions(quarter.value.id);
+    const existing = await getEvaluation(quarter.value.id, session.user.uid, p.employeeId);
+    readOnly.value = !!existing;
+    if (existing) {
+      // Submitted already: show exactly what was sent, never a silent default. (Fixes a pre-existing bug where
+      // every question defaulted to a rating of 3 instead of being genuinely unanswered until chosen.)
+      scores.value = questions.value.map(q => existing.ratings.find(r => r.questionId === q.id)?.score ?? null);
+    } else {
+      const draft = loadDraft(p.employeeId);
+      scores.value = questions.value.map((q, i) => draft?.scores?.[i] ?? null);
+    }
+  } catch (e) { error.value = e.message; activeEvaluatee.value = null; }
 }
 
 function selectScore(i, n) {

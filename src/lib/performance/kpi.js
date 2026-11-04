@@ -1,25 +1,28 @@
-// lib/performance/kpi.js — per-employee KPI assignments, self-assessment, HR/Director review and discussions.
+// lib/performance/kpi.js — per-employee KPI assignments, self-assessment, director review and discussions.
 //
 // kpiAssignments/{id}   { quarterId, employeeId, employeeName, title, description, target, weightage, deadline,
-//                         completionCriteria, status: 'draft'|'active'|'archived', createdBy, createdByName, createdAt }
+//                         completionCriteria, scoringRules: {earlyDays,earlyRating,onTimeRating,overdueRating}|null,
+//                         status: 'draft'|'active'|'archived', createdBy, createdByName, createdAt }
 // kpiSubmissions/{assignmentId}   (1:1 with its assignment — same id, so there's only ever one submission to find)
-//                       { assignmentId, employeeId, selfRating, selfComments, evidence: [{type,url}], completionTimestamp,
+//                       { assignmentId, employeeId, selfRating, selfComments, completionTimestamp,
+//                         directorRating, directorComments, directorId, ratedAt,
 //                         originalRating, revisedRating, finalApprovedRating, reviewerId, reviewerComments, reviewReason,
-//                         discussionStatus: 'none'|'requested'|'scheduled'|'resolved',
-//                         status: 'notStarted'|'inProgress'|'submitted'|'underReview'|'revisionRequested'|'approved'|'rejected',
+//                         discussionStatus: 'none'|'requested'|'replied'|'resolved',
+//                         status: 'notStarted'|'submitted'|'pendingReview'|'discussionRequested'|'resubmitted'|'done',
 //                         submittedAt, reviewedAt, history: [{ at, byUid, byName, fromStatus, toStatus, rating, reason }] }
+// kpiDiscussions/{submissionId}   { submissionId, assignmentId, employeeId, directorId, quarterId,
+//                                   thread: [{ by, byUid, byName, message, at, role: 'director'|'employee' }],
+//                                   status: 'active'|'resolved', createdAt, resolvedAt }
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { notifyUser, notifyRole } from '@/services/notificationService.js';
 
 async function notifyReviewers(title, message, link, refId) {
-  for (const role of ['hr', 'director']) {
-    try { await notifyRole({ recipientRole: role, title, message, type: 'kpi', link, refId }); } catch (e) { console.warn('notify', e); }
-  }
+  try { await notifyRole({ recipientRole: 'director', title, message, type: 'kpi', link, refId }); } catch (e) { console.warn('notify', e); }
 }
 
-export { totalWeightage, suggestDeadlineRating, DEFAULT_DEADLINE_THRESHOLDS, kpiScoreFor } from './calc.js';
+export { totalWeightage, suggestDeadlineRating, DEFAULT_DEADLINE_THRESHOLDS, customThresholds, kpiScoreFor } from './calc.js';
 import { suggestDeadlineRating } from './calc.js';
 
 const me = () => useSession();
@@ -46,6 +49,9 @@ export async function createAssignment(data) {
     quarterId: data.quarterId, employeeId: data.employeeId, employeeName: data.employeeName,
     title: data.title, description: data.description || '', target: data.target || '',
     weightage: Number(data.weightage), deadline: data.deadline || '', completionCriteria: data.completionCriteria || '',
+    // Optional per-task early/on-time/overdue override (calc.js::customThresholds shape); null means "use the
+    // app-wide DEFAULT_DEADLINE_THRESHOLDS", same as before this field existed.
+    scoringRules: data.scoringRules || null,
     status: 'active', createdBy: s.user.uid, createdByName: s.name, createdAt: serverTimestamp()
   });
   audit('performance.kpi.assignment.create', `kpiAssignments/${ref.id}`, `${data.employeeName}: ${data.title}`);
@@ -71,66 +77,479 @@ function historyEntry(fromStatus, toStatus, rating, reason) {
   return { at: Date.now(), byUid: s.user.uid, byName: s.name, fromStatus, toStatus, rating: rating ?? null, reason: reason || '' };
 }
 
-export async function submitSelfAssessment(assignment, { selfRating, selfComments, evidence, completionTimestamp }) {
+export async function submitSelfAssessment(assignment, { selfRating, selfComments, completionTimestamp }) {
   const s = me();
   const prior = await getSubmission(assignment.id);
   const history = [...(prior?.history || []), historyEntry(prior?.status || 'notStarted', 'submitted', selfRating)];
   await setDoc(doc(db, 'kpiSubmissions', assignment.id), {
     assignmentId: assignment.id, employeeId: assignment.employeeId,
-    selfRating: Number(selfRating), selfComments: selfComments || '', evidence: evidence || [],
+    selfRating: Number(selfRating), selfComments: selfComments || '',
     completionTimestamp: completionTimestamp || null,
+    directorRating: null, directorComments: '', directorId: null, ratedAt: null,
     originalRating: prior?.originalRating ?? Number(selfRating), revisedRating: prior?.revisedRating ?? null,
     finalApprovedRating: null, reviewerId: null, reviewerComments: '', reviewReason: '',
-    discussionStatus: prior?.discussionStatus || 'none', status: 'submitted',
+    discussionStatus: 'none', status: 'submitted',
     submittedAt: serverTimestamp(), reviewedAt: null, history
   }, { merge: true });
   audit('performance.kpi.submission.submit', `kpiSubmissions/${assignment.id}`, `${assignment.title}: self-rated ${selfRating}`);
   await notifyReviewers('KPI submission received', `${s.name} submitted "${assignment.title}" (self-rated ${selfRating}/5).`, '/Performance/kpi', assignment.id);
 }
 
-// HR/Director review. decision: 'accept' keeps the self-rating as final; 'revise' records a different final rating
-// and keeps the original self-rating untouched in originalRating; 'reject' / 'requestEvidence' leave finalApprovedRating null.
-export async function reviewSubmission(assignmentId, { decision, rating, reviewerComments, reviewReason }) {
+// Director review: provide rating and comments, then decide action.
+export async function provideDirectorReview(assignmentId, { directorRating, directorComments }) {
   const s = me();
   const prior = await getSubmission(assignmentId);
   if (!prior) throw new Error('No self-assessment submitted yet.');
-  const statusMap = { accept: 'approved', revise: 'approved', reject: 'rejected', requestEvidence: 'revisionRequested' };
-  const toStatus = statusMap[decision];
-  const finalApprovedRating = decision === 'accept' ? prior.selfRating : decision === 'revise' ? Number(rating) : null;
-  const history = [...(prior.history || []), historyEntry(prior.status, toStatus, finalApprovedRating, reviewReason)];
+  if (prior.status !== 'submitted') throw new Error('KPI must be in submitted state to review.');
+
   await updateDoc(doc(db, 'kpiSubmissions', assignmentId), {
-    status: toStatus, revisedRating: decision === 'revise' ? Number(rating) : prior.revisedRating,
-    finalApprovedRating, reviewerId: s.user.uid, reviewerComments: reviewerComments || '', reviewReason: reviewReason || '',
-    reviewedAt: serverTimestamp(), history
+    directorRating: Number(directorRating), directorComments: directorComments || '',
+    directorId: s.user.uid, ratedAt: serverTimestamp()
   });
-  audit('performance.kpi.submission.review', `kpiSubmissions/${assignmentId}`, `${decision}${rating != null ? ' -> ' + rating : ''}`);
+  audit('performance.kpi.director.rated', `kpiSubmissions/${assignmentId}`, `rated ${directorRating}`);
+}
+
+// Director sends back KPI for discussion without final approval.
+export async function sendBackForDiscussion(assignmentId, { directorRating, directorComments }, quarterTitle) {
+  const s = me();
+  const prior = await getSubmission(assignmentId);
+  if (!prior) throw new Error('No self-assessment submitted yet.');
+
+  const newStatus = 'discussionRequested';
+  const history = [...(prior.history || []), historyEntry(prior.status, newStatus, null, 'Sent back for discussion')];
+
+  await updateDoc(doc(db, 'kpiSubmissions', assignmentId), {
+    status: newStatus, directorRating: Number(directorRating), directorComments: directorComments || '',
+    directorId: s.user.uid, ratedAt: serverTimestamp(), discussionStatus: 'requested', history
+  });
+
+  // Initialize conversation
+  await initializeConversation(assignmentId, directorRating, directorComments, quarterTitle);
+
   const assignment = await one(doc(db, 'kpiAssignments', assignmentId));
-  const verb = decision === 'revise' ? 'KPI rating changed' : decision === 'reject' ? 'KPI submission rejected' : decision === 'requestEvidence' ? 'Additional evidence requested' : 'KPI review completed';
-  try { await notifyUser({ recipientUid: prior.employeeId, title: verb, message: `"${assignment?.title || 'Your KPI'}": ${reviewerComments || reviewReason || verb}.`, type: 'kpi', link: '/Performance/kpi', refId: assignmentId }); }
-  catch (e) { console.warn('notify', e); }
+  audit('performance.kpi.director.sendBack', `kpiSubmissions/${assignmentId}`, `sent back for discussion`);
+  try {
+    await notifyUser({
+      recipientUid: prior.employeeId,
+      title: 'KPI review - Discussion requested',
+      message: `Your KPI "${assignment?.title}" has been reviewed. Your supervisor would like to discuss: ${directorComments.slice(0, 50)}...`,
+      type: 'kpi',
+      link: '/Performance/kpi',
+      refId: assignmentId
+    });
+  } catch (e) { console.warn('notify', e); }
 }
 
-export async function requestDiscussion(quarterId, assignmentId, reason) {
+// Director approves final rating.
+export async function approveKpiRating(assignmentId, { directorRating, directorComments }) {
   const s = me();
-  await updateDoc(doc(db, 'kpiSubmissions', assignmentId), { discussionStatus: 'requested' });
-  const ref = await addDoc(collection(db, 'performanceDiscussions'), {
-    quarterId, employeeId: s.user.uid, kpiAssignmentId: assignmentId, requestReason: reason,
-    status: 'requested', assignedReviewer: null, scheduledAt: null, outcome: '', resolutionComments: '',
-    createdAt: serverTimestamp(), resolvedAt: null
+  const prior = await getSubmission(assignmentId);
+  if (!prior) throw new Error('No self-assessment submitted yet.');
+
+  const finalRating = Number(directorRating);
+  const history = [...(prior.history || []), historyEntry(prior.status, 'done', finalRating, 'Final approval')];
+
+  await updateDoc(doc(db, 'kpiSubmissions', assignmentId), {
+    status: 'done', finalApprovedRating: finalRating, reviewerId: s.user.uid,
+    directorRating: finalRating, directorComments: directorComments || '',
+    directorId: s.user.uid, ratedAt: serverTimestamp(), discussionStatus: 'resolved',
+    reviewerComments: directorComments || '', reviewedAt: serverTimestamp(), history
   });
-  audit('performance.kpi.discussion.request', `performanceDiscussions/${ref.id}`, reason);
-  await notifyReviewers('Discussion request received', `${s.name} would like to discuss a KPI rating: ${reason}`, '/Performance/kpi', ref.id);
-  return ref.id;
+
+  // Add system message about approval
+  const conv = await getConversation(assignmentId);
+  if (conv) {
+    await addSystemMessage(assignmentId, 'rating_approved', {
+      message: `This KPI has been approved with a final rating of ${finalRating}/5. ${directorComments}`,
+      rating: finalRating,
+      action: 'approved'
+    });
+  }
+
+  const assignment = await one(doc(db, 'kpiAssignments', assignmentId));
+  audit('performance.kpi.director.approved', `kpiSubmissions/${assignmentId}`, `final approval: ${finalRating}`);
+  try {
+    await notifyUser({
+      recipientUid: prior.employeeId,
+      title: 'KPI final rating approved',
+      message: `Your KPI "${assignment?.title}" has been finalized with a rating of ${finalRating}/5.`,
+      type: 'kpi',
+      link: '/Performance/kpi',
+      refId: assignmentId
+    });
+  } catch (e) { console.warn('notify', e); }
 }
 
-export async function resolveDiscussion(discussionId, assignmentId, employeeId, { outcome, resolutionComments }) {
+// Director re-rates before final approval.
+export async function rerateKpi(assignmentId, newRating) {
   const s = me();
-  await updateDoc(doc(db, 'performanceDiscussions', discussionId), { status: 'resolved', outcome, resolutionComments, resolvedAt: serverTimestamp() });
-  await updateDoc(doc(db, 'kpiSubmissions', assignmentId), { discussionStatus: 'resolved' });
-  audit('performance.kpi.discussion.resolve', `performanceDiscussions/${discussionId}`, outcome);
-  try { await notifyUser({ recipientUid: employeeId, title: 'Discussion resolved', message: resolutionComments || outcome || 'Your discussion request has been resolved.', type: 'kpi', link: '/Performance/kpi', refId: assignmentId }); }
-  catch (e) { console.warn('notify', e); }
+  const prior = await getSubmission(assignmentId);
+  if (!prior) throw new Error('No submission found.');
+
+  await updateDoc(doc(db, 'kpiSubmissions', assignmentId), {
+    directorRating: Number(newRating), ratedAt: serverTimestamp()
+  });
+  audit('performance.kpi.director.rerate', `kpiSubmissions/${assignmentId}`, `re-rated to ${newRating}`);
 }
 
-export const listDiscussions = async quarterId => rows(await getDocs(query(collection(db, 'performanceDiscussions'), where('quarterId', '==', quarterId))));
+// Director reopens a done KPI and sends back for discussion (allows re-rating after approval).
+export async function reopenAndSendBack(assignmentId, { directorRating, directorComments }, quarterTitle) {
+  const s = me();
+  const prior = await getSubmission(assignmentId);
+  if (!prior) throw new Error('No submission found.');
+  if (prior.status !== 'done') throw new Error('Can only reopen KPIs with Done status.');
+
+  const history = [...(prior.history || []), historyEntry(prior.status, 'discussionRequested', Number(directorRating), 'Reopened for discussion')];
+
+  await updateDoc(doc(db, 'kpiSubmissions', assignmentId), {
+    status: 'discussionRequested',
+    directorRating: Number(directorRating),
+    directorComments: directorComments || '',
+    directorId: s.user.uid,
+    ratedAt: serverTimestamp(),
+    discussionStatus: 'requested',
+    history
+  });
+
+  // Add system message to conversation or initialize if needed
+  const conv = await getConversation(assignmentId);
+  if (conv) {
+    await addSystemMessage(assignmentId, 'reopened', {
+      message: `This KPI was reopened for further discussion. New proposed rating: ${directorRating}/5. ${directorComments}`,
+      rating: Number(directorRating),
+      action: 'reopened'
+    });
+  } else {
+    await initializeConversation(assignmentId, directorRating, directorComments, quarterTitle);
+  }
+
+  const assignment = await one(doc(db, 'kpiAssignments', assignmentId));
+  audit('performance.kpi.director.reopenAndSendBack', `kpiSubmissions/${assignmentId}`, `reopened and sent back with new rating ${directorRating}`);
+
+  try {
+    await notifyUser({
+      recipientUid: prior.employeeId,
+      title: 'KPI reopened for discussion',
+      message: `Your approved KPI "${assignment?.title}" has been reopened by your supervisor for further discussion. New rating: ${directorRating}/5.`,
+      type: 'kpi',
+      link: '/Performance/kpi',
+      refId: assignmentId
+    });
+  } catch (e) { console.warn('notify', e); }
+}
+
+// Employee replies to director's discussion request.
+export async function postDiscussionReply(submissionId, message) {
+  const s = me();
+  const sub = await getSubmission(submissionId);
+  if (!sub) throw new Error('Submission not found.');
+  if (sub.status !== 'discussionRequested' && sub.status !== 'resubmitted') throw new Error('Not in discussion state.');
+
+  let discussionDoc = await getDoc(doc(db, 'kpiDiscussions', submissionId));
+  const thread = discussionDoc.exists() ? (discussionDoc.data().thread || []) : [];
+
+  const commentId = `${s.user.uid}_${Date.now()}`;
+  thread.push({
+    id: commentId, by: s.name, byUid: s.user.uid, message, at: Date.now(), role: 'employee',
+    edited: null, deleted: false
+  });
+
+  if (!discussionDoc.exists()) {
+    const sub = await getSubmission(submissionId);
+    await setDoc(doc(db, 'kpiDiscussions', submissionId), {
+      submissionId, assignmentId: sub.assignmentId, employeeId: sub.employeeId,
+      directorId: sub.directorId, quarterId: '', thread,
+      status: 'active', createdAt: serverTimestamp(), resolvedAt: null
+    });
+  } else {
+    await updateDoc(doc(db, 'kpiDiscussions', submissionId), { thread });
+  }
+
+  await updateDoc(doc(db, 'kpiSubmissions', submissionId), { discussionStatus: 'replied' });
+
+  audit('performance.kpi.discussion.reply', `kpiDiscussions/${submissionId}`, 'employee replied');
+  const assignment = await one(doc(db, 'kpiAssignments', submissionId));
+  try {
+    await notifyUser({
+      recipientUid: sub.directorId,
+      title: 'KPI discussion - Employee replied',
+      message: `${s.name} replied to the discussion on "${assignment?.title}": ${message.slice(0, 50)}...`,
+      type: 'kpi',
+      link: '/Performance/kpi',
+      refId: submissionId
+    });
+  } catch (e) { console.warn('notify', e); }
+}
+
+// Edit a discussion comment.
+export async function editDiscussionComment(submissionId, commentId, newMessage) {
+  const s = me();
+  const discussionDoc = await getDoc(doc(db, 'kpiDiscussions', submissionId));
+  if (!discussionDoc.exists()) throw new Error('Discussion not found.');
+
+  const thread = discussionDoc.data().thread || [];
+  const comment = thread.find(c => c.id === commentId);
+  if (!comment) throw new Error('Comment not found.');
+  if (comment.byUid !== s.user.uid) throw new Error('Can only edit your own comments.');
+
+  comment.message = newMessage;
+  comment.edited = Date.now();
+
+  await updateDoc(doc(db, 'kpiDiscussions', submissionId), { thread });
+  audit('performance.kpi.discussion.edit', `kpiDiscussions/${submissionId}`, `edited comment ${commentId}`);
+}
+
+// Delete a discussion comment.
+export async function deleteDiscussionComment(submissionId, commentId) {
+  const s = me();
+  const discussionDoc = await getDoc(doc(db, 'kpiDiscussions', submissionId));
+  if (!discussionDoc.exists()) throw new Error('Discussion not found.');
+
+  const thread = discussionDoc.data().thread || [];
+  const comment = thread.find(c => c.id === commentId);
+  if (!comment) throw new Error('Comment not found.');
+  if (comment.byUid !== s.user.uid) throw new Error('Can only delete your own comments.');
+
+  comment.deleted = true;
+  comment.message = '';
+
+  await updateDoc(doc(db, 'kpiDiscussions', submissionId), { thread });
+  audit('performance.kpi.discussion.delete', `kpiDiscussions/${submissionId}`, `deleted comment ${commentId}`);
+}
+
+// Director replies to ongoing discussion.
+export async function postDirectorReply(submissionId, message) {
+  const s = me();
+  const sub = await getSubmission(submissionId);
+  if (!sub) throw new Error('Submission not found.');
+
+  let discussionDoc = await getDoc(doc(db, 'kpiDiscussions', submissionId));
+  const thread = discussionDoc.exists() ? (discussionDoc.data().thread || []) : [];
+
+  thread.push({
+    by: s.name, byUid: s.user.uid, message, at: Date.now(), role: 'director'
+  });
+
+  if (!discussionDoc.exists()) {
+    await setDoc(doc(db, 'kpiDiscussions', submissionId), {
+      submissionId, assignmentId: sub.assignmentId, employeeId: sub.employeeId,
+      directorId: s.user.uid, quarterId: '', thread,
+      status: 'active', createdAt: serverTimestamp(), resolvedAt: null
+    });
+  } else {
+    await updateDoc(doc(db, 'kpiDiscussions', submissionId), { thread });
+  }
+
+  audit('performance.kpi.discussion.directorReply', `kpiDiscussions/${submissionId}`, 'director replied');
+  const assignment = await one(doc(db, 'kpiAssignments', submissionId));
+  try {
+    await notifyUser({
+      recipientUid: sub.employeeId,
+      title: 'KPI discussion - Supervisor replied',
+      message: `Your supervisor replied to the discussion on "${assignment?.title}": ${message.slice(0, 50)}...`,
+      type: 'kpi',
+      link: '/Performance/kpi',
+      refId: submissionId
+    });
+  } catch (e) { console.warn('notify', e); }
+}
+
+// Get or create discussion thread for a submission.
+export const getDiscussionThread = async submissionId => {
+  const doc_ref = doc(db, 'kpiDiscussions', submissionId);
+  const d = await getDoc(doc_ref);
+  return d.exists() ? { id: d.id, ...d.data() } : null;
+}
+
+// List all discussions for a quarter.
+export const listDiscussions = async quarterId => {
+  // For now, we'll query all discussions and filter by employee or director
+  const s = me();
+  const allDocs = await getDocs(collection(db, 'kpiDiscussions'));
+  return allDocs.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.employeeId === s.user.uid || d.directorId === s.user.uid);
+}
+
+// Map old status values to new ones for data migration
+function migrateStatus(oldStatus) {
+  const map = {
+    'notStarted': 'notStarted',
+    'inProgress': 'submitted',
+    'submitted': 'submitted',
+    'underReview': 'pendingReview',
+    'revisionRequested': 'discussionRequested',
+    'approved': 'done',
+    'rejected': 'done',
+    'pendingReview': 'pendingReview',
+    'discussionRequested': 'discussionRequested',
+    'resubmitted': 'resubmitted',
+    'done': 'done'
+  };
+  return map[oldStatus] || 'notStarted';
+}
+
+export async function migrateKpiStatuses(quarterId) {
+  const all = await listAllAssignments(quarterId);
+  let migrated = 0;
+
+  for (const assignment of all) {
+    const sub = await getSubmission(assignment.id);
+    if (sub && sub.status !== migrateStatus(sub.status)) {
+      const newStatus = migrateStatus(sub.status);
+      console.log(`Migrating ${assignment.id}: ${sub.status} → ${newStatus}`);
+      await updateDoc(doc(db, 'kpiSubmissions', assignment.id), { status: newStatus });
+      migrated++;
+    }
+  }
+  console.log(`Migration complete: ${migrated} submissions updated`);
+  return migrated;
+}
+
+// ===== KPI Discussion Conversations =====
+// Store full conversation history for each KPI discussion
+// Each conversation linked to assignment, employee, director, quarter
+
+export async function getConversation(assignmentId) {
+  const conv = await getDoc(doc(db, 'kpiConversations', assignmentId));
+  return conv.exists() ? { id: conv.id, ...conv.data() } : null;
+}
+
+export async function initializeConversation(assignmentId, directorRating, directorComments, quarterTitle) {
+  const s = me();
+  const sub = await getSubmission(assignmentId);
+  const assign = await one(doc(db, 'kpiAssignments', assignmentId));
+
+  if (!sub || !assign) throw new Error('Assignment or submission not found.');
+
+  const systemMessage = {
+    id: `system_${Date.now()}`,
+    type: 'rating_proposed',
+    by: s.name,
+    byUid: s.user.uid,
+    role: 'director',
+    at: Date.now(),
+    directorRating: Number(directorRating),
+    employeeSelfRating: sub.selfRating,
+    message: directorComments || 'Please review the proposed rating.',
+    deleted: false
+  };
+
+  const convData = {
+    assignmentId, employeeId: sub.employeeId, directorId: s.user.uid,
+    kpiTitle: assign.title, quarterTitle: quarterTitle || '',
+    messages: [systemMessage],
+    status: 'active', currentRating: Number(directorRating),
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    unreadBy: [sub.employeeId]
+  };
+
+  await setDoc(doc(db, 'kpiConversations', assignmentId), convData);
+  audit('performance.kpi.conversation.init', `kpiConversations/${assignmentId}`, `rating ${directorRating}`);
+}
+
+export async function addChatMessage(assignmentId, message) {
+  const s = me();
+  const conv = await getConversation(assignmentId);
+  if (!conv) throw new Error('Conversation not found.');
+
+  const newMsg = {
+    id: `msg_${s.user.uid}_${Date.now()}`,
+    type: 'message',
+    by: s.name,
+    byUid: s.user.uid,
+    role: s.role === 'director' ? 'director' : 'employee',
+    at: Date.now(),
+    message: message || '',
+    deleted: false,
+    edited: null
+  };
+
+  const messages = conv.messages || [];
+  messages.push(newMsg);
+
+  const otherUid = s.role === 'director' ? conv.employeeId : conv.directorId;
+  const unreadBy = conv.unreadBy || [];
+  if (!unreadBy.includes(otherUid)) unreadBy.push(otherUid);
+
+  await updateDoc(doc(db, 'kpiConversations', assignmentId), {
+    messages,
+    unreadBy,
+    updatedAt: serverTimestamp()
+  });
+
+  audit('performance.kpi.message.add', `kpiConversations/${assignmentId}`, 'message');
+}
+
+export async function editChatMessage(assignmentId, messageId, newText) {
+  const s = me();
+  const conv = await getConversation(assignmentId);
+  if (!conv) throw new Error('Conversation not found.');
+
+  const messages = conv.messages || [];
+  const msg = messages.find(m => m.id === messageId);
+  if (!msg) throw new Error('Message not found.');
+  if (msg.byUid !== s.user.uid) throw new Error('Can only edit your own messages.');
+
+  msg.message = newText;
+  msg.edited = Date.now();
+
+  await updateDoc(doc(db, 'kpiConversations', assignmentId), { messages });
+  audit('performance.kpi.message.edit', `kpiConversations/${assignmentId}`, messageId);
+}
+
+export async function deleteChatMessage(assignmentId, messageId) {
+  const s = me();
+  const conv = await getConversation(assignmentId);
+  if (!conv) throw new Error('Conversation not found.');
+
+  const messages = conv.messages || [];
+  const msg = messages.find(m => m.id === messageId);
+  if (!msg) throw new Error('Message not found.');
+  if (msg.byUid !== s.user.uid) throw new Error('Can only delete your own messages.');
+
+  msg.deleted = true;
+  msg.message = '';
+
+  await updateDoc(doc(db, 'kpiConversations', assignmentId), { messages });
+  audit('performance.kpi.message.delete', `kpiConversations/${assignmentId}`, messageId);
+}
+
+export async function addSystemMessage(assignmentId, type, details) {
+  const s = me();
+  const conv = await getConversation(assignmentId);
+  if (!conv) throw new Error('Conversation not found.');
+
+  const systemMsg = {
+    id: `system_${Date.now()}`,
+    type,
+    by: s.name,
+    byUid: s.user.uid,
+    role: s.role === 'director' ? 'director' : 'employee',
+    at: Date.now(),
+    message: details.message || '',
+    rating: details.rating || null,
+    action: details.action || null,
+    deleted: false
+  };
+
+  const messages = conv.messages || [];
+  messages.push(systemMsg);
+
+  const updateData = { messages, updatedAt: serverTimestamp() };
+  if (type === 'rating_changed' || type === 'rating_approved') {
+    updateData.currentRating = details.rating;
+    updateData.status = type === 'rating_approved' ? 'resolved' : 'active';
+  }
+
+  await updateDoc(doc(db, 'kpiConversations', assignmentId), updateData);
+  audit(`performance.kpi.conversation.${type}`, `kpiConversations/${assignmentId}`, details.message);
+}
+
+export async function markConversationAsRead(assignmentId, userId) {
+  const conv = await getConversation(assignmentId);
+  if (!conv) return;
+
+  const unreadBy = (conv.unreadBy || []).filter(uid => uid !== userId);
+  await updateDoc(doc(db, 'kpiConversations', assignmentId), { unreadBy });
+}
+
 // (kpiScoreFor, totalWeightage, suggestDeadlineRating, DEFAULT_DEADLINE_THRESHOLDS live in ./calc.js — pure, unit-tested.)

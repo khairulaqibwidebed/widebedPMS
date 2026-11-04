@@ -34,7 +34,7 @@
                 <div style="display:flex; gap:6px; flex-wrap:wrap;" @click.stop>
                   <button class="act-pill" @click="openDetails(q)">Details</button>
                   <button class="act-pill" @click="openParticipants(q)">Participants</button>
-                  <button class="act-pill danger" v-if="canEdit" @click="remove(q)">Delete</button>
+                  <button class="act-pill danger" v-if="canEdit" @click="deleting = q">Delete</button>
                 </div>
               </td>
             </tr>
@@ -92,6 +92,18 @@
         <div class="modal-foot">
           <button class="btn" @click="partsFor = null">Cancel</button>
           <button class="btn btn-primary" :disabled="saving" @click="saveParticipants">Save participants</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm delete (in-page: the browser's own confirm() pop-up is blocked in this app) -->
+    <div class="modal-back" v-if="deleting" @click.self="deleting = null">
+      <div class="modal" style="max-width: 460px;">
+        <h2 style="margin-top:0;">Delete "{{ deleting.name }}"?</h2>
+        <p class="muted" v-if="deleting.status !== 'draft'">It's {{ statusLabel(deleting.status).toLowerCase() }} — its participants, evaluations and results stay in Firestore, but you won't be able to reach them from this page anymore.</p>
+        <div class="modal-foot">
+          <button class="btn" @click="deleting = null">Cancel</button>
+          <button class="btn btn-primary" :disabled="saving" @click="remove(deleting)">Delete quarter</button>
         </div>
       </div>
     </div>
@@ -158,6 +170,7 @@ const STATUS_HELP = {
 const statusLabel = s => STATUS_LABELS[s] || s;
 const pillClass = s => ({ draft: 'grey', upcoming: 'blue', active: 'blue', evaluation: 'amber', pendingApproval: 'amber', finalized: 'green', archived: 'grey' }[s] || 'grey');
 const showStatusHelp = ref(false);
+const deleting = ref(null);
 const countFor = id => participantCounts[id] ?? '—';
 
 async function load() {
@@ -200,10 +213,9 @@ async function changeStatus(q, newStatus) {
 }
 
 async function remove(q) {
-  const extra = q.status === 'draft' ? '' : ` It's ${statusLabel(q.status).toLowerCase()} — its participants, evaluations and results stay in Firestore, but you won't be able to reach them from this page anymore.`;
-  if (!window.confirm(`Delete "${q.name}"?${extra}`)) return;
   saving.value = true; error.value = '';
-  try { await deleteQuarter(q.id); okMsg.value = 'Quarter deleted.'; await load(); } catch (e) { error.value = e.message; } finally { saving.value = false; }
+  try { await deleteQuarter(q.id); okMsg.value = 'Quarter deleted.'; deleting.value = null; await load(); }
+  catch (e) { error.value = e.message; deleting.value = null; } finally { saving.value = false; }
 }
 
 async function openParticipants(q) {

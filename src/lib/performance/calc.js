@@ -43,6 +43,18 @@ export function suggestDeadlineRating(deadline, completionTimestamp, thresholds 
   return thresholds[thresholds.length - 1]?.rating ?? 1;
 }
 
+// A Director may configure a simpler 3-tier early/on-time/overdue rule per KPI task instead of the 5-tier
+// DEFAULT_DEADLINE_THRESHOLDS above (that default is untouched and still applies whenever a task has no
+// override). Converts to the same { minDaysEarly, rating } shape suggestDeadlineRating already understands,
+// so nothing about the scoring function itself changes — only which thresholds get passed in.
+export function customThresholds({ earlyDays = 3, earlyRating = 5, onTimeRating = 3, overdueRating = 1 } = {}) {
+  return [
+    { minDaysEarly: Math.max(1, Number(earlyDays) || 1), rating: Number(earlyRating) },
+    { minDaysEarly: 0, rating: Number(onTimeRating) },
+    { minDaysEarly: -Infinity, rating: Number(overdueRating) }
+  ];
+}
+
 export function totalWeightage(assignments) { return assignments.reduce((s, a) => s + Number(a.weightage || 0), 0); }
 
 // Phase 4.6 — KPI: weighted average of only the KPIs with a final approved rating, scaled to kpiWeight.

@@ -44,10 +44,37 @@
         <li>{{ pendingCount }} of {{ results.length }} participant(s) have an incomplete component.</li>
         <li>Quarter status: {{ quarter?.status }}.</li>
       </ul>
-      <button class="btn btn-primary" v-if="quarter?.status !== 'finalized'" :disabled="busy || !canFinalize" @click="finalize">Finalize quarter</button>
-      <button class="btn" v-else :disabled="busy" @click="requestCorrectionNow">Request correction</button>
+      <button class="btn btn-primary" v-if="quarter?.status !== 'finalized'" :disabled="busy || !canFinalize" @click="dialog = 'finalize'">Finalize quarter</button>
+      <button class="btn" v-else :disabled="busy" @click="correctionReason = ''; dialog = 'correction'">Request correction</button>
       <p class="note" v-if="quarter?.status === 'finalized'">This quarter is finalized and locked. Requesting a correction snapshots every current result into its revision history, then reopens the quarter so you can fix the underlying COH/KPI/TMS data and re-finalize.</p>
       <p class="note" v-else-if="!canFinalize">Finalize is disabled until every participant's COH, KPI and TMS components are ready.</p>
+    </div>
+
+    <!-- Confirm finalize (in-page: the browser's own confirm() pop-up is blocked in this app) -->
+    <div class="modal-back" v-if="dialog === 'finalize'" @click.self="dialog = null">
+      <div class="modal" style="max-width: 460px;">
+        <h2 style="margin-top:0;">Finalize {{ quarter?.name }}?</h2>
+        <p class="muted">Results become read-only and are released to employees. Any change after this needs an authorized correction.</p>
+        <div class="modal-foot">
+          <button class="btn" @click="dialog = null">Cancel</button>
+          <button class="btn btn-primary" :disabled="busy" @click="finalize">Finalize quarter</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Request correction: reason is required (in-page: prompt() is blocked in this app) -->
+    <div class="modal-back" v-if="dialog === 'correction'" @click.self="dialog = null">
+      <div class="modal" style="max-width: 500px;">
+        <h2 style="margin-top:0;">Reopen {{ quarter?.name }} for correction</h2>
+        <p class="muted">Every current result is saved to its revision history first. The reason is recorded on each one.</p>
+        <div class="field"><label>Reason (required)</label>
+          <textarea class="input" v-model="correctionReason" style="min-height: 90px;" placeholder="e.g. KPI rating for one employee was entered wrongly"></textarea>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" @click="dialog = null">Cancel</button>
+          <button class="btn btn-primary" :disabled="busy || !correctionReason.trim()" @click="requestCorrectionNow">Reopen for correction</button>
+        </div>
+      </div>
     </div>
 
     <!-- Revision history for one employee's result -->
@@ -95,6 +122,8 @@ const quarter = ref(null);
 const staff = ref([]);
 const results = ref([]);
 const historyFor = ref(null);
+const dialog = ref(null);          // 'finalize' | 'correction' | null
+const correctionReason = ref('');
 const revisions = ref([]);
 
 const nameOf = uid => staff.value.find(e => e.uid === uid)?.name || uid;
@@ -125,20 +154,21 @@ async function exportExcel() {
   try { await exportResultsReport(quarter.value, results.value, nameOf); } catch (e) { error.value = e.message; }
 }
 async function finalize() {
-  if (!window.confirm('Finalize this quarter? Results become read-only and corrections will need an authorized revision.')) return;
   busy.value = true; error.value = '';
-  try { await finalizeQuarter(quarterId.value); okMsg.value = 'Quarter finalized.'; await load(); } catch (e) { error.value = e.message; } finally { busy.value = false; }
+  try { await finalizeQuarter(quarterId.value); okMsg.value = 'Quarter finalized.'; dialog.value = null; await load(); }
+  catch (e) { error.value = e.message; dialog.value = null; } finally { busy.value = false; }
 }
 
 async function requestCorrectionNow() {
-  const reason = window.prompt('Why does this finalized quarter need to be reopened for correction? (Required — recorded on every result\'s revision history.)');
+  const reason = correctionReason.value.trim();
   if (!reason) return;
   busy.value = true; error.value = '';
   try {
     const count = await requestCorrection(quarterId.value, reason);
     okMsg.value = `Reopened for correction — ${count} result(s) snapshotted. Fix the underlying data, then Recalculate and Finalize again.`;
+    dialog.value = null;
     await load();
-  } catch (e) { error.value = e.message; } finally { busy.value = false; }
+  } catch (e) { error.value = e.message; dialog.value = null; } finally { busy.value = false; }
 }
 
 async function openHistory(r) {
