@@ -24,7 +24,8 @@ export const PAGES = [
   { key: 'procurementForms', label: 'Forms',                         group: 'Procurement', to: ['/Procurement/forms'], viewOnly: true },
   { key: 'playbook',         label: 'Playbook (Onboarding, Business Model)', group: 'Content', to: [], editOnly: true },
   { key: 'sops',             label: 'HR SOP pages',                  group: 'Content',     to: [], editOnly: true },
-  { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Agreements', to: ['/Agreements/setup'], viewOnly: true }
+  { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Agreements', to: ['/Agreements/setup'], viewOnly: true },
+  { key: 'performance',      label: 'Performance Management',        group: 'Performance', to: ['/Performance/quarters'] }
 ];
 
 // What Staff accounts shows: one tick per row, giving both View and Edit of the pages in it (each page has its own row).
@@ -45,7 +46,8 @@ export const ACCESS_ROWS = [
   { id: 'procurementForms', label: 'Forms', group: 'Procurement', keys: ['procurementForms'] },
   { id: 'playbook', label: 'Playbook (Onboarding, Business Model)', group: 'Content', keys: ['playbook'], editOnly: true },
   { id: 'sops', label: 'HR SOP pages', group: 'Content', keys: ['sops'], editOnly: true },
-  { id: 'agreementSetup', label: 'Agreement Setup (forms, templates, formulas)', group: 'Agreements', keys: ['agreementSetup'] }
+  { id: 'agreementSetup', label: 'Agreement Setup (forms, templates, formulas)', group: 'Agreements', keys: ['agreementSetup'] },
+  { id: 'performance', label: 'Performance Management', group: 'Performance', keys: ['performance'] }
 ];
 // Every permission name a row stands for.
 export const rowPerms = row => row.keys.flatMap(k => { const p = PAGES.find(x => x.key === k); return p.viewOnly ? [k + '.view'] : p.editOnly ? [k + '.edit'] : [k + '.view', k + '.edit']; });
@@ -55,7 +57,8 @@ export const GROUP_NOTES = {
   Finance: 'Any Finance page lets them read the finance data. Any Finance Edit lets them change it.',
   Portfolio: 'Edit includes owners\' bank details and unit terms.',
   Content: 'Everyone can read these. Edit lets them change the text.',
-  Agreements: 'Everyone can fill in agreements and see the records. This tick lets them change forms, formulas, templates and where fields print.'
+  Agreements: 'Everyone can fill in agreements and see the records. This tick lets them change forms, formulas, templates and where fields print.',
+  Performance: 'Quarterly performance management (quarters, COH, KPI, TMS administration). Everyone can still see their own results without this tick.'
 };
 
 const both = key => [key + '.view', key + '.edit'];

@@ -11,6 +11,9 @@ import {
 } from "@/services/notificationService"
 import { askConfirm } from "@/lib/confirm.js"
 import OptionPicker from "@/components/OptionPicker.vue"
+import { alerts, turnOnAlerts, turnOffAlerts } from "@/lib/desktop-alerts.js"
+import { useSession } from "@/stores/session.js"
+const session = useSession()
 
 const router = useRouter()
 const { notifications, unreadCount, loading, error } = useNotifications()
@@ -66,6 +69,15 @@ const toggleRead = (n) => run(() => (n.read ? markNotificationAsUnread(n.id) : m
 const toggleStar = (n) => run(() => setNotificationStarred(n.id, !n.starred), "Could not change the star.")
 const clearOne = (n) => run(() => clearNotification(n), "Could not clear it.")
 const readAll = () => run(() => markAllNotificationsAsRead(notifications.value), "Could not mark all as read.")
+// Desktop alerts switch (lib/desktop-alerts.js)
+async function toggleAlerts() {
+  if (alerts.on) { await turnOffAlerts(); okMsg.value = "Notifications pop-ups are off on this device."; return }
+  const on = await turnOnAlerts(session.role)
+  if (on) okMsg.value = alerts.mode === "push" ? "Push is on: pop-ups even when the PMS is closed." : "Pop-ups are on while the PMS is open. (Push when closed works on the Vercel site.)"
+  if (!on) actionError.value = alerts.permission === "denied"
+    ? "This browser is blocking notifications for the PMS. Click the icon at the left of the address bar, set Notifications to Allow, then press the button again."
+    : "Desktop alerts weren't allowed."
+}
 async function clearRead() {
   const n = clearable.value
   if (!n) return
@@ -84,6 +96,10 @@ async function clearRead() {
         <div class="sub"><b class="nf-unread-sub" v-if="unreadCount">{{ unreadCount }} unread</b><span v-else>Nothing unread</span>{{ ` · the last ${KEEP_DAYS} days` }}</div>
       </div>
       <div class="nf-tools">
+        <button type="button" class="btn nf-alerts" v-if="alerts.supported" :class="{ on: alerts.on }" :aria-pressed="String(alerts.on)" @click="toggleAlerts"
+          :title="alerts.on ? 'New notifications pop up on this computer while the PMS is open. Click to turn off.' : 'Show a pop-up on this computer for each new notification while the PMS is open'">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          {{ alerts.on ? (alerts.mode === 'push' ? 'Push notifications on' : 'Desktop alerts on') : 'Turn on push notifications' }}</button>
         <button type="button" class="btn" :disabled="!unreadCount" @click="readAll">Mark all as read</button>
         <button type="button" class="btn" :disabled="!clearable" @click="clearRead">Clear read</button>
       </div>
@@ -135,6 +151,7 @@ async function clearRead() {
 <style scoped>
 /* Full width, like the other pages (Khairul, 3 Nov) */
 .nf-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.nf-alerts.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .nf-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
 .nf-tabs { display: flex; gap: 4px; }
 .nf-tab { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 10px 14px; margin-bottom: -1px; font: inherit; font-size: 14px; font-weight: 500;

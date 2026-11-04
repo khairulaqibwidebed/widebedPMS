@@ -202,7 +202,7 @@
                 </tbody>
               </table>
             </div>
-            <RemovedBookings :bookings="removedList()" :locked="!!locked(sel)" :disabled="busy" :property-id="propertyId" :unit-id="sel.unitId" :month="month" @restored="onRestored" />
+            <RemovedBookings :bookings="removedList()" :locked="!!locked(sel)" :disabled="busy" :property-id="propertyId" :unit-id="sel.unitId" :month="month" @restored="onRestored" @deleted="onDeleted" />
           </div>
         </section>
         <section class="card">
@@ -679,6 +679,14 @@ export default {
       this.okMsg = to ? `${n} booking${n === 1 ? '' : 's'} moved to ${to.unitCode}.` : `${n} booking${n === 1 ? '' : 's'} removed from this statement.`;
     },
     // Saved by RemovedBookings: mark it active in this unit's list, then reload the statement
+    // Deleted permanently (RemovedBookings): drop it from the unit and reload the statement
+    async onDeleted(bk) {
+      const unitId = this.sel.unitId, list = this.unitFull[unitId]?.bookings;
+      if (list) { const i = list.findIndex(y => y.id === bk.id); if (i >= 0) list.splice(i, 1); }
+      this.busy = true; this.error = '';
+      try { await this.refreshKeepingUnit(unitId); this.okMsg = `${bk.reservationNo} deleted. Upload the eZee report again to bring it back as a new booking.`; }
+      catch (e) { this.error = friendlyError(e, 'reload the statement'); } finally { this.busy = false; }
+    },
     async onRestored(bk) {
       const unitId = this.sel.unitId, x = this.unitFull[unitId]?.bookings.find(y => y.id === bk.id);
       if (x) { x.status = 'active'; delete x.removedByHand; }

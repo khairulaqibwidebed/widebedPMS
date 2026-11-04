@@ -24,6 +24,8 @@ export function startPwa() {
       // Check for a new version when the app comes back to the front, and every 30 minutes
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
       setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+      // A push clicked while a PMS window was open but couldn't be moved by the service worker: go there
+      navigator.serviceWorker.addEventListener('message', e => { if (e.data?.type === 'open' && e.data.link) location.assign(e.data.link); });
       navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloading && pwa.updateReady) { reloading = true; location.reload(); } });
     } catch (e) { console.warn('Service worker not registered:', e.message); }
   });

@@ -15,6 +15,7 @@
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, query, where, serverTimestamp, writeBatch, getCountFromServer } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
+import { sendPush } from '@/lib/push.js';
 
 const me = () => useSession();
 function stamp(created) {
@@ -159,8 +160,9 @@ export async function notifyPerson(uid, title, message, link, refId = '') {
   const s = me();
   if (!uid || uid === s.user.uid) return;
   try {
-    await addDoc(collection(db, 'notifications'), { recipientUid: uid, recipientRole: null, title: title.slice(0, 200), message: message.slice(0, 600),
+    const ref = await addDoc(collection(db, 'notifications'), { recipientUid: uid, recipientRole: null, title: title.slice(0, 200), message: message.slice(0, 600),
       type: 'agreement', link, refId, readBy: [], starredBy: [], createdByUid: s.user.uid, createdByName: s.name, createdAt: serverTimestamp() });
+    sendPush(ref.id);
   } catch (e) { console.warn('notify', e); }
 }
 

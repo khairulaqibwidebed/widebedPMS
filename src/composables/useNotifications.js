@@ -1,6 +1,7 @@
 import { onUnmounted, ref, watch } from 'vue'
 import { subscribeToNotifications } from '@/services/notificationService'
 import { useSession } from '@/stores/session.js'
+import { alertNew } from '@/lib/desktop-alerts.js'
 
 // ONE live listener for the whole app, shared by the bell, its drop-down panel and the Notifications page,
 // so opening the page doesn't read the same notifications from Firestore a second time.
@@ -24,6 +25,7 @@ function start() {
         (result) => {
           notifications.value = result.notifications
           unreadCount.value = result.unreadCount
+          alertNew(result.notifications)   // desktop pop-ups for new ones, if turned on (lib/desktop-alerts.js)
           loading.value = false
           error.value = ''
         },

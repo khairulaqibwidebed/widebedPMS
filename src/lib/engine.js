@@ -8,7 +8,8 @@
 //   Ctrip       typed Trip.com amount T: PTO = T / 1.08 - (T - (room + SST))
 //               (Finance's Sep 2026 method, Khairul 20 Oct: same total as Finance. Jun/Jul took cleaning off first.)
 //               no amount yet: estimated at 15% like a Net OTA, flagged Estimated
-//   Booking.com PTO = room (before SST) - (commission 18% of room + cleaning, payment fee 2.8% of the guest total, 8% SST on each), 3 decimals
+//   Booking.com PTO = room incl. 8% SST - (commission 18% of (room incl. SST + cleaning), payment fee 2.8% of the guest total, 8% SST on each), 3 decimals
+//               (Finance's method since May 2026, checked 3 Nov against May, Jul, Aug, Sep: within a few sen. Feb used room before SST.)
 //   Direct      PTO = (room + SST) / 1.08   (Finance always takes 8% off, even when eZee shows no SST)
 //   Long-term   PTO = room + SST
 //   Early check-in goes to the owner after SST; other incidentals stay with Widebed.
@@ -209,11 +210,14 @@ export function bookingPTO(b, rates) {
     if (otaKey === 'ctrip') { estimated = true; note = `Estimated at ${+(o.commissionPct * 100).toFixed(2)}%. Type the Trip.com amount.`; }
   } else if (o && o.payout === 'gross') {
     method = 'Gross';
-    // Finance's Booking.com method (Feb 2026 file): commission on room + cleaning before SST, payment fee on the guest total,
-    // 8% SST on both; the owner gets the room before SST less those charges. Steps keep 3 decimals.
-    const comm = r3(num(o.commissionPct) * (AU + AG)), pay = r3(num(o.paymentFeePct) * (num(v.otherPaymentMethod) || T));
-    const tax = r3(comm * num(o.sstPct ?? 0.08)) + r3(pay * num(o.sstPct ?? 0.08));
-    guestPaid = T; platform = comm + pay + tax; pto = AU - platform;
+    // Finance's Booking.com method since May 2026 (checked 3 Nov 2026 against their May, Jul, Aug and Sep statements):
+    // the room counts WITH its 8% SST; commission on (room incl. SST + cleaning), payment fee on the guest total,
+    // 8% SST on both; the owner gets the room incl. SST less those charges. Steps keep 3 decimals.
+    // (Feb 2026 used the room before SST in both places. A per-property method switch is planned.)
+    const sstPct = num(o.sstPct ?? 0.08), room = AU * (1 + sstPct);
+    const comm = r3(num(o.commissionPct) * (room + AG)), pay = r3(num(o.paymentFeePct) * (num(v.otherPaymentMethod) || T));
+    const tax = r3(comm * sstPct) + r3(pay * sstPct);
+    guestPaid = T; platform = comm + pay + tax; pto = room - platform;
   } else if (longTerm) {
     method = 'Long-term'; guestPaid = AU + AX; pto = AU + AX;
   } else {
