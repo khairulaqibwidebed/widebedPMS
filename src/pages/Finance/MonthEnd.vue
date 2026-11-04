@@ -76,7 +76,7 @@
             title="Fill in the D'Majestic units that aren't set up">⚡ Starter settings</button></div>
         <!-- Starter settings: a slim confirm strip instead of a big box -->
         <div class="starter-strip" v-if="starterAvailable() && starterAsk">
-          <span>Set arrangement and fixed rent for the D'Majestic units that aren't set up (Finance's Sep 2026 set-up), from <b>{{ monthName(month) }}</b>. You can edit any unit afterwards.</span>
+          <span>Set arrangement and fixed rent for the D'Majestic units that aren't set up (Accounting's Sep 2026 set-up), from <b>{{ monthName(month) }}</b>. You can edit any unit afterwards.</span>
           <span class="starter-acts"><button class="btn btn-sm" @click="starterAsk = false">Cancel</button><button class="btn btn-sm btn-primary" @click="loadStarter(); starterAsk = false" :disabled="busy">Load</button></span>
         </div>
         <div class="rows checks-rows">
@@ -127,7 +127,7 @@
             <h2>Ctrip booking {{ ctripEdit.reservationNo }}</h2>
             <div class="ctrip-opts">
               <label><input type="radio" value="" v-model="ctripKind[ctripEdit.reservationNo]"> <b>Customer paid</b><span class="help">The amount Trip.com says the guest paid. The PMS works out the owner share.</span></label>
-              <label><input type="radio" value="owner" v-model="ctripKind[ctripEdit.reservationNo]"> <b>Owner share</b><span class="help">The final amount for the owner, for example from Finance's statement. Guest paid stays empty.</span></label>
+              <label><input type="radio" value="owner" v-model="ctripKind[ctripEdit.reservationNo]"> <b>Owner share</b><span class="help">The final amount for the owner, for example from Accounting's statement. Guest paid stays empty.</span></label>
             </div>
             <div class="field"><label for="ctripAmt">Amount (RM)</label><input class="input" id="ctripAmt" type="number" step="0.01" v-model="ctripInput[ctripEdit.reservationNo]" @keyup.enter="saveCtripModal()"></div>
             <div class="modal-foot"><button class="btn" @click="ctripEdit = null">Cancel</button><button class="btn btn-primary" @click="saveCtripModal()" :disabled="busy || !ctripInput[ctripEdit.reservationNo]">Save</button></div>
@@ -164,7 +164,7 @@
               <span class="edit-btns" v-if="editing"><button class="btn" @click="cancelEdit()" :disabled="busy">Cancel</button><button class="btn btn-primary" @click="completeEdit()" :disabled="busy">Complete</button></span></div>
             <div class="table-wrap">
               <table class="table">
-                <thead><tr><th v-if="removing" style="width:34px"></th><th>Reservation</th><th>Source</th><th>Check-in</th><th>Check-out</th><th class="num">Nights</th><th class="num">Guest paid</th><th class="num">Platform cut</th><th class="num">Owner share</th><th class="num" v-show="sel.lines.some(l => l.financeAmount != null)" title="Finance's amount for this booking, from their completed statement">Finance</th><th>Status</th><th title="Tick when the site's commission also applies to the cleaning fee">Cleaning fee</th></tr></thead>
+                <thead><tr><th v-if="removing" style="width:34px"></th><th>Reservation</th><th>Source</th><th>Check-in</th><th>Check-out</th><th class="num">Nights</th><th class="num">Guest paid</th><th class="num">Platform cut</th><th class="num">Owner share</th><th class="num" v-show="sel.lines.some(l => l.financeAmount != null)" title="Accounting's amount for this booking, from their completed statement">Accounting</th><th>Status</th><th title="Tick when the site's commission also applies to the cleaning fee">Cleaning fee</th></tr></thead>
                 <tbody>
                   <template v-for="l in sel.lines" :key="l.id || l.reservationNo">
                     <tr v-if="editing && draft[l.id || l.reservationNo]" class="editing-row">
@@ -202,7 +202,7 @@
                 </tbody>
               </table>
             </div>
-            <RemovedBookings :bookings="removedList()" :locked="!!locked(sel)" :disabled="busy" :property-id="propertyId" :unit-id="sel.unitId" :month="month" @restored="onRestored" />
+            <RemovedBookings :bookings="removedList()" :locked="!!locked(sel)" :disabled="busy" :property-id="propertyId" :unit-id="sel.unitId" :month="month" @restored="onRestored" @deleted="onDeleted" />
           </div>
         </section>
         <section class="card">
@@ -251,7 +251,7 @@
                 </template><td class="num total-col"><b>{{ amt(yearTotal(sel)) }}</b></td></tr></tbody>
               </table>
             </div>
-            <p class="help" style="margin-top:6px">Past months come from completed months in the PMS, or from Finance's statements uploaded on Upload eZee report. Hover a number to see where it came from.</p>
+            <p class="help" style="margin-top:6px">Past months come from completed months in the PMS, or from Accounting's statements uploaded on Upload eZee report. Hover a number to see where it came from.</p>
         </section>
       </div>
     </template>
@@ -331,7 +331,7 @@ const STATUS = { draft: ['Draft', 'grey'], fixed: ['Fixed rent', 'blue'], negati
   notSetUp: ['Not set up', 'amber'], completed: ['Completed', 'green'] };
 let params = new URLSearchParams(location.search);
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const SOURCE = { pms: 'Completed in the PMS', finance: "Finance's statement (Payment To Owner)", summary: "Finance's statement (unit sheet summary)" };
+const SOURCE = { pms: 'Completed in the PMS', finance: "Accounting's statement (Payment To Owner)", summary: "Accounting's statement (unit sheet summary)" };
 const pctIn = v => (v === '' || v == null ? null : Number(v) / 100);
 const pctOut = v => (v == null ? '' : +(v * 100).toFixed(4));
 
@@ -679,6 +679,14 @@ export default {
       this.okMsg = to ? `${n} booking${n === 1 ? '' : 's'} moved to ${to.unitCode}.` : `${n} booking${n === 1 ? '' : 's'} removed from this statement.`;
     },
     // Saved by RemovedBookings: mark it active in this unit's list, then reload the statement
+    // Deleted permanently (RemovedBookings): drop it from the unit and reload the statement
+    async onDeleted(bk) {
+      const unitId = this.sel.unitId, list = this.unitFull[unitId]?.bookings;
+      if (list) { const i = list.findIndex(y => y.id === bk.id); if (i >= 0) list.splice(i, 1); }
+      this.busy = true; this.error = '';
+      try { await this.refreshKeepingUnit(unitId); this.okMsg = `${bk.reservationNo} deleted. Upload the eZee report again to bring it back as a new booking.`; }
+      catch (e) { this.error = friendlyError(e, 'reload the statement'); } finally { this.busy = false; }
+    },
     async onRestored(bk) {
       const unitId = this.sel.unitId, x = this.unitFull[unitId]?.bookings.find(y => y.id === bk.id);
       if (x) { x.status = 'active'; delete x.removedByHand; }
@@ -791,7 +799,7 @@ export default {
           const share = DM_STARTER.units.find(x => x[0] === u.unitCode), fixed = DM_STARTER.fixed.find(x => x[0] === u.unitCode);
           if (!share && !fixed) continue;
           const data = fixed ? this.termsDoc('fixedRent', { fixedRentAmount: fixed[1] }) : this.termsDoc(share[1], share[2] || {});
-          b.set(doc(db, 'units', u.id, 'terms', `${this.month}_${stamp}`), { ...data, effectiveFrom: this.month, reason: 'Starter settings (Upload CSV test page, Finance Sep 2026 set-up)' });
+          b.set(doc(db, 'units', u.id, 'terms', `${this.month}_${stamp}`), { ...data, effectiveFrom: this.month, reason: 'Starter settings (Upload CSV test page, Accounting Sep 2026 set-up)' });
           markFrom(b, this.propertyId, this.month, u.id);
           n++;
         }
@@ -944,7 +952,7 @@ export default {
         rows.forEach(r => st.push([r.unitCode, r.arrangementLabel, r.lines.length, r.totals.nights, r.totals.totalReceivable, -r.totals.serviceFee, -r.totals.utilityFee, -r.totals.sstOnFee,
           r.totals.entitlement, r.totals.totalExpenses, r.totals.netReceivable, r.totals.roundingAdjust, r.totals.payout, STATUS[r.status][0]]));
         add('Statements', st, [12, 18, 9, 8, 15, 12, 12, 11, 16, 12, 15, 10, 12, 12]);
-        const bk = [['Unit', 'Source', 'Reservation No', 'Check In', 'Check Out', 'Nights', 'Method', 'Guest paid (before commission)', 'Platform charges', 'PTO (RM)', "Finance's amount", 'Note']];
+        const bk = [['Unit', 'Source', 'Reservation No', 'Check In', 'Check Out', 'Nights', 'Method', 'Guest paid (before commission)', 'Platform charges', 'PTO (RM)', "Accounting's amount", 'Note']];
         rows.forEach(r => r.lines.forEach(l => bk.push([r.unitCode, l.source, l.reservationNo, dmy(l.arrival), dmy(l.departure), l.nights, l.method, l.guestPaid, l.platform, l.pto, l.financeAmount ?? '', l.note || ''])));
         add('Bookings', bk, [12, 16, 14, 11, 11, 7, 10, 16, 14, 12, 14, 40]);
         const ym = this.yearMonths(), ps = [['Unit', ...ym.map(m => `${SHORT[+m.slice(5) - 1]} ${m.slice(0, 4)}`)]];

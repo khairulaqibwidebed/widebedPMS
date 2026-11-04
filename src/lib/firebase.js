@@ -20,7 +20,19 @@ export const db = initializeFirestore(app, {
 
 // Roles that can sign in. Each sees only the pages in its sidebar (nav.js) and its route list (router.js).
 export const ALLOWED_ROLES = ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing'];   // every role signs in (Khairul 21 Oct)
-export const ROLE_LABEL = { director: 'Director', finance: 'Finance', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing' };
+export const ROLE_LABEL = { director: 'Director', finance: 'Accounting', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing' };
+// Built-in role names have two layers (4 Nov 2026):
+//   BUILTIN_TAG = the fixed word SAVED for each built-in role (Issues tags, who raised a ticket). The security rules
+//                 (myIssueTag) and every older ticket use these, so they never change.
+//   ROLE_LABEL  = the name SHOWN. The Director can rename a built-in role on the Roles page (roles/{id}.name);
+//                 loadRoleRegistry copies it in. Default names below (Finance is shown as Accounting).
+// Sentences written in the pages keep their wording; only the role's name itself follows a rename.
+export const BUILTIN_TAG = { director: 'Director', finance: 'Finance', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing' };
+export const DEFAULT_LABEL = { ...ROLE_LABEL };
+// The word to save on, or search, tickets for a role
+export const issueTagOf = role => BUILTIN_TAG[role] || ROLE_LABEL[role] || role;
+// A saved tag or role word -> the name shown now ("Finance" -> "Accounting"; custom role names and "Admin" as they are)
+export const tagLabel = t => { const id = Object.keys(BUILTIN_TAG).find(k => BUILTIN_TAG[k] === t); return id ? (ROLE_LABEL[id] || t) : t; };
 
 // Roles made on the Roles page (Director only), kept in roles/{id}. Built-in roles can also have their usual pages changed there.
 // loadRoleRegistry() copies them into ROLE_LABEL, ALLOWED_ROLES and PRESETS (lib/access.js), so the rest of the app reads them as before.
@@ -34,12 +46,16 @@ export function loadRoleRegistry(force = false) {
   registry = (async () => {
     try {
       const snap = await getDocs(collection(db, 'roles'));
-      for (const id of BUILTIN_ROLES) if (id !== 'director') PRESETS[id] = ORIGINAL_PRESETS[id];
+      for (const id of BUILTIN_ROLES) { if (id !== 'director') PRESETS[id] = ORIGINAL_PRESETS[id]; ROLE_LABEL[id] = DEFAULT_LABEL[id]; }
       for (const id of Object.keys(CUSTOM_ROLES)) { delete CUSTOM_ROLES[id]; delete ROLE_LABEL[id]; delete PRESETS[id]; }
       for (let i = ALLOWED_ROLES.length - 1; i >= 0; i--) if (!BUILTIN_ROLES.includes(ALLOWED_ROLES[i])) ALLOWED_ROLES.splice(i, 1);
       snap.forEach(d => {
         const r = d.data(), id = d.id;
-        if (BUILTIN_ROLES.includes(id)) { if (id !== 'director' && Array.isArray(r.perms)) PRESETS[id] = r.perms; return; }
+        if (BUILTIN_ROLES.includes(id)) {
+          if (id !== 'director' && Array.isArray(r.perms)) PRESETS[id] = r.perms;
+          if (id !== 'director' && typeof r.name === 'string' && r.name.trim()) ROLE_LABEL[id] = r.name.trim();   // renamed on the Roles page
+          return;
+        }
         CUSTOM_ROLES[id] = { name: r.name || id, description: r.description || '', color: r.color || '', active: r.active !== false };
         ROLE_LABEL[id] = r.name || id;
         PRESETS[id] = Array.isArray(r.perms) ? r.perms : [];

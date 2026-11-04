@@ -3,97 +3,80 @@
     <div class="page-head">
       <div>
         <h1>Booking forms</h1>
-        <div class="sub">Operations forms. Open one to fill it in here. Reservation bookings are now made in Portfolio > Bookings > Create booking.</div>
+        <div class="sub">Operations forms. Pick a form below and fill it in step by step.</div>
       </div>
     </div>
-    <section class="card form-card">
-      <div class="form-list">
-        <button type="button" class="form-row" :aria-expanded="String(bookingOpen)" @click="bookingOpen = !bookingOpen">
-          <div><b>Booking Form</b><span>Log a booking: tenant, stay, rental and deposit, payment and door passcodes. Replaces the Reservation Lodgment form.</span></div>
-          <span class="open-btn">{{ bookingOpen ? 'Hide form' : 'Show form' }} <svg class="chev" :class="{ up: bookingOpen }" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
-        </button>
-        <div class="form-frame booking-embed sheet" v-if="bookingOpen">
-          <div class="sheet-head"><b>Booking Form</b><button type="button" class="btn" @click="bookingOpen = false">Close</button></div>
-          <div class="notice ok" v-show="bookedMsg">{{ bookedMsg }}</div>
-          <BookingForm embedded :lead-id="leadId" :key="leadId" @close="bookingOpen = false" @saved="m => bookedMsg = m" />
-        </div>
-        <button type="button" class="form-row" :aria-expanded="String(utilityOpen)" @click="utilityOpen = !utilityOpen">
-          <div><b>Utility Lodgment Form</b><span>Log utility invoices to an active booking.</span></div>
-          <span class="open-btn">{{ utilityOpen ? 'Hide form' : 'Show form' }} <svg class="chev" :class="{ up: utilityOpen }" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
-        </button>
-        <div class="form-frame sheet" v-if="utilityOpen">
-          <div class="sheet-head"><b>Utility Lodgment Form</b><button type="button" class="btn" @click="utilityOpen = false">Close</button></div>
-          <UtilityForm @close="utilityOpen = false" />
-        </div>
-        <template v-for="f in LINKS" :key="f.name">
-          <button type="button" class="form-row" :aria-expanded="String(openName === f.name)" @click="toggle(f)">
-            <div><b>{{ f.name }}</b><span>{{ f.about }}</span></div>
-            <span class="open-btn">{{ openName === f.name ? 'Hide form' : 'Show form' }} <svg class="chev" :class="{ up: openName === f.name }" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
-          </button>
-          <div class="form-frame soon sheet" v-if="openName === f.name">
-            <div class="sheet-head"><b>{{ f.name }}</b><button type="button" class="btn" @click="openName = ''">Close</button></div>
-            <p class="muted">{{ f.note }}</p>
-          </div>
-        </template>
+    <div class="bf-bar">
+      <div class="bf-tabs" role="tablist" aria-label="Forms">
+        <button v-for="t in TABS" :key="t.key" type="button" role="tab" class="bf-tab" :class="{ on: tab === t.key }" :aria-selected="String(tab === t.key)" @click="open(t.key)">{{ t.label }}</button>
       </div>
-    </section>
+    </div>
+    <!-- Each form stays loaded once opened, so switching tabs keeps what was typed (nothing is saved as a draft) -->
+    <div v-for="t in TABS" :key="t.key" v-show="tab === t.key" role="tabpanel">
+      <component :is="t.form" v-if="seen[t.key]" :key="t.key === 'reservation' ? 'r' + leadId : t.key" v-bind="t.key === 'reservation' ? { leadId } : {}" @dirty="v => dirty[t.key] = v" />
+    </div>
   </main>
 </template>
 
 <script>
-const LINKS = [
-  { name: "General Tenancy Agreement Form", about: "Complete the details needed to prepare a tenancy agreement.", note: 'Not built in the PMS yet. This one is Neo\'s part.' },
-  { name: "Property Inspection Form", about: "Record the condition of the property during an inspection.", note: 'Not built in the PMS yet.' }
+// Operations > Booking forms: one tab per form, each with its own address (/Operations/booking-forms/reservation, /utility).
+// The forms are their own files in ./booking-forms/; this page only shows the tabs and warns before leaving with something typed.
+// Add a form: a file in ./booking-forms/ that emits 'dirty', a line in TABS, and its name in the route in router.js.
+import { defineAsyncComponent, markRaw } from 'vue';
+import { askConfirm } from '@/lib/confirm.js';
+
+const TABS = [
+  { key: 'reservation', label: 'Reservation Lodgment Form', form: markRaw(defineAsyncComponent(() => import('./booking-forms/ReservationForm.vue'))) },
+  { key: 'utility', label: 'Utility Lodgment Form', form: markRaw(defineAsyncComponent(() => import('./booking-forms/UtilityForm.vue'))) },
+  { key: 'property', label: 'Property Inspection Form', form: markRaw(defineAsyncComponent(() => import('./booking-forms/PropertyInspectionForm.vue'))) }
 ];
-
-import { defineAsyncComponent } from 'vue';
-
-import UtilityForm from '@/components/UtilityForm.vue';
-const BookingForm = defineAsyncComponent(() => import('./SalesLeads.vue'));
+const BASE = '/Operations/booking-forms';
 
 export default {
-  components: { BookingForm, UtilityForm },
-  data() { return { LINKS, leadId: this.$route.query.lead || '', openName: '', bookingOpen: !!this.$route.query.lead, utilityOpen: false, bookedMsg: '' }; },
-  methods: {
-    toggle(f) {
-      this.openName = this.openName === f.name ? '' : f.name;
+  data() {
+    const tab = this.tabOf(this.$route);
+    return { TABS, tab, seen: { [tab]: true }, dirty: {}, leadId: this.$route.query.lead || '' };
+  },
+  computed: { anyDirty() { return Object.values(this.dirty).some(Boolean); } },
+  created() {
+    // The old address (no form in it) opens the Reservation tab
+    if (!this.$route.params.form) this.$router.replace({ path: `${BASE}/${this.tab}`, query: this.$route.query });
+  },
+  mounted() { window.addEventListener('beforeunload', this.warn); },
+  unmounted() { window.removeEventListener('beforeunload', this.warn); },
+  watch: {
+    $route(to) {
+      if (!to.path.startsWith(BASE)) return;
+      this.tab = this.tabOf(to);
+      this.seen[this.tab] = true;
+      // The inquiry (?lead=) belongs to the Reservation tab: switching to Utility and back keeps it
+      if (this.tab === 'reservation') this.leadId = to.query.lead || '';
     }
+  },
+  // Leaving the page (sidebar, back button, another page) with something typed: ask first. Switching tabs doesn't ask.
+  async beforeRouteLeave() {
+    if (!this.anyDirty) return true;
+    return askConfirm({ title: 'Leave?', message: "What you've entered will be lost.", confirmText: 'Leave', danger: true });
+  },
+  methods: {
+    tabOf(route) { return TABS.some(t => t.key === route.params.form) ? route.params.form : 'reservation'; },
+    open(key) {
+      if (key === this.tab) return;
+      this.$router.push({ path: `${BASE}/${key}`, query: key === 'reservation' && this.leadId ? { lead: this.leadId } : {} });
+    },
+    // Closing or reloading the browser tab: the browser's own "Leave site?" warning
+    warn(e) { if (!this.anyDirty) return; e.preventDefault(); e.returnValue = ''; }
   }
 };
 </script>
 
 <style scoped>
-    /* Form rows: shared .form-list / .form-row styles in app.css */
-    .form-row { width: 100%; text-align: left; font: inherit; cursor: pointer; }
-    .chev { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
-    .chev.up { transform: rotate(180deg); }
-    .form-frame { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin: 2px 0 10px; overflow: hidden; }
-    .frame-tools { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; font-size: 12px; border-bottom: 1px solid var(--border); }
-    .form-frame iframe { display: block; width: 100%; height: 1100px; border: 0; background: #fff; }
-.soon { padding: 14px 16px; }
-    .booking-embed { padding: 14px; }
-    .form-card { background: var(--surface); }
-    .booking-embed { background: var(--surface); }
-    .booking-embed :deep(.content), .booking-embed :deep(main) { padding: 0; max-width: none; width: auto; min-height: 0; background: transparent; }
-    .booking-embed :deep(.form-card) { gap: 14px; background: transparent; }
-    .booking-embed :deep(.bottom-actions) { padding-bottom: 4px; }
-    .booking-embed :deep(.card) { background: var(--surface); }
-    .page-note { color: var(--muted); font-size: 12px; margin-top: 14px; }
-    /* Phones: an open form fills the screen like a pop-up, with Close at the top and its Save buttons pinned at the bottom.
-       Desktop keeps the form opening inside the list. */
-    .sheet-head { display: none; }
-    @media (max-width: 600px) {
-      .form-frame.sheet { position: fixed; inset: 0; z-index: 45; margin: 0; border: 0; border-radius: 0; overflow-y: auto; overscroll-behavior: contain;
-        padding: 0 14px; background: var(--surface); animation: fade var(--fast) ease-out; }
-      .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 2;
-        margin: 0 -14px 10px; padding: max(10px, env(safe-area-inset-top, 0px)) 14px 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
-      .sheet-head b { font-size: 16px; }
-      .booking-embed.sheet { padding-top: 0; }
-      .form-frame.sheet :deep(.bottom-actions) { position: sticky; bottom: 0; z-index: 2; margin: 8px -14px 0; padding: 12px 14px max(12px, env(safe-area-inset-bottom, 0px));
-        background: var(--surface); border-top: 1px solid var(--border); }
-      .form-frame.sheet :deep(.bottom-actions .btn) { flex: 1 1 auto; }
-      /* The form's sections sit straight on the sheet: no frames */
-      .form-frame.sheet :deep(.card) { border: 0; border-radius: 0; padding: 14px 0; background: transparent; box-shadow: none; }
-      .form-frame.sheet :deep(.card + .card) { border-top: 1px solid var(--border); }
-    }
+/* Same tabs as the Notifications page (All / Unread / Starred) */
+.bf-bar { border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+.bf-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.bf-tabs::-webkit-scrollbar { display: none; }
+.bf-tab { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 10px 14px; margin-bottom: -1px; font: inherit; font-size: 14px; font-weight: 500;
+  color: var(--text-2); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; flex: none; }
+.bf-tab:hover { color: var(--accent); }
+.bf-tab.on { color: var(--accent); font-weight: 600; border-bottom-color: var(--accent); }
 </style>

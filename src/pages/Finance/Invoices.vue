@@ -33,7 +33,7 @@
 
     <section class="card">
       <div class="card-head"><h2>{{ `Documents · ${monthName(month)}` }}</h2></div>
-      <p class="card-intro">Only documents Finance has approved and completed appear here. Drafts stay on Month-end payout and the unit statement. To correct a completed owner statement, a Director reopens it on the unit statement: a new revision is made and the old one is kept. Tenant invoices, receipts and folios will appear here once leases and rent invoices are built.</p>
+      <p class="card-intro">Only documents Accounting has approved and completed appear here. Drafts stay on Month-end payout and the unit statement. To correct a completed owner statement, a Director reopens it on the unit statement: a new revision is made and the old one is kept. Tenant invoices, receipts and folios will appear here once leases and rent invoices are built.</p>
 
       <div class="selbar" v-show="picked.length">
         <b>{{ `${picked.length} selected` }}</b>

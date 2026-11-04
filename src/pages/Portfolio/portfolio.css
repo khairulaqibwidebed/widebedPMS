@@ -1,0 +1,42 @@
+/* Portfolio pages (Owners, Properties, a property, Bookings) and their drawers. Every rule starts with .pf (the
+   class on each Portfolio page's <main>) so these names never touch other pages. Moved from the old Portfolio.vue. */
+.pf .page-head .head-tools { margin-left: auto; }
+.pf .mm-wrap { position: relative; display: inline-block; }
+.pf .mm-back { position: fixed; inset: 0; z-index: 19; }
+.pf .mm-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: 230px; max-height: 340px; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; }
+.pf .mm-opt { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.pf .mm-opt input { accent-color: var(--accent); }
+.pf .mm-foot { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+.pf .dr-pop { width: 250px; padding: 12px; }
+.pf .dr-f { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 10px; }
+.pf .dr-f .input { display: block; width: 100%; margin-top: 4px; max-width: none; }
+.pf .mp-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.pf .cal-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.pf .cal-sub { padding-left: 20px; color: var(--muted); }
+.pf .cal-row b small { font-weight: 400; color: var(--muted); }
+.pf .pay-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.pf .eye-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; }
+.pf .eye-btn svg { width: 20px; height: 20px; fill: var(--accent); }
+.pf .eye-btn:hover { background: var(--accent-soft); }
+.pf .pf-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 24px; }
+.pf .pf-bar .input { max-width: 260px; height: 36px; }
+.pf .pf-bar .grow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; min-width: 0; }
+.pf .card h2.t { font-size: 15px; margin: 0 0 12px; }
+.pf .card .table-wrap { margin-top: 4px; }
+.pf .table td.strong { font-weight: 600; }
+.pf .table tr.future td { background: var(--amber-soft); }
+.pf .sub-line { display: block; font-size: 11px; color: var(--amber); }
+.pf .att { color: var(--amber); }
+.pf .kpi .value.small { font-size: 24px; }
+.pf .form-sec { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 18px 0 10px; }
+.pf .form-sec:first-child { margin-top: 0; }
+.pf .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 14px; }
+.pf .info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+.pf .table td.nw { white-space: nowrap; }
+.pf .drawer .field { align-content: start; }
+.pf .history-list .row { font-size: 12px; }
+.pf .from-listing { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text-2); }
+@media (max-width: 720px) { .pf .grid-3, .pf .info-grid { grid-template-columns: 1fr; } }
+.pf .audit-tbl { table-layout: fixed; width: 100%; }
+.pf .audit-tbl td { vertical-align: top; overflow-wrap: anywhere; }
+.pf .audit-tbl .chg + .chg { margin-top: 2px; }

@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h1>Upload eZee report</h1>
-        <div class="sub">Bring in the month's bookings from eZee, or a past month's completed Finance statement as reference</div>
+        <div class="sub">Bring in the month's bookings from eZee, or a past month's completed Accounting statement as reference</div>
       </div>
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="reset()" :disabled="working" />
@@ -17,9 +17,9 @@
     <label class="dropzone" :class="{ over: dragging }" v-show="stage === 0"
            @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dragging = false; pick($event.dataTransfer.files[0])">
       <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l7 7h-4.5v6h-5v-6H5z"/></svg>
-      <b>Drag the eZee report or a completed Finance statement here, or</b>
+      <b>Drag the eZee report or a completed Accounting statement here, or</b>
       <span class="btn">Choose file</span>
-      <small>.csv or .xlsx · the full eZee report, or Finance's Rental Income Statement for a past month · the page tells which it is</small>
+      <small>.csv or .xlsx · the full eZee report, or Accounting's Rental Income Statement for a past month · the page tells which it is</small>
       <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden @change="pick($event.target.files[0]); $event.target.value = ''">
     </label>
 
@@ -146,7 +146,7 @@
       <!-- Check summary: Finance's completed statement (kept as reference, no bookings change) -->
       <template v-if="stage === 4 && check && !done && check.kind === 'statement'">
         <div>
-          <div class="notice" style="margin-top:0">Finance's completed statement for <b>{{ monthName(check.month) }}</b>. It is kept as reference: what each owner was paid, that month's daily rental bookings with Finance's amount for each, the payout history, and negative balances to carry into <span>{{ monthName(check.next) }}</span>.</div>
+          <div class="notice" style="margin-top:0">Accounting's completed statement for <b>{{ monthName(check.month) }}</b>. It is kept as reference: what each owner was paid, that month's daily rental bookings with Accounting's amount for each, the payout history, and negative balances to carry into <span>{{ monthName(check.next) }}</span>.</div>
           <div class="summary-grid">
             <div><b>{{ check.units.length }}</b><span>units on Payment To Owner</span></div>
             <div><b>{{ amt(check.balToPay) }}</b><span>paid to owners (RM)</span></div>
@@ -164,9 +164,9 @@
               <span class="r wrap">{{ check.negatives.map(u => `${u.unitCode} RM ${amt(-u.payout)}`).join(', ') }}</span></div>
             <div class="row" v-show="check.nextCompleted.length"><span class="neg-amt">Not carried forward</span><span class="r wrap">{{ `${check.nextCompleted.join(', ')}: already completed for ${monthName(check.next)} in the PMS.` }}</span></div>
             <div class="row" v-show="check.lockedUnits.length"><span>Completed in the PMS (kept as is)</span><span class="r wrap">{{ check.lockedUnits.join(', ') }}</span></div>
-            <div class="row" v-show="check.bookings"><span>Bookings with Finance's amount (from the unit sheets)</span>
+            <div class="row" v-show="check.bookings"><span>Bookings with Accounting's amount (from the unit sheets)</span>
               <span class="r wrap">{{ check.bookings ? `${check.bookings.matched} of ${check.bookings.active} matched; the rest are fixed-rent or long-term units` : '' }}</span></div>
-            <div class="row" v-show="check.bookings?.ctripFinal"><span>Ctrip amounts taken as final</span><span class="r wrap">{{ `${check.bookings?.ctripFinal} Ctrip bookings use Finance's amount; nothing to type on Month-end` }}</span></div>
+            <div class="row" v-show="check.bookings?.ctripFinal"><span>Ctrip amounts taken as final</span><span class="r wrap">{{ `${check.bookings?.ctripFinal} Ctrip bookings use Accounting's amount; nothing to type on Month-end` }}</span></div>
             <div class="row" v-show="!check.bookings"><span class="neg-amt">Daily rental</span><span class="r wrap">No eZee sheet found in this file, so only the payouts are kept.</span></div>
             <div class="row" v-show="check.termChanges.length"><span>{{ `Unit settings from ${shortName(check.month)} (applied from that month)` }}</span>
               <span class="r wrap">{{ check.termChanges.map(t => t.label).join(', ') }}</span></div>
@@ -217,7 +217,7 @@
             <template v-for="h in pageRows" :key="h.id">
               <tr>
                 <td>{{ stamp(h.uploadedAt) }}</td>
-                <td><span>{{ h.fileName }}</span><div class="help">{{ h.kind === 'financeStatement' ? 'Finance statement (reference)' : 'eZee report' }}</div></td>
+                <td><span>{{ h.fileName }}</span><div class="help">{{ h.kind === 'financeStatement' ? 'Accounting statement (reference)' : 'eZee report' }}</div></td>
                 <td>{{ (h.months || []).map(shortName).join(', ') }}</td>
                 <td class="num">{{ h.kind === 'financeStatement' ? `${h.counts?.bookings ?? 0} / ${h.counts?.units ?? ''} units` : (h.counts?.bookings ?? '') }}</td>
                 <td>{{ h.uploadedByName || '' }}</td>
@@ -315,7 +315,7 @@ export default {
     async pick(file) {
       if (!file || this.working) return;
       this.reset();
-      if (!/\.(csv|xlsx)$/i.test(file.name)) { this.error = 'Choose the eZee report or Finance statement as .csv or .xlsx.'; return; }
+      if (!/\.(csv|xlsx)$/i.test(file.name)) { this.error = 'Choose the eZee report or Accounting statement as .csv or .xlsx.'; return; }
       this.lastFile = file;
       this.fileName = file.name; this.fileKind = /\.xlsx$/i.test(file.name) ? 'XLSX' : 'CSV';
       this.fileSize = file.size > 1048576 ? `${(file.size / 1048576).toFixed(1)} MB` : `${Math.ceil(file.size / 1024)} KB`;
@@ -503,7 +503,7 @@ export default {
 
     // ---- Finance's completed statement for a past month (reference only) ----
     async readStatement(st) {
-      this.stages[0].note = `Finance's completed statement for ${monthName(st.month)}`;
+      this.stages[0].note = `Accounting's completed statement for ${monthName(st.month)}`;
       this.percent = 30; await pause(250);
       this.stage = 2;
       let prop = this.property();
@@ -626,7 +626,7 @@ export default {
             effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
             reason: 'Default OTA settings, created on first upload', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp()
           });
-          audit(b, me, { action: 'property.create', entity: `properties/${p.id}`, propertyId: p.id, reason: 'New property found in Finance statement' });
+          audit(b, me, { action: 'property.create', entity: `properties/${p.id}`, propertyId: p.id, reason: 'New property found in Accounting statement' });
         }
         for (const code of c.newUnits) {
           b.set(doc(db, 'units', unitIdOf(p.id, code)), { propertyId: p.id, unitCode: code, ezeeRoomMatch: code,
@@ -637,7 +637,7 @@ export default {
         const stamp = Date.now();
         for (const t of c.termChanges)
           b.set(doc(db, 'units', t.unitId, 'terms', `${c.month}_${stamp}`), { ...t.terms, otaOverrides: null, effectiveFrom: c.month,
-            reason: `From Finance statement ${this.fileName}`, createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+            reason: `From Accounting statement ${this.fileName}`, createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
         for (const t of c.termChanges) markFrom(b, p.id, c.month, t.unitId);
         if (c.termChanges.length)
           audit(b, me, { action: 'unitTerms.fromStatement', entity: `properties/${p.id}`, propertyId: p.id, month: c.month,
@@ -646,7 +646,7 @@ export default {
         for (const u of c.negatives) {
           const unitId = unitIdOf(p.id, u.unitCode);
           b.set(doc(db, 'expenses', `bf_${unitId}_${c.next}`), { propertyId: p.id, unitId, date: `${c.next}-01`, month: c.next,
-            kind: 'broughtForward', type: 'broughtForward', description: `Brought forward from ${monthName(c.month)} (Finance statement)`, amount: r2(-u.payout),
+            kind: 'broughtForward', type: 'broughtForward', description: `Brought forward from ${monthName(c.month)} (Accounting statement)`, amount: r2(-u.payout),
             auto: true, sourceStatementId: null, sourceMonth: c.month, sourceImportId: batchRef.id, files: [], deleted: false,
             createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
         }

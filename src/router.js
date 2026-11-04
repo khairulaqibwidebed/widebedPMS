@@ -22,8 +22,10 @@ const routes = [
   page('/Dashboard', () => import('./pages/Dashboard/DashboardHome.vue'), 'Dashboard', ALL),
   ticked('/Reports', () => import('./pages/Reports/Reports.vue'), 'Reports', 'reports'),
 
-  ...['owners', 'properties', 'bookings'].map(section =>
-    ticked(`/Portfolio/${section}`, () => import('./pages/Portfolio/Portfolio.vue'), section[0].toUpperCase() + section.slice(1), 'portfolio', { section })),
+  // Portfolio: three separate pages (4 Nov 2026, Phase A). /Portfolio/properties?property=<id> is one property.
+  ticked('/Portfolio/owners', () => import('./pages/Portfolio/Owners/OwnersPage.vue'), 'Owners', 'portfolio'),
+  ticked('/Portfolio/properties', () => import('./pages/Portfolio/Properties/PropertiesRoute.vue'), 'Properties', 'portfolio'),
+  ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'portfolio'),
   ticked('/Portfolio/bulk-upload', () => import('./pages/Portfolio/BulkUpload.vue'), 'Bulk Upload', 'bulkUpload'),
   { path: '/Portfolio', redirect: to => ({ path: `/Portfolio/${['owners', 'bookings'].includes(to.query.tab) ? to.query.tab : 'properties'}`, query: { ...to.query, tab: undefined } }) },
 
@@ -37,7 +39,8 @@ const routes = [
   page('/Operations/issues', () => import('./pages/Operations/Issues.vue'), 'Issues', ALL),
   ticked('/Operations/offline-inquiries', () => import('./pages/Operations/SalesLeads.vue'), 'Offline Inquiries', 'offlineInquiries'),
   { path: '/Operations/sales-leads', redirect: to => ({ path: '/Operations/offline-inquiries', query: to.query }) },
-  ticked('/Operations/booking-forms', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
+  // One address per form (tabs); the old /Operations/booking-forms opens the Reservation tab
+  ticked('/Operations/booking-forms/:form(reservation|utility|property)?', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
 
   ticked('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'New Owner Listings', 'newOwnerListings'),
   { path: '/Procurement/new-listings', redirect: to => ({ path: '/Procurement/new-owner-listings', query: to.query }) },
@@ -56,6 +59,13 @@ const routes = [
 
   page('/Playbook/onboarding', () => import('./pages/Playbook/Onboarding.vue'), 'Onboarding', ALL),
   page('/Playbook/business-model', () => import('./pages/Playbook/BusinessModel.vue'), 'Business Model', ALL),
+
+  ticked('/Performance/quarters', () => import('./pages/Performance/Quarters.vue'), 'Quarterly Management', 'performance'),
+  page('/Performance/coh', () => import('./pages/Performance/COHEvaluate.vue'), 'COH Evaluations', ALL, { title: 'Code of conduct evaluations' }),
+  page('/Performance/kpi', () => import('./pages/Performance/KPI.vue'), 'KPI Management', ALL, { title: 'KPI management' }),
+  page('/Performance/tms', () => import('./pages/Performance/TMS.vue'), 'TMS Performance', ALL, { title: 'TMS performance' }),
+  page('/Performance/my', () => import('./pages/Performance/MyPerformance.vue'), 'My Performance', ALL, { title: 'My performance' }),
+  ticked('/Performance/approval', () => import('./pages/Performance/Approval.vue'), 'Final Approval', 'performance', { title: 'Final performance approval' }),
 
   // Staff accounts and Audit log: Director and HR (Khairul 21 Oct). Never tickable.
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),

@@ -4,19 +4,27 @@
 // My complaints. An anonymous one keeps nothing about the sender, not even in the audit log; the sender's own
 // browser remembers which refs they sent (wb.myAnonComplaints) so they can still see the status.
 import { db } from '@/lib/firebase.js';
-import { collection, doc, getDoc, getDocs, query, where, writeBatch, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { audit } from '@/lib/finance-data.js';
-import { notifyRole } from '@/services/notificationService';
+import { notifyRole, notifyUser } from '@/services/notificationService';
 
 export const today = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-export const STATUS = { new: ['New', 'amber'], review: ['In review', 'blue'], closed: ['Closed', 'green'] };
-const KIND = { staff: { counter: 'staffComplaints', prefix: 'CP-', width: 4 }, director: { counter: 'directorComplaints', prefix: 'DC-', width: 3 } };
+export const STATUS = { new: ['New', 'amber'], read: ['Read by HR', 'blue'], review: ['In review', 'blue'], closed: ['Closed', 'green'] };
+// Director complaints (4 Nov 2026): the Directors set the status like HR does on staff complaints. Ones sent before
+// that have only read: true/false, so dirStatus falls back to it.
+export const DSTATUS = { new: ['New', 'amber'], read: ['Read by the Directors', 'blue'], review: ['In review', 'blue'], closed: ['Closed', 'green'] };
+export const dirStatus = c => c.status || (c.read ? 'read' : 'new');
+// Staff complaint refs are SC-0001 (Staff Complaint). They were CP- until 4 Nov 2026; those older saved refs are shown as
+// SC- by showRef (same number, the counter carries on), so the old prefix never appears on screen.
+const KIND = { staff: { counter: 'staffComplaints', prefix: 'SC-', width: 4 }, director: { counter: 'directorComplaints', prefix: 'DC-', width: 3 } };
 const ms = t => (t?.toMillis ? t.toMillis() : 0);
+export const showRef = ref => String(ref || '').replace(/^CP-/, 'SC-');
 
 // Parent plus its private/main, newest first.
 async function withPrivate(docs) {
   const priv = await Promise.all(docs.map(d => getDoc(doc(db, 'complaints', d.id, 'private', 'main'))));
   return docs.map((d, i) => ({ id: d.id, ...d.data(), subject: '', details: '', fromName: '', files: [], ...(priv[i].exists() ? priv[i].data() : {}) }))
+    .map(c => ({ ...c, ref: showRef(c.ref) }))
     .sort((a, b) => ms(b.createdAt) - ms(a.createdAt) || b.ref.localeCompare(a.ref));
 }
 
@@ -35,7 +43,7 @@ export async function loadMyComplaints(uid) {
   const snap = await getDocs(query(collection(db, 'complaints'), where('kind', '==', 'staff'), where('fromId', '==', uid)));
   const named = await withPrivate(snap.docs);
   const anon = await Promise.all(anonReceipts().map(async r => {
-    try { const d = await getDoc(doc(db, 'complaints', r.id)); return d.exists() ? { ...r, ...d.data(), id: r.id, subject: r.subject } : null; }
+    try { const d = await getDoc(doc(db, 'complaints', r.id)); return d.exists() ? { ...r, ...d.data(), id: r.id, subject: r.subject, ref: showRef(d.data().ref || r.ref) } : null; }
     catch { return null; }
   }));
   return [...named, ...anon.filter(Boolean)].sort((a, b) => ms(b.createdAt) - ms(a.createdAt) || b.ref.localeCompare(a.ref));
@@ -44,7 +52,7 @@ export async function loadMyComplaints(uid) {
 // me = useSession(). One transaction takes the next number from counters/{name} (so two people never get
 // the same ref) and writes the complaint, its private part and the audit entry. Returns the new ref.
 // A new STAFF complaint also puts one notification on the HR bell (role notification, HR only).
-export async function createComplaint(me, kind, { subject, details, files, anonymous = false }) {
+export async function createComplaint(me, kind, { subject, details, files, anonymous = false, images = [] }) {
   const k = KIND[kind];
   const named = kind === 'director' || !anonymous;
   const c = doc(collection(db, 'complaints'));
@@ -57,7 +65,8 @@ export async function createComplaint(me, kind, { subject, details, files, anony
     tx.set(c, { ref, kind, date: today(), createdAt: serverTimestamp(),
       ...(kind === 'staff' ? { status: 'new', anonymous: !named } : { read: false }),
       ...(kind === 'staff' && named ? { fromId: me.user.uid } : {}) });
-    tx.set(doc(db, 'complaints', c.id, 'private', 'main'), { subject, details, files, ...(named ? { fromName: me.name } : {}) });
+    // Director complaints also keep the sender's uid (4 Nov 2026) so their profile picture shows. Staff complaints already have fromId.
+    tx.set(doc(db, 'complaints', c.id, 'private', 'main'), { subject, details, files, ...(named ? { fromName: me.name } : {}), ...(kind === 'director' ? { fromUid: me.user.uid } : {}) });
     if (named) audit(tx, me, { action: 'complaint.create', entity: `complaints/${c.id}`, changes: [{ field: 'ref', old: null, new: ref }] });
     // Anonymous: a neutral audit entry with no uid, name or role.
     else tx.set(doc(collection(db, 'auditLog')), { at: serverTimestamp(), uid: null, userName: 'Anonymous', role: null,
@@ -77,14 +86,125 @@ export async function createComplaint(me, kind, { subject, details, files, anony
           title: `New complaint to the Directors ${ref}`, message: 'HR sent a complaint to the Directors. Open it to read the details.' });
   } catch (e) { console.error('Notification failed:', e.code || '', e.message || e); }
 
+  // Photos (4 Nov 2026): saved after the complaint, one record each. Anonymous: no uid on them either.
+  if (images.length) {
+    try {
+      const b = writeBatch(db);
+      for (const im of images.slice(0, MAX_PHOTOS)) b.set(doc(collection(db, 'complaints', c.id, 'images')), imageDoc(im, 'complaint', null, named ? me.user.uid : null));
+      await b.commit();
+    } catch (e) { console.error('Photos not saved:', e.code || e.message); throw Object.assign(new Error(`Sent as ${ref}, but the photos could not be saved. Add them in a reply.`), { sentRef: ref }); }
+  }
+
   if (!named) keepAnonReceipt({ id: c.id, ref, date: today(), subject, anonymous: true });
   return ref;
 }
 
-// A Director opening a Director complaint marks it read.
+// HR opening a NEW staff complaint marks it "Read by HR" (4 Nov 2026), so the sender sees it under My complaints
+// (an anonymous sender too, on their own browser). A named sender also gets a notification; an anonymous one can't
+// (the PMS doesn't know who they are). The notification holds only the ref, never the subject or details.
+export async function markStaffRead(me, c) {
+  if (c.kind !== 'staff' || c.status !== 'new') return false;
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'complaints', c.id), { status: 'read', readAt: serverTimestamp(), readBy: me.user.uid });
+  audit(batch, me, { action: 'complaint.hrRead', entity: `complaints/${c.id}`, changes: [{ field: 'status', old: 'new', new: 'read' }] });
+  await batch.commit();
+  if (c.fromId) notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: '/HR/raise-complaint',
+    title: `HR has read your complaint ${c.ref}`, message: 'You can follow it under My complaints.' }).catch(e => console.warn('Notification not sent:', e));
+  return true;
+}
+
+// A Director opening a Director complaint marks it read (status Read by the Directors); HR and the other Directors are told.
 export async function markRead(me, c) {
   const batch = writeBatch(db);
-  batch.update(doc(db, 'complaints', c.id), { read: true, readAt: serverTimestamp(), readBy: me.user.uid });
+  batch.update(doc(db, 'complaints', c.id), { read: true, readAt: serverTimestamp(), readBy: me.user.uid, ...(c.status ? {} : { status: 'read' }) });
   audit(batch, me, { action: 'complaint.read', entity: `complaints/${c.id}`, changes: [{ field: 'read', old: false, new: true }] });
   await batch.commit();
+  tellBoth(c, `The Directors have read complaint ${c.ref}`, `${me.name || 'A Director'} opened it.`);
+}
+
+// ---- Follow-up (4 Nov 2026) ----
+// complaints/{id}/thread: the conversation between HR and the sender. HR replies; a NAMED sender replies back.
+//   The sender sees it under My complaints (an anonymous sender on the browser they sent from).
+// complaints/{id}/notes: HR's own notes, only HR reads them.
+// HR also sets In review or Closed (closing needs a note, posted to the sender) and can Reopen.
+// Nothing is ever edited or deleted. Notifications and audit entries carry the ref only, never the text.
+const TEXT_MAX = 2000;
+// Photos (4 Nov 2026): complaints/{id}/images, one shrunk JPEG per record (lib/image-shrink.js), readable by the same people
+// as the conversation. scope 'complaint' = sent with the complaint; 'thread' = with a reply (threadId). Never changed.
+export const MAX_PHOTOS = 5;
+function imageDoc(im, scope, threadId, byUid) {
+  return { data: im.data, w: im.w || 0, h: im.h || 0, size: im.size || 0, scope, ...(threadId ? { threadId } : {}), ...(byUid ? { byUid } : {}), createdAt: serverTimestamp() };
+}
+export async function loadImages(id) {
+  const snap = await getDocs(query(collection(db, 'complaints', id, 'images'), orderBy('createdAt')));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+const byTime = (a, b) => ms(a.createdAt) - ms(b.createdAt);
+export async function loadThread(id) {
+  const snap = await getDocs(query(collection(db, 'complaints', id, 'thread'), orderBy('createdAt')));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTime);
+}
+export async function loadNotes(id) {
+  const snap = await getDocs(query(collection(db, 'complaints', id, 'notes'), orderBy('createdAt')));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTime);
+}
+const clean = t => String(t || '').trim().slice(0, TEXT_MAX);
+const tell = p => p.catch(e => console.warn('Notification not sent:', e));
+// Director complaints: every update goes to HR and to the Directors (the person who made it never sees their own).
+function tellBoth(c, title, message = 'Open the complaint for the details.', roles = ['hr', 'director']) {
+  for (const r of roles) tell(notifyRole({ recipientRole: r, type: 'complaint', refId: c.id, link: `/HR/director-complaints?id=${c.id}`, title, message }));
+}
+
+// Staff complaints: by = 'hr' (HR replying) or 'sender' (the named sender replying back).
+// Director complaints (HR to the Directors): by = 'hr' or 'director'; each side's bell rings when the other replies.
+export async function addReply(me, c, text, by, images = []) {
+  const t = clean(text), pics = images.slice(0, MAX_PHOTOS);
+  if (!t && !pics.length) throw new Error('Write a reply or add a photo first.');
+  const b = writeBatch(db), r = doc(collection(db, 'complaints', c.id, 'thread'));
+  const imgs = pics.map(im => ({ ref: doc(collection(db, 'complaints', c.id, 'images')), im }));
+  b.set(r, { text: t, by, byName: me.name || '', byUid: me.user.uid, ...(imgs.length ? { imageIds: imgs.map(x => x.ref.id) } : {}), createdAt: serverTimestamp() });
+  for (const x of imgs) b.set(x.ref, imageDoc(x.im, 'thread', r.id, me.user.uid));
+  audit(b, me, { action: 'complaint.reply', entity: `complaints/${c.id}`, changes: [{ field: 'reply', old: null, new: by === 'hr' ? 'HR' : by === 'director' ? 'Director' : 'Sender' }] });
+  await b.commit();
+  if (c.kind === 'director') tellBoth(c, by === 'hr' ? `HR replied on complaint ${c.ref}` : `The Directors replied on complaint ${c.ref}`, 'Open the complaint to read it.');
+  else if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
+    title: `HR replied to your complaint ${c.ref}`, message: 'Open My complaints to read it.' }));
+  else if (by === 'sender') tell(notifyRole({ recipientRole: 'hr', type: 'complaint', refId: c.id, link: `/HR/staff-complaints?id=${c.id}`,
+    title: `New reply on complaint ${c.ref}`, message: 'The sender replied. Open the complaint to read it.' }));
+  return { id: r.id, text: t, by, byName: me.name || '', createdAt: null, imageIds: imgs.map(x => x.ref.id),
+    images: imgs.map(x => ({ id: x.ref.id, data: x.im.data })) };
+}
+
+export async function addNote(me, c, text) {
+  const t = clean(text);
+  if (!t) throw new Error('Write a note first.');
+  const b = writeBatch(db);
+  b.set(doc(collection(db, 'complaints', c.id, 'notes')), { text: t, byName: me.name || '', byUid: me.user.uid, createdAt: serverTimestamp() });
+  audit(b, me, { action: 'complaint.note', entity: `complaints/${c.id}`, changes: [{ field: 'note', old: null, new: 'added' }] });
+  await b.commit();
+  // Director complaints: notes are the Directors' own (HR never sees them), so only the other Directors are told
+  if (c.kind === 'director') tellBoth(c, `A Director added a note on complaint ${c.ref}`, 'Open the complaint to read it.', ['director']);
+  return { text: t, byName: me.name || '', createdAt: null };
+}
+
+// HR on a staff complaint, or the Directors on a Director complaint: 'read', 'review' (In review), 'closed' (needs a note,
+// which the other side sees) or back to 'review' (Reopen)
+export async function setStatus(me, c, status, note = '') {
+  const dir = c.kind === 'director', t = clean(note);
+  if (status === 'closed' && !t) throw new Error(dir ? 'Add a closing note for HR.' : 'Add a closing note for the sender.');
+  const b = writeBatch(db), old = dir ? dirStatus(c) : c.status;
+  b.update(doc(db, 'complaints', c.id), { status, statusAt: serverTimestamp(), statusBy: me.user.uid });
+  if (t) b.set(doc(collection(db, 'complaints', c.id, 'thread')), { text: t, by: dir ? 'director' : 'hr', byName: me.name || '', byUid: me.user.uid, closing: true, createdAt: serverTimestamp() });
+  audit(b, me, { action: 'complaint.status', entity: `complaints/${c.id}`, changes: [{ field: 'status', old, new: status }] });
+  await b.commit();
+  if (dir) {
+    const DTITLE = { read: `Complaint ${c.ref} is marked Read by the Directors`, review: `The Directors are looking into complaint ${c.ref}`, closed: `The Directors closed complaint ${c.ref}` };
+    return tellBoth(c, old === 'closed' ? `The Directors reopened complaint ${c.ref}` : DTITLE[status] || `Complaint ${c.ref} was updated`,
+      status === 'closed' ? 'Open the complaint to read the closing note.' : 'Open the complaint for the details.');
+  }
+  // Notification wording per status (edit the sentences here)
+  const TITLE = { read: `HR has read your complaint ${c.ref}`, review: `HR is looking into your complaint ${c.ref}`, closed: `Your complaint ${c.ref} is closed` };
+  const title = old === 'closed' ? `Your complaint ${c.ref} has been reopened` : TITLE[status] || `Your complaint ${c.ref} was updated`;
+  const message = status === 'closed' ? "Open My complaints to read HR's closing note." : 'Open My complaints for the details.';
+  if (c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`, title, message }));
 }

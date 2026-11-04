@@ -40,3 +40,30 @@ self.addEventListener('fetch', e => {
     })());
   }
 });
+
+// ---- Push (3 Nov 2026): api/push.js sends a data message through Firebase Cloud Messaging ----
+// Shown as a pop-up whether the PMS is open or closed. The tag (the notification id) stops one notice showing twice.
+self.addEventListener('push', e => {
+  let msg = {};
+  try { msg = e.data ? e.data.json() : {}; } catch (_) { msg = {}; }
+  const d = msg.data || msg;
+  e.waitUntil(self.registration.showNotification(d.title || 'Widebed PMS', {
+    body: d.body || '', tag: d.tag || undefined, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', data: { link: d.link || '/Notifications' }
+  }));
+});
+
+// Click: bring an open PMS window to the front on that page, or open a new one
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const link = new URL(e.notification.data?.link || '/Notifications', self.location.origin).href;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of wins) {
+      if (new URL(w.url).origin !== self.location.origin) continue;
+      await w.focus();
+      try { await w.navigate(link); } catch (_) { w.postMessage({ type: 'open', link }); }
+      return;
+    }
+    await self.clients.openWindow(link);
+  })());
+});

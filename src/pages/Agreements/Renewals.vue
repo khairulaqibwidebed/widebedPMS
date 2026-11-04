@@ -128,11 +128,12 @@ const KPIS = [
   { key: 'soon', label: 'Ending in 60 days', hint: 'Not renewed yet' },
   { key: 'ended', label: 'Ended, not renewed', hint: 'Past the end date' },
   { key: 'renewing', label: 'Renewing', hint: 'Renewal started' },
-  { key: 'renewed', label: 'Renewed', hint: 'New term made' }
+  { key: 'renewed', label: 'Renewed', hint: 'New term made' },
+  { key: 'notRenewing', label: 'Not renewing', hint: 'Tenant is leaving' }
 ];
+// Ending soon / Ended / Renewing / Renewed aren't repeated here — the KPI cards above already filter to those.
 const TABS = [
-  { key: 'action', label: 'Needs action' }, { key: 'soon', label: 'Ending soon' }, { key: 'ended', label: 'Ended' },
-  { key: 'renewing', label: 'Renewing' }, { key: 'active', label: 'Running' }, { key: 'renewed', label: 'Renewed' },
+  { key: 'action', label: 'Needs action' }, { key: 'active', label: 'Running' },
   { key: 'notRenewing', label: 'Not renewing' }, { key: 'noDate', label: 'No end date' }, { key: 'all', label: 'All' }
 ];
 const inTab = (r, t) => t === 'all' || (t === 'action' ? ['soon', 'ended', 'renewing'].includes(r.state.key) : r.state.key === t);
@@ -227,6 +228,7 @@ async function renew(r) {
 </script>
 
 <style scoped>
+.kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .rn-bar { margin-bottom: 12px; }
 .rn-search { max-width: 280px; }
 .rn-mine { margin: 0; }

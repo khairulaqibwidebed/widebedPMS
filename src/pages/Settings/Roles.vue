@@ -14,11 +14,13 @@
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <div class="table-wrap soft-wrap">
-      <table class="table hover-rows">
+      <!-- Fixed column widths: a long role name or description wraps onto the next line instead of pushing the columns (4 Nov 2026) -->
+      <table class="table hover-rows roles-table">
+        <colgroup><col class="c-role"><col class="c-desc"><col class="c-people"><col class="c-pages"><col class="c-status"><col class="c-acts"></colgroup>
         <thead><tr><th>Role</th><th>Description</th><th>People</th><th>Pages ticked</th><th>Status</th><th></th></tr></thead>
         <tbody>
           <tr v-for="r in rows" :key="r.id">
-            <td><span class="dot" :style="{ background: colourOf(r) }"></span> <button class="name-btn" @click="openEdit(r)" :disabled="r.id === 'director'">{{ r.name }}</button><span class="tag" v-if="r.builtin"> Built-in</span></td>
+            <td><span class="role-cell"><span class="dot" :style="{ background: colourOf(r) }"></span><span class="role-name"><button class="name-btn" @click="openEdit(r)" :disabled="r.id === 'director'">{{ r.name }}</button><span class="tag" v-if="r.builtin">Built-in</span></span></span></td>
             <td>{{ r.description || '-' }}</td>
             <td>{{ people[r.id] || 0 }}</td>
             <td>{{ r.id === 'director' ? 'All' : permCount(r) }}</td>
@@ -42,7 +44,10 @@
             <div class="notice error" v-show="panel.error">{{ panel.error }}</div>
             <div class="field">
               <label for="rName" class="req">Role name</label>
-              <input class="input" id="rName" v-model="panel.name" :readonly="panel.builtin" placeholder="e.g. Leasing">
+              <input class="input" id="rName" v-model="panel.name" maxlength="40" placeholder="e.g. Leasing">
+              <!-- Built-in roles: only the name shown changes; behind the scenes the role keeps its id and saved tag word -->
+              <span class="help" v-if="panel.builtin">{{ `Shown wherever this role's name appears (badges, tags, lists). Behind the scenes it stays "${BUILTIN_TAG[panel.id]}", so tickets, notifications and access keep working. Sentences written in the pages keep their wording.` }}
+                <button type="button" class="link" v-if="panel.name.trim() !== DEFAULT_LABEL[panel.id]" @click="panel.name = DEFAULT_LABEL[panel.id]">{{ `Reset to "${DEFAULT_LABEL[panel.id]}"` }}</button></span>
             </div>
             <div class="field">
               <label for="rDesc">Description</label>
@@ -106,7 +111,7 @@
 
 <script>
 import { collection, doc, getDocs, query, where, limit, serverTimestamp, writeBatch } from 'firebase/firestore';
-import { db, ROLE_LABEL, BUILTIN_ROLES, CUSTOM_ROLES, loadRoleRegistry } from '@/lib/firebase.js';
+import { db, ROLE_LABEL, BUILTIN_ROLES, CUSTOM_ROLES, BUILTIN_TAG, DEFAULT_LABEL, loadRoleRegistry } from '@/lib/firebase.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { useSession } from '@/stores/session.js';
@@ -125,7 +130,7 @@ const slug = s => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').
 const ORIGINAL = JSON.parse(JSON.stringify(PRESETS));
 
 export default {
-  data() { return { ORIGINAL, COLOURS, GROUP_NOTES, loading: true, error: '', okMsg: '', rolesDocs: {}, people: {}, accounts: {}, ticketUse: {}, panel: {}, panelOpen: false }; },
+  data() { return { ORIGINAL, COLOURS, GROUP_NOTES, BUILTIN_TAG, DEFAULT_LABEL, loading: true, error: '', okMsg: '', rolesDocs: {}, people: {}, accounts: {}, ticketUse: {}, panel: {}, panelOpen: false }; },
   computed: {
     rows() {
       const built = BUILTIN_ROLES.map(id => ({ id, name: ROLE_LABEL[id], builtin: true, active: true, description: this.rolesDocs[id]?.description || BUILTIN_TEXT[id], perms: id === 'director' ? [] : (PRESETS[id] || []) }));
@@ -225,9 +230,14 @@ export default {
       if (p.isNew) {
         id = slug(name);
         if (!id) return p.error = 'Use letters or numbers in the role name.';
-        if (BUILTIN_ROLES.includes(id) || this.rolesDocs[id] || this.rows.some(r => r.name.toLowerCase() === name.toLowerCase())) return p.error = 'A role with this name already exists.';
+        if (BUILTIN_ROLES.includes(id) || this.rolesDocs[id] || this.rows.some(r => r.name.toLowerCase() === name.toLowerCase())
+          || Object.values(BUILTIN_TAG).some(w => w.toLowerCase() === name.toLowerCase())) return p.error = 'A role with this name already exists.';   // also a built-in's saved word, e.g. "Finance"
       } else {
         if (!p.reason.trim()) return p.error = 'Add a short reason. It goes in the audit log.';
+        // A name must not match another role's (shown name or a built-in's saved word)
+        const clash = this.rows.some(r => r.id !== id && r.name.toLowerCase() === name.toLowerCase())
+          || Object.entries(BUILTIN_TAG).some(([k, w]) => k !== id && w.toLowerCase() === name.toLowerCase());
+        if (clash) return p.error = 'Another role already uses this name.';
         if (!p.builtin && !p.active && p.wasActive && this.people[id]) return p.error = `${this.people[id]} people still have this role. Move them to another role on Staff accounts first.`;
       }
       const perms = cleanPerms(p.perms);
@@ -235,6 +245,7 @@ export default {
       if (p.isNew) changes.push({ field: 'role', old: null, new: name });
       else {
         if (!samePerms(perms, p.before)) changes.push({ field: 'perms', old: p.before, new: perms });
+        if (p.builtin && name !== ROLE_LABEL[id]) changes.push({ field: 'name', old: ROLE_LABEL[id], new: name });
         if (!p.builtin && p.active !== p.wasActive) changes.push({ field: 'active', old: p.wasActive, new: p.active });
         if (!p.builtin && (name !== ROLE_LABEL[id] || p.description !== (CUSTOM_ROLES[id]?.description || '') || p.color !== (CUSTOM_ROLES[id]?.color || ''))) changes.push({ field: 'details', old: null, new: '(changed)' });
         if (!changes.length) { this.panelOpen = false; return; }
@@ -243,7 +254,7 @@ export default {
       try {
         const b = writeBatch(db);
         const data = p.builtin
-          ? { builtin: true, perms, updatedAt: serverTimestamp(), updatedBy: me.user.uid }
+          ? { builtin: true, perms, name, updatedAt: serverTimestamp(), updatedBy: me.user.uid }
           : { name, description: p.description.trim(), color: p.color, perms, active: p.active, builtin: false, updatedAt: serverTimestamp(), updatedBy: me.user.uid, ...(p.isNew ? { createdAt: serverTimestamp(), createdBy: me.user.uid } : {}) };
         b.set(doc(db, 'roles', id), data, { merge: true });
         b.set(doc(collection(db, 'auditLog')), {
@@ -262,7 +273,14 @@ export default {
 </script>
 
 <style scoped>
-.name-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; }
+.name-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.roles-table { table-layout: fixed; width: 100%; }
+.roles-table td, .roles-table th { white-space: normal; overflow-wrap: anywhere; vertical-align: middle; }
+.roles-table .c-role { width: 24%; } .roles-table .c-people { width: 90px; } .roles-table .c-pages { width: 120px; }
+.roles-table .c-status { width: 120px; } .roles-table .c-acts { width: 190px; }
+.role-cell { display: flex; align-items: flex-start; gap: 8px; }
+.role-cell .dot { flex: none; margin: 5px 0 0; }
+.role-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .name-btn:hover { text-decoration: underline; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }

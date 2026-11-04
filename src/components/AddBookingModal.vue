@@ -12,7 +12,7 @@
         <FormField id="adOut" label="Check-out" req type="date" v-model="a.departure" />
         <FormField id="adGp" label="Guest paid (RM)" req type="number" step="0.01" min="0" v-model="a.guestPaid" @input="autoShare()" />
         <FormField id="adPl" label="Platform cut (RM)" type="number" step="0.01" min="0" v-model="a.platform" @input="autoShare()" />
-        <div class="field"><label for="adPto" class="req">Owner share (RM)</label><input class="input" id="adPto" type="number" step="0.01" v-model="a.pto" @input="a.touched = true"><span class="help">Starts as guest paid ÷ 1.08 minus the platform cut. Change it if Finance's figure differs.</span></div>
+        <div class="field"><label for="adPto" class="req">Owner share (RM)</label><input class="input" id="adPto" type="number" step="0.01" v-model="a.pto" @input="a.touched = true"><span class="help">Starts as guest paid ÷ 1.08 minus the platform cut. Change it if Accounting's figure differs.</span></div>
       </div>
       <div class="field"><label for="adWhy" class="req">Reason</label><textarea class="input" id="adWhy" v-model="a.reason" placeholder="e.g. Booking missing from the eZee report"></textarea></div>
       <div class="modal-foot"><button class="btn" @click="close()" :disabled="busy">Cancel</button><button class="btn btn-primary" @click="save()" :disabled="busy">{{ busy ? 'Adding…' : 'Add booking' }}</button></div>

@@ -4,7 +4,7 @@
 
     <div class="page-head dash-head">
       <div>
-        <h1>{{ view === 'director' ? 'Director dashboard' : 'Finance dashboard' }}</h1>
+        <h1>{{ view === 'director' ? 'Director dashboard' : 'Accounting dashboard' }}</h1>
         <div class="sub">{{ subtitle() }}</div>
       </div>
       <div class="head-tools">
@@ -22,7 +22,7 @@
         <!-- KPI cards -->
         <section class="kpis">
           <RouterLink class="card kpi kpi-link" to="/Reports" title="Open Reports">
-            <div class="label">Rental income!!!!</div>
+            <div class="label">Rental income</div>
             <div class="value">{{ rm(data.rentalIncome) }}</div>
             <div class="hint">{{ `From eZee, checked out in ${shortMonth(month)}` }}</div>
           </RouterLink>
@@ -168,7 +168,7 @@
                 <div class="dq-grid col">
                   <RouterLink class="dq-tile dq-main" to="/Finance/statement-approvals">
                     <span class="dq-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></span>
-                    <span class="dq-txt"><b>Statement Approvals</b><small>{{ approvalsWaiting == null ? 'Check what Finance has sent' : approvalsWaiting ? `${approvalsWaiting} waiting for you` : 'Nothing waiting' }}</small></span>
+                    <span class="dq-txt"><b>Statement Approvals</b><small>{{ approvalsWaiting == null ? 'Check what Accounting has sent' : approvalsWaiting ? `${approvalsWaiting} waiting for you` : 'Nothing waiting' }}</small></span>
                     <span class="dq-go">&rsaquo;</span>
                   </RouterLink>
                   <RouterLink class="dq-tile" to="/Portfolio/properties?add=1">

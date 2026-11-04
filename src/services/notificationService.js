@@ -3,6 +3,7 @@ import {
 } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { auth, db } from "@/lib/firebase"
+import { sendPush } from "@/lib/push.js"
 
 const notificationsRef = collection(db, "notifications")
 
@@ -78,7 +79,7 @@ async function send({ recipientUid = null, recipientRole = null, title, message 
   if (!!recipientUid === !!recipientRole) throw new Error("Choose one recipient: a person or a role.")
   if (!title?.trim()) throw new Error("Notification title is required.")
 
-  return addDoc(notificationsRef, {
+  const ref = await addDoc(notificationsRef, {
     recipientUid,
     recipientRole,
     title: title.trim().slice(0, 200),
@@ -92,6 +93,8 @@ async function send({ recipientUid = null, recipientRole = null, title, message 
     createdByName: anonymous ? "" : user.displayName || "",
     createdAt: serverTimestamp(),
   })
+  sendPush(ref.id)   // phones and closed apps (lib/push.js, api/push.js); best effort
+  return ref
 }
 
 /** Notify one person. */

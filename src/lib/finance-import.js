@@ -45,7 +45,7 @@ export function sheetText(X, ws) {
 export function parseFinanceStatement(X, wb) {
   const warnings = [];
   const pto = findSheet(wb, /^payment to owner$/i);
-  if (!pto) throw new Error('This file has no "Payment To Owner" sheet. Use Finance\'s Rental Income Statement workbook.');
+  if (!pto) throw new Error('This file has no "Payment To Owner" sheet. Use Accounting\'s Rental Income Statement workbook.');
   const pRows = rowsOf(X, pto);
   const propertyCode = text(labelValue(pRows, /^property$/i)).replace(/^:\s*/, '').toUpperCase();
   const month = monthOf(labelValue(pRows, /^month$/i));

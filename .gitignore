@@ -3,3 +3,4 @@ dist
 *.local
 serviceAccount.json
 .env
+claude.md

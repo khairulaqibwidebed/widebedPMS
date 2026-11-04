@@ -12,7 +12,7 @@
     </template>
 
     <template v-else-if="!loading && !q">
-      <p class="help">{{ `Add the vendor's quote here. The cost is charged to the owner of ${ticket.unit}: Finance approves it and adds the invoice to the unit's expenses.` }}</p>
+      <p class="help">{{ `Add the vendor's quote here. The cost is charged to the owner of ${ticket.unit}: Accounting approves it and adds the invoice to the unit's expenses.` }}</p>
       <button class="btn btn-primary tq-wide" v-if="canQuote" @click="openEdit()">+ Add quote</button>
     </template>
 
@@ -82,7 +82,7 @@
     <div class="modal-back" v-if="inv" @click.self="inv = null" v-esc="() => { inv = null }">
       <form class="modal" role="dialog" aria-label="Add invoice" style="max-width:500px" @submit.prevent="saveInvoice()">
         <h2>Add invoice to owner statement</h2>
-        <p class="help" style="font-size:13px">{{ `Adds an expense line on ${ticket.unit} for the month you pick. It is deducted from the owner's payout. Finance can still edit it on Expenses & Reimbursements until the unit's statement is completed.` }}</p>
+        <p class="help" style="font-size:13px">{{ `Adds an expense line on ${ticket.unit} for the month you pick. It is deducted from the owner's payout. Accounting can still edit it on Expenses & Reimbursements until the unit's statement is completed.` }}</p>
         <div class="notice error" v-show="inv.error">{{ inv.error }}</div>
         <div class="grid-fields">
           <FormField id="tqInvNo" label="Invoice no." v-model="inv.no" placeholder="e.g. INV-2041" />

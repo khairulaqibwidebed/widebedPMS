@@ -19,26 +19,29 @@ const MY_ACCOUNT = G('My Account', 'user', [P('Profile & Appearance', '/Settings
 const AGREEMENTS = G('Agreements', 'fileText', [P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'fileText')]);
 const AGREEMENTS_DIR = G('Agreements', 'fileText', [P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'fileText'), P('Agreement Setup', '/Agreements/setup', 'sliders')]);
 const PLAYBOOK = G('Playbook', 'book', [P('Onboarding', '/Playbook/onboarding', 'book'), P('Business Model', '/Playbook/business-model', 'briefcase')]);
+// Everyone evaluates and is evaluated; only Director/HR (performance tick) also get Quarterly Management.
+const PERFORMANCE = G('Performance', 'chart', [P('My Performance', '/Performance/my', 'chart'), P('COH Evaluations', '/Performance/coh', 'users'), P('KPI Management', '/Performance/kpi', 'target'), P('TMS Performance', '/Performance/tms', 'clipboard')]);
+const PERFORMANCE_ADMIN = G('Performance', 'chart', [P('My Performance', '/Performance/my', 'chart'), P('Quarterly Management', '/Performance/quarters', 'calendar'), P('COH Evaluations', '/Performance/coh', 'users'), P('KPI Management', '/Performance/kpi', 'target'), P('TMS Performance', '/Performance/tms', 'clipboard'), P('Final Approval', '/Performance/approval', 'shieldCheck')]);
 
 export const NAV = {
   finance: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO_FD,
-    G('Finance', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
+    G('Accounting', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
-    AGREEMENTS, PLAYBOOK,
+    AGREEMENTS, PLAYBOOK, PERFORMANCE,
     HR_STAFF,
     MY_ACCOUNT
   ],
   director: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO_FD,
-    G('Finance', 'banknote', [P('Statement Approvals', '/Finance/statement-approvals', 'shieldCheck'), P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
+    G('Accounting', 'banknote', [P('Statement Approvals', '/Finance/statement-approvals', 'shieldCheck'), P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard')]),
     G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home'), P('Forms', '/Procurement/forms', 'filePlus')]),
-    AGREEMENTS_DIR, PLAYBOOK,
+    AGREEMENTS_DIR, PLAYBOOK, PERFORMANCE_ADMIN,
     G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'sliders'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
     G('HR', 'users', [P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
        P('Director Complaints', '/HR/director-complaints', 'shieldAlert'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]),
@@ -50,14 +53,14 @@ export const NAV = {
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO,
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'), P('Offline Payments', '/Finance/offline-payments', 'creditCard')]),
-    NEW_LISTINGS, AGREEMENTS, PLAYBOOK, HR_STAFF,
+    NEW_LISTINGS, AGREEMENTS, PLAYBOOK, PERFORMANCE, HR_STAFF,
     MY_ACCOUNT
   ],
   // IT: view-only except its own tickets.
   it: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
-    AGREEMENTS, PLAYBOOK, HR_STAFF,
+    AGREEMENTS, PLAYBOOK, PERFORMANCE, HR_STAFF,
     MY_ACCOUNT
   ],
   hr: [
@@ -65,7 +68,7 @@ export const NAV = {
     G('HR', 'users', [P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
       P('Staff Complaints', '/HR/staff-complaints', 'clipboard'), P('Director Complaints', '/HR/director-complaints', 'shieldAlert')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
-    AGREEMENTS, PLAYBOOK,
+    AGREEMENTS, PLAYBOOK, PERFORMANCE_ADMIN,
     G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Audit Log', '/Settings/audit-log', 'history')]),
     MY_ACCOUNT
   ],
@@ -74,14 +77,14 @@ export const NAV = {
     PORTFOLIO,
     G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home'), P('Forms', '/Procurement/forms', 'filePlus')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
-    AGREEMENTS, PLAYBOOK, HR_STAFF,
+    AGREEMENTS, PLAYBOOK, PERFORMANCE, HR_STAFF,
     MY_ACCOUNT
   ],
   marketing: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO,
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
-    NEW_LISTINGS, AGREEMENTS, PLAYBOOK, HR_STAFF,
+    NEW_LISTINGS, AGREEMENTS, PLAYBOOK, PERFORMANCE, HR_STAFF,
     MY_ACCOUNT
   ]
 };
@@ -90,7 +93,7 @@ export const NAV = {
 NAV.custom = [
   { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
   G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
-  AGREEMENTS, PLAYBOOK, HR_STAFF,
+  AGREEMENTS, PLAYBOOK, PERFORMANCE, HR_STAFF,
   MY_ACCOUNT
 ];
 const navOf = role => NAV[role] || NAV.custom;

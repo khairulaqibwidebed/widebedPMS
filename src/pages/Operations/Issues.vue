@@ -24,7 +24,7 @@
         <div class="iss-tools" ref="list">
           <input class="input" type="search" placeholder="Search ticket no., title or unit" v-model="search" aria-label="Search tickets">
           <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: f.label }))" label="Show" />
-          <OptionPicker v-model="tagFilter" :options="[{ value: '', label: 'All teams' }, ...TAGS.map(g => ({ value: g, label: g }))]" label="Filter by team" />
+          <OptionPicker v-model="tagFilter" :options="[{ value: '', label: 'All teams' }, ...TAGS.map(g => ({ value: g, label: tagLabel(g) }))]" label="Filter by team" />
           <OptionPicker v-model="unitFilter" searchable :options="[{ value: '', label: 'All units' }, ...unitList().map(un => ({ value: un, label: un }))]" label="Filter by unit" />
         </div>
 
@@ -38,8 +38,8 @@
                   <td class="nw ct-sub">{{ t.id }}<span class="ct-only" v-if="t.unit">{{ ' · ' + t.unit }}</span></td>
                   <td class="t-title ct-title">{{ t.title }}</td>
                   <td class="nw ct-hide">{{ t.unit || '—' }}</td>
-                  <td><div class="tag-wrap"><template v-for="g in t.tags" :key="g"><span class="tag">{{ g }}</span></template></div></td>
-                  <td><span class="who"><Avatar :uid="t.raisedByUid" :name="t.raisedBy" :role="t.raisedRole" :size="20" />{{ t.raisedBy }}<span class="tag role-tint" :style="roleTint(t.raisedRole)" v-if="showRole(t.raisedBy, t.raisedRole)">{{ t.raisedRole }}</span></span></td>
+                  <td><div class="tag-wrap"><template v-for="g in t.tags" :key="g"><span class="tag">{{ tagLabel(g) }}</span></template></div></td>
+                  <td><span class="who"><Avatar :uid="t.raisedByUid" :name="t.raisedBy" :role="t.raisedRole" :size="20" />{{ t.raisedBy }}<span class="tag role-tint" :style="roleTint(t.raisedRole)" v-if="showRole(t.raisedBy, t.raisedRole)">{{ tagLabel(t.raisedRole) }}</span></span></td>
                   <td class="nw">{{ day(t.raisedAt) }}</td>
                   <td class="nw ct-badge"><span class="pill" :class="STATUS[t.status].cls">{{ STATUS[t.status].label }}</span></td>
                   <td class="cnt ct-hide">{{ t.replyCount || 0 }}</td>
@@ -64,20 +64,20 @@
           <div>
             <a class="back-link" href="#" @click.prevent="back()">← All tickets</a>
             <h1>{{ ticket.id + ' · ' + ticket.title }}</h1>
-            <div class="sub">{{ (ticket.property || 'Office') + (ticket.unit ? ' · ' + ticket.unit : '') + ' · Raised by ' + ticket.raisedBy + (showRole(ticket.raisedBy, ticket.raisedRole) ? ` (${ticket.raisedRole})` : '') + ' on ' + stamp(ticket.raisedAt) }}</div>
+            <div class="sub">{{ (ticket.property || 'Office') + (ticket.unit ? ' · ' + ticket.unit : '') + ' · Raised by ' + ticket.raisedBy + (showRole(ticket.raisedBy, ticket.raisedRole) ? ` (${tagLabel(ticket.raisedRole)})` : '') + ' on ' + stamp(ticket.raisedAt) }}</div>
           </div>
         </div>
 
         <div class="side-grid">
           <div class="thread">
             <div class="post orig">
-              <div class="post-head"><Avatar :uid="ticket.raisedByUid" :name="ticket.raisedBy" :role="ticket.raisedRole" :size="24" /><b>{{ ticket.raisedBy }}</b><span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ ticket.raisedRole }}</span><span class="when">{{ stamp(ticket.raisedAt) }}</span><span class="tag">Original issue</span></div>
+              <div class="post-head"><Avatar :uid="ticket.raisedByUid" :name="ticket.raisedBy" :role="ticket.raisedRole" :size="24" /><b>{{ ticket.raisedBy }}</b><span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ tagLabel(ticket.raisedRole) }}</span><span class="when">{{ stamp(ticket.raisedAt) }}</span><span class="tag">Original issue</span></div>
               <p>{{ ticket.body }}</p>
               <div class="files" v-show="ticket.links.length"><template v-for="l in ticket.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
             </div>
             <template v-for="c in replies" :key="c.id">
               <div class="post">
-                <div class="post-head"><Avatar :uid="c.byUid" :name="c.by" :role="c.byRole" :size="24" /><b>{{ c.by }}</b><span class="tag role-tint" :style="roleTint(c.byRole)" v-if="showRole(c.by, c.byRole)">{{ c.byRole }}</span><span class="when">{{ stamp(c.at) }}</span></div>
+                <div class="post-head"><Avatar :uid="c.byUid" :name="c.by" :role="c.byRole" :size="24" /><b>{{ c.by }}</b><span class="tag role-tint" :style="roleTint(c.byRole)" v-if="showRole(c.by, c.byRole)">{{ tagLabel(c.byRole) }}</span><span class="when">{{ stamp(c.at) }}</span></div>
                 <p>{{ c.text }}</p>
                 <div class="files" v-show="c.links.length"><template v-for="l in c.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
               </div>
@@ -109,9 +109,9 @@
               <div class="kv"><span>Status</span><span><span class="pill" :class="STATUS[ticket.status].cls">{{ STATUS[ticket.status].label }}</span></span></div>
               <div class="kv"><span>Property</span><span>{{ ticket.property || '—' }}</span></div>
               <div class="kv"><span>Unit</span><span>{{ ticket.unit || '—' }}</span></div>
-              <div class="kv"><span>Raised by</span><span class="who">{{ ticket.raisedBy }}<span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ ticket.raisedRole }}</span></span></div>
+              <div class="kv"><span>Raised by</span><span class="who">{{ ticket.raisedBy }}<span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ tagLabel(ticket.raisedRole) }}</span></span></div>
               <div class="kv"><span>Raised on</span><span>{{ day(ticket.raisedAt) }}</span></div>
-              <div class="kv"><span>Tagged</span><span><template v-for="g in ticket.tags" :key="g"><span class="tag">{{ g }}</span></template></span></div>
+              <div class="kv"><span>Tagged</span><span><template v-for="g in ticket.tags" :key="g"><span class="tag">{{ tagLabel(g) }}</span></template></span></div>
               <button class="btn" style="width:100%;margin-top:8px" v-show="ticket.status !== 'done' && canUpdate()" @click="openTags()">Edit Department Tags </button>
             <div class="acts acts-card" v-if="(ticket.status !== 'done' && canUpdate()) || canDelete">
               <button class="btn btn-primary" @click="menuOpen = !menuOpen" aria-haspopup="menu" :aria-expanded="String(menuOpen)">Actions
@@ -145,7 +145,7 @@
           <div class="field" style="margin-bottom:8px"><label>Tag the roles who should handle it</label>
             <!-- Same chips + drop-down as Edit tags. Your own role is always tagged and has no × -->
             <div class="tag-pick">
-              <template v-for="g in TAGS.filter(x => raise.tags.includes(x))" :key="g"><span class="tag-chip" :class="g === myRole && 'locked'" :title="g === myRole ? 'Your role is always tagged' : null">{{ g }}<button type="button" v-if="g !== myRole" @click="raise.tags = raise.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
+              <template v-for="g in TAGS.filter(x => raise.tags.includes(x))" :key="g"><span class="tag-chip" :class="g === myRole && 'locked'" :title="g === myRole ? 'Your role is always tagged' : null">{{ tagLabel(g) }}<button type="button" v-if="g !== myRole" @click="raise.tags = raise.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
               <span class="help" v-show="!raise.tags.length">No roles tagged</span>
             </div>
             <OptionPicker class="add-role" v-show="raise.tags.length < TAGS.length" v-model="addPickR" :options="addOptionsR()" label="Add a role" @change="addTagR($event)" /></div>
@@ -172,7 +172,7 @@
           <!-- Tagged roles as chips (× removes one); the drop-down adds a role not yet tagged -->
           <div class="field"><label for="tAdd">Tagged roles</label>
             <div class="tag-pick">
-              <template v-for="g in TAGS.filter(x => tagEdit.tags.includes(x))" :key="g"><span class="tag-chip">{{ g }}<span class="lock" v-if="g === raiserTag()" title="The department that raised the ticket stays tagged"> (Raised)</span><button type="button" v-if="g !== raiserTag()"  @click="tagEdit.tags = tagEdit.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
+              <template v-for="g in TAGS.filter(x => tagEdit.tags.includes(x))" :key="g"><span class="tag-chip">{{ tagLabel(g) }}<span class="lock" v-if="g === raiserTag()" title="The department that raised the ticket stays tagged"> (Raised)</span><button type="button" v-if="g !== raiserTag()"  @click="tagEdit.tags = tagEdit.tags.filter(x => x !== g)" :aria-label="'Remove ' + g">×</button></span></template>
               <span class="help" v-show="!tagEdit.tags.length">No roles tagged</span>
             </div>
             <OptionPicker class="add-role" v-show="tagEdit.tags.length < TAGS.length" v-model="addPick" :options="addOptions()" label="Add a role" @change="addTag($event)" /></div>
@@ -202,7 +202,7 @@
         <h2>{{ 'Audit log · ' + ticket.id }}</h2>
               <div class="audit-list">
                 <template v-for="a in ticket.audit" :key="a.at + a.text">
-                  <div><div class="when">{{ stamp(a.at) }}</div><div v-if="a.by"><b>{{ a.by }}</b><span class="tag role-tint" :style="roleTint(a.role)" v-if="showRole(a.by, a.role)">{{ a.role }}</span> {{ a.text }}</div><div v-else>{{ a.text }}</div></div>
+                  <div><div class="when">{{ stamp(a.at) }}</div><div v-if="a.by"><b>{{ a.by }}</b><span class="tag role-tint" :style="roleTint(a.role)" v-if="showRole(a.by, a.role)">{{ tagLabel(a.role) }}</span> {{ a.text }}</div><div v-else>{{ a.text }}</div></div>
                 </template>
               </div>
         <div class="modal-foot"><button class="btn" @click="auditOpen = false">Close</button></div>
@@ -228,7 +228,7 @@
 // Completed tickets are locked by the rules too (no updates or replies once status is 'done').
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
-import { db, ROLE_LABEL, CUSTOM_ROLES } from '@/lib/firebase.js';
+import { db, ROLE_LABEL, CUSTOM_ROLES, issueTagOf, tagLabel } from '@/lib/firebase.js';
 import FormField from '@/components/FormField.vue';
 import ComboInput from '@/components/ComboInput.vue';
 import Avatar from '@/components/Avatar.vue';
@@ -242,7 +242,7 @@ import FileViewer from '@/components/FileViewer.vue';
 import TicketQuote from '@/components/TicketQuote.vue';
 
 const me = useSession();
-const myRole = ROLE_LABEL[me.role] || me.role;          // 'Finance', 'Director'
+const myRole = issueTagOf(me.role);          // the word saved on tickets: 'Finance' (shown as Accounting), 'Director'
 const isDirector = me.role === 'director';
 // Posts, Raised by and the ticket's audit trail show the person's name with their role as a badge.
 const myLabel = me.name || (isDirector ? 'Director' : `${myRole} user`);
@@ -258,7 +258,7 @@ const FILTERS = [{ key: 'all', label: 'All' }, { key: 'active', label: 'Not comp
 // Each tag is answered by one sign-in role ('Admin' has no sign-in role yet, so Directors cover it).
 // Roles made on the Roles page are tagged by name and notified by their id (rules Draft 0.21).
 // Directors see every ticket but are only notified when Director (or Admin) is tagged (Khairul, 3 Nov 2026).
-const TAG_ROLE = { Director: 'director', IT: 'it', Admin: 'director', HR: 'hr', Finance: 'finance', Operations: 'operations', Procurement: 'procurement', Marketing: 'marketing' };
+const TAG_ROLE = { Director: 'director', IT: 'it', Admin: 'director', HR: 'hr', Finance: 'finance', Accounting: 'finance', Operations: 'operations', Procurement: 'procurement', Marketing: 'marketing' };
 const roleForTag = g => TAG_ROLE[g] || Object.keys(CUSTOM_ROLES).find(id => CUSTOM_ROLES[id].name === g) || null;
 const LIST_LIMIT = 500;
 let unitCache = null;
@@ -292,6 +292,7 @@ export default {
     this.loading = false;
   },
   methods: {
+    tagLabel,   // saved tag word -> what is shown ("Finance" shows as Accounting)
     // Summary cards: set the list's filter (if any) and scroll to it.
     kpiGo(key, ref = 'list') { if (key) this.filter = key; this.$nextTick(() => this.$refs[ref]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); },
     roleTint,
@@ -399,7 +400,7 @@ export default {
       if (r.linkUrl.trim()) { this.addLink(r); if (r.error) return; }
       const code = r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
       const tags = TAGS.filter(g => r.tags.includes(g) || g === myRole);
-      const h = this.entry(`raised the ticket, tagged ${tags.join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
+      const h = this.entry(`raised the ticket, tagged ${tags.map(tagLabel).join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
       this.busy = true; r.error = '';
       try {
         // One transaction: the next IS number (counters/issues), the ticket and the audit entry.
@@ -418,9 +419,9 @@ export default {
           audit(tx, me, { action: 'issue.create', entity: `issues/${id}`, propertyId: unit?.propertyId || null, changes: [{ field: 'tags', old: null, new: tags.join(', ') }] });
           return id;
         });
-        this.raise = null; this.okMsg = `${id} raised and tagged ${tags.join(', ')}.`;
+        this.raise = null; this.okMsg = `${id} raised and tagged ${tags.map(tagLabel).join(', ')}.`;
         this.notify({ id, tags, raisedRole: myRole, raisedByUid: me.user.uid },
-          { title: `New issue ${id}`, message: `${myLabel} raised "${r.title.trim()}", tagged ${tags.join(', ')}.` });
+          { title: `New issue ${id}`, message: `${myLabel} raised "${r.title.trim()}", tagged ${tags.map(tagLabel).join(', ')}.` });
         await this.loadList();
       } catch (e) {
         console.error('Failed to raise issue:', {
@@ -474,9 +475,9 @@ export default {
       } catch (e) { this.error = friendlyError(e, 'update the ticket'); }
       this.busy = false;
     },
-    addOptionsR() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.raise.tags.includes(x)).map(g => ({ value: g, label: g }))]; },
+    addOptionsR() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.raise.tags.includes(x)).map(g => ({ value: g, label: tagLabel(g) }))]; },
     addTagR(v) { if (v && !this.raise.tags.includes(v)) this.raise.tags.push(v); this.addPickR = ''; },
-    addOptions() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.tagEdit.tags.includes(x)).map(g => ({ value: g, label: g }))]; },
+    addOptions() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.tagEdit.tags.includes(x)).map(g => ({ value: g, label: tagLabel(g) }))]; },
     addTag(v) { if (v && !this.tagEdit.tags.includes(v)) this.tagEdit.tags.push(v); this.addPick = ''; },
     // The department that raised the ticket stays tagged for good.
     raiserTag() { return this.ticket && this.ticket.tags.includes(this.ticket.raisedRole) ? this.ticket.raisedRole : null; },
@@ -495,7 +496,7 @@ export default {
           'issue.tags', [{ field: 'tags', old: t.tags.join(', '), new: tags.join(', ') }], e.reason.trim());
         t.tags = tags; this.tagEdit = null;
         if (added.length) this.notify(t, { title: `${t.id} tagged to ${added.join(', ')}`, message: `${myLabel} tagged "${t.title}" to ${added.join(', ')}. Reason: ${e.reason.trim()}`, tags: added, includeRaiser: false });
-        if (!this.canSee(t)) { this.okMsg = `${t.id} is no longer tagged to ${myRole}, so it has left your list.`; this.back(); }
+        if (!this.canSee(t)) { this.okMsg = `${t.id} is no longer tagged to ${tagLabel(myRole)}, so it has left your list.`; this.back(); }
       } catch (err) { e.error = friendlyError(err, 'save the tags'); }
       this.busy = false;
     },

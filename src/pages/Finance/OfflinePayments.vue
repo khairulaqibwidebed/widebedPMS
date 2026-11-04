@@ -57,7 +57,7 @@
             <div class="v-status" v-if="canEdit"><OptionPicker class="fld-pick" :model-value="view.status" :options="statusOptions(view.status)" label="Status" @update:modelValue="v => setStatus(view, v)" /></div>
             <span class="tag" v-else :class="'st-' + (view.status || '').toLowerCase()">{{ view.status }}</span>
           </div>
-          <div class="notice" v-if="opsEdit(view) && !editing">This payment has no receipt. Add the missing details or the receipt, then save. It becomes Edited and Finance is told.</div>
+          <div class="notice" v-if="opsEdit(view) && !editing">This payment has no receipt. Add the missing details or the receipt, then save. It becomes Edited and Accounting is told.</div>
           <div class="v-amount"><span>Amount</span><b>RM {{ Number(view.amount || 0).toFixed(2) }}</b></div>
           <div class="v-grid" v-if="!editing">
             <div class="v-item"><span>Property</span><b>{{ view.propertyName || '—' }}</b></div>
@@ -226,7 +226,7 @@ export default {
     },
     async tellFinance(p, who) {
       try { await notifyRole({ recipientRole: 'finance', type: 'payment', refId: p.id, link: '/Finance/offline-payments', title: 'Offline payment changed from Unknown to Edited',
-        message: `${who} filled in the details. Status changed from Unknown to Edited. RM ${Number(p.amount || 0).toFixed(2)} payment from ${p.guest}${p.unitCode ? ' (' + p.unitCode + ')' : ''}. Please check it.` }); } catch (e) { console.error('Finance notification failed', e); }
+        message: `${who} filled in the details. Status changed from Unknown to Edited. RM ${Number(p.amount || 0).toFixed(2)} payment from ${p.guest}${p.unitCode ? ' (' + p.unitCode + ')' : ''}. Please check it.` }); } catch (e) { console.error('Accounting notification failed', e); }
     },
     async load() {
       this.loading = true;
@@ -426,7 +426,7 @@ export default {
 .who { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .tag.st-edited { background: #E6EEFB; color: #2B5DB8; }
 .rep-modal { max-width: 640px; }
-.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
 .v-purpose { grid-column: 1 / -1; }
 .v-purpose b { white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 600; line-height: 1.5; }
 .purpose-box { min-height: 84px !important; resize: vertical; line-height: 1.5; padding-top: 10px; }

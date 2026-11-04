@@ -54,7 +54,7 @@
           </div>
           </Paged>
         </section>
-        <p class="page-note">Names and contact details are shown only to the staff member who logged the inquiry, the assigned staff member, Finance and the Directors.</p>
+        <p class="page-note">Names and contact details are shown only to the staff member who logged the inquiry, the assigned staff member, Accounting and the Directors.</p>
       </div>
     </template>
 
@@ -143,7 +143,7 @@
           </div>
           <div class="head-tools">
             <span class="pill" :class="STATUS[lead.status][1]">{{ STATUS[lead.status][0] }}</span>
-            <button class="btn btn-primary" v-if="canBook(lead)" @click="$router.push({ path: '/Operations/booking-forms', query: { lead: lead.id } })">Create booking</button>
+            <button class="btn btn-primary" v-if="canBook(lead)" @click="$router.push({ path: '/Operations/booking-forms/reservation', query: { lead: lead.id } })">Create booking</button>
           </div>
         </div>
         <div class="side-grid">
@@ -158,7 +158,7 @@
                 <div class="kv"><span>Deposit (2 months)</span><span>{{ rm(booking.deposit) }}</span></div>
               </template>
               <div class="kv" v-else-if="booking.amount"><span>Total paid</span><span>{{ rm(booking.amount) }}</span></div>
-              <div class="kv"><span>Payments</span><span>Finance › Offline Payments</span></div>
+              <div class="kv"><span>Payments</span><span>Accounting › Offline Payments</span></div>
               <div class="kv" v-if="booking.ezeeReservationNo"><span>eZee reservation no.</span><span>{{ booking.ezeeReservationNo }}</span></div>
               <div class="ezee-add" v-else>
                 <label for="addEzee">eZee reservation no. (not added yet)</label>
@@ -217,7 +217,7 @@
                 <div class="kv"><span>Name</span><span class="masked">Hidden</span></div>
                 <div class="kv"><span>Phone</span><span class="masked">Hidden</span></div>
                 <div class="kv"><span>Email</span><span class="masked">Hidden</span></div>
-                <p class="help">Only the staff member who logged it, the assigned staff member, Finance and the Directors see contact details.</p>
+                <p class="help">Only the staff member who logged it, the assigned staff member, Accounting and the Directors see contact details.</p>
               </div>
             </template>
             <div class="kv"><span>Budget</span><span>{{ lead.budget || '—' }}</span></div>
@@ -239,126 +239,6 @@
         <div class="modal-foot"><button class="btn" @click="histOpen = false">Close</button></div>
       </div>
     </div>
-
-    <!-- Create booking -->
-    <template v-if="view === 'book' && (lead || direct)">
-      <div>
-        <button class="back" v-if="!embedded" @click="bookBack()">{{ direct ? '← Back to Booking Forms' : `← Back to ${lead.id}` }}</button>
-        <div class="page-head">
-          <div>
-            <h1 v-if="!embedded">{{ direct ? 'New booking' : 'Create booking' }}</h1>
-            <div class="sub">{{ direct ? 'A booking without an inquiry, e.g. a walk-in or a returning tenant. Saving saves the customer as a tenant.'
-              : `From ${lead.id} · ${lead.lookingFor}. Saving marks the inquiry as paid and saves the customer as a tenant.` }}</div>
-          </div>
-          <div class="head-tools" v-if="!embedded">
-            <button class="btn" @click="bookBack()">Cancel</button>
-            <button class="btn btn-primary" @click="saveBooking()" :disabled="busy">Save booking</button>
-          </div>
-        </div>
-        <div class="notice error" v-show="formError">{{ formError }}</div>
-        <div :class="{ 'side-grid': !embedded }">
-          <div class="form-card">
-            <section class="card">
-              <h2>Tenant</h2>
-              <p class="help" v-if="bk.existing">{{ `Existing tenant ${bk.existing.id} has this phone number. Their details are filled in below and the booking will be added to their record.` }}</p>
-              <div class="grid-fields">
-                <FormField id="bName" label="Name" req v-model="bk.name" />
-                <FormField id="bPhone" label="Phone" req v-model="bk.phone" inputmode="tel" @change="refill(true)" />
-                <FormField id="bEmail" label="Email" type="email" v-model="bk.email" />
-                <FormField id="bIc" label="IC / Passport" req v-model="bk.icPassport" />
-                <FormField id="bNat" label="Nationality" v-model="bk.nationality" placeholder="e.g. Malaysian" />
-                <FormField id="bDob" label="Date of birth" type="date" v-model="bk.dob" />
-                <div class="field"><label for="bGender">Gender</label>
-                  <OptionPicker class="fld-pick" v-model="bk.gender" :options="GENDERS" label="Gender" placeholder="Not set" /></div>
-                <FormField v-if="bk.gender === 'Other'" id="bGenderOther" label="If other, type" req v-model="bk.genderOther" />
-              </div>
-            </section>
-            <section class="card" v-for="(c, ci) in bk.coTenants" :key="c.key">
-              <div class="card-head"><h2>{{ `Tenant ${ci + 2}` }}</h2><button type="button" class="btn" @click="bk.coTenants.splice(ci, 1)">Remove</button></div>
-              <div class="grid-fields">
-                <FormField :id="'cName' + ci" label="Name" req v-model="c.name" />
-                <FormField :id="'cPhone' + ci" label="Phone" req v-model="c.phone" inputmode="tel" />
-                <FormField :id="'cEmail' + ci" label="Email" type="email" v-model="c.email" />
-                <FormField :id="'cIc' + ci" label="IC / Passport" req v-model="c.icPassport" />
-                <FormField :id="'cNat' + ci" label="Nationality" v-model="c.nationality" />
-                <FormField :id="'cDob' + ci" label="Date of birth" type="date" v-model="c.dob" />
-                <div class="field"><label>Gender</label><OptionPicker class="fld-pick" v-model="c.gender" :options="GENDERS" placeholder="Not set" :label="`Gender of tenant ${ci + 2}`" /></div>
-                <FormField v-if="c.gender === 'Other'" :id="'cGo' + ci" label="If other, type" req v-model="c.genderOther" />
-              </div>
-            </section>
-            <div><button type="button" class="btn" @click="addCoTenant()">+ Add another tenant</button></div>
-            <section class="card">
-              <h2>Stay</h2>
-              <div class="grid-fields">
-                <div class="field"><label class="req" for="bProp">Property</label>
-                  <OptionPicker class="fld-pick" v-model="bk.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList()" /></div>
-                <div class="field"><label class="req" for="bUnit">Unit</label>
-                  <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="[{ value: '', label: bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-                <FormField id="bIn" label="Check-in" req type="date" v-model="bk.arrival" />
-                <FormField id="bOut" label="Check-out" req type="date" v-model="bk.departure" />
-              </div>
-              <p class="help" v-if="nights > 0">{{ `${nights} night${nights === 1 ? '' : 's'} · ${longTerm ? 'Long-term lease (30 nights or more)' : 'Short stay (29 nights or less)'}` }}</p>
-            </section>
-            <section class="card">
-              <h2>Booking details</h2>
-              <div class="grid-fields">
-                <div class="field"><label class="req">Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="SOURCES_BK" label="Booking source" /></div>
-                <div class="field"><label class="req">Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" /></div>
-                <div class="field"><label for="bRentType">Type of rent</label>
-                  <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" /></div>
-                <FormField v-if="longTerm" id="bRent" label="Rental (RM)" req type="number" min="0" step="0.01" v-model="bk.monthlyRent" />
-                <FormField v-else id="bRental" label="Rental (RM)" req type="number" min="0" step="0.01" v-model="bk.rental" />
-                <div class="field" v-if="longTerm"><label class="req">Security deposit (2 months)</label><div class="input readonly">{{ rm(deposit) }}</div></div>
-                <FormField v-else id="bSec" label="Security deposit (RM)" type="number" min="0" step="0.01" v-model="bk.securityDeposit" />
-                <FormField v-for="f in FEES" :key="f.key" :id="'bf' + f.key" :label="`${f.label} (RM)`" type="number" min="0" step="0.01" v-model="bk[f.key]" />
-                <FormField v-if="+bk.othersFee > 0" id="bOthersNote" label="Others: what is it for?" v-model="bk.othersNote" />
-              </div>
-            </section>
-            <section class="card">
-              <h2>Payment details</h2>
-              <p class="help" v-if="unpaid" style="margin:0 0 10px">Rental status is Unpaid, so payment details are optional. If you type an amount, add the mode, purpose and receipt too.</p>
-              <div class="grid-fields">
-                <FormField id="bAmt" :label="longTerm ? 'Amount paid (RM)' : 'Amount (RM)'" :req="!longTerm && !unpaid" type="number" min="0" step="0.01" v-model="bk.amount" />
-                <div class="field"><label :class="{ req: +bk.amount > 0 }" for="bMode">Mode of payment</label>
-                  <OptionPicker class="fld-pick" v-model="bk.payMode" :options="PAY_MODES" label="Mode of payment" /></div>
-                <FormField id="bPayDate" label="Date" type="date" v-model="bk.payDate" />
-                <FormField id="bRef" label="Reference numbers" v-model="bk.paymentRef" placeholder="e.g. bank transfer ref or receipt no." />
-                <FormField id="bEzee" label="eZee reservation no." v-model="bk.ezeeNo" placeholder="Add once it is keyed into eZee" />
-              </div>
-              <div class="field" style="margin-top:12px"><label :class="{ req: (!longTerm && !unpaid) || +bk.amount > 0 }" for="bNote">Purpose</label>
-                <textarea class="input" id="bNote" style="height:90px" v-model="bk.note" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
-              <div class="field" id="bReceipt" tabindex="-1" style="margin-top:12px"><label :class="{ req: +bk.amount > 0 }">Receipt</label>
-                <DriveFiles kind="offline-payments" :key="bk.payId" :record-id="bk.payId" :label="payLabel()" :list-on-load="false" @folder="l => bk.docsLink = l" /></div>
-              <p class="help">The payment is saved under Finance › Offline Payments (status Pending), not on the booking. Finance checks it there.</p>
-            </section>
-            <section class="card">
-              <h2>Door access and passcodes</h2>
-              <div class="grid-fields">
-                <FormField id="bPass" label="Main door passcode" v-model="bk.mainPasscode" autocomplete="off" />
-                <FormField id="bExp" label="Current expiry date" :req="!!bk.mainPasscode.trim()" type="date" v-model="bk.currentExpiry" />
-                <FormField id="bNextPass" label="Next door passcode" v-model="bk.nextPasscode" autocomplete="off" />
-                <FormField id="bNextExp" label="Next expiry date" :req="!!bk.nextPasscode.trim()" type="date" v-model="bk.nextExpiry" />
-              </div>
-            </section>
-            <div class="bottom-actions">
-              <button class="btn" @click="bookBack()">Cancel</button>
-              <button class="btn btn-primary" @click="saveBooking()" :disabled="busy">Save booking</button>
-            </div>
-          </div>
-          <section class="card next-list" v-if="!embedded">
-            <div class="card-head"><h2>When you save</h2></div>
-            <p>{{ bk.existing ? `- The booking is added to tenant ${bk.existing.id}.` : '- The customer is saved as a new tenant.' }}</p>
-            <p v-if="direct">- The booking gets the next booking no. for its property (like DM-014, shared with the Reservation Lodgment form), and shows under Portfolio > Bookings.</p>
-            <template v-else>
-              <p>{{ `- The booking is saved as offline_${lead.id}, so it can't be made twice.` }}</p>
-              <p>{{ `- ${lead.id} is marked Paid · Booked.` }}</p>
-            </template>
-            <p v-if="longTerm">- The lease starts on the check-in date and the rent cycle follows it.</p>
-            <p><b>- Key this booking into eZee to block the room.</b> Month-end pays the owner from the eZee booking; this copy keeps the tenant's history and is never counted twice.</p>
-          </section>
-        </div>
-      </div>
-    </template>
   </main>
 </template>
 
@@ -368,83 +248,49 @@
 //   offlineInquiries/{id}/private/main    contact name, phone, phoneKey, email (PDPA: never on the parent)
 //   tenants/{TEN-0001} + private/main     made by Create booking; a returning tenant is found by phoneKey
 //   offlineBookings/{offline_LD-0001}     the stay. Not in bookings: month-end reads bookings and pays from eZee.
-import { collection, collectionGroup, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
+// Create booking opens Operations > Booking forms > Reservation (pages/Operations/booking-forms/ReservationForm.vue, since 4 Nov 2026).
+import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, serverTimestamp, getCountFromServer } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import FormField from '@/components/FormField.vue';
-import DriveFiles from '@/components/DriveFiles.vue';
-import { showNotice } from '@/lib/confirm.js';
-import { idPrefix } from '@/lib/lodgment.js';
-import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
+import { audit, friendlyError } from '@/lib/finance-data.js';
+import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf } from '@/lib/offline.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 
 const me = useSession();
 
-const STATUS = { new: ['New', 'blue'], interested: ['Interested (Pending payment)', 'green'], considering: ['Considering', 'amber'], uninterested: ['Uninterested', 'grey'],
-  booked: ['Paid · Booked', 'accent'] };
 const PICKABLE = ['interested', 'considering', 'uninterested'];   // Booked is set only by Create booking
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'new', label: 'New' }, { key: 'interested', label: 'Interested (Pending payment)' },
   { key: 'considering', label: 'Considering' }, { key: 'uninterested', label: 'Uninterested' }, { key: 'booked', label: 'Booked' }];
 const ASSIGNERS = ['director'];
 const LOGGERS = ['director'];
-const CONTACT_ALL = ['director', 'finance'];
 const SEE_ALL = ['director', 'finance', 'it'];
-const DIRECT_BOOKERS = ['director', 'finance', 'operations'];
 const SOURCES = ['Walk-in', 'Phone call', 'WhatsApp', 'Referral', 'Agent', 'Other'];
-const LONG_TERM_NIGHTS = 30;
 const LIST_LIMIT = 500;
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const localIso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
-const nowIso = () => localIso(new Date());
-const isoOf = t => (t?.toDate ? localIso(t.toDate()) : typeof t === 'string' ? t : '');
-const num = (prefix, n) => `${prefix}-${String(n).padStart(4, '0')}`;
-const phoneKey = p => { const n = String(p || '').replace(/\D/g, ''); return n.startsWith('0') ? '6' + n : n; };
-const searchWords = name => [...new Set(String(name || '').toLowerCase().split(/\s+/).filter(Boolean)
-  .flatMap(w => Array.from({ length: Math.max(0, w.length - 1) }, (_, i) => w.slice(0, i + 2))))];
-const GENDERS = ['Male', 'Female', 'Other'].map(x => ({ value: x, label: x }));
-const SOURCES_BK = [{ value: '', label: 'Choose source…' }, ...['Offline', 'Website', 'Agent', 'OTA'].map(x => ({ value: x, label: x }))];
-const RENTAL_STATUSES = [{ value: '', label: 'Choose status…' }, { value: 'Paid', label: 'Paid' }, { value: 'Unpaid', label: 'Unpaid' }];
-const RENT_TYPES = ['Daily', 'Monthly', 'Yearly'].map(x => ({ value: x, label: x }));
-const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); PAY_MODES.unshift({ value: '', label: 'Choose mode' });
-const FEES = [{ key: 'utilityDeposit', label: 'Utility deposit' }, { key: 'internetFee', label: 'Internet fees' }, { key: 'carparkFee', label: 'Carpark fees' },
-  { key: 'cleaningFee', label: 'Cleaning fees' }, { key: 'taFee', label: 'Tenancy agreement fees' }, { key: 'taStampFee', label: 'Tenancy agreement stamping fees' }, { key: 'othersFee', label: 'Others' }];
-const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const toCents = v => Math.round((+v || 0) * 100) / 100;
 const emailOk = e => !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const stop = msg => Object.assign(new Error(msg), { plain: true });
 const errText = (e, what) => (e.plain ? e.message : friendlyError(e, what));
 const piiChanges = fields => fields.map(f => ({ field: f, old: null, new: '(changed)' }));
 
-async function findTenant(phone) {
-  const k = phoneKey(phone);
-  if (k.length < 9) return null;
-  const snap = await getDocs(query(collectionGroup(db, 'private'), where('kind', '==', 'tenant'), where('phoneKey', '==', k), limit(5)));
-  const hit = snap.docs.find(d => d.ref.path.startsWith('tenants/'));
-  return hit ? { id: hit.ref.path.split('/')[1], ...hit.data() } : null;
-}
-const privateOf = async ref => { const s = await getDoc(doc(ref, 'private', 'main')); return s.exists() ? s.data() : {}; };
-
 export default {
-  components: { OptionPicker, DriveFiles, FormField },
+  components: { OptionPicker, FormField },
   data() {
     return {
-      nextOpen: false, histOpen: false, STATUS, FILTERS, GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, PAY_MODES, FEES, SOURCES, PICKABLE,
+      nextOpen: false, histOpen: false, STATUS, FILTERS, SOURCES, PICKABLE,
       leads: [], staff: [], tenant: null, booking: null, tenantStays: 0, known: null,
       view: 'list', lead: null, filter: 'all', okMsg: '', formError: '', error: '', loading: true, busy: false,
-      direct: false, form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}, bk: {}, properties: [], units: []
+      form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}
     };
   },
-  props: { embedded: { type: Boolean, default: false }, leadId: { type: String, default: '' } },   // inside Operations > Booking Forms: only the new-booking form, no page navigation
-  emits: ['close', 'saved'],
   async mounted() {
-    if (this.embedded) { await this.show(this.leadId ? 'book' : 'direct', this.leadId); this.loading = false; return; }
     const q = this.$route.query;
     if ('new' in q) await this.show('new');
-    else if ('newBooking' in q) await this.show('direct');
-    else if (q.id && 'book' in q) { this.$router.replace({ path: '/Operations/booking-forms', query: { lead: q.id } }); return; }   // old link: bookings are made on Booking Forms now
+    // Old links: bookings are made on Booking forms > Reservation now
+    else if ('newBooking' in q) { this.$router.replace({ path: '/Operations/booking-forms/reservation' }); return; }
+    else if (q.id && 'book' in q) { this.$router.replace({ path: '/Operations/booking-forms/reservation', query: { lead: q.id } }); return; }
     else if (q.id) await this.show('lead', q.id);
     else { this.okMsg = history.state?.okMsg || ''; await this.show('list'); }
     this.loading = false;
@@ -460,18 +306,10 @@ export default {
   },
   beforeUnmount() { clearTimeout(this.phoneTimer); },
   computed: {
-    // Rental status Unpaid: the payment details are not required
-    unpaid() { return this.bk.rentalStatus === 'Unpaid'; },
     updDirty() { const l = this.lead, u = this.upd; return !!l && !!u && ((u.assignedToUid || '') !== (l.assignedToUid || '') || u.status !== l.status || !!(u.note || '').trim()); },
     canAssign() { return ASSIGNERS.includes(me.role); },
     canLog() { return LOGGERS.includes(me.role); },
     who() { const t = this.tenant, l = this.lead || {}; return t ? { name: t.name, phone: t.phone, email: t.email } : { name: l.contactName, phone: l.phone, email: l.email }; },
-    nights() {
-      const { arrival: a, departure: b } = this.bk;
-      return a && b ? Math.round((Date.parse(b) - Date.parse(a)) / 86400000) : 0;
-    },
-    longTerm() { return this.nights >= LONG_TERM_NIGHTS; },
-    deposit() { return toCents(this.bk.monthlyRent) * 2; }
   },
   methods: {
     discardUpdate() { const l = this.lead; this.upd = { assignedToUid: l.assignedToUid || '', status: l.status, note: '' }; this.formError = ''; },
@@ -504,7 +342,7 @@ export default {
     },
 
     go(view, id = null) {
-      const query = view === 'new' ? { new: '1' } : view === 'lead' ? { id } : view === 'book' ? { id, book: '1' } : {};
+      const query = view === 'new' ? { new: '1' } : view === 'lead' ? { id } : {};
       this.$router.push({ query, state: { okMsg: this.okMsg } });
     },
     async show(view, id) {
@@ -519,16 +357,11 @@ export default {
           }
           if (view === 'list') await this.loadList();
         }
-        if (view === 'direct') {
-          if (DIRECT_BOOKERS.includes(me.role)) { this.direct = true; view = 'book'; await this.startBooking(); }
-          else { view = 'list'; await Promise.all([this.loadList(), this.loadStaff()]); }
-        }
-        if (!this.direct && (view === 'lead' || view === 'book')) {
+        if (view === 'lead') {
           await Promise.all([this.loadLead(id), this.loadStaff()]);
-          if (!this.lead || (view === 'book' && !this.canBook(this.lead))) view = this.lead ? 'lead' : 'list';
+          if (!this.lead) view = 'list';
           if (view === 'list') await this.loadList();
           if (view === 'lead') { this.upd = { assignedToUid: this.lead.assignedToUid || '', status: this.lead.status, note: '' }; this.okMsg = history.state?.okMsg || ''; }
-          if (view === 'book') await this.startBooking();
         }
       } catch (e) { this.error = friendlyError(e, 'load the offline inquiries'); }
       this.view = view;
@@ -767,279 +600,6 @@ export default {
       this.busy = false;
     },
 
-    bookBack() { if (this.embedded) { this.$emit('close'); return; } if (this.direct) this.$router.push('/Operations/booking-forms'); else this.go('lead', this.lead.id); },
-    async startBooking() {
-      const ld = this.lead || { contactName: '', phone: '', email: '' };
-      this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null,
-        rentType: 'Daily', bookingSource: '', rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', othersFee: '', othersNote: '',
-        payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
-        propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
-      await this.refill();
-      try { this.properties = await loadProperties(); } catch { this.properties = []; this.formError = 'Could not load the property list. Check your connection and reload.'; }
-    },
-    async refill(typed = false) {
-      const phone = this.bk.phone;
-      const t = this.lead?.tenantId ? this.tenant : await findTenant(phone).catch(() => null);
-      if (typed && this.bk.phone !== phone) return;
-      this.bk.existing = t || null;
-      if (t) Object.assign(this.bk, { name: t.name || this.bk.name, email: t.email || this.bk.email, icPassport: t.icPassport || '', nationality: t.nationality || this.bk.nationality,
-        dob: t.dob || this.bk.dob, gender: t.gender || this.bk.gender, genderOther: t.genderOther || this.bk.genderOther });
-    },
-    async loadUnitList() {
-      this.bk.unitId = ''; this.units = [];
-      if (!this.bk.propertyId) return;
-      try { this.units = await loadUnits(this.bk.propertyId); } catch { this.formError = 'Could not load the units. Check your connection and try again.'; }
-    },
-    addCoTenant() { this.bk.coTenants.push({ key: Date.now() + Math.random(), name: '', phone: '', email: '', icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '' }); },
-    coError() {
-      const list = this.bk.coTenants;
-      for (let i = 0; i < list.length; i++) {
-        const c = list[i], n = `Tenant ${i + 2}`;
-        if (!c.name.trim()) return `Add the name of ${n}, or remove them.`;
-        if (phoneKey(c.phone).length < 9) return `Add a full phone number for ${n}.`;
-        if (c.email.trim() && !emailOk(c.email.trim())) return `The email for ${n} doesn't look right.`;
-        if (!c.icPassport.trim()) return `Add the IC or passport number of ${n}.`;
-        if (c.gender === 'Other' && !c.genderOther.trim()) return `Type the gender of ${n}, or pick another option.`;
-        if (phoneKey(c.phone) === phoneKey(this.bk.phone) || list.some((o, j) => j < i && phoneKey(o.phone) === phoneKey(c.phone))) return `${n} has the same phone number as another tenant on this booking.`;
-      }
-      return '';
-    },
-    // Each extra tenant gets their own tenant record (found by phone, or a new TEN number); returns their ids
-    async saveCoTenants() {
-      const ids = [];
-      for (const c of this.bk.coTenants) {
-        const details = { kind: 'tenant', name: c.name.trim(), phone: c.phone.trim(), phoneKey: phoneKey(c.phone), email: c.email.trim(),
-          icPassport: c.icPassport.trim(), nationality: c.nationality.trim(), searchWords: searchWords(c.name),
-          dob: c.dob || '', gender: c.gender || '', genderOther: c.gender === 'Other' ? c.genderOther.trim() : '' };
-        const known = await findTenant(c.phone), tcRef = doc(db, 'counters', 'tenants');
-        const id = await runTransaction(db, async tx => {
-          let tenantId = known?.id, n = 0;
-          if (!known) {
-            const cs = await tx.get(tcRef);
-            n = cs.exists() ? cs.data().next || 1 : 1; tenantId = num('TEN', n);
-            if ((await tx.get(doc(db, 'tenants', tenantId))).exists()) throw stop(`${tenantId} already exists. Ask a Director to check counters/tenants.`);
-          }
-          const tRef = doc(db, 'tenants', tenantId);
-          if (known) tx.update(tRef, { status: 'active', updatedAt: serverTimestamp(), updatedBy: me.user.uid });
-          else {
-            tx.set(tcRef, { next: n + 1 });
-            tx.set(tRef, { status: 'active', firstInquiryId: null, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
-          }
-          tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
-          return tenantId;
-        });
-        ids.push(id);
-      }
-      return ids;
-    },
-    // Door passcodes live in the booking's private record (Director, Finance, Operations only)
-    passcodes() { const b = this.bk; return { mainDoorPasscode: b.mainPasscode.trim(), currentExpiryDate: b.currentExpiry || '', nextDoorPasscode: b.nextPasscode.trim(), nextExpiryDate: b.nextExpiry || '' }; },
-    // Booking details and payment details that are saved on every offline booking
-    extra(coIds = []) {
-      const b = this.bk;
-      return { coTenantIds: coIds, bookingSource: b.bookingSource, rentalStatus: b.rentalStatus, moveInStatus: 'Ready_to_Send', moveOutStatus: 'Ready_to_Send',
-        passwordStatus: b.mainPasscode.trim() && b.currentExpiry ? 'Ready_to_Send' : '', rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
-        securityDeposit: this.longTerm ? this.deposit : toCents(b.securityDeposit),
-        utilityDeposit: toCents(b.utilityDeposit), internetFee: toCents(b.internetFee), carparkFee: toCents(b.carparkFee), cleaningFee: toCents(b.cleaningFee),
-        taFee: toCents(b.taFee), taStampFee: toCents(b.taStampFee), othersFee: toCents(b.othersFee), othersNote: +b.othersFee > 0 ? b.othersNote.trim() : ''};
-    },
-    // The unit code for the booking, read from the unit itself when the loaded list doesn't have it
-    async unitCodeOf(unitId) { try { const u = await getDoc(doc(db, 'units', unitId)); return u.exists() ? u.data().unitCode || '' : ''; } catch { return ''; } },
-    // Scrolls to the field a validation message is about and puts the cursor there
-    focusFor(msg) {
-      const MAP = [[/^Add the tenant/, '#bName'], [/^Add a full phone/, '#bPhone'], [/email address/, '#bEmail'], [/^Add the IC/, '#bIc'], [/^Type the gender/, '#bGenderOther'],
-        [/^Choose the property and unit/, '[aria-label="Property"]'], [/^Choose the booking source/, '[aria-label="Booking source"]'], [/^Choose the rental status/, '[aria-label="Rental status"]'],
-        [/check-in and check-out|^Check-out must/, '#bIn'], [/^Add the monthly rent/, '#bRent'], [/^Add the amount paid/, '#bAmt'], [/^Choose the mode of payment/, '[aria-label="Mode of payment"]'],
-        [/^Add the purpose/, '#bNote'], [/receipt/, '#bReceipt'], [/main door passcode/, '#bExp'], [/next door passcode/, '#bNextExp']];
-      const sel = (MAP.find(([re]) => re.test(msg)) || [])[1];
-      this.$nextTick(() => {
-        const el = sel && document.querySelector(sel);
-        if (!el) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        setTimeout(() => el.focus && el.focus({ preventScroll: true }), 350);
-      });
-    },
-    payLabel() { const b = this.bk; return [b.payDate, this.units.find(u => u.id === b.unitId)?.unitCode, b.name].filter(Boolean).join(' '); },
-    // The payment is saved in the Offline Payments collection (what Finance checks), inside the same write as the booking
-    payRecord(prop, unitCode, bookingId, bookingNo) {
-      const b = this.bk;
-      return { date: b.payDate || today(), amount: toCents(b.amount), mode: b.payMode, propertyId: b.propertyId, propertyName: prop?.name || '', unitCode: unitCode || b.unitId || '', unitId: b.unitId || '',
-        guest: b.name.trim(), purpose: b.note.trim() || `Booking ${bookingNo}`, bankRef: b.paymentRef.trim(), docsLink: b.docsLink || '', remarks: '',
-        status: 'Pending', verifiedByName: '', verifiedDate: '', bookingId, bookingNo,
-        createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name };
-    },
-    // An existing booking on this unit whose dates overlap: offline bookings, and eZee bookings in the months around the stay.
-    async findClash(b) {
-      try {
-        const hit = x => x.status !== 'cancelled' && (x.arrival || '') < b.departure && (x.departure || '9999') > b.arrival;
-        const offs = await getDocs(query(collection(db, 'offlineBookings'), where('unitId', '==', b.unitId)));
-        for (const d of offs.docs) if (hit(d.data())) return { no: d.data().bookingNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
-        const months = []; let y = +b.arrival.slice(0, 4), m = +b.arrival.slice(5, 7);
-        const endKey = b.departure.slice(0, 7);
-        for (let i = 0; i < 29; i++) { const k = `${y}-${String(m).padStart(2, '0')}`; months.push(k); if (k >= endKey) { m++; if (m > 12) { m = 1; y++; } months.push(`${y}-${String(m).padStart(2, '0')}`); break; } m++; if (m > 12) { m = 1; y++; } }
-        const ez = await getDocs(query(collection(db, 'bookings'), where('unitId', '==', b.unitId), where('departureMonth', 'in', months.slice(0, 30))));
-        for (const d of ez.docs) if (hit(d.data())) return { no: d.data().reservationNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
-      } catch (e) { console.warn('Could not check for clashing bookings:', e.code || e.message); }
-      return null;
-    },
-    async saveBooking() {
-      const b = this.bk, ld = this.lead;
-      const err = !b.name.trim() ? 'Add the tenant\'s name.'
-        : phoneKey(b.phone).length < 9 ? 'Add a full phone number. It is how a returning tenant is recognised.'
-        : !emailOk(b.email.trim()) ? 'That email address doesn\'t look right.'
-        : !b.icPassport.trim() ? 'Add the IC or passport number.'
-        : b.gender === 'Other' && !b.genderOther.trim() ? 'Type the gender, or pick another option.'
-        : !b.unitId ? 'Choose the property and unit.'
-        : !b.bookingSource ? 'Choose the booking source.'
-        : !b.rentalStatus ? 'Choose the rental status.'
-        : !b.arrival || !b.departure ? 'Add the check-in and check-out dates.'
-        : this.nights <= 0 ? 'Check-out must be after check-in.'
-        : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent. The 2-month deposit is worked out from it.'
-        : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
-        : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
-        : +b.amount > 0 && !b.note.trim() ? 'Add the purpose of the payment.'
-        : +b.amount > 0 && !b.docsLink ? 'Upload at least one receipt for the payment.'
-        : b.mainPasscode.trim() && !b.currentExpiry ? 'Add the expiry date of the main door passcode.'
-        : b.nextPasscode.trim() && !b.nextExpiry ? 'Add the expiry date of the next door passcode.' : this.coError();
-      if (err) { this.formError = err; this.focusFor(err); return; }
-      // Same unit, overlapping dates: refused (a check-out on the day of the next check-in is fine)
-      const clash = await this.findClash(b);
-      if (clash) { this.formError = `${b.unitId ? (this.units.find(u => u.id === b.unitId)?.unitCode || 'This unit') : 'This unit'} is already booked ${this.full(clash.arrival)} to ${this.full(clash.departure)} (${clash.no}). Pick other dates or another unit.`; return; }
-      if (this.direct) return this.saveDirect();
-
-      this.busy = true; this.formError = '';
-      try {
-        const prop = this.properties.find(p => p.id === b.propertyId), unit = this.units.find(u => u.id === b.unitId);
-        const details = { kind: 'tenant', name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(),
-          icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name),
-          dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
-        const coIds = await this.saveCoTenants();
-        const known = this.lead.tenantId ? this.tenant : await findTenant(b.phone);
-        const bookingId = `offline_${ld.id}`, unitCode = unit?.unitCode || await this.unitCodeOf(b.unitId);
-        const lRef = doc(db, 'offlineInquiries', ld.id), bRef = doc(db, 'offlineBookings', bookingId), cRef = doc(db, 'counters', 'tenants');
-        
-        const res = await runTransaction(db, async tx => {
-          if ((await tx.get(bRef)).exists()) throw stop(`${ld.id} already has a booking.`);
-          // Booking no. in the Reservation Lodgment style (DM-014); the counter is shared with the lodgment form
-          const lcRef = doc(db, 'lodgmentCounters', idPrefix(prop?.name)), lc = await tx.get(lcRef), ln = lc.exists() ? lc.data().next || 1 : 1, bookingNo = `${idPrefix(prop?.name)}-${String(ln).padStart(3, '0')}`;
-          const ls = await tx.get(lRef);
-          if (!ls.exists() || ls.data().bookingId) throw stop(`${ld.id} already has a booking.`);
-          let tenantId = known?.id, n = 0;
-          if (!known) {
-            const c = await tx.get(cRef);
-            n = c.exists() ? c.data().next || 1 : 1; tenantId = num('TEN', n);
-            if ((await tx.get(doc(db, 'tenants', tenantId))).exists()) throw stop(`${tenantId} already exists. Ask a Director to check counters/tenants.`);
-          }
-          const tRef = doc(db, 'tenants', tenantId);
-          if (known) tx.update(tRef, { status: 'active', lastInquiryId: ld.id, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
-          else {
-            tx.set(cRef, { next: n + 1 });
-            tx.set(tRef, { status: 'active', firstInquiryId: ld.id, lastInquiryId: ld.id, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
-          }
-          tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
-          tx.set(lcRef, { next: ln + 1 });
-          tx.set(bRef, { source: 'offline', inquiryId: ld.id, bookingNo, tenantId,
-            propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
-            arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
-            monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
-            ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
-            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
-          tx.set(doc(bRef, 'private', 'main'), this.passcodes());
-          if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), this.payRecord(prop, unitCode, bookingId, bookingNo));
-          const h = this.entry(`Paid and booked: ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. `
-            + `${!known ? `Saved as new tenant ${details.name} (${tenantId}).` : `Added to existing tenant ${details.name} (${tenantId}).`}${b.note.trim() ? ' ' + b.note.trim() : ''}`);
-          tx.update(lRef, { status: 'booked', tenantId, bookingId, updatedAt: serverTimestamp(), history: arrayUnion(h) });
-          tx.set(doc(lRef, 'private', 'main'), { contactName: details.name, phone: details.phone, phoneKey: details.phoneKey, email: details.email }, { merge: true });
-          audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
-            changes: [{ field: 'status', old: ld.status, new: 'booked' }, { field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
-          return { isNew: !known, bookingNo };
-        });
-
-        this.okMsg = `${ld.id} booked as ${res.bookingNo}. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`}`;
-
-        // Notify Finance and Directors to key the booking into eZee
-        this.notify({
-          roles: ['finance', 'director'],
-          title: 'New offline booking',
-          refId: bookingId,
-          message: `${ld.id} booked as ${res.bookingNo}: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
-          link: `/Operations/offline-inquiries?id=${ld.id}`
-        });
-
-        // Status moved to Booked — Operations hears about it too (Finance/Director got the eZee note above)
-        this.notify({
-          roles: ['operations'],
-          title: 'Inquiry status changed',
-          refId: ld.id,
-          message: `${ld.id}: ${me.name} changed the status from ${STATUS[ld.status][0]} to ${STATUS.booked[0]}.`,
-          link: `/Operations/offline-inquiries?id=${ld.id}`
-        });
-
-        if (this.embedded) { this.$emit('saved', this.okMsg); this.$emit('close'); this.busy = false; showNotice('Booking saved', this.okMsg, 'ok'); return; }
-        this.go('lead', ld.id);
-      } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
-      this.busy = false;
-    },
-
-    async saveDirect() {
-      const b = this.bk;
-      this.busy = true; this.formError = '';
-      try {
-        const prop = this.properties.find(p => p.id === b.propertyId), unit = this.units.find(u => u.id === b.unitId);
-        const details = { kind: 'tenant', name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(),
-          icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name),
-          dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
-        const coIds = await this.saveCoTenants();
-        const known = await findTenant(b.phone), unitCode = unit?.unitCode || await this.unitCodeOf(b.unitId);
-        const bcRef = doc(db, 'counters', 'offlineBookings'), tcRef = doc(db, 'counters', 'tenants');
-        const res = await runTransaction(db, async tx => {
-          const bc = await tx.get(bcRef), bn = bc.exists() ? bc.data().next || 1 : 1, bookingId = `offline_${num('BK', bn)}`;
-          const bRef = doc(db, 'offlineBookings', bookingId);
-          const lcRef = doc(db, 'lodgmentCounters', idPrefix(prop?.name)), lc = await tx.get(lcRef), ln = lc.exists() ? lc.data().next || 1 : 1, bookingNo = `${idPrefix(prop?.name)}-${String(ln).padStart(3, '0')}`;
-          if ((await tx.get(bRef)).exists()) throw stop(`${bookingId} already exists. Ask a Director to check counters/offlineBookings.`);
-          let tenantId = known?.id, n = 0;
-          if (!known) {
-            const c = await tx.get(tcRef);
-            n = c.exists() ? c.data().next || 1 : 1; tenantId = num('TEN', n);
-            if ((await tx.get(doc(db, 'tenants', tenantId))).exists()) throw stop(`${tenantId} already exists. Ask a Director to check counters/tenants.`);
-          }
-          const tRef = doc(db, 'tenants', tenantId);
-          tx.set(bcRef, { next: bn + 1 });
-          if (known) tx.update(tRef, { status: 'active', lastBookingId: bookingId, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
-          else {
-            tx.set(tcRef, { next: n + 1 });
-            tx.set(tRef, { status: 'active', firstInquiryId: null, lastBookingId: bookingId, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
-          }
-          tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
-          tx.set(lcRef, { next: ln + 1 });
-          tx.set(bRef, { source: 'direct', inquiryId: null, bookingNo, tenantId,
-            propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
-            arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
-            monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
-            ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
-            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
-          tx.set(doc(bRef, 'private', 'main'), this.passcodes());
-          if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), this.payRecord(prop, unitCode, bookingId, bookingNo));
-          audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
-            changes: [{ field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
-          return { isNew: !known, bookingId, bookingNo };
-        });
-
-        const okMsg = `${res.bookingNo} saved. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`} Key it into eZee to block the room.`;
-
-        this.notify({
-          roles: ['finance', 'director'],
-          title: 'New offline booking',
-          refId: res.bookingId,
-          message: `${res.bookingNo}: ${details.name}, ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. Key it into eZee.`,
-          link: '/Portfolio/bookings'
-        });
-
-        if (this.embedded) { this.$emit('saved', okMsg); await this.startBooking(); window.scrollTo(0, 0); showNotice('Booking saved', okMsg, 'ok'); }
-        else this.$router.push({ path: '/Portfolio/bookings', state: { okMsg } });
-      } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
-      this.busy = false;
-    }
   }
 };
 </script>

@@ -5,7 +5,7 @@
     <div class="page-head">
       <div>
         <h1>Statement Approvals</h1>
-        <div class="sub">Unit statements Finance has sent to you. Approving completes the statement and locks it.</div>
+        <div class="sub">Unit statements Accounting has sent to you. Approving completes the statement and locks it.</div>
       </div>
       <div class="head-tools">
         <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="refilter()" />
@@ -17,8 +17,8 @@
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <section class="kpis sa-kpis">
-      <button type="button" class="card kpi kpi-link" :class="{ on: tab === 'waiting' }" @click="tab = 'waiting'"><div class="label">Waiting for you</div><div class="value" :class="{ alert: waiting.length }">{{ waiting.length }}</div><div class="hint">Sent by Finance</div></button>
-      <div class="card kpi"><div class="label">Sent back</div><div class="value">{{ returnedCount == null ? '…' : returnedCount }}</div><div class="hint">With Finance to fix</div></div>
+      <button type="button" class="card kpi kpi-link" :class="{ on: tab === 'waiting' }" @click="tab = 'waiting'"><div class="label">Waiting for you</div><div class="value" :class="{ alert: waiting.length }">{{ waiting.length }}</div><div class="hint">Sent by Accounting</div></button>
+      <div class="card kpi"><div class="label">Sent back</div><div class="value">{{ returnedCount == null ? '…' : returnedCount }}</div><div class="hint">With Accounting to fix</div></div>
       <button type="button" class="card kpi kpi-link" :class="{ on: tab === 'history' }" @click="openHistory()"><div class="label">History</div><div class="value">{{ historyLoaded ? history.filter(h => h.status === 'approved').length + (historyMore ? '+' : '') : '—' }}</div><div class="hint">{{ historyLoaded ? `approved in ${monthName(month)}` : 'Open to see approved and sent back' }}</div></button>
     </section>
 
@@ -41,7 +41,7 @@
                     <td>{{ a.snapshot?.arrangementLabel || '—' }}</td>
                     <td class="num">{{ amt(a.snapshot?.totals?.totalReceivable) }}</td>
                     <td class="num" :class="a.payout < 0 ? 'neg-amt' : ''"><b>{{ amt(a.payout) }}</b></td>
-                    <td>{{ `${a.submittedByName || 'Finance'} · ${stamp(a.submittedAt)}` }}</td>
+                    <td>{{ `${a.submittedByName || 'Accounting'} · ${stamp(a.submittedAt)}` }}</td>
                     <td><span class="pill red" v-if="a.payout < 0">Negative balance</span> <span class="pill amber" v-if="a.again">Revision after reopen</span> <span class="pill amber hand-pill" v-if="a.handChanges">{{ handText(a.handChanges) }}</span></td>
                     <td class="num"><button class="editlink" @click.stop="view(a)">Review</button></td>
                   </tr>
@@ -87,7 +87,7 @@
         <div class="drawer-head"><h2>{{ `${sel.unitCode} · ${monthName(sel.month)}` }}</h2><button class="icon-btn" @click="close()" aria-label="Close">×</button></div>
         <div class="drawer-body">
           <div class="notice error" v-show="drawerError">{{ drawerError }}</div>
-          <p class="help" style="margin:0 0 12px">{{ `${propertyName(sel.propertyId)} · ${s.arrangementLabel || ''} · sent by ${sel.submittedByName || 'Finance'}, ${stamp(sel.submittedAt)}. These numbers are frozen.` }}</p>
+          <p class="help" style="margin:0 0 12px">{{ `${propertyName(sel.propertyId)} · ${s.arrangementLabel || ''} · sent by ${sel.submittedByName || 'Accounting'}, ${stamp(sel.submittedAt)}. These numbers are frozen.` }}</p>
           <div class="sa-sum">
             <div class="row"><span>{{ s.fixed ? 'Fixed rent' : 'Total receivable' }}</span><span>{{ amt(s.totals.totalReceivable) }}</span></div>
             <template v-if="!s.fixed">
@@ -95,7 +95,7 @@
               <div class="row sub" v-show="s.rates.utilityFeePct"><span>{{ `Utilities (${pct(s.rates.utilityFeePct)})` }}</span><span>{{ amt(-s.totals.utilityFee) }}</span></div>
               <div class="row sub" v-show="s.rates.sstOnFeePct"><span>{{ `SST on fee (${pct(s.rates.sstOnFeePct)})` }}</span><span>{{ amt(-s.totals.sstOnFee) }}</span></div>
             </template>
-            <template v-for="e in (s.expenseLines || [])" :key="e.expenseId"><div class="row sub"><span>{{ `${dmy(e.date)} · ${e.description}` }}</span><span>{{ amt(e.amount) }}</span></div></template>
+            <template v-for="e in (s.expenseLines || [])" :key="e.expenseId"><div class="row sub"><span>{{ e.description }}</span><span>{{ amt(e.amount) }}</span></div></template>
             <div class="row total" :class="{ 'neg-amt': s.totals.payout < 0 }"><span>{{ s.totals.payout < 0 ? 'Payout (negative, carried forward)' : 'Payout to owner' }}</span><span>{{ 'RM ' + amt(s.totals.payout) }}</span></div>
           </div>
           <div class="notice warn hand-note" v-if="sel.handChanges">
@@ -124,7 +124,7 @@
         <div class="drawer-foot">
           <button class="btn" v-show="!returning" @click="startReturn()" :disabled="busy">Send back</button>
           <button class="btn" v-show="returning" @click="returning = false" :disabled="busy">Cancel</button>
-          <button class="btn btn-primary" v-show="returning" @click="sendBack()" :disabled="busy || !returnReason.trim()">Send back to Finance</button>
+          <button class="btn btn-primary" v-show="returning" @click="sendBack()" :disabled="busy || !returnReason.trim()">Send back to Accounting</button>
           <button class="btn btn-primary" v-show="!returning" @click="approveOne()" :disabled="busy">{{ busy ? 'Approving…' : 'Approve' }}</button>
         </div>
       </aside>
@@ -316,10 +316,10 @@ export default {
         const back = { title: 'Statement sent back', message: `${a.unitCode} · ${monthName(a.month)}: ${reason}`,
           type: 'statement', link: `/Finance/month-end?property=${a.propertyId}&month=${a.month}`, refId: a.id };
         (a.submittedBy ? (a.submittedBy !== me.user.uid ? notifyUser({ ...back, recipientUid: a.submittedBy }) : Promise.resolve()) : notifyRole({ ...back, recipientRole: 'finance' }))
-          .catch(e => console.warn('Finance notification not sent:', e));
+          .catch(e => console.warn('Accounting notification not sent:', e));
         this.waiting = this.waiting.filter(x => x.id !== a.id);
         if (this.returnedCount != null) this.returnedCount++;
-        this.okMsg = `${a.unitCode} sent back to Finance.`;
+        this.okMsg = `${a.unitCode} sent back to Accounting.`;
         this.sel = null;
       } catch (e) { this.drawerError = friendlyError(e, 'send the statement back'); }
       this.busy = false;
