@@ -108,7 +108,7 @@
             </div>
             <ComplaintChat ref="chat" :key="sel.id" :complaint="sel" :side="isHr ? 'hr' : 'director'" :labels="{ hr: 'HR', director: 'Director' }"
               :title="isHr ? 'Conversation with the Directors' : 'Conversation with HR'"
-              :hint="isHr ? 'The Directors get a notification for each reply.' : 'HR gets a notification for each reply.'"
+              :hint="isHr ? 'The Directors get a notification for each reply.' : 'The HR person who sent it gets a notification for each reply.'"
               :placeholder="isHr ? 'Reply to the Directors' : 'Reply to HR'" @complaint-photos="p => selPhotos = p"
               :can-reply="selStatus !== 'closed'" :closed-text="isHr ? 'Closed by the Directors. They can reopen it.' : 'Closed. Pick another status on the left to reopen it and reply.'" />
           </div>
@@ -124,7 +124,7 @@
 // conversation between HR and the Directors with photos (components/ComplaintChat.vue, rules Draft 0.29).
 // 4 Nov 2026: the Directors set the status (Read by the Directors / In review / Closed with a note / reopen) and keep their
 // own notes; every update notifies HR and the Directors (complaints.js tellBoth, rules Draft 0.30).
-import { loadComplaints, createComplaint, markRead, loadNotes, addNote, setStatus, DSTATUS, dirStatus } from './complaints.js';
+import { loadComplaints, loadMyDirectorComplaints, createComplaint, markRead, loadNotes, addNote, setStatus, DSTATUS, dirStatus } from './complaints.js';
 import PhotoPicker from '@/components/PhotoPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
@@ -168,7 +168,8 @@ export default {
   methods: {
     async load() {
       this.loading = true; this.loadErr = '';
-      try { this.list = await loadComplaints('director'); }
+      // HR sees only the Director complaints they sent themselves (5 Nov 2026); the Directors see all
+      try { this.list = this.isHr ? await loadMyDirectorComplaints(me.user.uid) : await loadComplaints('director'); }
       catch (e) { this.loadErr = friendlyError(e, 'load the complaints'); }
       this.loading = false;
     },

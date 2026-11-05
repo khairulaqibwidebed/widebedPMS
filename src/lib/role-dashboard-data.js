@@ -3,7 +3,7 @@
 // rules check (rules are not filters): tickets tagged to the role plus tickets the person raised, inquiries
 // assigned to the person, and so on. A Director using "View as" passes the same checks.
 // Nothing here reads a private/ document except the complaint subject on the HR dashboard (HR and Directors only).
-import { db, ROLE_LABEL, issueTagOf } from './firebase.js';
+import { db, auth, ROLE_LABEL, issueTagOf } from './firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, getCountFromServer } from 'firebase/firestore';
 import { dayOffset } from './format.js';
 import { STAGES, withIds } from '@/pages/Playbook/onboarding-stages.js';
@@ -115,7 +115,8 @@ export async function loadHR() {
   const cs = collection(db, 'complaints');
   const [staffSnap, dirSnap, sopSnaps, progSnap, usersSnap, playbook] = await Promise.all([
     getDocs(query(cs, where('kind', '==', 'staff'))),
-    getDocs(query(cs, where('kind', '==', 'director'))),
+    // Only the Director complaints this HR person sent (Draft 0.38, 5 Nov 2026)
+    getDocs(query(cs, where('kind', '==', 'director'), where('fromId', '==', auth.currentUser?.uid || '-'))),
     Promise.all(SOP_KEYS.map(([k]) => getDoc(doc(db, 'sops', k)))),
     getDocs(collection(db, 'onboardingProgress')),
     getDocs(collection(db, 'users')),

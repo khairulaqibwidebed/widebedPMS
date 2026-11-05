@@ -152,7 +152,7 @@
         <FormField id="anTitle" label="Title" req v-model="form.title" :maxlength="TITLE_MAX" placeholder="e.g. Office closed on Friday" />
         <div class="field">
           <label for="anMsg" class="req">Message</label>
-          <textarea class="input an-text" id="anMsg" v-model="form.message" :maxlength="MESSAGE_MAX" placeholder="Write the announcement"></textarea>
+          <textarea class="input an-text" id="anMsg" ref="anMsg" v-model="form.message" :maxlength="MESSAGE_MAX" placeholder="Write the announcement" @input="grow($event.target)"></textarea>
         </div>
         <div class="field">
           <label class="req">Who it's for</label>
@@ -348,7 +348,15 @@ export default {
 
     // ---- Post / edit ----
     openNew() { this.okMsg = ''; this.form = { id: null, title: '', message: '', audience: ['everyone'], pinned: false, files: [], removed: [], newFiles: [], preparing: false, error: '' }; },
-    openEdit(a) { this.okMsg = ''; this.form = { id: a.id, title: a.title, message: a.message, audience: [...(a.audience || ['everyone'])], pinned: !!a.pinned, files: [...a.files], removed: [], newFiles: [], preparing: false, error: '' }; },
+    // 5 Nov 2026: the message box grows with the text (up to about 20 lines, then scrolls)
+    grow(el) {
+      if (!el) return;
+      el.style.height = 'auto';
+      const h = el.scrollHeight + 2;
+      el.style.height = Math.min(Math.max(h, 160), 460) + 'px';
+      el.style.overflowY = h > 460 ? 'auto' : 'hidden';
+    },
+    openEdit(a) { this.okMsg = ''; this.form = { id: a.id, title: a.title, message: a.message, audience: [...(a.audience || ['everyone'])], pinned: !!a.pinned, files: [...a.files], removed: [], newFiles: [], preparing: false, error: '' }; this.$nextTick(() => this.grow(this.$refs.anMsg)); },
     cancelForm() { if (!this.busy) this.form = null; },
     // Everyone and single teams don't mix: ticking Everyone clears the teams, ticking a team clears Everyone
     setAud(next) {
@@ -542,7 +550,7 @@ export default {
 /* ---- Form ---- */
 .an-modal { max-width: 640px; }
 .an-modal-title { margin: 0 0 14px; font-size: 18px; }
-.an-text { min-height: 160px; resize: vertical; }
+.an-text { min-height: 160px; resize: none; overflow-y: hidden; }
 .an-aud-pick { display: block; }
 .an-aud-pick :deep(.op-btn) { width: 100%; }
 .an-aud-pick :deep(.op-val) { max-width: none; display: block; }

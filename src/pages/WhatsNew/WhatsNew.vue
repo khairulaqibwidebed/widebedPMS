@@ -98,7 +98,8 @@
         <FormField id="wSum" label="Short summary" v-model="form.summary" placeholder="One line shown on the update card" />
         <div class="field" v-for="s in SECTIONS" :key="s.key">
           <label :for="'w' + s.key">{{ s.label }}</label>
-          <textarea class="input wn-text" :id="'w' + s.key" v-model="form[s.key]" :placeholder="s.hint"></textarea>
+          <textarea class="input wn-text" ref="wnText" :id="'w' + s.key" v-model="form[s.key]" :placeholder="s.hint"
+            @focus="bulletStart(s.key)" @blur="bulletEnd(s.key)" @keydown.enter="bulletEnter($event, s.key)" @paste="bulletPaste($event, s.key)" @input="grow($event.target)"></textarea>
         </div>
         <span class="help">One point per line. Fill in at least one of New, Changes or Fixes.</span>
         <div class="field wn-aud">
@@ -137,6 +138,9 @@ const KINDS = [
   { value: 'patch', label: 'Patch notes', help: 'Minor bug fixes or small changes. Version goes up by .1 (v1.4 to v1.5).' }
 ];
 const KIND_FILTERS = [{ value: 'any', label: 'All types' }, { value: 'major', label: 'Version updates' }, { value: 'patch', label: 'Patch notes' }];
+const BULLET = '• ';
+// Saved points have no bullets; the edit boxes show them with one
+const bulleted = t => (t || '').split('\n').map(s => s.replace(/^\s*[-•*]\s*/, '').trim()).filter(Boolean).map(s => BULLET + s).join('\n');
 const lines = t => (t || '').split('\n').map(s => s.replace(/^\s*[-•*]\s*/, '').trim()).filter(Boolean);
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const ms = t => (t?.toMillis ? t.toMillis() : 0);
@@ -208,7 +212,56 @@ export default {
     openEdit(u) {
       this.okMsg = '';
       this.form = { id: u.id, kind: this.isMajor(u) ? 'major' : 'patch', autoVer: false, version: u.version || '', title: u.title || '', date: u.date || today(), summary: u.summary || '',
-        added: u.added || '', changed: [u.changed, u.body].filter(Boolean).join('\n'), fixed: u.fixed || '', audience: [...(u.audience || ['everyone'])], error: '' };
+        added: bulleted(u.added), changed: bulleted([u.changed, u.body].filter(Boolean).join('\n')), fixed: bulleted(u.fixed), audience: [...(u.audience || ['everyone'])], error: '' };
+      this.growAll();
+    },
+    // 5 Nov 2026: New / Changes / Fixes boxes grow with the text and start each line with "• " (saving strips it again)
+    grow(el) {
+      if (!el) return;
+      el.style.height = 'auto';
+      const h = el.scrollHeight + 2;
+      el.style.height = Math.min(Math.max(h, 76), 340) + 'px';
+      el.style.overflowY = h > 340 ? 'auto' : 'hidden';
+    },
+    growAll() { this.$nextTick(() => (this.$refs.wnText || []).forEach(el => this.grow(el))); },
+    // Put new text in the box and the cursor at pos (after Vue updates the box)
+    setText(key, el, text, pos) {
+      this.form[key] = text;
+      this.$nextTick(() => { el.setSelectionRange(pos, pos); this.grow(el); });
+    },
+    bulletStart(key) {
+      if (this.form[key]) return;
+      const el = (this.$refs.wnText || []).find(t => t.id === 'w' + key);
+      if (el) this.setText(key, el, BULLET, BULLET.length);
+    },
+    bulletEnd(key) { if ((this.form[key] || '').trim() === BULLET.trim()) this.form[key] = ''; },
+    bulletEnter(e, key) {
+      if (e.isComposing || e.shiftKey) return;
+      e.preventDefault();
+      const el = e.target, v = el.value, a = el.selectionStart, b = el.selectionEnd;
+      const lineStart = v.lastIndexOf('\n', a - 1) + 1;
+      const lineEnd = v.indexOf('\n', b) === -1 ? v.length : v.indexOf('\n', b);
+      // Enter on an empty "• " line: drop that line and stop the list
+      if (a === b && v.slice(lineStart, lineEnd).trim() === BULLET.trim()) {
+        const from = lineStart > 0 ? lineStart - 1 : 0;
+        return this.setText(key, el, v.slice(0, from) + v.slice(lineEnd), from);
+      }
+      const add = '\n' + BULLET;
+      this.setText(key, el, v.slice(0, a) + add + v.slice(b), a + add.length);
+    },
+    // Pasting several lines: each line becomes a point. On a line that already has text or a bullet, the first pasted
+    // line joins it.
+    bulletPaste(e, key) {
+      const t = e.clipboardData?.getData('text/plain');
+      if (!t) return;
+      const rows = t.replace(/\r/g, '').split('\n').map(x => x.replace(/^\s*[-•*]\s*/, '').trim()).filter(Boolean);
+      if (!rows.length) return;
+      e.preventDefault();
+      const el = e.target, v = el.value, a = el.selectionStart, b = el.selectionEnd;
+      const before = v.slice(v.lastIndexOf('\n', a - 1) + 1, a);
+      const onLine = before.trim() !== '';
+      const ins = rows.map((x, i) => (i === 0 && onLine ? '' : BULLET) + x).join('\n');
+      this.setText(key, el, v.slice(0, a) + ins + v.slice(b), a + ins.length);
     },
     // Everyone and single teams don't mix: ticking Everyone clears the teams, ticking a team clears Everyone
     setAud(next) {
@@ -340,7 +393,7 @@ export default {
 .wn-modal-title { margin: 0 0 14px; font-size: 18px; }
 .wn-grid { display: grid; grid-template-columns: 1fr 2fr 1.2fr; gap: 12px; }
 @media (max-width: 640px) { .wn-grid { grid-template-columns: 1fr; } }
-.wn-text { height: 76px; }
+.wn-text { height: 76px; min-height: 76px; resize: none; overflow-y: hidden; }
 .wn-aud { margin-top: 12px; }
 .wn-aud-pick { display: block; }
 .wn-aud-pick :deep(.op-btn) { width: 100%; }

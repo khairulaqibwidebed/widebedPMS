@@ -3,7 +3,7 @@
 // live in complaints/{id}/private/main. A named staff complaint keeps fromId so the sender can follow it under
 // My complaints. An anonymous one keeps nothing about the sender, not even in the audit log; the sender's own
 // browser remembers which refs they sent (wb.myAnonComplaints) so they can still see the status.
-import { db } from '@/lib/firebase.js';
+import { db, auth } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { audit } from '@/lib/finance-data.js';
 import { notifyRole, notifyUser } from '@/services/notificationService';
@@ -30,6 +30,11 @@ async function withPrivate(docs) {
 
 export async function loadComplaints(kind) {
   const snap = await getDocs(query(collection(db, 'complaints'), where('kind', '==', kind)));
+  return withPrivate(snap.docs);
+}
+// HR's "Sent before" (5 Nov 2026): only the Director complaints this person sent (fromId on the main record)
+export async function loadMyDirectorComplaints(uid) {
+  const snap = await getDocs(query(collection(db, 'complaints'), where('kind', '==', 'director'), where('fromId', '==', uid)));
   return withPrivate(snap.docs);
 }
 
@@ -64,7 +69,8 @@ export async function createComplaint(me, kind, { subject, details, files, anony
     tx.set(counter, { next: n + 1 });
     tx.set(c, { ref, kind, date: today(), createdAt: serverTimestamp(),
       ...(kind === 'staff' ? { status: 'new', anonymous: !named } : { read: false }),
-      ...(kind === 'staff' && named ? { fromId: me.user.uid } : {}) });
+      // fromId: the named staff sender, or (5 Nov 2026) the HR person who sent a Director complaint (only they and the Directors read it)
+      ...(named ? { fromId: me.user.uid } : {}) });
     // Director complaints also keep the sender's uid (4 Nov 2026) so their profile picture shows. Staff complaints already have fromId.
     tx.set(doc(db, 'complaints', c.id, 'private', 'main'), { subject, details, files, ...(named ? { fromName: me.name } : {}), ...(kind === 'director' ? { fromUid: me.user.uid } : {}) });
     if (named) audit(tx, me, { action: 'complaint.create', entity: `complaints/${c.id}`, changes: [{ field: 'ref', old: null, new: ref }] });
@@ -150,9 +156,14 @@ export async function loadNotes(id) {
 }
 const clean = t => String(t || '').trim().slice(0, TEXT_MAX);
 const tell = p => p.catch(e => console.warn('Notification not sent:', e));
-// Director complaints: every update goes to HR and to the Directors (the person who made it never sees their own).
+// Director complaints: every update goes to the HR person who sent it and to the Directors (the person who made it never
+// sees their own). 5 Nov 2026: only the sender on the HR side, not all of HR.
 function tellBoth(c, title, message = 'Open the complaint for the details.', roles = ['hr', 'director']) {
-  for (const r of roles) tell(notifyRole({ recipientRole: r, type: 'complaint', refId: c.id, link: `/HR/director-complaints?id=${c.id}`, title, message }));
+  const link = `/HR/director-complaints?id=${c.id}`;
+  for (const r of roles) {
+    if (r === 'hr') { if (c.fromId && c.fromId !== auth.currentUser?.uid) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link, title, message })); }
+    else tell(notifyRole({ recipientRole: r, type: 'complaint', refId: c.id, link, title, message }));
+  }
 }
 
 // Staff complaints: by = 'hr' (HR replying) or 'sender' (the named sender replying back).
