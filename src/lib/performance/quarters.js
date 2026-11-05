@@ -1,7 +1,6 @@
 // lib/performance/quarters.js — quarterly performance evaluation periods and their participants.
 //
-// performanceQuarters/{id}      { name, startDate, endDate, evaluationStart, evaluationEnd, cohDeadline, kpiDeadline,
-//                                  reviewDeadline, finalizationDate, status, departmentIds: [string],
+// performanceQuarters/{id}      { name, startDate, endDate, status, departmentIds: [string],
 //                                  minCohEvaluations, weights: { coh, kpi, tms } }
 // performanceParticipants/{quarterId}_{uid}  { quarterId, employeeId, employeeName, role, departmentId, position,
 //                                  eligibilityStart, eligibilityEnd, participationStatus }
@@ -12,12 +11,10 @@ import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, 
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { notifyUser } from '@/services/notificationService.js';
-// Imported (not just re-exported) because this module uses DEFAULT_WEIGHTS itself below —
+// Imported (not just re-exported) because this module uses DEFAULT_WEIGHTS and STATUSES itself below —
 // `export { X } from './calc.js'` only re-exports for other modules, it doesn't bind X locally, which was a bug.
-import { DEFAULT_WEIGHTS, canAdvance, nextStatus, weightsOk } from './calc.js';
-// The three quarter statuses (draft, active, finalized) now come from quarterStatus.js, not calc.js.
-import { STATUSES, normalizeStatus } from './quarterStatus.js';
-export { DEFAULT_WEIGHTS, STATUSES, canAdvance, nextStatus, weightsOk, normalizeStatus };
+import { DEFAULT_WEIGHTS, STATUSES, canAdvance, nextStatus, weightsOk } from './calc.js';
+export { DEFAULT_WEIGHTS, STATUSES, canAdvance, nextStatus, weightsOk };
 
 const me = () => useSession();
 function stamp(created) {
@@ -35,10 +32,9 @@ export async function audit(action, entity, details = '') {
   } catch (e) { console.warn('audit', e); }
 }
 
-// Lifecycle: draft -> active -> finalized.
-// finalized -> active is the only backward move, and only for an authorized correction (Director).
-// Quarters saved with an older status (upcoming, evaluation, pendingApproval, archived) are read through
-// normalizeStatus() in quarterStatus.js, so they still work without changing the data.
+// Lifecycle: draft -> upcoming -> active -> evaluation -> pendingApproval -> finalized -> archived.
+// finalized -> pendingApproval is the only backward move, and only for an authorized correction (Director).
+// (STATUSES, canAdvance, nextStatus, weightsOk, DEFAULT_WEIGHTS live in ./calc.js — pure, unit-tested.)
 
 // ---- Quarters ----
 export const listQuarters = async () => rows(await getDocs(collection(db, 'performanceQuarters')))
@@ -49,10 +45,8 @@ export async function createQuarter(data) {
   if (!weightsOk(data.weights)) throw new Error('COH, KPI and TMS weights must add up to 100.');
   const ref = doc(collection(db, 'performanceQuarters'));
   await setDoc(ref, {
+    // Only a start and end date (the extra evaluation/deadline dates were removed from the form).
     name: data.name, startDate: data.startDate, endDate: data.endDate,
-    evaluationStart: data.evaluationStart || '', evaluationEnd: data.evaluationEnd || '',
-    cohDeadline: data.cohDeadline || '', kpiDeadline: data.kpiDeadline || '',
-    reviewDeadline: data.reviewDeadline || '', finalizationDate: data.finalizationDate || '',
     departmentIds: data.departmentIds || [],
     minCohEvaluations: Number(data.minCohEvaluations) || 1,
     weights: data.weights || DEFAULT_WEIGHTS,
@@ -63,7 +57,7 @@ export async function createQuarter(data) {
 }
 
 // Director/HR may edit a quarter's configuration at any status, by design — not just while draft. Editing a
-// quarter that's already active or finalized can change what later recalculations produce; that's
+// quarter that's already in evaluation, finalized, etc. can change what later recalculations produce; that's
 // an accepted, deliberate tradeoff here (not a bug), so this only validates the weights, not the status.
 export async function updateQuarter(id, patch) {
   if ('weights' in patch && !weightsOk(patch.weights)) throw new Error('COH, KPI and TMS weights must add up to 100.');
@@ -81,26 +75,22 @@ export async function deleteQuarter(id) {
 
 export async function setStatus(id, status, reason = '') {
   if (!STATUSES.includes(status)) throw new Error('Unknown quarter status.');
-  const before = await getQuarter(id);
   await updateDoc(doc(db, 'performanceQuarters', id), { status, ...stamp() });
   audit('performance.quarter.status', `performanceQuarters/${id}`, reason || status);
-  // Tell every participant when a quarter becomes Active (COH and KPI self-rating open). Not when it was already
-  // active, so changing an old 'evaluation' quarter to 'active' doesn't notify everyone a second time.
-  if (status === 'active' && normalizeStatus(before?.status) !== 'active') {
+  if (status === 'evaluation') {
+    const quarter = await getQuarter(id);
     const parts = (await listParticipants(id)).filter(p => p.participationStatus === 'active');
     for (const p of parts) {
-      try { await notifyUser({ recipientUid: p.employeeId, title: 'Performance evaluation is open', message: `COH and KPI self-assessment for ${before?.name || 'this quarter'} is now open.`, type: 'performance', link: '/Performance/my', refId: id }); }
+      try { await notifyUser({ recipientUid: p.employeeId, title: 'Performance evaluation period opened', message: `COH and KPI self-assessment for ${quarter.name} is now open.`, type: 'performance', link: '/Performance/my', refId: id }); }
       catch (e) { console.warn('notify', e); }
     }
   }
 }
 
-// Director-only correction: step a finalized quarter back to active. Bumps revisionNumber so
+// Director-only correction: step a finalized quarter back to pendingApproval. Bumps revisionNumber so
 // performanceResults know to record what changes under this reopening as an auditable revision.
 export async function reopenForCorrection(id, reason) {
-  const current = await getQuarter(id);
-  const revisionNumber = (Number(current?.revisionNumber) || 1) + 1;
-  await updateDoc(doc(db, 'performanceQuarters', id), { status: 'active', revisionNumber, ...stamp() });
+  await updateDoc(doc(db, 'performanceQuarters', id), { status: 'pendingApproval', revisionNumber: (await getQuarter(id))?.revisionNumber + 1 || 2, ...stamp() });
   audit('performance.quarter.reopen', `performanceQuarters/${id}`, reason);
 }
 

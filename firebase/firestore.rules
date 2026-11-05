@@ -1,13 +1,19 @@
 rules_version = '2';
-<<<<<<< HEAD
-// Widebed PMS Firestore rules. Draft 0.34, 4 Nov 2026 (Neo, on top of Khairul's Draft 0.33 below): COH questions added
+// Widebed PMS Firestore rules. Draft 0.37, 5 Nov 2026 (Khairul): HR Announcements. announcements/{id}: anyone signed in reads
+// the ones meant for their role or Everyone; HR and Directors read all, post, edit and delete. announcements/{id}/views/{uid}:
+// written once by that person (first time they open it), read by that person, HR and Directors. announcementReads/{uid}: the
+// person's own list of opened announcements, only they read and write it. Files go to Google Drive, not Firestore. Nothing else changes.
+// Draft 0.36, 5 Nov 2026 (Khairul): delete a cancelled offline booking for good. Accounting,
+// Directors and Operations may delete an offlineBookings document whose status is 'cancelled', with its private part and
+// its utility bill (utilityBills/{same id}). Cancelling itself needed no change. Nothing else changes.
+// Draft 0.35, 5 Nov 2026 (Khairul, on top of Neo's Draft 0.34 below): joint owners. An owner's
+// private part may hold coOwners (extra owners' names and contact details), so Operations (adding an owner) and Marketing
+// (editing names and contact details) may write it too. Nothing else changes.
+// Draft 0.34, 4 Nov 2026 (Neo, on top of Khairul's Draft 0.33 below): COH questions added
 // mid-quarter. An evaluator who already submitted (even if HR/Director approved it) can add answers to the new
 // questions; the evaluation goes back to 'submitted' for review. Once approved, the scores document can only grow
 // (earlier answers can't be removed). Nothing else changes.
 // Draft 0.33, 4 Nov 2026 (Khairul, on top of Neo's Draft 0.32 below): puts back Khairul's
-=======
-// Widebed PMS Firestore rules. Draft 0.33, 4 Nov 2026 (Khairul, on top of Neo's Draft 0.32 below): puts back Khairul's
->>>>>>> 19a17a810bb830647514c652f9e51f49ed60a9da
 // Draft 0.30 and 0.31, which were missing from 0.32: the Directors set a Director complaint's status (Read by the Directors /
 // In review / Closed, closing note in the conversation, HR can't reply once Closed), the Directors' own notes
 // (complaints/{id}/notes on a 'director' complaint, Directors only), and the sender's uid (fromUid) on a complaint's
@@ -319,6 +325,41 @@ service cloud.firestore {
       allow create, update, delete: if isDirector();
     }
 
+    // HR Announcements (Draft 0.37, 5 Nov 2026). Posted by HR and Directors to Everyone or chosen roles (role ids).
+    match /announcements/{id} {
+      function annPoster() { return isHR() || isDirector(); }
+      function annOk() {
+        return request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 150
+          && request.resource.data.message is string && request.resource.data.message.size() > 0 && request.resource.data.message.size() <= 5000
+          && request.resource.data.audience is list && request.resource.data.audience.size() > 0 && request.resource.data.audience.size() <= 40
+          && request.resource.data.get('pinned', false) is bool
+          && request.resource.data.get('files', []) is list && request.resource.data.get('files', []).size() <= 10;
+      }
+      allow read: if annPoster() || (anyStaff() && resource.data.audience.hasAny([role(), 'everyone']));
+      allow create: if annPoster() && annOk() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if annPoster() && annOk() && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if annPoster();
+
+      // Opened: once per person (no update), only for an announcement meant for them
+      match /views/{uid} {
+        function annForMe() {
+          return get(/databases/$(database)/documents/announcements/$(id)).data.audience.hasAny([role(), 'everyone']);
+        }
+        allow read: if signedIn() && (request.auth.uid == uid || isHR() || isDirector());
+        allow create: if anyStaff() && request.auth.uid == uid && annForMe()
+          && request.resource.data.keys().hasOnly(['viewedAt', 'name', 'role'])
+          && request.resource.data.viewedAt == request.time;
+        allow delete: if isHR() || isDirector();
+      }
+    }
+    // Each person's own list of announcements they have opened (dashboard banner, Unread filter)
+    match /announcementReads/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if anyStaff() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['ids']) && request.resource.data.ids is map;
+    }
+
     // Every role writes its own audit entries; an anonymous complaint is logged with NO uid.
     match /auditLog/{id} {
       allow read: if staff() || isHR();
@@ -427,13 +468,13 @@ service cloud.firestore {
         // Portfolio Edit: names, contact and bank details.
         allow read, write: if portfolioEditor() && docId == 'main';
         allow create: if portfolioAdder() && docId == 'main' && createdNow('owners', ownerId)
-          && newKeysOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'updatedAt', 'updatedBy'])
+          && newKeysOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy'])
           && request.resource.data.updatedBy == request.auth.uid;
         // Marketing read and edit names and contact details (Khairul 27 Oct). Bank fields share this document: the
         // page hides them and Marketing can't change them.
         allow read: if isMkt() && docId == 'main';
         allow update: if isMkt() && docId == 'main' && request.resource.data.updatedBy == request.auth.uid
-          && changed().hasOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'updatedAt', 'updatedBy']);
+          && changed().hasOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy']);
       }
     }
 
@@ -643,7 +684,8 @@ service cloud.firestore {
       allow create: if (finOrDir() || isOps() || can('bookingForms.view')) && request.resource.data.createdBy == request.auth.uid
         && exists(docPath('offlineBookings', bookingId));
       allow update: if finOrDir() || can('bookingForms.view');
-      allow delete: if false;
+      // Draft 0.36: removed with its booking, only while the booking is cancelled.
+      allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
     }
 
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
@@ -671,13 +713,14 @@ service cloud.firestore {
       // Willow Booking Details bulk upload (Portfolio > Bulk Upload): Finance or a Director, offline_{booking no.} such as offline_DM-014.
       allow create: if finOrDir() && bookingId.matches('offline_[A-Z0-9]+-[0-9]+') && request.resource.data.source == 'import'
         && request.resource.data.createdBy == request.auth.uid;
-      allow delete: if false;
+      // Draft 0.36: delete for good, only a cancelled booking (the page also checks no payment is recorded).
+      allow delete: if (finOrDir() || isOps()) && resource.data.get('status', '') == 'cancelled';
       // Door passcodes for the booking (Booking Form).
       match /private/{doc} {
         allow read: if finOrDir() || isOps();
         allow create: if (finOrDir() || isOps()) && existsAfter(docPath('offlineBookings', bookingId));
         allow update: if finOrDir() || isOps();
-        allow delete: if false;
+        allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
       }
     }
 

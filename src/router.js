@@ -81,6 +81,8 @@ const routes = [
   page('/HR/staff-complaints', () => import('./pages/HR/StaffComplaints.vue'), 'Staff Complaints', ['hr']),
   page('/HR/director-complaints', () => import('./pages/HR/DirectorComplaints.vue'), 'Director Complaints', DH),
   page('/HR/raise-complaint', () => import('./pages/HR/RaiseComplaint.vue'), 'Raise a Complaint', ALL),
+  // Announcements: everyone reads; HR and Directors post (5 Nov 2026). Never tickable.
+  page('/HR/announcements', () => import('./pages/HR/Announcements.vue'), 'Announcements', ALL),
   page('/Notifications', () => import('./pages/Notifications.vue'), 'Notifications', ALL),
   page('/whats-new', () => import('./pages/WhatsNew/WhatsNew.vue'), "What's New", ALL),
 

@@ -29,7 +29,7 @@ const AREAS = [
   { key: "leads", label: "Leads", types: ["inquiry"] },
   { key: "listings", label: "Listings", types: ["listing"] },
   { key: "agreements", label: "Agreements", types: ["agreement"] },
-  { key: "hr", label: "HR", types: ["complaint", "access"] },
+  { key: "hr", label: "HR", types: ["complaint", "access", "announcement"] },
   { key: "updates", label: "Updates", types: ["update"] },
 ]
 const areaOf = (n) => AREAS.find((a) => a.types.includes(n.type))?.key || "other"

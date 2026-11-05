@@ -11,7 +11,7 @@ const G = (label, icon, items) => ({ label, icon, items });
 const PORTFOLIO = G('Portfolio', 'building', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'), P('Bookings', '/Portfolio/bookings', 'calendar')]);
 // Finance and Directors also get Bulk Upload (owners and properties from a spreadsheet).
 const PORTFOLIO_FD = G('Portfolio', 'building', [...PORTFOLIO.items, P('Bulk Upload', '/Portfolio/bulk-upload', 'upload')]);
-const HR_STAFF = G('HR', 'users', [P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]);
+const HR_STAFF = G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]);
 const NEW_LISTINGS = G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home')]);
 // Every role's own account page, last in the sidebar.
 const MY_ACCOUNT = G('My Account', 'user', [P('Profile & Appearance', '/Settings/appearance', 'sliders')]);
@@ -28,8 +28,9 @@ export const NAV = {
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO_FD,
     G('Accounting', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
-      P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
-    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
+      P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart')]),
+    // Offline Inquiries belongs under Operations (same as the Director's and Operations' sidebars), not Accounting.
+    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
     AGREEMENTS, PLAYBOOK, PERFORMANCE,
     HR_STAFF,
     MY_ACCOUNT
@@ -43,7 +44,7 @@ export const NAV = {
     G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home'), P('Forms', '/Procurement/forms', 'filePlus')]),
     AGREEMENTS_DIR, PLAYBOOK, PERFORMANCE_ADMIN,
     G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'sliders'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
-    G('HR', 'users', [P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
+    G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
        P('Director Complaints', '/HR/director-complaints', 'shieldAlert'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]),
     MY_ACCOUNT
   ],
@@ -65,7 +66,7 @@ export const NAV = {
   ],
   hr: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
-    G('HR', 'users', [P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
+    G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
       P('Staff Complaints', '/HR/staff-complaints', 'clipboard'), P('Director Complaints', '/HR/director-complaints', 'shieldAlert')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
     AGREEMENTS, PLAYBOOK, PERFORMANCE_ADMIN,

@@ -19,8 +19,11 @@
               <span class="grp-label">{{ g.label }}</span>
               <span class="chev">›</span>
             </button>
-            <div class="nav-group" v-show="isOpen(g, i)">
-              <NavItem v-for="it in g.items" :key="it.label" :item="it" :active="active" :collapsed="rail" @soon="notBuilt" />
+            <!-- Slides open/closed instead of jumping (was v-show). Closed groups stay in the page but can't be tabbed into. -->
+            <div class="nav-fold" :class="{ open: isOpen(g, i) }" :inert="!isOpen(g, i) || null">
+              <div class="nav-group">
+                <NavItem v-for="it in g.items" :key="it.label" :item="it" :active="active" :collapsed="rail" @soon="notBuilt" />
+              </div>
             </div>
           </template>
         </template>
@@ -150,13 +153,13 @@ export default {
     // Phone: the page behind the open menu doesn't scroll
     menuOpen(v) { document.documentElement.classList.toggle('nav-locked', v && !this.wide); },
     wide(v) { if (v) this.menuOpen = false; },
-    // Only the current page's group is open. On an ungrouped page (Dashboard) the first group opens.
+    // Only the current page's group is open. On an ungrouped page (Dashboard, What's New) every group stays closed —
+    // it used to open the first group (Portfolio), which looked like Portfolio opening by itself.
     $route: {
       immediate: true,
       handler() {
         this.menuOpen = false; this.userOpen = false;
-        const i = this.groups.findIndex(g => g.label && g.items.some(it => it.label === this.active));
-        this.openGroup = i >= 0 ? i : this.groups.findIndex(g => g.label);
+        this.openGroup = this.groups.findIndex(g => g.label && g.items.some(it => it.label === this.active));
       }
     }
   },
@@ -240,6 +243,19 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 /* Department header: icon + label + chevron. */
 .nav-group-btn { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; transition: gap .25s var(--nav-ease), padding .25s var(--nav-ease), background .2s ease; }
 .nav-group-btn .chev { margin-left: auto; }
+/* Opening and closing a department: the height animates to whatever the pages need (no measuring in JS),
+   while the pages fade and drop in slightly. */
+.nav-fold {
+  display: grid; grid-template-rows: 0fr; overflow: hidden; opacity: 0;
+  transition: grid-template-rows .3s var(--nav-ease), opacity .18s ease;
+}
+.nav-fold.open { grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows .3s var(--nav-ease), opacity .25s ease .05s; }
+.nav-fold > .nav-group { min-height: 0; transform: translateY(-6px); transition: transform .3s var(--nav-ease); }
+.nav-fold.open > .nav-group { transform: translateY(0); }
+.nav-group-btn .chev { transition: transform .25s var(--nav-ease); }
+.nav-group-btn:hover .grp-icon, .nav-group-btn.has-active .grp-icon { opacity: 1; }
+.grp-icon { transition: opacity .2s ease; }
+
 /* Pages inside a department get a short theme-colour line on their left, so they read as sub-items of the header */
 .nav-group .nav-item { position: relative; }
 .nav-group .nav-item::before { content: ""; position: absolute; left: 2px; top: 50%; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
@@ -300,7 +316,7 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
   .app.collapsed .brand { justify-content: center; gap: 0; }
 
   /* Icon rail: only the Dashboard icon and one icon per department. Item lists are hidden. */
-  .app.collapsed .nav-group { display: none; }
+  .app.collapsed .nav-fold { display: none; }
   .app.collapsed .nav-group-btn { justify-content: center; gap: 0; padding-left: 0; padding-right: 0; }
   .app.collapsed .grp-label { max-width: 0; opacity: 0; }
   .app.collapsed .nav-group-btn .chev { display: none; }
@@ -311,7 +327,9 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar, .brand-text, .nav-group-btn, .grp-label, .collapse-arrow, .toggle-label, .sidebar-toggle { transition: none; }
+  .sidebar, .brand-text, .nav-group-btn, .grp-label, .collapse-arrow, .toggle-label, .sidebar-toggle,
+  .nav-fold, .nav-fold.open, .nav-fold > .nav-group, .nav-group-btn .chev, .grp-icon { transition: none; }
+  .nav-fold > .nav-group { transform: none; }
 }
 /* Phone menu: dim backdrop behind the slide-in sidebar (sidebar is z-index 30 in app.css) */
 .nav-scrim { position: fixed; inset: 0; z-index: 29; background: rgba(26, 29, 35, .35); animation: fade var(--fast) ease-out; }

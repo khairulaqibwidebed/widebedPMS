@@ -22,20 +22,38 @@ export default {
 </script>
 
 <style scoped>
-.nav-item { display: flex; align-items: center; gap: 10px; transition: gap .25s ease; }
+/* One easing curve for every sidebar movement, so hover, active and collapse all feel the same. */
+.nav-item {
+  --nav-ease: cubic-bezier(.4, 0, .2, 1);
+  display: flex; align-items: center; gap: 10px;
+  transition: gap .28s var(--nav-ease), background-color .18s ease, color .18s ease, padding .28s var(--nav-ease);
+}
 .nav-icon {
   width: 18px; height: 18px; flex-shrink: 0;
   fill: none; stroke: currentColor; stroke-width: 2;
   stroke-linecap: round; stroke-linejoin: round;
   opacity: .75;
+  transition: opacity .18s ease, transform .2s var(--nav-ease);
 }
-.nav-item.active .nav-icon, .nav-item:hover .nav-icon { opacity: 1; }
+.nav-item:hover .nav-icon { opacity: 1; transform: translateX(2px); }
+.nav-item.active .nav-icon { opacity: 1; transform: none; }
+.nav-item:active .nav-icon { transform: scale(.92); }
 
+/* The label slides and fades instead of just being cut off when the sidebar collapses. */
 .nav-label {
   white-space: nowrap; overflow: hidden;
-  max-width: 220px; opacity: 1;
-  transition: max-width .25s ease, opacity .2s ease;
+  max-width: 220px; opacity: 1; transform: translateX(0);
+  transition: max-width .28s var(--nav-ease), opacity .2s ease .06s, transform .28s var(--nav-ease);
 }
 .nav-item.collapsed { gap: 0; justify-content: center; }
-.nav-item.collapsed .nav-label { max-width: 0; opacity: 0; }
+.nav-item.collapsed .nav-label {
+  max-width: 0; opacity: 0; transform: translateX(-6px);
+  transition: max-width .28s var(--nav-ease), opacity .12s ease, transform .2s var(--nav-ease);
+}
+.nav-item.collapsed:hover .nav-icon { transform: scale(1.08); }
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item, .nav-icon, .nav-label { transition: none !important; }
+  .nav-item:hover .nav-icon, .nav-item.collapsed:hover .nav-icon { transform: none; }
+}
 </style>

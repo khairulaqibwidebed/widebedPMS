@@ -30,6 +30,7 @@
 .pf .kpi .value.small { font-size: 24px; }
 .pf .form-sec { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 18px 0 10px; }
 .pf .form-sec:first-child { margin-top: 0; }
+.pf .co-owner-head { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 10px; }
 .pf .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 14px; }
 .pf .info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
 .pf .table td.nw { white-space: nowrap; }

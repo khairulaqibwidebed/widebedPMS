@@ -5,6 +5,7 @@
       <div class="drawer-head"><h2>{{ `Booking ${bk.bookingNo || bk.id}` }}</h2><button class="icon-btn" @click="$emit('close')" aria-label="Close">×</button></div>
       <form class="drawer-body" id="bkForm" @submit.prevent="save()">
         <p class="help">{{ `${bk.propertyName || ''} · ${bk.unitCode || bk.unitId || ''} · ${bk.source === 'import' ? 'Imported from Willow' : bk.source === 'direct' ? 'Direct booking' : 'From an Offline inquiry'}` }}</p>
+        <div class="notice warn" v-if="cancelled">{{ `Cancelled${bk.cancelledReason ? ': ' + bk.cancelledReason : ''}. It is left out of the lists, the Dashboard and the forms. Restore it, or delete it for good.` }}</div>
         <p class="help" v-if="bk.inquiryId && acc.canOpenInquiry"><RouterLink class="navlink" :to="`/Operations/offline-inquiries?id=${bk.inquiryId}`">{{ `Open inquiry ${bk.inquiryId}` }}</RouterLink></p>
         <div class="form-sec">Guest <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· private, Accounting, Directors and Operations only</span></div>
         <div class="field"><label>Name</label><input class="input" v-model="bk.f.name" :disabled="!guestEditable"></div>
@@ -12,20 +13,20 @@
         <div class="field"><label>Email</label><input class="input" id="bkEmail" v-model="bk.f.email" :disabled="!guestEditable"></div>
         <div class="field"><label>IC / Passport</label><input class="input" v-model="bk.f.icPassport" :disabled="!guestEditable"></div>
         <div class="form-sec">Stay</div>
-        <div class="field"><label>Check in</label><input class="input" id="bkIn" type="date" v-model="bk.f.arrival" :disabled="!acc.bkEdit"></div>
-        <div class="field"><label>Check out</label><input class="input" id="bkOut" type="date" v-model="bk.f.departure" :disabled="!acc.bkEdit"></div>
-        <div class="field" v-if="isLong"><label>Monthly rent (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.rent" :disabled="!acc.bkEdit"></div>
-        <div class="field"><label>Deposit (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.deposit" :disabled="!acc.bkEdit"></div>
-        <div class="field"><label>Booking source</label><input class="input" v-model="bk.f.bookingSource" :disabled="!acc.bkEdit"></div>
-        <div class="field"><label>Rental status</label><input class="input" v-model="bk.f.rentalStatus" :disabled="!acc.bkEdit"></div>
-        <div class="field"><label>eZee reservation no.</label><input class="input" v-model="bk.f.ezeeReservationNo" :disabled="!acc.bkEdit"></div>
-        <div class="field"><label>Remark</label><textarea class="input" rows="2" v-model="bk.f.remark" :disabled="!acc.bkEdit"></textarea></div>
+        <div class="field"><label>Check in</label><input class="input" id="bkIn" type="date" v-model="bk.f.arrival" :disabled="!editable"></div>
+        <div class="field"><label>Check out</label><input class="input" id="bkOut" type="date" v-model="bk.f.departure" :disabled="!editable"></div>
+        <div class="field" v-if="isLong"><label>Monthly rent (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.rent" :disabled="!editable"></div>
+        <div class="field"><label>Deposit (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.deposit" :disabled="!editable"></div>
+        <div class="field"><label>Booking source</label><input class="input" v-model="bk.f.bookingSource" :disabled="!editable"></div>
+        <div class="field"><label>Rental status</label><input class="input" v-model="bk.f.rentalStatus" :disabled="!editable"></div>
+        <div class="field"><label>eZee reservation no.</label><input class="input" v-model="bk.f.ezeeReservationNo" :disabled="!editable"></div>
+        <div class="field"><label>Remark</label><textarea class="input" rows="2" v-model="bk.f.remark" :disabled="!editable"></textarea></div>
         <template v-if="bk.hasPrivate">
           <div class="form-sec">Door passcodes</div>
-          <div class="field"><label>Main door passcode</label><input class="input" v-model="bk.f.mainDoorPasscode" :disabled="!acc.bkEdit"></div>
-          <div class="field"><label>Expires</label><input class="input" type="date" v-model="bk.f.currentExpiryDate" :disabled="!acc.bkEdit"></div>
-          <div class="field"><label>Next passcode</label><input class="input" v-model="bk.f.nextDoorPasscode" :disabled="!acc.bkEdit"></div>
-          <div class="field"><label>Next expires</label><input class="input" type="date" v-model="bk.f.nextExpiryDate" :disabled="!acc.bkEdit"></div>
+          <div class="field"><label>Main door passcode</label><input class="input" v-model="bk.f.mainDoorPasscode" :disabled="!editable"></div>
+          <div class="field"><label>Expires</label><input class="input" type="date" v-model="bk.f.currentExpiryDate" :disabled="!editable"></div>
+          <div class="field"><label>Next passcode</label><input class="input" v-model="bk.f.nextDoorPasscode" :disabled="!editable"></div>
+          <div class="field"><label>Next expires</label><input class="input" type="date" v-model="bk.f.nextExpiryDate" :disabled="!editable"></div>
         </template>
         <div class="form-sec">Payments <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· from Accounting › Offline Payments</span></div>
         <template v-if="bk.payments">
@@ -47,10 +48,25 @@
         </template>
         <div class="form-sec">Utility bill</div>
         <p class="help">{{ bk.bill ? `${dmy(bk.bill.periodFrom)} to ${dmy(bk.bill.periodTo)} · RM ${amt(bk.bill.total)} (electricity ${amt(bk.bill.electricity)}, water ${amt(bk.bill.water)}, sewerage ${amt(bk.bill.sewerage)})` : 'No utility bill saved yet. Add it on Operations > Booking Forms > Utility Lodgment Form.' }}</p>
-        <div class="field" v-if="acc.bkEdit"><label>Reason for the change (audit log)</label><input class="input" id="bkReason" v-model="bk.reason" placeholder="e.g. Guest extended by two nights"></div>
+        <div class="field" v-if="editable"><label>Reason for the change (audit log)</label><input class="input" id="bkReason" v-model="bk.reason" placeholder="e.g. Guest extended by two nights"></div>
+        <div class="confirm-box" v-if="cancelling">
+          <div class="field" style="margin-bottom:10px"><label for="bkCancelWhy" class="req">Why cancel this booking?</label><input class="input" id="bkCancelWhy" v-model="cancelReason" placeholder="e.g. Guest cancelled, booked by mistake"></div>
+          <button type="button" class="btn btn-primary" @click="cancelBooking()" :disabled="bk.busy || !cancelReason.trim()">Cancel booking</button> <button type="button" class="btn" @click="cancelling = false">Keep booking</button>
+        </div>
+        <p class="help" v-if="cancelled && acc.bkEdit && deleteBlock">{{ deleteBlock }}</p>
         <p class="help" v-if="bk.error" style="color:var(--red)">{{ bk.error }}</p>
       </form>
-      <div class="drawer-foot"><button class="btn" @click="$emit('close')">{{ acc.bkEdit ? 'Cancel' : 'Close' }}</button><button class="btn btn-primary" type="submit" form="bkForm" v-if="acc.bkEdit" :disabled="bk.busy">{{ bk.busy ? 'Saving…' : 'Save booking' }}</button></div>
+      <div class="drawer-foot">
+        <template v-if="acc.bkEdit && !cancelled">
+          <button class="btn" style="margin-right:auto" v-show="!cancelling" @click="startCancel()" :disabled="bk.busy">Cancel booking</button>
+        </template>
+        <template v-if="acc.bkEdit && cancelled">
+          <button class="icon-btn trash" style="margin-right:auto" @click="remove()" :disabled="bk.busy || !!deleteBlock || !bk.loaded" :title="deleteBlock || 'Delete this booking for good'" aria-label="Delete booking for good">🗑</button>
+          <button class="btn btn-primary" @click="restore()" :disabled="bk.busy">Restore booking</button>
+        </template>
+        <button class="btn" @click="$emit('close')">Close</button>
+        <button class="btn btn-primary" type="submit" form="bkForm" v-if="editable" :disabled="bk.busy">{{ bk.busy ? 'Saving…' : 'Save booking' }}</button>
+      </div>
     </aside>
   </div>
 </template>
@@ -62,7 +78,8 @@ import { amt, dmy } from '@/lib/format.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { toast } from '@/lib/toast.js';
-import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking } from '@/lib/portfolio-data.js';
+import { askConfirm } from '@/lib/confirm.js';
+import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking, setBookingCancelled, deleteOfflineBooking } from '@/lib/portfolio-data.js';
 
 const me = useSession();
 const PRIV = ['name', 'phone', 'email', 'icPassport', 'mainDoorPasscode', 'currentExpiryDate', 'nextDoorPasscode', 'nextExpiryDate'];
@@ -74,17 +91,28 @@ export default {
     booking: { type: Object, required: true },   // the row from the bookings list
     acc: { type: Object, required: true }
   },
-  emits: ['close', 'saved'],
+  emits: ['close', 'saved', 'deleted'],
   data() {
     const r = this.booking, rm = c => (c ? Number(c).toFixed(2) : '');
     const f = { name: '', phone: '', email: '', icPassport: '', mainDoorPasscode: '', currentExpiryDate: '', nextDoorPasscode: '', nextExpiryDate: '',
       arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : ''), deposit: rm(r.deposit),
       bookingSource: r.bookingSource || '', rentalStatus: r.rentalStatus || '', ezeeReservationNo: r.ezeeReservationNo || '', remark: r.remark || '' };
-    return { MONTH_PAY, bk: { ...r, f, hasPrivate: false, bill: null, reason: '', error: '', busy: false } };
+    return { MONTH_PAY, cancelling: false, cancelReason: '', bk: { ...r, f, hasPrivate: false, bill: null, reason: '', error: '', busy: false, loaded: false } };
   },
   computed: {
     // Guest details on a tenant record can only be changed by Accounting and Directors; on an imported booking Operations can too
-    guestEditable() { const b = this.bk; return this.acc.bkEdit && !!b.guestOk && (!b.tenantId || this.acc.guestOnTenant); },
+    cancelled() { return this.bk.status === 'cancelled'; },
+    // A cancelled booking is read-only until it is restored
+    editable() { return this.acc.bkEdit && !this.cancelled; },
+    // Delete for good only when no payment is recorded on it (and only by someone who can see its payments)
+    deleteBlock() {
+      const b = this.bk;
+      if (!b.loaded) return '';
+      if (b.payments === null) return "You can't see this booking's payments, so ask Accounting or a Director to delete it for good.";
+      if (b.payments.length || Number(b.amount) > 0) return "Payments are recorded on this booking, so it can't be deleted for good. Keep it cancelled.";
+      return '';
+    },
+    guestEditable() { const b = this.bk; return this.editable && !!b.guestOk && (!b.tenantId || this.acc.guestOnTenant); },
     isLong() { const f = this.bk.f; return Math.round((new Date(f.departure) - new Date(f.arrival)) / 86400000) >= 30; },
     // Calendar of months for the booking: paid in the month (by payment date) against what is due
     cal() {
@@ -119,10 +147,47 @@ export default {
       this.bk.guestOk = d.guestOk;
       this.bk.orig = { ...this.bk.f };
       this.bk.bill = d.bill;
+      this.bk.loaded = true;
     } catch (e) { this.bk.error = friendlyError(e, 'load the booking'); }
   },
   methods: {
     amt, dmy, shortName,
+    startCancel() {
+      this.cancelling = true;
+      this.$nextTick(() => { const el = document.getElementById('bkCancelWhy'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); } });
+    },
+    async cancelBooking() {
+      const b = this.bk, why = this.cancelReason.trim(); b.error = '';
+      if (!why) return;
+      b.busy = true;
+      try {
+        await setBookingCancelled(me, b, true, why);
+        toast('Booking cancelled');
+        this.$emit('saved', { status: 'cancelled', cancelledReason: why });
+      } catch (e) { b.error = friendlyError(e, 'cancel the booking'); }
+      b.busy = false;
+    },
+    async restore() {
+      const b = this.bk; b.error = '';
+      b.busy = true;
+      try {
+        await setBookingCancelled(me, b, false, 'Restored on Portfolio › Bookings');
+        toast('Booking restored');
+        this.$emit('saved', { status: null, cancelledReason: null });
+      } catch (e) { b.error = friendlyError(e, 'restore the booking'); }
+      b.busy = false;
+    },
+    async remove() {
+      const b = this.bk; b.error = '';
+      if (this.deleteBlock || b.busy) return;
+      if (!await askConfirm({ title: `Delete booking ${b.bookingNo || b.id} for good?`, message: 'The booking, its guest details and passcodes, and its utility bill are removed from the PMS for good. This cannot be undone. The audit log keeps the booking no., unit and dates.', confirmText: 'Delete booking', danger: true })) return;
+      b.busy = true;
+      try {
+        await deleteOfflineBooking(me, b, b.cancelledReason ? `Cancelled: ${b.cancelledReason}` : 'Deleted on Portfolio › Bookings');
+        toast('Booking deleted');
+        this.$emit('deleted');
+      } catch (e) { b.error = friendlyError(e, 'delete the booking'); b.busy = false; }
+    },
     async save() {
       const b = this.bk, f = b.f, o = b.orig || {};
       b.error = '';

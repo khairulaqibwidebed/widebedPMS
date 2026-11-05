@@ -21,16 +21,16 @@
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <section class="kpis">
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ bookings.length }}</div><div class="hint">Made from Offline inquiries</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term tenants</div><div class="value">{{ bookings.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short stays</div><div class="value">{{ bookings.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: bookings.filter(x => !x.ezeeReservationNo).length }">{{ bookings.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ active.length }}</div><div class="hint">Made from Offline inquiries</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term tenants</div><div class="value">{{ active.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short stays</div><div class="value">{{ active.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: active.filter(x => !x.ezeeReservationNo).length }">{{ active.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></button>
     </section>
     <section class="card">
       <div class="card-head"><h2>Offline bookings</h2></div>
       <p class="card-intro">Stays made outside eZee, such as long-term tenants.</p>
       <div class="toolbar" ref="bookList">
-        <input class="input" type="search" placeholder="Search booking no., unit or tenant ID" v-model="search" aria-label="Search booking">
+        <input class="input" type="search" placeholder="Search booking no., unit, tenant name or ID" v-model="search" aria-label="Search booking">
         <span class="mm-wrap"><button type="button" class="select" @click="drOpen = !drOpen" aria-haspopup="dialog" :aria-expanded="drOpen">{{ dateLabel }}</button>
           <template v-if="drOpen"><div class="mm-back" @click="drOpen = false"></div>
             <div class="mm-pop dr-pop" role="dialog" aria-label="Stay dates">
@@ -38,6 +38,7 @@
               <label class="dr-f">Stays to<input class="input" type="date" v-model="bkTo"></label>
               <div class="mm-foot"><button type="button" class="link" @click="bkFrom = ''; bkTo = ''">Clear</button><button type="button" class="btn btn-primary" @click="drOpen = false">Done</button></div>
             </div></template></span>
+        <button type="button" class="btn" :class="{ 'btn-primary': bookingKind === 'cancelled' }" v-if="cancelledCount || bookingKind === 'cancelled'" @click="bookingKind = bookingKind === 'cancelled' ? 'all' : 'cancelled'">{{ bookingKind === 'cancelled' ? 'Back to active bookings' : `Cancelled (${cancelledCount})` }}</button>
         <span class="help" v-if="search.trim()">Searching shows every month and date.</span>
       </div>
       <Paged :items="shown" v-slot="{ pageRows }">
@@ -52,7 +53,7 @@
                 <td class="nw">{{ guestName(row) }}</td>
                 <td class="nw">{{ dmy(row.arrival) }}</td>
                 <td class="nw">{{ dmy(row.departure) }}</td>
-                <td class="nw">{{ row.longTerm ? 'Long-term lease' : 'Short stay' }}</td>
+                <td class="nw">{{ row.longTerm ? 'Long-term lease' : 'Short stay' }} <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span></td>
                 <td class="num nw" v-if="!acc.viewOnly">{{ row.longTerm ? `${amt(row.monthlyRent)} /M` : paidOf(row) }}</td>
                 <td v-if="!acc.viewOnly"><div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template><span class="muted" v-if="!payMonths.some(m => monthStatus(row, m))">—</span></div></td>
                 <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
@@ -66,7 +67,7 @@
       <div class="card-foot" v-if="!acc.viewOnly"><span>Invoice and receipt PDFs are made from a booking, approved by Accounting, saved to the company Google Drive and listed on Accounting › Invoices & Receipts. Nothing is sent automatically.</span></div>
     </section>
 
-    <BookingDrawer v-if="open" :key="open.id" :booking="open" :acc="acc" @close="open = null" @saved="onSaved" />
+    <BookingDrawer v-if="open" :key="open.id" :booking="open" :acc="acc" @close="open = null" @saved="onSaved" @deleted="onDeleted" />
   </main>
 </template>
 
@@ -101,6 +102,9 @@ export default {
     };
   },
   computed: {
+    // Cancelled bookings are kept but left out of the counts and the list (the Cancelled button shows them)
+    active() { return this.bookings.filter(x => x.status !== 'cancelled'); },
+    cancelledCount() { return this.bookings.length - this.active.length; },
     propertyOptions() { return [{ value: 'all', label: 'All properties' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))]; },
     // The month picker: several months (none ticked = every month). Left alone it follows the month in the address.
     monthsModel: { get() { return this.selMonths; }, set(v) { this.monthSel = v; } },
@@ -111,12 +115,18 @@ export default {
     shown() {
       const q = this.search.trim().toLowerCase();
       const k = this.bookingKind;
-      return this.bookings.filter(x => (q || this.inPicked(x)) && (k === 'all' || (k === 'long' && x.longTerm) || (k === 'short' && !x.longTerm) || (k === 'noEzee' && !x.ezeeReservationNo))
-        && (!q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo].some(v => (v || '').toLowerCase().includes(q))));
+      const list = k === 'cancelled' ? this.bookings.filter(x => x.status === 'cancelled') : this.active;
+      return list.filter(x => (q || this.inPicked(x)) && (k === 'all' || k === 'cancelled' || (k === 'long' && x.longTerm) || (k === 'short' && !x.longTerm) || (k === 'noEzee' && !x.ezeeReservationNo))
+        && (!q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo, this.names[x.id]].some(v => (v || '').toLowerCase().includes(q))));
     }
   },
   // Remember the property for the next page (see lib/last-property.js)
-  watch: { propertyId(v) { rememberProperty(v); } },
+  watch: {
+    propertyId(v) { rememberProperty(v); },
+    // A name search needs every booking's tenant name, not just the rows on screen: fetch the missing ones once.
+    search(v) { if (v.trim()) this.loadAllNames(); },
+    bookings() { if (this.search.trim()) this.loadAllNames(); }
+  },
   created() {
     // A direct booking saved on Offline inquiries comes back here with its message.
     if (history.state?.okMsg) {
@@ -165,6 +175,15 @@ export default {
       }
       return r.tenantId || '—';
     },
+    async loadAllNames() {
+      if (!this.acc.guestNames) return;
+      const todo = this.bookings.filter(r => !this.names[r.id] && !this.asked.has(r.id));
+      if (!todo.length) return;
+      todo.forEach(r => this.asked.add(r.id));
+      const got = await Promise.all(todo.map(r => loadGuestName(r)));
+      const add = {}; todo.forEach((r, i) => { if (got[i]) add[r.id] = got[i]; });
+      this.names = { ...this.names, ...add };
+    },
     paidOf(r) {
       if (this.paid && r.id in this.paid) return amt(this.paid[r.id]);
       return r.amount ? amt(r.amount) : '—';   // older bookings made before payments moved to Offline Payments
@@ -197,6 +216,11 @@ export default {
     onSaved(main) {
       const i = this.bookings.findIndex(x => x.id === this.open.id);
       if (i >= 0) this.bookings.splice(i, 1, { ...this.bookings[i], ...main });
+      this.open = null;
+    },
+    // Deleted for good in the drawer: drop the row.
+    onDeleted() {
+      this.bookings = this.bookings.filter(x => x.id !== this.open.id);
       this.open = null;
     }
   }
