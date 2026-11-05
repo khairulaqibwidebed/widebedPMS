@@ -8,7 +8,10 @@
 import { createSign } from 'node:crypto';
 
 const KINDS = { 'offline-payments': 'Offline Payments', 'utility-bills': 'Utility Bills',
-  expenses: 'Expenses', issues: 'Issues', listings: 'New Owner Listings', sops: 'HR SOPs', 'owner-payments': 'Owner Payments' };
+  expenses: 'Expenses', issues: 'Issues', listings: 'New Owner Listings', sops: 'HR SOPs', 'owner-payments': 'Owner Payments',
+  announcements: 'HR Announcements' };
+// Areas where only some roles may upload or remove (5 Nov 2026). Everyone signed in may still view and download.
+const WRITERS = { announcements: ['hr', 'director'] };
 const SAFE = /^[A-Za-z0-9_-]{1,64}$/;
 const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
@@ -48,6 +51,19 @@ async function checkUser(req) {
   if (!apiKey) throw new HttpError(500, 'FIREBASE_API_KEY is not set on the server.');
   const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: m[1] }) });
   if (!r.ok) throw new HttpError(401, 'Sign in again.');
+  const uid = ((await r.json()).users || [])[0]?.localId;
+  if (!uid) throw new HttpError(401, 'Sign in again.');
+  return { uid, idToken: m[1] };
+}
+
+// The person's role from their own staff record (read with their own sign-in, so the Firestore rules apply).
+// A switched-off record counts as no role, like the rules.
+async function roleOf(user) {
+  const project = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'widebed-pmsdashboard';
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/users/${user.uid}`, { headers: { Authorization: `Bearer ${user.idToken}` } });
+  if (!r.ok) return null;
+  const f = (await r.json()).fields || {};
+  return f.active?.booleanValue === false ? null : f.role?.stringValue || null;
 }
 
 async function g(path, tok, opts = {}) {
@@ -88,8 +104,10 @@ async function recordFolder(tok, kind, recordId, label = '') {
 export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') throw new HttpError(405, 'POST only.');
-    await checkUser(req);
+    const user = await checkUser(req);
     const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    if (WRITERS[b.kind] && (b.action === 'session' || b.action === 'remove') && !WRITERS[b.kind].includes(await roleOf(user)))
+      throw new HttpError(403, 'Only HR and Directors can add or remove files here.');
     const tok = await driveToken();
     if (b.action === 'remove') {
       // Moves one file to the Drive trash (restorable there). Only files inside <root>/<kind>/ can be removed.

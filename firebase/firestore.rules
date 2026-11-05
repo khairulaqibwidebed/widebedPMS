@@ -1,5 +1,9 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.36, 5 Nov 2026 (Khairul): delete a cancelled offline booking for good. Accounting,
+// Widebed PMS Firestore rules. Draft 0.37, 5 Nov 2026 (Khairul): HR Announcements. announcements/{id}: anyone signed in reads
+// the ones meant for their role or Everyone; HR and Directors read all, post, edit and delete. announcements/{id}/views/{uid}:
+// written once by that person (first time they open it), read by that person, HR and Directors. announcementReads/{uid}: the
+// person's own list of opened announcements, only they read and write it. Files go to Google Drive, not Firestore. Nothing else changes.
+// Draft 0.36, 5 Nov 2026 (Khairul): delete a cancelled offline booking for good. Accounting,
 // Directors and Operations may delete an offlineBookings document whose status is 'cancelled', with its private part and
 // its utility bill (utilityBills/{same id}). Cancelling itself needed no change. Nothing else changes.
 // Draft 0.35, 5 Nov 2026 (Khairul, on top of Neo's Draft 0.34 below): joint owners. An owner's
@@ -319,6 +323,41 @@ service cloud.firestore {
     match /updates/{id} {
       allow read: if anyStaff();
       allow create, update, delete: if isDirector();
+    }
+
+    // HR Announcements (Draft 0.37, 5 Nov 2026). Posted by HR and Directors to Everyone or chosen roles (role ids).
+    match /announcements/{id} {
+      function annPoster() { return isHR() || isDirector(); }
+      function annOk() {
+        return request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 150
+          && request.resource.data.message is string && request.resource.data.message.size() > 0 && request.resource.data.message.size() <= 5000
+          && request.resource.data.audience is list && request.resource.data.audience.size() > 0 && request.resource.data.audience.size() <= 40
+          && request.resource.data.get('pinned', false) is bool
+          && request.resource.data.get('files', []) is list && request.resource.data.get('files', []).size() <= 10;
+      }
+      allow read: if annPoster() || (anyStaff() && resource.data.audience.hasAny([role(), 'everyone']));
+      allow create: if annPoster() && annOk() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if annPoster() && annOk() && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if annPoster();
+
+      // Opened: once per person (no update), only for an announcement meant for them
+      match /views/{uid} {
+        function annForMe() {
+          return get(/databases/$(database)/documents/announcements/$(id)).data.audience.hasAny([role(), 'everyone']);
+        }
+        allow read: if signedIn() && (request.auth.uid == uid || isHR() || isDirector());
+        allow create: if anyStaff() && request.auth.uid == uid && annForMe()
+          && request.resource.data.keys().hasOnly(['viewedAt', 'name', 'role'])
+          && request.resource.data.viewedAt == request.time;
+        allow delete: if isHR() || isDirector();
+      }
+    }
+    // Each person's own list of announcements they have opened (dashboard banner, Unread filter)
+    match /announcementReads/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if anyStaff() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['ids']) && request.resource.data.ids is map;
     }
 
     // Every role writes its own audit entries; an anonymous complaint is logged with NO uid.
