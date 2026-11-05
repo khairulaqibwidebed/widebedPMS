@@ -55,12 +55,6 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <FormField label="Start date" req type="date" v-model="form.startDate" :disabled="fieldsDisabled" />
           <FormField label="End date" req type="date" v-model="form.endDate" :disabled="fieldsDisabled" />
-          <FormField label="Evaluation opens" type="date" v-model="form.evaluationStart" :disabled="fieldsDisabled" />
-          <FormField label="Evaluation closes" type="date" v-model="form.evaluationEnd" :disabled="fieldsDisabled" />
-          <FormField label="COH deadline" type="date" v-model="form.cohDeadline" :disabled="fieldsDisabled" />
-          <FormField label="KPI deadline" type="date" v-model="form.kpiDeadline" :disabled="fieldsDisabled" />
-          <FormField label="Review deadline" type="date" v-model="form.reviewDeadline" :disabled="fieldsDisabled" />
-          <FormField label="Finalization date" type="date" v-model="form.finalizationDate" :disabled="fieldsDisabled" />
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
           <FormField label="COH weight" type="number" min="0" max="100" v-model="form.weights.coh" :disabled="fieldsDisabled" />
@@ -83,6 +77,13 @@
         <h2>Participants — {{ partsFor.name }}</h2>
         <p class="note">Only ticked employees are included in this quarter's evaluation. Everyone else sees
           "You are not included in this quarter's performance evaluation."</p>
+        <div class="parts-toolbar">
+          <label class="parts-all">
+            <input type="checkbox" :checked="allSelected" :indeterminate.prop="someSelected" @change="toggleAll($event.target.checked)">
+            Select all
+          </label>
+          <span class="muted">{{ selectedUids.length }} of {{ staff.length }} selected</span>
+        </div>
         <div style="max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 8px;">
           <label v-for="e in staff" :key="e.uid" style="display:flex; align-items:center; gap:8px; padding:6px 4px;">
             <input type="checkbox" :value="e.uid" v-model="selectedUids">
@@ -153,6 +154,10 @@ const form = ref(null);
 const viewOnly = ref(false);
 const partsFor = ref(null);
 const selectedUids = ref([]);
+// "Select all" ticks every staff member shown in the Participants list; unticking it clears them all.
+const allSelected = computed(() => staff.value.length > 0 && staff.value.every(e => selectedUids.value.includes(e.uid)));
+const someSelected = computed(() => selectedUids.value.length > 0 && !allSelected.value);
+function toggleAll(on) { selectedUids.value = on ? staff.value.map(e => e.uid) : []; }
 // A quarter can be edited at any status (business rule) — view mode (opened by double-clicking a row, or the
 // Details button) just starts read-only, with an "Edit" button to unlock the fields regardless of status.
 const fieldsDisabled = computed(() => viewOnly.value);
@@ -177,7 +182,7 @@ onMounted(load);
 
 function openCreate() {
   viewOnly.value = false;
-  form.value = { status: 'draft', name: '', startDate: '', endDate: '', evaluationStart: '', evaluationEnd: '', cohDeadline: '', kpiDeadline: '', reviewDeadline: '', finalizationDate: '', minCohEvaluations: 1, weights: { ...DEFAULT_WEIGHTS } };
+  form.value = { status: 'draft', name: '', startDate: '', endDate: '', minCohEvaluations: 1, weights: { ...DEFAULT_WEIGHTS } };
 }
 // Double-click a row (or the Details button): opens read-only, with an inline Edit button.
 function openDetails(q) {
@@ -186,6 +191,9 @@ function openDetails(q) {
 }
 
 async function save() {
+  if (!form.value.name?.trim()) { error.value = 'Give the quarter a name.'; return; }
+  if (!form.value.startDate || !form.value.endDate) { error.value = 'Start date and end date are required.'; return; }
+  if (form.value.endDate < form.value.startDate) { error.value = 'End date must be on or after the start date.'; return; }
   if (weightTotal.value !== 100) { error.value = 'COH, KPI and TMS weights must add up to 100.'; return; }
   saving.value = true; error.value = '';
   try {
@@ -224,6 +232,8 @@ async function saveParticipants() {
 </script>
 
 <style scoped>
+.parts-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.parts-all { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
 .status-help-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .status-help-list li { display: grid; grid-template-columns: 130px 1fr; gap: 14px; align-items: start; }
 .status-help-pill { justify-self: start; white-space: nowrap; }
