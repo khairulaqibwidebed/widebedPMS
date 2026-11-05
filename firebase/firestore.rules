@@ -1,5 +1,16 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.37, 5 Nov 2026 (Khairul): HR Announcements. announcements/{id}: anyone signed in reads
+// Widebed PMS Firestore rules. Draft 0.40, 5 Nov 2026 (Khairul): second fix for 0.38. HR still couldn't read the private
+// part (subject, details) of their own Director complaint. dirSide() now reads the complaint and the role once each, the
+// private-part rule is split into separate lines, and a backup line lets HR read a private part whose fromUid is theirs.
+// Nothing else changes.
+// Draft 0.39, 5 Nov 2026 (Khairul): fix for 0.38. HR's "my Director complaints" list
+// (kind == director, fromId == me) was refused because the read rule used get('fromId', null), which a list query can't
+// be checked against. It now compares resource.data.fromId directly. Nothing else changes.
+// Draft 0.38, 5 Nov 2026 (Khairul): Director complaints are private to the HR person who sent
+// them. A new Director complaint keeps the sender's uid (fromId) on the main record; HR reads only their own Director
+// complaints (record, private part, conversation, photos) and replies only on those. Directors still read all. Staff
+// complaints unchanged (HR reads all). Nothing else changes.
+// Draft 0.37, 5 Nov 2026 (Khairul): HR Announcements. announcements/{id}: anyone signed in reads
 // the ones meant for their role or Everyone; HR and Directors read all, post, edit and delete. announcements/{id}/views/{uid}:
 // written once by that person (first time they open it), read by that person, HR and Directors. announcementReads/{uid}: the
 // person's own list of opened announcements, only they read and write it. Files go to Google Drive, not Firestore. Nothing else changes.
@@ -238,6 +249,13 @@ service cloud.firestore {
     // ---- Complaints ----
     function complaintAfter(id) { return getAfter(docPath('complaints', id)).data; }
     function complaintNow(id)   { return get(docPath('complaints', id)).data; }
+    // Draft 0.38: a Director complaint is between the Directors and the HR person who sent it (fromId), not all of HR
+    // Draft 0.40: reads the complaint and the role once each (fewer get() calls; Firestore caps them per request)
+    function dirSide(id) {
+      let c = complaintNow(id);
+      let r = role();
+      return c.kind == 'director' && (r == 'director' || (r == 'hr' && c.get('fromId', null) == request.auth.uid));
+    }
 
     // ================= Shared: private data, accounts, counters, logs =================
 
@@ -874,7 +892,7 @@ service cloud.firestore {
     // An anonymous staff complaint has no fromId or fromName anywhere.
     match /complaints/{id} {
       // HR reads everything. Directors read only Director complaints (never staff complaints).
-      allow read: if isHR() || (isDirector() && resource.data.kind == 'director');
+      allow read: if (isHR() && (resource.data.kind == 'staff' || resource.data.fromId == request.auth.uid)) || (isDirector() && resource.data.kind == 'director');
       // The sender of a named complaint follows it under My complaints.
       allow read: if signedIn() && resource.data.kind == 'staff' && resource.data.get('fromId', null) == request.auth.uid;
       // An anonymous sender's browser keeps the (random) id and reads only the status.
@@ -885,7 +903,7 @@ service cloud.firestore {
           || (request.resource.data.anonymous == true && !('fromId' in request.resource.data)));
       // Director complaints: HR sends (Directors too, so the form can be tried out).
       allow create: if hrOrDir() && request.resource.data.kind == 'director' && request.resource.data.read == false
-        && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'read']);
+        && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'read', 'fromId']) && request.resource.data.get('fromId', null) == request.auth.uid;
       // Draft 0.25: HR opening a New staff complaint marks it Read by HR; the only change ever made to a staff complaint.
       allow update: if isHR() && resource.data.kind == 'staff' && resource.data.status == 'new'
         && changed().hasOnly(['status', 'readAt', 'readBy'])
@@ -908,7 +926,7 @@ service cloud.firestore {
       // sender's browser reads by the (random) id, like the status. HR writes any time (a closing note goes with the Close);
       // the NAMED sender writes back while it isn't Closed. Text up to 2000 characters (or photos only), never changed.
       match /thread/{tid} {
-        allow read: if isHR()
+        allow read: if (isHR() && complaintNow(id).kind == 'staff')
           || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
           || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
         allow create: if complaintNow(id).kind == 'staff'
@@ -922,9 +940,9 @@ service cloud.firestore {
             || (request.resource.data.by == 'sender' && complaintNow(id).get('fromId', null) == request.auth.uid
                 && complaintNow(id).status != 'closed' && !('closing' in request.resource.data)));
         // Draft 0.29: a Director complaint's conversation is between HR and the Directors
-        allow read: if hrOrDir() && complaintNow(id).kind == 'director';
+        allow read: if dirSide(id);
         // Draft 0.30: a closing note (closing) comes only from the Directors; HR can't write once it is Closed.
-        allow create: if hrOrDir() && complaintNow(id).kind == 'director'
+        allow create: if dirSide(id)
           && newKeysOnly(['text', 'by', 'byName', 'byUid', 'imageIds', 'closing', 'createdAt'])
           && request.resource.data.text is string && request.resource.data.text.size() <= 2000
           && (request.resource.data.text.size() > 0
@@ -939,7 +957,7 @@ service cloud.firestore {
       // (an anonymous complaint: no uid, and only in the first 15 minutes after it was sent), or with a reply by HR or the
       // named sender (not once Closed). Each record is one image, at most ~700 KB of text.
       match /images/{img} {
-        allow read: if isHR()
+        allow read: if (isHR() && complaintNow(id).kind == 'staff')
           || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
           || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
         allow create: if complaintNow(id).kind == 'staff'
@@ -953,8 +971,8 @@ service cloud.firestore {
                 && request.resource.data.get('byUid', '') == request.auth.uid
                 && (isHR() || (complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed'))));
         // Draft 0.29: Director complaints: HR and Directors read and add photos (with the complaint or a reply)
-        allow read: if hrOrDir() && complaintNow(id).kind == 'director';
-        allow create: if hrOrDir() && complaintNow(id).kind == 'director'
+        allow read: if dirSide(id);
+        allow create: if dirSide(id)
           && newKeysOnly(['data', 'w', 'h', 'size', 'scope', 'threadId', 'byUid', 'createdAt'])
           && request.resource.data.data is string && request.resource.data.data.size() <= 700000
           && request.resource.data.get('byUid', '') == request.auth.uid
@@ -972,7 +990,10 @@ service cloud.firestore {
         allow update, delete: if false;
       }
       match /private/{docId} {
-        allow read: if isHR() || (isDirector() && complaintNow(id).kind == 'director');
+        allow read: if isHR() && complaintNow(id).kind == 'staff';
+        allow read: if dirSide(id);
+        // Draft 0.40 backup check: the HR sender reads their own private part by its own fromUid (no get() on the parent)
+        allow read: if isHR() && resource.data.get('fromUid', null) == request.auth.uid;
         allow read: if signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid;
         // Written once, in the same transaction as the parent. Anonymous: no fromName.
         allow create: if docId == 'main' && anyStaff()
