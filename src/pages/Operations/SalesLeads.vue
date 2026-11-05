@@ -148,8 +148,10 @@
         </div>
         <div class="side-grid">
           <div class="form-card">
+            <section class="card" v-if="lead.bookingId && !booking"><div class="card-head"><h2>Booking</h2><span class="muted">{{ lead.bookingId }}</span></div><p class="muted">This booking was deleted (cancelled, then deleted for good on Portfolio › Bookings).</p></section>
             <section class="card" v-if="booking">
               <div class="card-head"><h2>Booking</h2><span class="muted">{{ booking.id }}</span></div>
+              <div class="kv" v-if="booking.status === 'cancelled'"><span>Status</span><span>{{ `Cancelled${booking.cancelledReason ? ': ' + booking.cancelledReason : ''}` }}</span></div>
               <div class="kv"><span>Unit</span><span>{{ `${booking.propertyName} · ${booking.unitCode}` }}</span></div>
               <div class="kv"><span>Stay</span><span>{{ `${full(booking.arrival)} to ${full(booking.departure)} · ${booking.nights} nights` }}</span></div>
               <div class="kv"><span>Type</span><span>{{ booking.longTerm ? 'Long-term lease' : 'Short stay' }}</span></div>

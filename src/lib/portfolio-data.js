@@ -2,7 +2,7 @@
 // constants and small helpers they share. The pages and drawers keep only screen logic and form checks.
 // Moved out of the old single pages/Portfolio/Portfolio.vue on 4 Nov 2026; the reads and writes are unchanged.
 import { markRaw } from 'vue';
-import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, serverTimestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { ARRANGEMENTS, DEFAULT_OTA, DM_STARTER } from '@/lib/engine.js';
 import { loadUnits, loadSetup, latestVersion, audit, friendlyError } from '@/lib/finance-data.js';
@@ -55,7 +55,7 @@ export function matchArrangement(x, key) {
 export function changeList(a) {
   const v = x => (x == null || x === '' ? '—' : Array.isArray(x) ? (x.join(', ') || '—') : ARRANGEMENTS[x]?.label || String(x));
   const names = { ownerId: 'Owner', aliases: 'eZee names', active: 'Active', arrangement: 'Arrangement', units: 'Units', status: 'Status',
-    fullName: 'Full name', dob: 'Date of birth', bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account',
+    fullName: 'Full name', coOwners: 'Co-owners', dob: 'Date of birth', bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account',
     ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID' };
   const nice = f => names[f] || f.replace(/([A-Z])/g, ' $1').replace(/^./, m => m.toUpperCase());
   const out = (a.changes || []).map(c => c.new === '(changed)' ? `${nice(c.field)} updated` : `${nice(c.field)}: ${v(c.old)} → ${v(c.new)}`);
@@ -74,7 +74,10 @@ export function actionText(a) {
 }
 
 // ---------- owners: names, units, brought forward ----------
-export const ownerName = (owners, id) => { const x = owners.find(y => y.id === id); return x ? (x.private?.fullName || x.name || '') : ''; };
+// Joint owners: the first name is fullName, the others are private.coOwners [{ fullName, ic, email, phone }]. Shown "A & B".
+export const CO_OWNER_FIELDS = ['fullName', 'ic', 'email', 'phone'];
+export const jointName = (first, coOwners) => [first, ...(coOwners || []).map(c => c?.fullName)].map(n => String(n || '').trim()).filter(Boolean).join(' & ');
+export const ownerName = (owners, id) => { const x = owners.find(y => y.id === id); return x ? jointName(x.private?.fullName || x.name || '', x.private?.coOwners) : ''; };
 // Owner codes (OWN-001) are for the system only; screens show the name. Roles that can't read names (PDPA) see "Owner linked".
 export const ownerLabel = (owners, id, viewOnly) => { const x = owners.find(y => y.id === id); if (!x) return ''; return ownerName(owners, id) || (viewOnly ? 'Owner linked' : 'No name saved'); };
 export const ownerUnits = (units, id) => units.filter(x => x.ownerId === id);
@@ -177,7 +180,8 @@ export async function loadOfflineBookings(propertyId) {
   const col = collection(db, 'offlineBookings');
   const snap = await getDocs(propertyId === 'all' ? query(col, orderBy('createdAt', 'desc'), limit(300))
     : query(col, where('propertyId', '==', propertyId), limit(300)));
-  const bookings = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => x.status !== 'cancelled')
+  // Cancelled bookings come back too: the page hides them unless the Cancelled filter is picked.
+  const bookings = snap.docs.map(d => ({ id: d.id, ...d.data() }))
     .sort((a, b) => (b.arrival || '').localeCompare(a.arrival || ''));
   let paid = null, pays = null;
   try {
@@ -220,6 +224,29 @@ export async function saveOfflineBooking(me, b, main, changes, privData, guestDa
   if (guestData) batch.set(doc(db, 'tenants', b.tenantId, 'private', 'main'), guestData, { merge: true });
   audit(batch, me, { action: 'offlineBooking.update', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
     changes: [...changes, ...Object.keys({ ...(privData || {}), ...(guestData || {}) }).map(k => ({ field: `private.${k}`, old: null, new: null }))], reason: b.reason.trim() });
+  await batch.commit();
+}
+
+// Cancel (status 'cancelled', with the reason) or restore an offline booking. Cancelled bookings drop out of every list,
+// the Dashboard, the Reservation form's clash check and the Utility form.
+export async function setBookingCancelled(me, b, cancel, reason) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'offlineBookings', b.id), cancel
+    ? { status: 'cancelled', cancelledReason: reason, cancelledAt: serverTimestamp(), cancelledBy: me.user.uid, updatedAt: serverTimestamp(), updatedBy: me.user.uid }
+    : { status: deleteField(), cancelledReason: deleteField(), cancelledAt: deleteField(), cancelledBy: deleteField(), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+  audit(batch, me, { action: cancel ? 'offlineBooking.cancel' : 'offlineBooking.restore', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
+    changes: [{ field: 'status', old: cancel ? 'active' : 'cancelled', new: cancel ? 'cancelled' : 'active' }], reason });
+  await batch.commit();
+}
+// Delete a cancelled booking for good: the booking, its private part and its utility bill. The page only offers it when
+// no payment is recorded. The audit entry keeps the booking no., unit and dates, never the guest's details.
+export async function deleteOfflineBooking(me, b, reason) {
+  const batch = writeBatch(db), ref = doc(db, 'offlineBookings', b.id);
+  batch.delete(doc(ref, 'private', 'main'));
+  batch.delete(doc(db, 'utilityBills', b.id));
+  batch.delete(ref);
+  audit(batch, me, { action: 'offlineBooking.delete', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
+    changes: [{ field: 'booking', old: `${b.bookingNo || b.id} · ${b.unitCode || b.unitId || ''} · ${b.arrival || ''} to ${b.departure || ''}`, new: null }], reason });
   await batch.commit();
 }
 
