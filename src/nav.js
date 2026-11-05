@@ -28,8 +28,9 @@ export const NAV = {
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO_FD,
     G('Accounting', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
-      P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
-    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
+      P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart')]),
+    // Offline Inquiries belongs under Operations (same as the Director's and Operations' sidebars), not Accounting.
+    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
     AGREEMENTS, PLAYBOOK, PERFORMANCE,
     HR_STAFF,
     MY_ACCOUNT
