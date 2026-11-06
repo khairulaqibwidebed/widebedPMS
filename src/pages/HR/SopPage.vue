@@ -4,6 +4,7 @@
       <div><h1>{{ cfg.title }}</h1><div class="sub">{{ cfg.sub }}</div></div>
       <div class="head-tools">
         <span class="chip" v-show="!canEdit">View only</span>
+        <RouterLink v-if="$route.meta.sop === 'advance'" class="btn btn-primary" to="/HR/salary-advance">Salary Advance form</RouterLink>
         <template v-if="canEdit"><label class="btn btn-outline-brand" :class="{ disabled: busy || loading }">{{ up.on ? `Uploading ${up.pct}%` : 'Upload document' }}<input type="file" hidden @change="upload($event)"></label></template>
         <button class="btn btn-primary" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit SOP</button>
       </div>

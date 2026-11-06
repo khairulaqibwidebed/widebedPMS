@@ -9,7 +9,7 @@ export const SOPS = {
       'For medical leave, give HR your MC within 2 working days.'],
     docs: [['Attendance and leave policy.pdf', '15 Oct 2026'], ['Leave application form.docx', '15 Oct 2026']] },
   advance: { label: 'Advance SOP', title: 'Advance SOP', sub: 'How to ask for a salary advance and how it is paid back', stepsTitle: 'Steps to follow',
-    steps: ['Fill in the salary advance request form below and give it to HR.',
+    steps: ['Fill in the Salary Advance form in the PMS (HR > Salary Advance). It shows how much you can ask for.',
       'You can ask for up to 50% of one month\'s basic salary, once a month.',
       'Your manager and HR approve or reject the request within 3 working days.',
       'Accounting pays the approved advance by bank transfer.',

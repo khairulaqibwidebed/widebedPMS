@@ -11,8 +11,8 @@ const G = (label, icon, items) => ({ label, icon, items });
 const PORTFOLIO = G('Portfolio', 'building', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'), P('Bookings', '/Portfolio/bookings', 'calendar')]);
 // Finance and Directors also get Bulk Upload (owners and properties from a spreadsheet).
 const PORTFOLIO_FD = G('Portfolio', 'building', [...PORTFOLIO.items, P('Bulk Upload', '/Portfolio/bulk-upload', 'upload')]);
-const HR_STAFF = G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]);
-const NEW_LISTINGS = G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home')]);
+const HR_STAFF = G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Salary Advance', '/HR/salary-advance', 'banknote'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]);
+const NEW_LISTINGS = G('Procurement', 'package', [P('Owner Leads', '/Procurement/new-owner-listings', 'home')]);
 // Every role's own account page, last in the sidebar.
 const MY_ACCOUNT = G('My Account', 'user', [P('Profile & Appearance', '/Settings/appearance', 'sliders')]);
 // Agreements: everyone fills in forms. Setup shows for Directors and anyone ticked for it (navFor adds it).
@@ -30,7 +30,7 @@ export const NAV = {
     G('Accounting', 'banknote', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart')]),
     // Offline Inquiries belongs under Operations (same as the Director's and Operations' sidebars), not Accounting.
-    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message')]),
+    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Tenant Leads', '/Operations/offline-inquiries', 'message')]),
     AGREEMENTS, PLAYBOOK, PERFORMANCE,
     HR_STAFF,
     MY_ACCOUNT
@@ -40,11 +40,11 @@ export const NAV = {
     PORTFOLIO_FD,
     G('Accounting', 'banknote', [P('Statement Approvals', '/Finance/statement-approvals', 'shieldCheck'), P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
       P('Invoices & Receipts', '/Finance/invoices', 'fileText'), P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Reports', '/Reports', 'chart')]),
-    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard')]),
-    G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home'), P('Forms', '/Procurement/forms', 'filePlus')]),
+    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard')]),
+    G('Procurement', 'package', [P('Owner Leads', '/Procurement/new-owner-listings', 'home')]),
     AGREEMENTS_DIR, PLAYBOOK, PERFORMANCE_ADMIN,
     G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'sliders'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
-    G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
+    G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Salary Advance', '/HR/salary-advance', 'banknote'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
        P('Director Complaints', '/HR/director-complaints', 'shieldAlert'), P('Raise a Complaint', '/HR/raise-complaint', 'flag')]),
     MY_ACCOUNT
   ],
@@ -53,7 +53,7 @@ export const NAV = {
   operations: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO,
-    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Offline Inquiries', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'), P('Offline Payments', '/Finance/offline-payments', 'creditCard')]),
+    G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'), P('Offline Payments', '/Finance/offline-payments', 'creditCard')]),
     NEW_LISTINGS, AGREEMENTS, PLAYBOOK, PERFORMANCE, HR_STAFF,
     MY_ACCOUNT
   ],
@@ -66,7 +66,7 @@ export const NAV = {
   ],
   hr: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
-    G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
+    G('HR', 'users', [P('Announcements', '/HR/announcements', 'megaphone'), P('Attendance SOP', '/HR/attendance-sop', 'clock'), P('Advance SOP', '/HR/advance-sop', 'wallet'), P('Salary Advance', '/HR/salary-advance', 'banknote'), P('Allowance SOP', '/HR/allowance-sop', 'gift'), P('Claim SOCSO', '/HR/claim-socso', 'shieldCheck'),
       P('Staff Complaints', '/HR/staff-complaints', 'clipboard'), P('Director Complaints', '/HR/director-complaints', 'shieldAlert')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
     AGREEMENTS, PLAYBOOK, PERFORMANCE_ADMIN,
@@ -76,7 +76,7 @@ export const NAV = {
   procurement: [
     { items: [P('Dashboard', '/Dashboard', 'dashboard')] },
     PORTFOLIO,
-    G('Procurement', 'package', [P('New Owner Listings', '/Procurement/new-owner-listings', 'home'), P('Forms', '/Procurement/forms', 'filePlus')]),
+    G('Procurement', 'package', [P('Owner Leads', '/Procurement/new-owner-listings', 'home')]),
     G('Operations', 'clipboard', [P('Issues', '/Operations/issues', 'alert')]),
     AGREEMENTS, PLAYBOOK, PERFORMANCE, HR_STAFF,
     MY_ACCOUNT
@@ -115,7 +115,8 @@ export function navFor(me) {
   if (role === 'director') return NAV.director;
   const allowed = it => { const key = pageKeyFor(it.to); return !key || can(me, key + '.view'); };
 
-  const out = navOf(role).map(g => ({ ...g, items: g.items.filter(allowed) })).filter(g => g.items.length);
+  // Interns (Staff accounts > HR details) have no Salary Advance page (5 Nov 2026)
+  const out = navOf(role).map(g => ({ ...g, items: g.items.filter(it => allowed(it) && !(me.intern && it.to === '/HR/salary-advance')) })).filter(g => g.items.length);
   const seen = new Set(out.flatMap(g => g.items.map(it => it.to)));
 
   for (const group of NAV.director) {

@@ -1,5 +1,23 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.40, 5 Nov 2026 (Khairul): second fix for 0.38. HR still couldn't read the private
+// Widebed PMS Firestore rules. Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
+// (advances byHR: created straight at Reviewed, within 50% of their salary, not interns, never for themselves), with the form
+// and the signature-use line in the same save. The staff member reads it but can't sign it in the PMS (paper only; HR marks it
+// signed outside). Also (6 Nov 2026): the Procurement Forms page is removed, so procurementForms.view leaves the procurement preset.
+// Draft 0.44, 5 Nov 2026 (Khairul): salary advance requests no longer need a "needed by" date
+// (the field is optional; older requests keep theirs). Nothing else changes.
+// Draft 0.43, 5 Nov 2026 (Khairul): salary advance review no longer asks how the Director was
+// told (the tick alone, saved with HR's name and time). Only the chloeTold.how check is removed. Nothing else changes.
+// Draft 0.42, 5 Nov 2026 (Khairul): Salary advances (0.41 was never published; this replaces it).
+// staffHR/{uid} (IC, position, salary) and advanceLimits/{uid} (50% of salary, same save): HR and Directors write; HR can't
+// change their own. The person reads only their own limit. Interns (users/{uid}.intern) can't ask for an advance.
+// advances/{id}: staff create their own (Submitted, amount <= 50% of the salary in staffHR), read their own, withdraw while
+// Submitted, and sign once Reviewed (signed/main, drawn or uploaded). HR (never on their own request): Review (amount, Director
+// told; frozen form advances/{id}/form/main + signatureUses/{id} in the same batch), mark signed outside the PMS (fully signed
+// document signed/copy required), add or replace signed/copy later, Approve (pending payment), Paid (payment type, date,
+// screenshot payment/main), Reject at Submitted or Signed. form and signed: the staff member, HR and Directors read; payment:
+// HR and Directors only. advances/{id}/notes: HR writes, HR and Directors read. signatures/director: HR and Directors.
+// counters/advances for SA- refs. Nothing is deleted. Nothing else changes.
+// Draft 0.40, 5 Nov 2026 (Khairul): second fix for 0.38. HR still couldn't read the private
 // part (subject, details) of their own Director complaint. dirSide() now reads the complaint and the role once each, the
 // private-part rule is split into separate lines, and a backup line lets HR read a private part whose fromUid is theirs.
 // Nothing else changes.
@@ -161,7 +179,7 @@ service cloud.firestore {
         'operations': ['portfolio.view', 'offlineInquiries.view', 'offlineInquiries.edit', 'bookingForms.view', 'newOwnerListings.view', 'offlinePayments.view'],
         'it': [],
         'hr': ['playbook.edit', 'sops.edit'],
-        'procurement': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'procurementForms.view'],
+        'procurement': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit'],
         'marketing': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit']
       }.get(r, []);
     }
@@ -330,6 +348,10 @@ service cloud.firestore {
         && request.resource.data.next == 2;
       allow update: if ((name == 'staffComplaints' && anyStaff()) || (name == 'directorComplaints' && hrOrDir()))
         && request.resource.data.next == resource.data.next + 1;
+      // Salary advances (Draft 0.42).
+      allow read: if name == 'advances' && anyStaff();
+      allow create: if name == 'advances' && anyStaff() && request.resource.data.next == 2;
+      allow update: if name == 'advances' && anyStaff() && request.resource.data.next == resource.data.next + 1;
       // New owner listings.
       allow read: if name == 'newOwnerListings' && listingEditor();
       allow create: if name == 'newOwnerListings' && listingEditor() && request.resource.data.next == 2;
@@ -1299,6 +1321,188 @@ service cloud.firestore {
       allow read: if lodgeStaff();
       allow create, update: if lodgeStaff() && request.resource.data.next is int;
       allow delete: if false;
+    }
+
+    // ================= Salary advances (Draft 0.42, 5 Nov 2026) =================
+    // Data shape and flow: src/pages/HR/advances.js.
+    function hrPath(uid)    { return /databases/$(database)/documents/staffHR/$(uid); }
+    function limitPath(uid) { return /databases/$(database)/documents/advanceLimits/$(uid); }
+    function advPath(id)    { return /databases/$(database)/documents/advances/$(id); }
+    // HR and Directors keep the details; HR can't change their own (a Director does).
+    function hrDetailsEditor(uid) { return isDirector() || (isHR() && uid != request.auth.uid); }
+
+    // IC, position and monthly salary. Never readable by the staff member.
+    match /staffHR/{uid} {
+      allow read: if hrOrDir();
+      allow create, update: if hrDetailsEditor(uid)
+        && request.resource.data.keys().hasOnly(['ic', 'position', 'salary', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && request.resource.data.ic is string && request.resource.data.position is string
+        && request.resource.data.salary is number && request.resource.data.salary >= 0
+        && request.resource.data.updatedBy == request.auth.uid
+        && getAfter(limitPath(uid)).data.limit == request.resource.data.salary * 0.5;
+      allow delete: if false;
+    }
+    // The advance limit (50% of the salary): the only part the person reads.
+    match /advanceLimits/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || hrOrDir());
+      allow create, update: if hrDetailsEditor(uid)
+        && request.resource.data.keys().hasOnly(['limit', 'updatedAt'])
+        && request.resource.data.limit == getAfter(hrPath(uid)).data.salary * 0.5;
+      allow delete: if false;
+    }
+
+    match /advances/{id} {
+      function grows()     { return request.resource.data.history is list && request.resource.data.history.size() == resource.data.history.size() + 1; }
+      function from(a, b)  { return resource.data.status == a && request.resource.data.status == b; }
+      function onlyKeys(k) { return changed().hasOnly(['status', 'history', 'updatedAt'].concat(k)); }
+      // HR moves a request on, never their own.
+      function mover()     { return isHR() && resource.data.uid != request.auth.uid; }
+      function limitOfOwner() { return get(hrPath(resource.data.uid)).data.salary * 0.5; }
+      function sub(name, d)   { return /databases/$(database)/documents/advances/$(id)/$(name)/$(d); }
+      function mine()         { return signedIn() && resource.data.uid == request.auth.uid; }
+
+      allow read: if hrOrDir() || (signedIn() && resource.data.uid == request.auth.uid);
+      // Staff: their own request, Submitted, within 50% of the salary HR entered (no salary = refused). Not interns.
+      allow create: if anyStaff() && request.resource.data.uid == request.auth.uid
+        && get(myRecord()).data.get('intern', false) != true
+        && newKeysOnly(['ref', 'uid', 'name', 'amount', 'reason', 'neededBy', 'status', 'history', 'createdAt', 'updatedAt'])
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.ref is string && request.resource.data.name is string
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && exists(hrPath(request.auth.uid))
+        && request.resource.data.amount <= get(hrPath(request.auth.uid)).data.salary * 0.5
+        && request.resource.data.reason is string && request.resource.data.reason.size() > 0 && request.resource.data.reason.size() <= 1000
+        && (!('neededBy' in request.resource.data) || request.resource.data.neededBy is string)
+        && request.resource.data.history is list && request.resource.data.history.size() == 1;
+      // HR: make the form for a staff member (byHR), straight at Reviewed; form/main and signatureUses in the same save.
+      allow create: if isHR() && request.resource.data.uid != request.auth.uid
+        && request.resource.data.byHR == true
+        && get(/databases/$(database)/documents/users/$(request.resource.data.uid)).data.get('intern', false) != true
+        && newKeysOnly(['ref', 'uid', 'name', 'amount', 'reason', 'description', 'status', 'byHR', 'approvedAmount', 'reviewedAt',
+          'reviewedBy', 'reviewedByName', 'reviewedDate', 'chloeTold', 'history', 'createdAt', 'updatedAt'])
+        && request.resource.data.status == 'reviewed'
+        && request.resource.data.ref is string && request.resource.data.name is string
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.approvedAmount == request.resource.data.amount
+        && exists(hrPath(request.resource.data.uid))
+        && request.resource.data.amount <= get(hrPath(request.resource.data.uid)).data.salary * 0.5
+        && request.resource.data.reason is string && request.resource.data.reason.size() > 0 && request.resource.data.reason.size() <= 1000
+        && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 1000))
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.chloeTold.by == request.auth.uid
+        && request.resource.data.history is list && request.resource.data.history.size() == 1
+        && existsAfter(sub('form', 'main'))
+        && existsAfter(/databases/$(database)/documents/signatureUses/$(id));
+      // Staff: withdraw while Submitted.
+      allow update: if mine() && from('submitted', 'withdrawn')
+        && onlyKeys(['withdrawnAt']) && grows();
+      // HR: reject with a reason, at Submitted or Signed.
+      allow update: if mover() && (from('submitted', 'rejected') || from('signed', 'rejected')) && grows()
+        && onlyKeys(['rejectReason', 'rejectedAt', 'rejectedBy', 'rejectedByName'])
+        && request.resource.data.rejectReason is string && request.resource.data.rejectReason.size() > 0
+        && request.resource.data.rejectedBy == request.auth.uid;
+      // HR: review (within the limit, Director told; form and signature-use line written in the same batch).
+      allow update: if mover() && from('submitted', 'reviewed') && grows()
+        && onlyKeys(['approvedAmount', 'reviewedAt', 'reviewedBy', 'reviewedByName', 'reviewedDate', 'chloeTold'])
+        && request.resource.data.approvedAmount is number && request.resource.data.approvedAmount > 0
+        && request.resource.data.approvedAmount <= limitOfOwner()
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.chloeTold.by == request.auth.uid
+        && existsAfter(sub('form', 'main'))
+        && existsAfter(/databases/$(database)/documents/signatureUses/$(id));
+      // Staff: sign (drawn on screen or a photo of the signed paper form, saved in signed/main in the same batch).
+      allow update: if mine() && from('reviewed', 'signed') && grows()
+        && resource.data.get('byHR', false) != true
+        && onlyKeys(['signMethod', 'signedAt'])
+        && request.resource.data.signMethod in ['drawn', 'upload']
+        && existsAfter(sub('signed', 'main'));
+      // HR: signed outside the PMS; the fully signed document (signed/copy) is required.
+      allow update: if mover() && from('reviewed', 'signed') && grows()
+        && onlyKeys(['signMethod', 'signedAt', 'signedCopyAt'])
+        && request.resource.data.signMethod == 'outside'
+        && existsAfter(sub('signed', 'main')) && existsAfter(sub('signed', 'copy'));
+      // HR: add or replace the fully signed document later (status unchanged).
+      allow update: if mover() && resource.data.status in ['signed', 'approved', 'paid']
+        && request.resource.data.status == resource.data.status && grows()
+        && onlyKeys(['signedCopyAt']) && existsAfter(sub('signed', 'copy'));
+      // HR: approve (pending payment), then paid with type, date and screenshot.
+      allow update: if mover() && from('signed', 'approved') && grows()
+        && onlyKeys(['approvedAt', 'approvedBy', 'approvedByName'])
+        && request.resource.data.approvedBy == request.auth.uid;
+      allow update: if mover() && from('approved', 'paid') && grows()
+        && onlyKeys(['paidDate', 'paymentType', 'paidAt', 'paidBy', 'paidByName'])
+        && request.resource.data.paidDate is string && request.resource.data.paidBy == request.auth.uid
+        && request.resource.data.paymentType in ['tng', 'bank']
+        && existsAfter(sub('payment', 'main'));
+      allow delete: if false;
+
+      // The form as reviewed (IC, salary, Director's signature): the staff member, HR and Directors. Written once, at review.
+      match /form/{doc} {
+        allow read: if hrOrDir() || (signedIn() && get(advPath(id)).data.uid == request.auth.uid);
+        allow create: if isHR() && doc == 'main'
+          && ((!exists(advPath(id)) && getAfter(advPath(id)).data.byHR == true)
+            || get(advPath(id)).data.status == 'submitted')
+          && getAfter(advPath(id)).data.uid != request.auth.uid
+          && getAfter(advPath(id)).data.status == 'reviewed'
+          && request.resource.data.uid == getAfter(advPath(id)).data.uid
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.signature == get(/databases/$(database)/documents/signatures/director).data.image;
+        allow update, delete: if false;
+      }
+      // How it was signed (main) and the fully signed document (copy): the staff member, HR and Directors read.
+      // main: the staff member when signing (drawn / upload), or HR marking it signed outside. Written once.
+      // copy: HR only, required with 'outside', can be added or replaced while signed, approved or paid.
+      match /signed/{doc} {
+        function isImage() { return request.resource.data.image is string && request.resource.data.image.size() < 700000; }
+        allow read: if hrOrDir() || (signedIn() && get(advPath(id)).data.uid == request.auth.uid);
+        allow create: if doc == 'main' && request.resource.data.by == request.auth.uid
+          && get(advPath(id)).data.status == 'reviewed' && getAfter(advPath(id)).data.status == 'signed'
+          && ((get(advPath(id)).data.uid == request.auth.uid && request.resource.data.method in ['drawn', 'upload'] && isImage())
+            || (isHR() && get(advPath(id)).data.uid != request.auth.uid && request.resource.data.method == 'outside'));
+        allow create, update: if doc == 'copy' && isHR() && get(advPath(id)).data.uid != request.auth.uid
+          && request.resource.data.by == request.auth.uid && isImage()
+          && getAfter(advPath(id)).data.status in ['signed', 'approved', 'paid'];
+        allow delete: if false;
+      }
+      // Payment screenshot: HR writes it with Paid; HR and Directors read (for the record, not the staff member).
+      match /payment/{doc} {
+        allow read: if hrOrDir();
+        allow create: if isHR() && doc == 'main' && get(advPath(id)).data.uid != request.auth.uid
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.image is string && request.resource.data.image.size() < 700000
+          && get(advPath(id)).data.status == 'approved' && getAfter(advPath(id)).data.status == 'paid';
+        allow update, delete: if false;
+      }
+      // HR's own notes. HR writes; HR and Directors read (HR never on their own request).
+      match /notes/{noteId} {
+        allow read: if isDirector() || (isHR() && get(advPath(id)).data.uid != request.auth.uid);
+        allow create: if isHR() && get(advPath(id)).data.uid != request.auth.uid
+          && request.resource.data.keys().hasOnly(['text', 'byName', 'byUid', 'createdAt'])
+          && request.resource.data.byUid == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000;
+        allow update, delete: if false;
+      }
+    }
+
+    // The Director's saved signature (default Miss Chloe), put on approved forms. HR uploads it for her; Directors may too.
+    match /signatures/{id} {
+      allow read: if hrOrDir();
+      allow create, update: if hrOrDir() && id == 'director'
+        && request.resource.data.keys().hasOnly(['signerName', 'image', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && request.resource.data.signerName is string && request.resource.data.signerName.size() > 0 && request.resource.data.signerName.size() <= 100
+        && request.resource.data.image is string && request.resource.data.image.size() < 700000
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+    // One line per form that carries the signature (id = the advance). Written with the approval, never changed.
+    match /signatureUses/{id} {
+      allow read: if hrOrDir();
+      allow create: if isHR()
+        && request.resource.data.keys().hasOnly(['advanceId', 'ref', 'staffName', 'signerName', 'createdBy', 'createdByName', 'at'])
+        && request.resource.data.advanceId == id && request.resource.data.createdBy == request.auth.uid
+        && ((!exists(advPath(id)) && getAfter(advPath(id)).data.byHR == true) || get(advPath(id)).data.status == 'submitted')
+        && getAfter(advPath(id)).data.status == 'reviewed';
+      allow update, delete: if false;
     }
 
   }

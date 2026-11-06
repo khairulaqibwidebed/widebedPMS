@@ -122,7 +122,7 @@ const me = useSession();
 const BUILTIN_TEXT = {
   director: 'Everything, including Staff accounts and Roles.', finance: 'Upload eZee, expenses, month-end payout, exports.', it: 'View-only, except Issues.',
   operations: 'Issues, offline inquiries, booking forms, Playbook and SOPs.', hr: 'SOP pages, complaints, Staff accounts, Audit log.',
-  procurement: 'New owner listings and Procurement forms.', marketing: 'New owner listings and Portfolio details.'
+  procurement: 'Owner leads and Portfolio details.', marketing: 'Owner leads and Portfolio details.'
 };
 const COLOURS = ['#E0603F', '#2F86D6', '#C98A12', '#7E5BD6', '#1C9A8F', '#3E9B5A', '#D6457E', '#7A8190'];
 const slug = s => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');

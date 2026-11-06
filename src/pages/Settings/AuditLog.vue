@@ -67,7 +67,7 @@ const AREAS = [{ key: 'all', label: 'All' }, { key: 'money', label: 'Expenses & 
   { key: 'ops', label: 'Inquiries & issues' }, { key: 'hr', label: 'HR & Playbook' }];
 const AREA_OF = { expense: 'money', ctrip: 'money', unit: 'units', unitTerms: 'units', rates: 'units', property: 'units', owner: 'owners',
   statement: 'statements', month: 'statements', ezee: 'uploads', financeStatement: 'uploads', staff: 'staff',
-  offlineInquiry: 'ops', offlineBooking: 'ops', tenant: 'ops', issue: 'ops', sop: 'hr', complaint: 'hr', onboarding: 'hr', playbook: 'hr', brandLogo: 'hr' };
+  offlineInquiry: 'ops', offlineBooking: 'ops', tenant: 'ops', issue: 'ops', sop: 'hr', complaint: 'hr', onboarding: 'hr', playbook: 'hr', brandLogo: 'hr', advance: 'hr', staffHR: 'staff', signature: 'hr' };
 const ACTIONS = {
   'expense.create': 'Added an expense line', 'expense.update': 'Edited an expense line', 'expense.remove': 'Removed an expense line',
   'ctrip.enter': 'Typed a Trip.com amount', 'unit.create': 'Added a unit', 'unit.update': 'Changed unit settings',
@@ -80,6 +80,7 @@ const ACTIONS = {
   'offlineInquiry.contact': "Edited a customer's details", 'offlineBooking.create': 'Created an offline booking', 'offlineBooking.ezee': 'Linked an eZee reservation',
   'tenant.update': "Edited a tenant's details", 'issue.create': 'Raised an issue', 'booking.restore': 'Restored a booking', 'booking.delete': 'Deleted a booking permanently', 'issueQuote.create': 'Added a quote to a ticket', 'issueQuote.update': 'Edited a ticket quote', 'issueQuote.approve': 'Approved a ticket quote', 'issueQuote.reject': 'Rejected a ticket quote', 'issueQuote.invoice': 'Added a ticket invoice to an owner statement', 'issueQuote.paid': 'Marked a ticket vendor paid', 'issue.comment': 'Commented on an issue', 'issue.progress': 'Moved an issue to In progress',
   'issue.tags': 'Changed an issue\'s tags', 'issue.complete': 'Completed an issue', 'sop.update': 'Edited an SOP', 'sop.docAdd': 'Added an SOP document', 'sop.docRemove': 'Removed an SOP document',
+  'advance.create': 'Asked for a salary advance', 'advance.withdrawn': 'Withdrew a salary advance', 'advance.rejected': 'Rejected a salary advance', 'advance.approved': 'Approved a salary advance (form made)', 'advance.sent': 'Sent a salary advance form to staff', 'advance.paid': 'Marked a salary advance paid', 'advance.note': 'Added an HR note to a salary advance', 'advance.hrCreated': 'Made a salary advance form for a staff member', 'staffHR.update': 'Changed HR details (IC, position or salary)', 'signature.update': 'Changed the signature on salary advance forms',
   'complaint.create': 'Sent a complaint', 'complaint.hrRead': 'Read a staff complaint (HR)', 'complaint.reply': 'Replied on a staff complaint', 'complaint.note': 'Added an HR note to a complaint', 'complaint.status': 'Changed a staff complaint status', 'complaint.read': 'Read a Director complaint', 'onboarding.tick': 'Ticked an onboarding step', 'playbook.update': 'Edited a Playbook page',
   'brandLogo.update': 'Changed a brand logo'
 };

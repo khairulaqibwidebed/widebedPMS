@@ -21,7 +21,7 @@
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <section class="kpis">
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ active.length }}</div><div class="hint">Made from Offline inquiries</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ active.length }}</div><div class="hint">Made from Tenant leads</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term tenants</div><div class="value">{{ active.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short stays</div><div class="value">{{ active.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: active.filter(x => !x.ezeeReservationNo).length }">{{ active.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></button>
@@ -59,7 +59,7 @@
                 <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
               </tr>
             </template>
-            <tr v-show="!shown.length"><td :colspan="9 - (acc.viewOnly ? 2 : 0)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : search.trim() ? 'No bookings match.' : bookings.length ? 'No bookings stay in the months and dates picked. Pick All months, or clear the dates.' : 'No offline bookings yet. They are made from Offline inquiries with Create booking, or with + New booking.' }}</td></tr>
+            <tr v-show="!shown.length"><td :colspan="9 - (acc.viewOnly ? 2 : 0)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : search.trim() ? 'No bookings match.' : bookings.length ? 'No bookings stay in the months and dates picked. Pick All months, or clear the dates.' : 'No offline bookings yet. They are made from Tenant leads with Create booking, or with + New booking.' }}</td></tr>
           </tbody>
         </table>
       </div>

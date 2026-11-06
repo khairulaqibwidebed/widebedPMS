@@ -77,7 +77,7 @@
             </div>
           </section>
           <section class="card" ref="inquiries">
-            <div class="card-head"><h2>My offline inquiries</h2><RouterLink class="link" to="/Operations/offline-inquiries">Offline inquiries ›</RouterLink></div>
+            <div class="card-head"><h2>My tenant leads</h2><RouterLink class="link" to="/Operations/offline-inquiries">Tenant leads ›</RouterLink></div>
             <div class="rows">
               <template v-for="s in inquiryStatuses()" :key="s.key">
                 <div class="row"><RouterLink class="cell link" to="/Operations/offline-inquiries">{{ s.label }}</RouterLink><span class="pill" :class="s.cls">{{ s.count }}</span></div>
@@ -257,17 +257,8 @@
           </section>
         </div>
         <div class="stack">
-          <section class="card" v-if="view === 'procurement'">
-            <div class="card-head"><h2>Forms</h2><RouterLink class="link" to="/Procurement/forms">Forms ›</RouterLink></div>
-            <div class="rows">
-              <Capped :items="LINKS" :size="50" v-slot="{ capRows }">
-              <template v-for="f in capRows" :key="f.name">
-                <div class="row"><a class="cell link" :href="f.url" target="_blank" rel="noopener" @click="openForm($event, f)">{{ f.name }}</a><span class="r">Open ↗</span></div>
-              </template>
-              </Capped>
-            </div>
-          </section>
-          <section class="card" v-if="view === 'marketing'">
+          <!-- Procurement Forms card removed with the Forms page (6 Nov 2026); Procurement sees Properties like Marketing. -->
+          <section class="card">
             <div class="card-head"><h2>Properties</h2><RouterLink class="link" to="/Portfolio/properties">Portfolio ›</RouterLink></div>
             <div class="rows">
               <Capped :items="pf.properties" :size="50" v-slot="{ capRows }">
@@ -294,7 +285,6 @@ import { loadMyTickets, loadPortfolioCounts, loadOps, loadIT, loadHR, loadListin
 import { friendlyError } from '@/lib/finance-data.js';
 import { when, stamp, dmy, dayOffset } from '@/lib/format.js';
 import { toast } from '@/lib/toast.js';
-import { LINKS } from '@/pages/Procurement/forms-links.js';
 import { STATUS as COMPLAINT } from '@/pages/HR/complaints.js';
 import { useSession } from '@/stores/session.js';
 
@@ -304,7 +294,7 @@ const SUBTITLE = {
   operations: "Today's check-ins and check-outs, your tickets, leases and inquiries",
   it: 'IT tickets, staff accounts, eZee uploads and changes made by IT',
   hr: 'Staff complaints, SOPs and onboarding',
-  procurement: 'Your tickets, the portfolio and the Fillout forms',
+  procurement: 'Your tickets and the portfolio',
   marketing: 'Your tickets, the portfolio and new owner listings'
 };
 // Offline inquiry statuses, as on the Offline inquiries page.
@@ -337,14 +327,14 @@ const QUICK = {
     { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' }],
   marketing: [{ label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
     { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' },
-    { label: 'Open New owner listings', to: '/Procurement/new-owner-listings', desc: 'Tick the Marketing checklist', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8' }]
+    { label: 'Open Owner leads', to: '/Procurement/new-owner-listings', desc: 'Tick the Marketing checklist', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8' }]
 };
 
 export default {
   props: { role: { type: String, required: true } },
   data() {
     return {
-      ROLE_LABEL, SUBTITLE, VIEW_AS, LINKS, COMPLAINT, STAFF_TABS, staffTab: 'signIns',
+      ROLE_LABEL, SUBTITLE, VIEW_AS, COMPLAINT, STAFF_TABS, staffTab: 'signIns',
       isDirector: me.role === 'director',
       view: this.role, pick: this.role,   // pick: the View as select; the page reloads for it
       d: null, tickets: [], pf: { properties: [], unitCount: 0 }, listings: null,
@@ -403,7 +393,7 @@ export default {
         { label: 'Properties', value: this.pf.properties.length, to: '/Portfolio/properties', hint: 'Active in Portfolio' },
         { label: 'Units', value: this.pf.unitCount, to: '/Portfolio/properties', hint: 'Across all properties' }
       ];
-      if (this.view === 'procurement') list.push({ label: 'New owner listings', value: this.listings.notLive, to: '/Procurement/new-owner-listings',
+      if (this.view === 'procurement') list.push({ label: 'Owner leads', value: this.listings.notLive, to: '/Procurement/new-owner-listings',
         hint: `Not live yet · ${this.listings.unsigned} agreement not signed · ${this.listings.count - this.listings.notLive} live` });
       if (this.view === 'marketing') list.push({ label: 'Listings for Marketing', value: this.listings.forMarketing, alert: this.listings.forMarketing > 0,
         to: '/Procurement/new-owner-listings', hint: `Payment confirmed, not live yet · ${this.listings.notLive} of ${this.listings.count} not live` });
@@ -438,7 +428,6 @@ export default {
       const target = this.ticketOf(a) || a.entity || '';
       return `${a.userName || 'IT'} ${what ? `${what} ${target}` : `${a.action}${target ? ' · ' + target : ''}`}`;
     },
-    openForm(e, f) { if (f.url === '#') { e.preventDefault(); toast('Link not added yet'); } }
   }
 };
 </script>

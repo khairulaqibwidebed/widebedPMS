@@ -37,14 +37,13 @@ const routes = [
   ticked('/Finance/offline-payments', () => import('./pages/Finance/OfflinePayments.vue'), 'Offline Payments', 'offlinePayments'),
 
   page('/Operations/issues', () => import('./pages/Operations/Issues.vue'), 'Issues', ALL),
-  ticked('/Operations/offline-inquiries', () => import('./pages/Operations/SalesLeads.vue'), 'Offline Inquiries', 'offlineInquiries'),
+  ticked('/Operations/offline-inquiries', () => import('./pages/Operations/SalesLeads.vue'), 'Tenant Leads', 'offlineInquiries'),
   { path: '/Operations/sales-leads', redirect: to => ({ path: '/Operations/offline-inquiries', query: to.query }) },
   // One address per form (tabs); the old /Operations/booking-forms opens the Reservation tab
   ticked('/Operations/booking-forms/:form(reservation|utility|property)?', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
 
-  ticked('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'New Owner Listings', 'newOwnerListings'),
+  ticked('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'Owner Leads', 'newOwnerListings'),
   { path: '/Procurement/new-listings', redirect: to => ({ path: '/Procurement/new-owner-listings', query: to.query }) },
-  ticked('/Procurement/forms', () => import('./pages/Procurement/Forms.vue'), 'Forms', 'procurementForms', { title: 'Procurement forms' }),
 
   // Agreements: every role fills in forms and sees records. Setup (forms, formulas, templates, designer) needs its tick.
   page('/Agreements', () => import('./pages/Agreements/Records.vue'), 'Agreements', ALL),
@@ -69,6 +68,7 @@ const routes = [
 
   // Staff accounts and Audit log: Director and HR (Khairul 21 Oct). Never tickable.
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),
+  page('/Settings/staff-hr', () => import('./pages/Settings/StaffHR.vue'), 'Staff Accounts', DH, { title: 'HR details' }),
   page('/Settings/roles', () => import('./pages/Settings/Roles.vue'), 'Roles', D),   // Director only, never tickable
   page('/Settings/brand-logos', () => import('./pages/Settings/BrandLogos.vue'), 'Brand Logos', D),
   page('/Settings/audit-log', () => import('./pages/Settings/AuditLog.vue'), 'Audit Log', DH),
@@ -80,6 +80,10 @@ const routes = [
   // Staff complaints: HR only. Directors see only the Director complaints page. Never tickable.
   page('/HR/staff-complaints', () => import('./pages/HR/StaffComplaints.vue'), 'Staff Complaints', ['hr']),
   page('/HR/director-complaints', () => import('./pages/HR/DirectorComplaints.vue'), 'Director Complaints', DH),
+  // Salary advances (5 Nov 2026): everyone asks; HR and Directors also get the Requests / Signature tabs on the same page
+  // (HR moves requests on). Never tickable. /HR/advances (first address) opens the Requests tab.
+  page('/HR/salary-advance', () => import('./pages/HR/SalaryAdvance.vue'), 'Salary Advance', ALL),
+  { path: '/HR/advances', redirect: to => ({ path: '/HR/salary-advance', query: { ...to.query, tab: 'requests' } }) },
   page('/HR/raise-complaint', () => import('./pages/HR/RaiseComplaint.vue'), 'Raise a Complaint', ALL),
   // Announcements: everyone reads; HR and Directors post (5 Nov 2026). Never tickable.
   page('/HR/announcements', () => import('./pages/HR/Announcements.vue'), 'Announcements', ALL),

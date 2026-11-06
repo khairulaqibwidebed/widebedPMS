@@ -4,7 +4,7 @@
     <aside class="drawer wide" role="dialog" aria-label="Booking" v-esc="() => $emit('close')">
       <div class="drawer-head"><h2>{{ `Booking ${bk.bookingNo || bk.id}` }}</h2><button class="icon-btn" @click="$emit('close')" aria-label="Close">×</button></div>
       <form class="drawer-body" id="bkForm" @submit.prevent="save()">
-        <p class="help">{{ `${bk.propertyName || ''} · ${bk.unitCode || bk.unitId || ''} · ${bk.source === 'import' ? 'Imported from Willow' : bk.source === 'direct' ? 'Direct booking' : 'From an Offline inquiry'}` }}</p>
+        <p class="help">{{ `${bk.propertyName || ''} · ${bk.unitCode || bk.unitId || ''} · ${bk.source === 'import' ? 'Imported from Willow' : bk.source === 'direct' ? 'Direct booking' : 'From Tenant leads'}` }}</p>
         <div class="notice warn" v-if="cancelled">{{ `Cancelled${bk.cancelledReason ? ': ' + bk.cancelledReason : ''}. It is left out of the lists, the Dashboard and the forms. Restore it, or delete it for good.` }}</div>
         <p class="help" v-if="bk.inquiryId && acc.canOpenInquiry"><RouterLink class="navlink" :to="`/Operations/offline-inquiries?id=${bk.inquiryId}`">{{ `Open inquiry ${bk.inquiryId}` }}</RouterLink></p>
         <div class="form-sec">Guest <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· private, Accounting, Directors and Operations only</span></div>
