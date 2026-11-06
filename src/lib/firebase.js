@@ -80,6 +80,7 @@ export async function profileOf(user) {
       role: active ? (p.role || null) : null,
       perms: !active ? [] : Array.isArray(p.perms) ? p.perms : null,
       name: p.displayName || user.email,
+      intern: p.intern === true,   // ticked on Staff accounts > HR details (5 Nov 2026): no Salary Advance page
       active
     };
   } catch (_) {

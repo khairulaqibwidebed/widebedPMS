@@ -13,6 +13,8 @@
 
     <FormSaved v-else-if="saved" :message="okMsg" @again="startAgain()">
       <p class="saved-note">Key this booking into eZee to block the room. The payment, if any, is under Accounting › Offline Payments (status Pending).</p>
+      <!-- 6 Nov 2026: straight to the new booking on Portfolio › Bookings (for whoever can see Bookings) -->
+      <p class="saved-note" v-if="savedLink && canBookings"><RouterLink :to="{ path: '/Portfolio/bookings', query: { property: savedLink.property, id: savedLink.id } }">Open the booking in Bookings ›</RouterLink></p>
     </FormSaved>
 
     <template v-else-if="ready">
@@ -169,6 +171,7 @@ import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-d
 import { allDone, stillMissing } from '@/lib/steps.js';
 import { STATUS, CONTACT_ALL, DIRECT_BOOKERS, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf } from '@/lib/offline.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
+import { can } from '@/lib/access.js';
 
 const me = useSession();
 const LONG_TERM_NIGHTS = 30;
@@ -199,7 +202,7 @@ export default {
     return {
       GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, PAY_MODES, FEES,
       lead: null, tenant: null, bk: {}, properties: [], units: [], start: '',
-      step: 0, ready: false, saved: false, blocked: '', okMsg: '', formError: '', loading: true, busy: false
+      step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'portfolio.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
     };
   },
   async mounted() {
@@ -303,7 +306,7 @@ export default {
     dropLead() { this.$router.replace({ path: '/Operations/booking-forms/reservation' }); },
     async startAgain() {
       if (this.lead) { this.dropLead(); return; }
-      this.saved = false; this.okMsg = ''; this.step = 0; this.ready = false;
+      this.saved = false; this.savedLink = null; this.okMsg = ''; this.step = 0; this.ready = false;
       await this.startBooking();
       window.scrollTo(0, 0);
     },
@@ -546,6 +549,7 @@ export default {
           link: `/Operations/offline-inquiries?id=${ld.id}`
         });
 
+        this.savedLink = { property: b.propertyId, id: bookingId };
         this.saved = true; window.scrollTo(0, 0);
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
       this.busy = false;
@@ -605,6 +609,7 @@ export default {
           link: '/Portfolio/bookings'
         });
 
+        this.savedLink = { property: b.propertyId, id: res.bookingId };
         this.okMsg = okMsg; this.saved = true; window.scrollTo(0, 0);
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
       this.busy = false;

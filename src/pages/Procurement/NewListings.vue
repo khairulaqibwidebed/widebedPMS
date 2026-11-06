@@ -9,7 +9,7 @@
       <div>
         <div class="page-head">
           <div>
-            <h1>New owner listings</h1>
+            <h1>Owner leads</h1>
             <div class="sub">{{ canEdit ? 'Each new unit from the signed service agreement to Live. Work comes in as Procurement tasks from the task system.' : 'Each new unit from the signed service agreement to Live. Procurement and the Directors update these; you can view them.' }}</div>
           </div>
           <button class="btn btn-primary" v-if="canEdit" @click="go('new')">+ New listing</button>
@@ -78,7 +78,7 @@
     <!-- ========== NEW (without a task) ========== -->
     <template v-if="view === 'new'">
       <div>
-        <button class="back" @click="go('list')">← Back to New owner listings</button>
+        <button class="back" @click="go('list')">← Back to Owner leads</button>
         <div class="page-head">
           <div>
             <h1>New listing</h1>
@@ -107,7 +107,7 @@
     <!-- ========== ONE LISTING ========== -->
     <template v-if="view === 'listing' && l">
       <div>
-        <button class="back" @click="go('list')">← Back to New owner listings</button>
+        <button class="back" @click="go('list')">← Back to Owner leads</button>
         <div class="page-head">
           <div>
             <h1>{{ `${l.id} · ${placeOf(l)}` }}</h1>

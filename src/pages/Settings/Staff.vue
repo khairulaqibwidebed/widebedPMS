@@ -12,6 +12,11 @@
       </button>
     </div>
 
+    <!-- HR details (IC, position, salary) is its own page, StaffHR.vue (5 Nov 2026) -->
+    <div class="tabs">
+      <RouterLink to="/Settings/staff" class="on">Accounts</RouterLink>
+      <RouterLink to="/Settings/staff-hr">HR details</RouterLink>
+    </div>
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 

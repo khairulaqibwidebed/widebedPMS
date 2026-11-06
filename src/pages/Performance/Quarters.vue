@@ -7,7 +7,9 @@
         <div class="sub">Create and configure performance evaluation quarters. Each quarter goes Draft → Active → Finalized.</div>
       </div>
       <div class="head-tools">
-        <button class="act-pill" @click="showStatusHelp = true">What does each status mean?</button>
+        <!-- 6 Nov 2026: an info icon instead of the pill; the question shows on hover and is read out by screen readers -->
+        <button type="button" class="info-btn" @click="showStatusHelp = true" title="What does each status mean?" aria-label="What does each status mean?">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></button>
         <button class="btn btn-primary" v-if="canEdit" @click="openCreate">+ New quarter</button>
       </div>
     </div>
@@ -111,14 +113,12 @@
 
     <!-- What does each status mean? -->
     <div class="modal-back" v-if="showStatusHelp" @click.self="showStatusHelp = false">
-      <div class="modal" style="max-width: 560px;">
+      <!-- Same look as Staff accounts > What each role can do (6 Nov 2026): one bordered row per status -->
+      <div class="modal" role="dialog" aria-label="Quarter statuses" style="max-width:720px;width:calc(100% - 32px)">
         <h2>Quarter statuses</h2>
-        <ul class="status-help-list">
-          <li v-for="s in STATUSES" :key="s">
-            <span class="pill status-help-pill" :class="pillClass(s)">{{ statusLabel(s) }}</span>
-            <span class="status-help-desc">{{ STATUS_HELP[s] }}</span>
-          </li>
-        </ul>
+        <div class="status-help-list">
+          <div v-for="s in STATUSES" :key="s"><b>{{ statusLabel(s) }}</b><span>{{ STATUS_HELP[s] }}</span></div>
+        </div>
         <div class="modal-foot">
           <button class="btn" @click="showStatusHelp = false">Close</button>
         </div>
@@ -232,13 +232,14 @@ async function saveParticipants() {
 </script>
 
 <style scoped>
+.info-btn { display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--accent); cursor: pointer; transition: background .15s, border-color .15s; }
+.info-btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+.info-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .parts-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
 .parts-all { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
-.status-help-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.status-help-list li { display: grid; grid-template-columns: 130px 1fr; gap: 14px; align-items: start; }
-.status-help-pill { justify-self: start; white-space: nowrap; }
-.status-help-desc { font-size: 13px; color: var(--text-2); line-height: 1.5; }
-@media (max-width: 480px) {
-  .status-help-list li { grid-template-columns: 1fr; gap: 4px; }
-}
+.status-help-list { display: grid; gap: 8px; margin: 14px 0 6px; max-height: 60vh; overflow: auto; }
+.status-help-list > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; align-items: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.status-help-list b { font-size: 13px; color: var(--accent); }
+.status-help-list span { font-size: 14px; line-height: 1.5; color: var(--text); }
+@media (max-width: 520px) { .status-help-list > div { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
 </style>

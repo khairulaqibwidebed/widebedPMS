@@ -21,7 +21,7 @@
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <section class="kpis">
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ active.length }}</div><div class="hint">Made from Offline inquiries</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ active.length }}</div><div class="hint">Made from Tenant leads</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term tenants</div><div class="value">{{ active.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short stays</div><div class="value">{{ active.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: active.filter(x => !x.ezeeReservationNo).length }">{{ active.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></button>
@@ -40,6 +40,8 @@
             </div></template></span>
         <button type="button" class="btn" :class="{ 'btn-primary': bookingKind === 'cancelled' }" v-if="cancelledCount || bookingKind === 'cancelled'" @click="bookingKind = bookingKind === 'cancelled' ? 'all' : 'cancelled'">{{ bookingKind === 'cancelled' ? 'Back to active bookings' : `Cancelled (${cancelledCount})` }}</button>
         <span class="help" v-if="search.trim()">Searching shows every month and date.</span>
+        <!-- 6 Nov 2026: a new booking opens the Reservation Lodgment Form (Booking Forms tick), right-aligned like + Add owner -->
+        <RouterLink class="btn btn-primary new-bk" style="margin-left:auto" v-if="canForms" to="/Operations/booking-forms/reservation" title="Opens the Reservation Lodgment Form">+ New booking</RouterLink>
       </div>
       <Paged :items="shown" v-slot="{ pageRows }">
       <div class="table-wrap">
@@ -59,7 +61,7 @@
                 <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
               </tr>
             </template>
-            <tr v-show="!shown.length"><td :colspan="9 - (acc.viewOnly ? 2 : 0)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : search.trim() ? 'No bookings match.' : bookings.length ? 'No bookings stay in the months and dates picked. Pick All months, or clear the dates.' : 'No offline bookings yet. They are made from Offline inquiries with Create booking, or with + New booking.' }}</td></tr>
+            <tr v-show="!shown.length"><td :colspan="9 - (acc.viewOnly ? 2 : 0)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : search.trim() ? 'No bookings match.' : bookings.length ? 'No bookings stay in the months and dates picked. Pick All months, or clear the dates.' : 'No offline bookings yet. They are made from Tenant leads with Create booking, or with + New booking.' }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -80,6 +82,7 @@ import { loadProperties, friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
+import { can } from '@/lib/access.js';
 import { MONTH_PAY, shortName, loadOfflineBookings, loadGuestName } from '@/lib/portfolio-data.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
@@ -93,7 +96,9 @@ export default {
   data() {
     const q = this.$route.query;
     return {
-      MONTH_PAY, acc: portfolioAccess(me.role),
+      MONTH_PAY, acc: portfolioAccess(me.role), canForms: can(me, 'bookingForms.view'),
+      // ?id=offline_BK-0001 (the link after a Reservation form is saved) opens that booking once the list is loaded
+      openId: q.id || '',
       propertyId: q.property || lastProperty(true) || 'all', asOf: q.month || monthOffset(0),
       properties: [], bookings: [], paid: null, pays: null, names: {}, asked: new Set(),
       loading: true, bookingsLoading: false, error: '', okMsg: '',
@@ -159,6 +164,7 @@ export default {
         try {
           const r = await loadOfflineBookings(this.propertyId);
           this.bookings = r.bookings; this.paid = r.paid; this.pays = r.pays;
+          if (this.openId) { this.open = this.bookings.find(x => x.id === this.openId) || null; this.openId = ''; }
         } catch (e) { this.error = friendlyError(e, 'load the offline bookings'); }
         this.bookingsLoading = false;
       } catch (e) { this.error = friendlyError(e, 'load the portfolio'); }

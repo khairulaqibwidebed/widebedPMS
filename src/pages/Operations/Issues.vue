@@ -21,29 +21,42 @@
           <button type="button" class="card kpi kpi-link" :class="{ on: filter === 'done' }" @click="kpiGo('done')"><div class="label">Completed this month</div><div class="value">{{ completedThisMonth() }}</div><div class="hint">Locked and archived</div></button>
         </div>
 
+        <!-- One toolbar (6 Nov 2026): search first, then the Customer / In-house switch (a pill slides to the picked tab;
+             counts follow the other filters) and Status. Team and unit drop-downs removed: search finds units. -->
         <div class="iss-tools" ref="list">
-          <input class="input" type="search" placeholder="Search ticket no., title or unit" v-model="search" aria-label="Search tickets">
-          <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: f.label }))" label="Show" />
-          <OptionPicker v-model="tagFilter" :options="[{ value: '', label: 'All teams' }, ...TAGS.map(g => ({ value: g, label: tagLabel(g) }))]" label="Filter by team" />
-          <OptionPicker v-model="unitFilter" searchable :options="[{ value: '', label: 'All units' }, ...unitList().map(un => ({ value: un, label: un }))]" label="Filter by unit" />
+          <input class="input search" type="search" placeholder="Search ticket no., title or unit" v-model="search" aria-label="Search tickets">
+          <div class="type-seg" role="tablist" aria-label="Ticket type" :style="{ '--i': TYPE_TABS.findIndex(k => k.key === typeTab) }">
+            <span class="type-thumb" aria-hidden="true"></span>
+            <template v-for="k in TYPE_TABS" :key="k.key">
+              <button type="button" role="tab" :aria-selected="String(typeTab === k.key)" :class="[k.key || 'all', { on: typeTab === k.key }]" @click="setTypeTab(k.key)">
+                {{ k.label }}<span class="n">{{ typeCount(k.key) }}</span></button>
+            </template>
+          </div>
+          <OptionPicker class="status-pick" v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: f.label }))" label="Status" />
+          <!-- A dashboard link can still open one team's tickets (?tag=); shown as a chip so it can be cleared -->
+          <button type="button" class="team-chip" v-if="tagFilter" @click="tagFilter = ''" :aria-label="'Clear team filter ' + tagLabel(tagFilter)">{{ 'Team: ' + tagLabel(tagFilter) }}<span aria-hidden="true">×</span></button>
         </div>
 
+        <!-- The list fades and slides a little when the type tab changes -->
+        <Transition name="type-swap" mode="out-in">
+        <div :key="typeTab">
         <Paged :items="shown()" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table hover-rows">
-            <thead><tr><th>Ticket no.</th><th>Title</th><th>Unit</th><th>Tags</th><th>Raised by</th><th>Raised on</th><th>Status</th><th class="cnt" title="Comments">💬</th><th class="cnt" title="Drive links">🔗</th></tr></thead>
+            <thead><tr><th>Ticket no.</th><th>Type</th><th>Title</th><th>Unit</th><th>Tags</th><th>Raised by</th><th>Raised on</th><th>Status</th><th>Last update</th></tr></thead>
             <tbody>
               <template v-for="t in pageRows" :key="t.id">
                 <tr class="clickable" @click="open(t.id)">
                   <td class="nw ct-sub">{{ t.id }}<span class="ct-only" v-if="t.unit">{{ ' · ' + t.unit }}</span></td>
+                  <td class="nw"><span class="type-badge" :class="typeOf(t)"><svg viewBox="0 0 24 24" aria-hidden="true" v-html="TYPE_ICON[typeOf(t)]"></svg>{{ TYPE_LABEL[typeOf(t)] }}</span></td>
                   <td class="t-title ct-title">{{ t.title }}</td>
                   <td class="nw ct-hide">{{ t.unit || '—' }}</td>
                   <td><div class="tag-wrap"><template v-for="g in t.tags" :key="g"><span class="tag">{{ tagLabel(g) }}</span></template></div></td>
                   <td><span class="who"><Avatar :uid="t.raisedByUid" :name="t.raisedBy" :role="t.raisedRole" :size="20" />{{ t.raisedBy }}<span class="tag role-tint" :style="roleTint(t.raisedRole)" v-if="showRole(t.raisedBy, t.raisedRole)">{{ tagLabel(t.raisedRole) }}</span></span></td>
                   <td class="nw">{{ day(t.raisedAt) }}</td>
                   <td class="nw ct-badge"><span class="pill" :class="STATUS[t.status].cls">{{ STATUS[t.status].label }}</span></td>
-                  <td class="cnt ct-hide">{{ t.replyCount || 0 }}</td>
-                  <td class="cnt ct-hide">{{ t.linkCount || 0 }}</td>
+                  <!-- Last update (6 Nov 2026, replaced the comment and link counts): when anything last changed, and who posted last -->
+                  <td class="nw ct-hide last-up" :title="stamp(t.updatedIso || t.raisedAt)"><span>{{ ago(t.updatedIso || t.raisedAt) }}</span><small v-if="t.lastBy">{{ t.lastBy }}</small></td>
                 </tr>
               </template>
               <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">No tickets match.</td></tr>
@@ -51,6 +64,8 @@
           </table>
         </div>
         </Paged>
+        </div>
+        </Transition>
         <p class="help" style="margin-top:12px">Completed tickets are locked: no new comments or tag changes. They stay searchable under Completed.
           <span>{{ `You can see ${visible().length} ticket${visible().length === 1 ? '' : 's'}.` }}</span>
           Files stay in the company Google Drive; tickets keep only the links.</p>
@@ -64,7 +79,7 @@
           <div>
             <a class="back-link" href="#" @click.prevent="back()">← All tickets</a>
             <h1>{{ ticket.id + ' · ' + ticket.title }}</h1>
-            <div class="sub">{{ (ticket.property || 'Office') + (ticket.unit ? ' · ' + ticket.unit : '') + ' · Raised by ' + ticket.raisedBy + (showRole(ticket.raisedBy, ticket.raisedRole) ? ` (${tagLabel(ticket.raisedRole)})` : '') + ' on ' + stamp(ticket.raisedAt) }}</div>
+            <div class="sub"><span class="type-badge" :class="typeOf(ticket)"><svg viewBox="0 0 24 24" aria-hidden="true" v-html="TYPE_ICON[typeOf(ticket)]"></svg>{{ TYPE_LABEL[typeOf(ticket)] }}</span>{{ (ticket.property || 'Office') + (ticket.unit ? ' · ' + ticket.unit : '') + ' · Raised by ' + ticket.raisedBy + (showRole(ticket.raisedBy, ticket.raisedRole) ? ` (${tagLabel(ticket.raisedRole)})` : '') + ' on ' + stamp(ticket.raisedAt) }}</div>
           </div>
         </div>
 
@@ -107,6 +122,7 @@
             <div class="card">
               <div class="card-head"><h2>Details</h2></div>
               <div class="kv"><span>Status</span><span><span class="pill" :class="STATUS[ticket.status].cls">{{ STATUS[ticket.status].label }}</span></span></div>
+              <div class="kv"><span>Type</span><span><span class="type-badge" :class="typeOf(ticket)"><svg viewBox="0 0 24 24" aria-hidden="true" v-html="TYPE_ICON[typeOf(ticket)]"></svg>{{ TYPE_LABEL[typeOf(ticket)] }}</span></span></div>
               <div class="kv"><span>Property</span><span>{{ ticket.property || '—' }}</span></div>
               <div class="kv"><span>Unit</span><span>{{ ticket.unit || '—' }}</span></div>
               <div class="kv"><span>Raised by</span><span class="who">{{ ticket.raisedBy }}<span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ tagLabel(ticket.raisedRole) }}</span></span></div>
@@ -119,6 +135,7 @@
               <div class="acts-back" v-if="menuOpen" @click="menuOpen = false"></div>
               <div class="acts-menu" v-if="menuOpen" role="menu">
                 <button role="menuitem" v-show="ticket.status === 'open' && canUpdate()" @click="menuOpen = false; setProgress()" :disabled="busy">Mark in progress</button>
+                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; switchType()" :disabled="busy">{{ typeOf(ticket) === 'customer' ? 'Change to In-house' : 'Change to Customer' }}</button>
                 <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; confirmDone = true; doneError = ''">Mark completed</button>
                 <button role="menuitem" class="danger" v-if="canDelete" @click="menuOpen = false; openDelete()">Delete ticket</button>
               </div>
@@ -138,9 +155,18 @@
         <form class="modal" role="dialog" aria-label="Raise a ticket" @submit.prevent="saveRaise()">
           <h2>Raise a ticket</h2>
           <div class="notice error" v-show="raise.error">{{ raise.error }}</div>
+          <div class="field"><label class="req">Type</label>
+            <div class="type-pick" role="radiogroup" aria-label="Ticket type">
+              <button type="button" role="radio" :aria-checked="String(raise.type === 'customer')" :class="{ on: raise.type === 'customer' }" @click="raise.type = 'customer'"><b>Customer</b><small>A guest or tenant's problem at a unit</small></button>
+              <button type="button" role="radio" :aria-checked="String(raise.type === 'inhouse')" :class="{ on: raise.type === 'inhouse' }" @click="raise.type = 'inhouse'"><b>In-house</b><small>Office, staff or company matters</small></button>
+            </div></div>
           <div class="field"><label class="req" for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
-          <div class="field"><label for="rUnit">Unit</label>
-            <ComboInput id="rUnit" v-model="raise.unit" :options="unitOptions()" placeholder="Choose a unit · leave blank for office issues" /></div>
+          <!-- In-house tickets have no unit (6 Nov 2026), so one isn't added by mistake -->
+          <!-- Slides shut for In-house and open again for Customer; hidden fields can't be tabbed into -->
+          <div class="unit-fold" :class="{ open: raise.type !== 'inhouse' }" :inert="raise.type === 'inhouse' || null">
+            <div class="unit-inner"><div class="field"><label :class="{ req: raise.type === 'customer' }" for="rUnit">Unit</label>
+              <ComboInput id="rUnit" v-model="raise.unit" :options="unitOptions()" placeholder="Choose the unit" /></div></div>
+          </div>
           <div class="field"><label class="req" for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
           <div class="field" style="margin-bottom:8px"><label>Tag the roles who should handle it</label>
             <!-- Same chips + drop-down as Edit tags. Your own role is always tagged and has no × -->
@@ -240,6 +266,7 @@ import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
 import TicketQuote from '@/components/TicketQuote.vue';
+import { NAV_ICONS } from '@/components/NavIcons.js';
 
 const me = useSession();
 const myRole = issueTagOf(me.role);          // the word saved on tickets: 'Finance' (shown as Accounting), 'Director'
@@ -253,13 +280,23 @@ const canWrite = !!me.role;
 const tagsNow = () => ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing', ...Object.values(CUSTOM_ROLES).filter(r => r.active).map(r => r.name)];
 let TAGS = tagsNow();   // worked out again each time the page opens, so a role made a minute ago is there
 const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' }, deleted: { label: 'Deleted', cls: 'red' } };
-const FILTERS = [{ key: 'all', label: 'All' }, { key: 'active', label: 'Not completed' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
+const FILTERS = [{ key: 'all', label: 'All statuses' }, { key: 'active', label: 'Not completed' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];
 // Each tag is answered by one sign-in role ('Admin' has no sign-in role yet, so Directors cover it).
 // Roles made on the Roles page are tagged by name and notified by their id (rules Draft 0.21).
 // Directors see every ticket but are only notified when Director (or Admin) is tagged (Khairul, 3 Nov 2026).
 const TAG_ROLE = { Director: 'director', IT: 'it', Admin: 'director', HR: 'hr', Finance: 'finance', Accounting: 'finance', Operations: 'operations', Procurement: 'procurement', Marketing: 'marketing' };
 const roleForTag = g => TAG_ROLE[g] || Object.keys(CUSTOM_ROLES).find(id => CUSTOM_ROLES[id].name === g) || null;
+// Ticket type (6 Nov 2026): 'customer' (a guest or tenant's problem at a unit) or 'inhouse' (office, staff, company).
+// Tickets from before have no type: one with a unit counts as Customer, one without as In-house, until someone changes it.
+const TYPE_LABEL = { customer: 'Customer', inhouse: 'In-house' };
+// Told apart by style and icon, not colour, so they work with any theme (custom themes included) and for colour-blind users.
+const TYPE_ICON = { customer: NAV_ICONS.user, inhouse: NAV_ICONS.building };
+const TYPE_TABS = [{ key: '', label: 'All' }, { key: 'customer', label: 'Customer' }, { key: 'inhouse', label: 'In-house' }];
+const typeOf = t => t.type === 'customer' || t.type === 'inhouse' ? t.type : (t.unit ? 'customer' : 'inhouse');
+// The tab picked is remembered in this browser (Operations mostly sit on Customer).
+const TYPE_KEY = 'wb.issueType';
+const readTypeTab = () => { try { const v = localStorage.getItem(TYPE_KEY) || ''; return TYPE_LABEL[v] ? v : ''; } catch { return ''; } };
 const LIST_LIMIT = 500;
 let unitCache = null;
 // Links must point at the company Google Drive (Drive, Docs, Sheets, Slides).
@@ -270,15 +307,15 @@ const localIso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDa
 const nowIso = () => localIso(new Date());
 const isoOf = t => (t?.toDate ? localIso(t.toDate()) : typeof t === 'string' ? t : '');
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], raisedAt: isoOf(d.createdAt), doneAt: isoOf(d.doneAt) });
+const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], raisedAt: isoOf(d.createdAt), updatedIso: isoOf(d.updatedAt), doneAt: isoOf(d.doneAt) });
 
 export default {
   beforeCreate() { TAGS = tagsNow(); },
   components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer, TicketQuote },
   data() {
     return {
-      TAGS, STATUS, FILTERS, myRole, canRaise: canWrite, canDelete: isDirector, del: null,
-      menuOpen: false, auditOpen: false, addPick: '', addPickR: '', tickets: [], ticket: null, replies: [], units: [], search: '', unitFilter: '',
+      TAGS, STATUS, FILTERS, TYPE_LABEL, TYPE_ICON, TYPE_TABS, typeTab: readTypeTab(), myRole, canRaise: canWrite, canDelete: isDirector, del: null,
+      menuOpen: false, auditOpen: false, addPick: '', addPickR: '', tickets: [], ticket: null, replies: [], units: [], search: '',
       // The dashboard links here with ?tag= (one team's tickets) and ?filter= (e.g. active = open or in progress).
       filter: FILTERS.some(f => f.key === this.$route.query.filter) ? this.$route.query.filter : (this.$route.query.tag ? 'active' : 'all'),
       tagFilter: TAGS.includes(this.$route.query.tag) ? this.$route.query.tag : '', okMsg: '', error: '', doneError: '',
@@ -340,8 +377,13 @@ export default {
     count(s) { return this.visible().filter(t => t.status === s).length; },
     needReply() { return this.visible().filter(t => t.status === 'open' && (isDirector || t.tags.includes(myRole)) && (t.lastBy || t.raisedBy) !== myLabel).length; },
     completedThisMonth() { const ym = nowIso().slice(0, 7); return this.visible().filter(t => t.status === 'done' && (t.doneAt || '').slice(0, 7) === ym).length; },
-    unitList() { return [...new Set(this.visible().map(t => t.unit).filter(Boolean))].sort(); },
-    shown() {
+    typeOf,
+    setTypeTab(k) { this.typeTab = k; try { localStorage.setItem(TYPE_KEY, k); } catch { /* private window */ } },
+    // Each tab's number: the tickets the other filters show, of that type.
+    typeCount(k) { const list = this.filtered(); return k ? list.filter(t => typeOf(t) === k).length : list.length; },
+    shown() { return this.typeTab ? this.filtered().filter(t => typeOf(t) === this.typeTab) : this.filtered(); },
+    // Every filter except the type tab.
+    filtered() {
       const q = this.search.trim().toLowerCase();
       return this.visible().filter(t => {
         if (['open', 'progress', 'done'].includes(this.filter) && t.status !== this.filter) return false;
@@ -349,11 +391,20 @@ export default {
         if (this.tagFilter && !t.tags.includes(this.tagFilter)) return false;
         if (this.filter === 'mine' && !t.tags.includes(myRole)) return false;
         if (this.filter === 'raised' && !this.raisedByMe(t)) return false;
-        if (this.unitFilter && t.unit !== this.unitFilter) return false;
         return !q || [t.id, t.title, t.unit].some(v => (v || '').toLowerCase().includes(q));
       }).sort((a, b) => b.id.localeCompare(a.id));
     },
     day(iso) { return iso ? `${+iso.slice(8, 10)} ${MON[+iso.slice(5, 7) - 1]} ${iso.slice(0, 4)}` : ''; },
+    // "Just now", "5 min ago", "3h ago", "Yesterday", "4 days ago", then the date.
+    ago(iso) {
+      if (!iso) return '';
+      const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+      if (mins < 1) return 'Just now';
+      if (mins < 60) return `${mins} min ago`;
+      if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+      const days = Math.floor(mins / 1440);
+      return days === 1 ? 'Yesterday' : days < 7 ? `${days} days ago` : this.day(iso);
+    },
     stamp(iso) { return iso ? `${this.day(iso)}, ${iso.slice(11, 16)}` : ''; },
     icon(fn) { return /\.(jpe?g|png|gif|webp|heic)$/i.test(fn) || /photo|image|picture/i.test(fn) ? '🖼' : /\.(xlsx?|csv)$/i.test(fn) || /sheet/i.test(fn) ? '📊' : '📄'; },
     // Add Drive link: a name and a Google Drive URL (nothing is uploaded to the PMS).
@@ -388,19 +439,21 @@ export default {
     },
 
     openRaise() {
-      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), title: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
+      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), type: this.typeTab, title: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
       this.$nextTick(() => this.$refs.rTitle?.focus());
       this.units4raise();
     },
     async saveRaise() {
       const r = this.raise;
+      if (!TYPE_LABEL[r.type]) return r.error = 'Choose Customer or In-house.';
       if (!r.title.trim()) return r.error = 'Give the ticket a title.';
+      if (r.type === 'customer' && !r.unit.trim()) return r.error = 'Choose the unit for a customer ticket.';
       if (!r.body.trim()) return r.error = 'Describe what happened.';
       if (!r.tags.length && !TAGS.includes(myRole)) return r.error = 'Tag at least one role to handle it.';
       if (r.linkUrl.trim()) { this.addLink(r); if (r.error) return; }
-      const code = r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
+      const code = r.type === 'inhouse' ? '' : r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
       const tags = TAGS.filter(g => r.tags.includes(g) || g === myRole);
-      const h = this.entry(`raised the ticket, tagged ${tags.map(tagLabel).join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
+      const h = this.entry(`raised the ${TYPE_LABEL[r.type]} ticket, tagged ${tags.map(tagLabel).join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
       this.busy = true; r.error = '';
       try {
         // One transaction: the next IS number (counters/issues), the ticket and the audit entry.
@@ -412,7 +465,7 @@ export default {
           // that read is refused. Writing over an existing IS number is refused by the rules anyway.
           tx.set(cRef, { next: n + 1 });
 
-          tx.set(ref, { title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
+          tx.set(ref, { type: r.type, title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
             property: unit?.propertyName || '', propertyId: unit?.propertyId || null, tags, status: 'open',
             raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
             audit: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
@@ -473,6 +526,16 @@ export default {
         t.status = 'progress';
         this.notify(t, { title: `${t.id} is in progress`, message: `${myLabel} marked "${t.title}" in progress.` });
       } catch (e) { this.error = friendlyError(e, 'update the ticket'); }
+      this.busy = false;
+    },
+    // Customer <-> In-house: Directors and the tagged roles, while the ticket is open or in progress (rules Draft 0.45).
+    async switchType() {
+      const t = this.ticket, from = typeOf(t), to = from === 'customer' ? 'inhouse' : 'customer';
+      this.busy = true; this.error = '';
+      try {
+        await this.change({ type: to }, [`changed the type from ${TYPE_LABEL[from]} to ${TYPE_LABEL[to]}`], 'issue.type', [{ field: 'type', old: TYPE_LABEL[from], new: TYPE_LABEL[to] }]);
+        t.type = to; this.okMsg = `${t.id} is now a ${TYPE_LABEL[to]} ticket.`;
+      } catch (e) { this.error = friendlyError(e, 'change the type'); }
       this.busy = false;
     },
     addOptionsR() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.raise.tags.includes(x)).map(g => ({ value: g, label: tagLabel(g) }))]; },
@@ -588,10 +651,61 @@ export default {
     .acts-menu button.danger { color: var(--danger); }
     .acts-menu button.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
     .kpis.k3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    /* Ticket type (6 Nov 2026): tabs with counts, a badge on every row, and the choice when raising */
+    /* Type switch: three equal tabs; the white pill (thumb) slides under the picked one */
+    .type-seg { --i: 0; position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: none; width: 360px; height: 40px;
+      padding: 3px; border-radius: 10px; background: var(--chip); border: 1px solid var(--border); box-sizing: border-box; }
+    .type-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 7px;
+      background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 0 0 1px var(--border);
+      transform: translateX(calc(var(--i) * 100%)); transition: transform .28s cubic-bezier(.4, 0, .2, 1); }
+    .type-seg button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 0;
+      border: 0; background: none; padding: 0 8px; border-radius: 7px; font: inherit; font-size: 13px; font-weight: 600;
+      color: var(--muted); cursor: pointer; white-space: nowrap; transition: color .2s ease; }
+    .type-seg button:hover { color: var(--text); }
+    .type-seg button.on { color: var(--text); }
+    .type-seg .n { min-width: 18px; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px; text-align: center;
+      background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--text-2); transition: background .2s ease, color .2s ease; }
+    /* The picked tab's count is the theme colour on every tab (selection, not type) */
+    .type-seg button.on .n { background: var(--accent); color: #fff; }
+    .type-seg button:active { transform: scale(.97); }
+    /* List swap when the tab changes */
+    .type-swap-enter-active { transition: opacity .2s ease, transform .2s ease; }
+    .type-swap-leave-active { transition: opacity .12s ease, transform .12s ease; }
+    .type-swap-enter-from { opacity: 0; transform: translateY(6px); }
+    .type-swap-leave-to { opacity: 0; transform: translateY(-4px); }
+    @media (prefers-reduced-motion: reduce) { .type-thumb, .type-swap-enter-active, .type-swap-leave-active { transition: none; } }
+    /* Customer: solid pill in the text colour (dark in light mode, light in dark mode). In-house: soft grey chip. */
+    .type-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap; border: 1px solid transparent; }
+    .type-badge svg { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    .type-badge.customer { color: var(--surface); background: var(--text); }
+    .type-badge.inhouse { color: var(--text-2); background: var(--chip); border-color: var(--border); }
+    .sub .type-badge { margin-right: 8px; vertical-align: 1px; }
+    .unit-fold { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .25s cubic-bezier(.4, 0, .2, 1), opacity .18s ease; }
+    .unit-fold.open { grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows .25s cubic-bezier(.4, 0, .2, 1), opacity .22s ease .05s; }
+    .unit-inner { min-height: 0; overflow: hidden; }
+    .unit-fold .unit-inner { transform: translateY(-4px); transition: transform .25s cubic-bezier(.4, 0, .2, 1); }
+    /* Once open, let the unit list drop down past the box (it would be cut off while the fold clips) */
+    .unit-fold.open .unit-inner { transform: none; animation: unit-unclip 0s .25s forwards; }
+    @keyframes unit-unclip { to { overflow: visible; } }
+    @media (prefers-reduced-motion: reduce) { .unit-fold, .unit-fold.open, .unit-fold .unit-inner { transition: none; } }
+    .type-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .type-pick button { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+      background: var(--surface); font: inherit; color: var(--text); cursor: pointer; }
+    .type-pick button small { color: var(--muted); font-size: 12px; }
+    .type-pick button.on { border-color: var(--accent); background: var(--accent-soft); }
+    .type-pick button.on b { color: var(--accent); }
     .iss-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
-    .iss-tools .input { max-width: 224px; height: 34px; }
-    .table td.cnt, .table th.cnt { text-align: center; width: 56px; color: var(--text-2); }
-    .table td.cnt:last-child, .table th.cnt:last-child { padding-right: 24px; }
+    .iss-tools .input.search { flex: 1 1 240px; max-width: 360px; height: 40px; }
+    .team-chip { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 12px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .team-chip span { font-size: 15px; line-height: 1; }
+    .iss-tools :deep(.op-btn) { height: 40px; }
+    @media (max-width: 640px) { .type-seg { width: 100%; } .iss-tools .input.search { max-width: none; } }
+    @media (max-width: 480px) { .type-pick { grid-template-columns: 1fr; } }
+    .last-up span { display: block; }
+    .last-up small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+    /* Status drop-down keeps one width whatever is picked, so the toolbar doesn't shift */
+    .iss-tools .status-pick :deep(.op-btn) { min-width: 168px; }
     .t-title { font-weight: 500; min-width: 200px; }
     .table td.nw { white-space: nowrap; }
     .table td .tag { white-space: nowrap; }

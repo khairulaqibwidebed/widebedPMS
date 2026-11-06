@@ -9,7 +9,7 @@
       <div>
         <div class="page-head">
           <div>
-            <h1>Offline inquiries</h1>
+            <h1>Tenant leads</h1>
             <div class="sub">{{ canAssign ? 'Log offline inquiries and assign each one to an Operations member to follow up.' : 'Log offline inquiries. A Director assigns each one to an Operations member to follow up.' }}</div>
           </div>
         </div>
@@ -61,7 +61,7 @@
     <!-- Log inquiry (Figma 254:7235) -->
     <template v-if="view === 'new'">
       <div>
-        <button class="back" @click="go('list')">← Back to Offline inquiries</button>
+        <button class="back" @click="go('list')">← Back to Tenant leads</button>
         <div class="page-head">
           <div>
             <h1>Log inquiry</h1>
@@ -123,7 +123,7 @@
         <h2>What happens next</h2>
         <div class="next-list">
           <p v-if="!canAssign">- A Director assigns it to an Operations member.</p>
-          <p>- The assigned Operations member sees the inquiry in their Offline inquiries list.</p>
+          <p>- The assigned Operations member sees the inquiry in their Tenant leads list.</p>
           <p>- They update the status after each follow-up, from a computer or phone.</p>
           <p>- When the customer pays, Create booking saves them as a tenant and makes the booking.</p>
         </div>
@@ -135,7 +135,7 @@
     <!-- One inquiry -->
     <template v-if="view === 'lead' && lead">
       <div>
-        <button class="back" @click="go('list')">← Back to Offline inquiries</button>
+        <button class="back" @click="go('list')">← Back to Tenant leads</button>
         <div class="page-head">
           <div>
             <h1>{{ `${lead.id} · ${lead.lookingFor}` }}</h1>
