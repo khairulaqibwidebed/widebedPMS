@@ -21,7 +21,7 @@ const PORTFOLIO = G('Portfolio', 'layers', [P('Owners', '/Portfolio/owners', 'us
 // Leads follow their ticks; Agreements and Renewals are for everyone who has this group (not HR or IT).
 const LEADS = G('Leads & Agreements', 'handshake', [P('Owner Leads', '/Procurement/new-owner-listings', 'home'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'),
   P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'refresh')]);
-const LEADS_DIR = G('Leads & Agreements', 'handshake', [...LEADS.items, P('Agreement Setup', '/Agreements/setup', 'fileCog')]);
+const LEADS_DIR = G('Leads & Agreements', 'handshake', [...LEADS.items, P('Agreement Setup', '/Agreements/setup', 'filePen')]);
 // Month-end order.
 const ACCOUNTING = G('Accounting', 'calculator', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'),
   P('Month-End Payout', '/Finance/month-end', 'banknote'), P('Invoices & Receipts', '/Finance/invoices', 'files'), P('Reports', '/Reports', 'pieChart')]);
