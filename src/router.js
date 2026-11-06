@@ -74,9 +74,10 @@ const routes = [
   page('/Settings/audit-log', () => import('./pages/Settings/AuditLog.vue'), 'Audit Log', DH),
   page('/Settings/appearance', () => import('./pages/Settings/Appearance.vue'), 'Profile & Appearance', ALLOWED_ROLES),
 
-  ...[['attendance', 'Attendance SOP'], ['advance', 'Advance SOP'], ['allowance', 'Allowance SOP']].map(([sop, label]) =>
-    page(`/HR/${sop}-sop`, () => import('./pages/HR/SopPage.vue'), label, ALL, { sop })),
-  page('/HR/claim-socso', () => import('./pages/HR/SopPage.vue'), 'Claim SOCSO', ALL, { sop: 'socso' }),
+  // HR > SOPs (6 Nov 2026): one page lists every SOP, each at /HR/sops/<key>. The four old SOP addresses redirect.
+  page('/HR/sops/:key?', () => import('./pages/HR/Sops.vue'), 'SOPs', ALL),
+  ...[['attendance-sop', 'attendance'], ['advance-sop', 'advance'], ['allowance-sop', 'allowance'], ['claim-socso', 'socso']].map(([old, key]) =>
+    ({ path: `/HR/${old}`, redirect: `/HR/sops/${key}` })),
   // Staff complaints: HR only. Directors see only the Director complaints page. Never tickable.
   page('/HR/staff-complaints', () => import('./pages/HR/StaffComplaints.vue'), 'Staff Complaints', ['hr']),
   page('/HR/director-complaints', () => import('./pages/HR/DirectorComplaints.vue'), 'Director Complaints', DH),

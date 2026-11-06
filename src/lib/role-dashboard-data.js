@@ -109,8 +109,8 @@ export async function loadIT(uid) {
 }
 
 // ---- HR ----
-const SOP_KEYS = [['attendance', 'Attendance SOP', '/HR/attendance-sop'], ['advance', 'Advance SOP', '/HR/advance-sop'],
-  ['allowance', 'Allowance SOP', '/HR/allowance-sop'], ['socso', 'Claim SOCSO', '/HR/claim-socso']];
+const SOP_KEYS = [['attendance', 'Attendance SOP', '/HR/sops/attendance'], ['advance', 'Advance SOP', '/HR/sops/advance'],
+  ['allowance', 'Allowance SOP', '/HR/sops/allowance'], ['socso', 'Claim SOCSO', '/HR/sops/socso']];
 export async function loadHR() {
   const cs = collection(db, 'complaints');
   const [staffSnap, dirSnap, sopSnaps, progSnap, usersSnap, playbook] = await Promise.all([

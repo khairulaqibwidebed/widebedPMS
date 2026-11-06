@@ -40,6 +40,8 @@
             </div></template></span>
         <button type="button" class="btn" :class="{ 'btn-primary': bookingKind === 'cancelled' }" v-if="cancelledCount || bookingKind === 'cancelled'" @click="bookingKind = bookingKind === 'cancelled' ? 'all' : 'cancelled'">{{ bookingKind === 'cancelled' ? 'Back to active bookings' : `Cancelled (${cancelledCount})` }}</button>
         <span class="help" v-if="search.trim()">Searching shows every month and date.</span>
+        <!-- 6 Nov 2026: a new booking opens the Reservation Lodgment Form (Booking Forms tick), right-aligned like + Add owner -->
+        <RouterLink class="btn btn-primary new-bk" style="margin-left:auto" v-if="canForms" to="/Operations/booking-forms/reservation" title="Opens the Reservation Lodgment Form">+ New booking</RouterLink>
       </div>
       <Paged :items="shown" v-slot="{ pageRows }">
       <div class="table-wrap">
@@ -80,6 +82,7 @@ import { loadProperties, friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
+import { can } from '@/lib/access.js';
 import { MONTH_PAY, shortName, loadOfflineBookings, loadGuestName } from '@/lib/portfolio-data.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
@@ -93,7 +96,9 @@ export default {
   data() {
     const q = this.$route.query;
     return {
-      MONTH_PAY, acc: portfolioAccess(me.role),
+      MONTH_PAY, acc: portfolioAccess(me.role), canForms: can(me, 'bookingForms.view'),
+      // ?id=offline_BK-0001 (the link after a Reservation form is saved) opens that booking once the list is loaded
+      openId: q.id || '',
       propertyId: q.property || lastProperty(true) || 'all', asOf: q.month || monthOffset(0),
       properties: [], bookings: [], paid: null, pays: null, names: {}, asked: new Set(),
       loading: true, bookingsLoading: false, error: '', okMsg: '',
@@ -159,6 +164,7 @@ export default {
         try {
           const r = await loadOfflineBookings(this.propertyId);
           this.bookings = r.bookings; this.paid = r.paid; this.pays = r.pays;
+          if (this.openId) { this.open = this.bookings.find(x => x.id === this.openId) || null; this.openId = ''; }
         } catch (e) { this.error = friendlyError(e, 'load the offline bookings'); }
         this.bookingsLoading = false;
       } catch (e) { this.error = friendlyError(e, 'load the portfolio'); }

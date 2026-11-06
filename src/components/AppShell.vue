@@ -14,7 +14,7 @@
             <NavItem v-for="it in g.items" :key="it.label" :item="it" :active="active" :collapsed="rail" @soon="notBuilt" />
           </div>
           <template v-else>
-            <button class="nav-group-btn" :class="{ 'has-active': hasActive(g) }" :aria-expanded="rail ? null : String(isOpen(g, i))" :title="rail ? g.label : null" @click="toggle(g, i)">
+            <button class="nav-group-btn" :class="{ 'has-active': hasActive(g), 'is-open': isOpen(g, i) }" :aria-expanded="rail ? null : String(isOpen(g, i))" :title="rail ? g.label : null" @click="toggle(g, i)">
               <svg class="grp-icon" viewBox="0 0 24 24" aria-hidden="true" v-html="groupIcon(g)"></svg>
               <span class="grp-label">{{ g.label }}</span>
               <span class="chev">›</span>
@@ -116,9 +116,6 @@ import { whatsNew, checkWhatsNew } from '../lib/whats-new.js';
 import NotificationBell from '@/components/NotificationBell.vue'
 import { pwa, applyUpdate } from '../lib/pwa.js';
 
-// Sidebar groups a person has folded, remembered in this browser.
-const FOLDED_KEY = 'wb.navFolded';
-function readFolded() { try { return JSON.parse(localStorage.getItem(FOLDED_KEY)) || []; } catch (_) { return []; } }
 
 // Whether the whole sidebar is collapsed to an icon rail, remembered in this browser.
 const COLLAPSED_KEY = 'wb.navCollapsed';
@@ -132,7 +129,7 @@ export default {
   components: { NavItem, CommandPalette, Avatar, NotificationBell },
   data: () => ({
     ROLE_LABEL, quota, whatsNew, pwa, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
-    folded: readFolded(), collapsed: readCollapsed(),
+    collapsed: readCollapsed(),
     wide: window.matchMedia(DESKTOP_QUERY).matches
   }),
   computed: {
@@ -203,24 +200,15 @@ export default {
       if (!this.wide) { this.menuOpen = false; return; }
       this.setCollapsed(!this.collapsed);
     },
-    // Director: one group open at a time (the current page's). Everyone else: every group open unless they folded it.
-    // In the icon rail the item lists are hidden by CSS, so folding state is kept and comes back on expand.
-    isOpen(g, i) {
-      return this.me.role === 'director' ? this.openGroup === i : !this.folded.includes(g.label);
-    },
+    // Every role (6 Nov 2026, was Directors only): one group open at a time, the current page's. Clicking another
+    // header opens it and closes the rest; clicking the open one closes it.
+    isOpen(g, i) { return this.openGroup === i; },
     // Open a group (used when a department icon is clicked in the rail).
-    reveal(g, i) {
-      if (this.me.role === 'director') { this.openGroup = i; return; }
-      if (!this.folded.includes(g.label)) return;
-      this.folded = this.folded.filter(l => l !== g.label);
-      try { localStorage.setItem(FOLDED_KEY, JSON.stringify(this.folded)); } catch (_) {}
-    },
+    reveal(g, i) { this.openGroup = i; },
     toggle(g, i) {
       // Clicking a department icon in the rail expands the sidebar with that department open.
       if (this.rail) { this.setCollapsed(false); this.reveal(g, i); return; }
-      if (this.me.role === 'director') { this.openGroup = this.openGroup === i ? -1 : i; return; }
-      this.folded = this.folded.includes(g.label) ? this.folded.filter(l => l !== g.label) : [...this.folded, g.label];
-      try { localStorage.setItem(FOLDED_KEY, JSON.stringify(this.folded)); } catch (_) {}
+      this.openGroup = this.openGroup === i ? -1 : i;
     }
   }
 };
@@ -255,13 +243,23 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 .nav-group-btn .chev { transition: transform .25s var(--nav-ease); }
 .nav-group-btn:hover .grp-icon, .nav-group-btn.has-active .grp-icon { opacity: 1; }
 .grp-icon { transition: opacity .2s ease; }
+/* Current page's group, folded shut (6 Nov 2026): the header lights up in the theme colour so you can see where you are */
+.nav-group-btn { border-radius: 8px; transition: gap .25s var(--nav-ease), padding .25s var(--nav-ease), background .2s ease, color .2s ease; }
+/* The header has more space above the label than below, so the highlight is drawn from 8px down to sit evenly around it */
+.nav-group-btn { position: relative; isolation: isolate; }
+.nav-group-btn::after { content: ""; position: absolute; inset: 8px 0 0; border-radius: 8px; z-index: -1; background: transparent; transition: background .2s ease; }
+.nav-group-btn.has-active:not(.is-open) { color: var(--accent); }
+.nav-group-btn.has-active:not(.is-open)::after { background: var(--accent-soft); }
 
-/* Pages inside a department get a short theme-colour line on their left, so they read as sub-items of the header */
-.nav-group .nav-item { position: relative; }
-.nav-group .nav-item::before { content: ""; position: absolute; left: 2px; top: 50%; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px;
-  background: var(--accent); opacity: .35; transition: opacity .15s, height .15s, margin-top .15s; }
-.nav-group .nav-item:hover::before { opacity: .7; }
+/* Pages inside a department (6 Nov 2026): indented under the header with one thin guide line down the group;
+   the current page lights its part of the line in the theme colour. Slightly smaller text than Dashboard and Issues. */
+.nav-group { margin-left: 21px; padding-left: 8px; border-left: 1px solid var(--border); margin-bottom: 4px; }
+.nav-group .nav-item { position: relative; font-size: 14px; padding-left: 10px; }
+.nav-group .nav-item::before { content: ""; position: absolute; left: -10px; top: 50%; width: 3px; height: 0; margin-top: 0; border-radius: 2px;
+  background: var(--accent); opacity: 0; transition: opacity .15s, height .15s, margin-top .15s; }
+.nav-group .nav-item:hover::before { opacity: .5; height: 16px; margin-top: -8px; }
 .nav-group .nav-item.active::before { opacity: 1; height: 22px; margin-top: -11px; }
+.nav-group-btn { padding-top: 14px; padding-bottom: 6px; }
 .grp-icon { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
 .grp-label { overflow: hidden; max-width: 180px; opacity: 1; transition: max-width .25s var(--nav-ease), opacity .2s ease; }
 
@@ -323,7 +321,8 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
   .app.collapsed .grp-icon { opacity: .8; }
   .app.collapsed .nav-group-btn:hover .grp-icon,
   .app.collapsed .nav-group-btn.has-active .grp-icon { opacity: 1; }
-  .app.collapsed .nav-group-btn.has-active { background: rgba(128, 128, 128, .15); }
+  .app.collapsed .nav-group-btn.has-active { color: var(--accent); }
+  .app.collapsed .nav-group-btn.has-active::after { background: var(--accent-soft); }
 }
 
 @media (prefers-reduced-motion: reduce) {

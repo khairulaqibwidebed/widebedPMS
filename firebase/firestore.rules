@@ -3,6 +3,10 @@ rules_version = '2';
 // (advances byHR: created straight at Reviewed, within 50% of their salary, not interns, never for themselves), with the form
 // and the signature-use line in the same save. The staff member reads it but can't sign it in the PMS (paper only; HR marks it
 // signed outside). Also (6 Nov 2026): the Procurement Forms page is removed, so procurementForms.view leaves the procurement preset.
+// Also (6 Nov 2026): SOPs get an icon (a short icon name HR picks).
+// Also (6 Nov 2026): HR and Directors can delete an SOP: a soft delete (deleted: true with a reason), the record stays.
+// Also (6 Nov 2026): HR can make new SOPs (sops/{key}: any lower-case key with dashes, with a title and short line), not only the first four.
+// Also (6 Nov 2026): issues get a type (customer or inhouse); Directors and the tagged roles can change it while the ticket is open or in progress.
 // Draft 0.44, 5 Nov 2026 (Khairul): salary advance requests no longer need a "needed by" date
 // (the field is optional; older requests keep theirs). Nothing else changes.
 // Draft 0.43, 5 Nov 2026 (Khairul): salary advance review no longer asks how the Director was
@@ -778,7 +782,8 @@ service cloud.firestore {
       // In progress, tags and Mark completed: Directors and the tagged roles.
       allow update: if anyStaff() && resource.data.status in ['open', 'progress']
         && (isDirector() || myIssueTag() in resource.data.tags)
-        && changed().hasOnly(['status', 'tags', 'doneAt', 'doneBy', 'doneByUid', 'audit', 'updatedAt'])
+        && changed().hasOnly(['status', 'tags', 'type', 'doneAt', 'doneBy', 'doneByUid', 'audit', 'updatedAt'])
+        && (!('type' in request.resource.data) || request.resource.data.type in ['customer', 'inhouse'])
         && request.resource.data.status in ['open', 'progress', 'done']
         && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
       // Delete ticket: Directors only, any status. Marked deleted with a reason, never removed; nothing changes it after.
@@ -884,12 +889,20 @@ service cloud.firestore {
 
     // ================= HR: SOPs, Playbook, onboarding, complaints =================
 
-    // sops/{attendance|advance|allowance|socso}. Everyone reads; HR and Directors edit. Never deleted.
+    // sops/{key}. Everyone reads; HR and Directors edit and soft-delete (deleted: true). Never removed.
     match /sops/{sopKey} {
       allow read: if anyStaff();
-      allow create, update: if can('sops.edit') && sopKey in ['attendance', 'advance', 'allowance', 'socso']
+      // Any SOP key: lower case, digits and dashes, 2 to 40 long (the first four keep their keys).
+      allow create, update: if can('sops.edit') && sopKey.matches('^[a-z0-9][a-z0-9-]{1,39}$')
         && request.resource.data.updatedByUid == request.auth.uid
-        && request.resource.data.steps is list && request.resource.data.steps.size() > 0;
+        && request.resource.data.steps is list && request.resource.data.steps.size() > 0
+        && (!('title' in request.resource.data) || (request.resource.data.title is string
+          && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 80))
+        && (!('sub' in request.resource.data) || (request.resource.data.sub is string && request.resource.data.sub.size() <= 200))
+        && (!('icon' in request.resource.data) || (request.resource.data.icon is string && request.resource.data.icon.size() <= 30))
+        // Deleting is a soft delete with a reason.
+        && (!('deleted' in request.resource.data) || (request.resource.data.deleted == true
+          && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0));
       allow delete: if false;
     }
 

@@ -1,7 +1,7 @@
 <template>
   <main class="content soft-page">
     <div class="page-head">
-      <div><h1>Salary advance</h1><div class="sub">Ask HR for part of your salary early. How it works: <RouterLink to="/HR/advance-sop">Advance SOP</RouterLink></div></div>
+      <div><h1>Salary advance</h1><div class="sub">Ask HR for part of your salary early. How it works: <RouterLink to="/HR/sops/advance">Advance SOP</RouterLink></div></div>
     </div>
 
     <section class="card" v-if="intern">

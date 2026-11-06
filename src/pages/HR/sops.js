@@ -1,4 +1,5 @@
-// Content of the four HR SOP pages (Attendance, Advance, Allowance, Claim SOCSO). Starter text shown until HR saves
+// Starter content of the first four SOPs (Attendance, Advance, Allowance, Claim SOCSO), shown on HR > SOPs until each is saved once.
+// New SOPs (6 Nov 2026) are made on the page and live only in Firestore. Starter text shown until HR saves
 // each SOP for the first time (it then lives in Firestore sops/{key}).
 export const SOPS = {
   attendance: { label: 'Attendance SOP', title: 'Attendance SOP', sub: 'Working hours, clocking in and what to do if you are late or absent', stepsTitle: 'Steps to follow',

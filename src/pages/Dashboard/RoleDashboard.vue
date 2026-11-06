@@ -197,7 +197,7 @@
         </div>
         <div class="stack">
           <section class="card" ref="sops">
-            <div class="card-head"><h2>Recent SOP edits</h2><RouterLink class="link" to="/HR/attendance-sop">SOPs ›</RouterLink></div>
+            <div class="card-head"><h2>Recent SOP edits</h2><RouterLink class="link" to="/HR/sops">SOPs ›</RouterLink></div>
             <div class="rows">
               <Capped :items="d.sopEdits" v-slot="{ capRows }">
               <template v-for="s in capRows" :key="s.key">
@@ -321,7 +321,7 @@ const QUICK = {
       icon: 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z' },
     { label: 'Open Staff accounts', to: '/Settings/staff', desc: 'Add logins, roles and access',
       icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
-    { label: 'Edit an SOP', to: '/HR/attendance-sop', desc: 'Attendance, advance, allowance, SOCSO',
+    { label: 'Edit an SOP', to: '/HR/sops', desc: 'Attendance, advance, allowance, SOCSO',
       icon: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z' }],
   procurement: [{ label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
     { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' }],

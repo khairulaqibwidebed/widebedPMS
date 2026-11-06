@@ -9,21 +9,22 @@
 
 // Every page that can be ticked. group = heading in the tick table.
 // viewOnly = only a View box (nothing to change on the page). editOnly = everyone views it; only Edit is tickable.
+// Order and groups follow the sidebar (6 Nov 2026): Portfolio, Leads & Agreements, Accounting, then the rest.
 export const PAGES = [
-  { key: 'reports',          label: 'Reports',                       group: 'Accounting',     to: ['/Reports'] },
+  { key: 'portfolio',        label: 'Owners, Properties & Bookings', group: 'Portfolio',   to: ['/Portfolio/owners', '/Portfolio/properties', '/Portfolio/bookings'] },
+  { key: 'bookingForms',     label: 'Booking Forms',                 group: 'Portfolio',   to: ['/Operations/booking-forms'], viewOnly: true },
+  { key: 'offlinePayments',  label: 'Offline Payments',              group: 'Portfolio',   to: ['/Finance/offline-payments'] },
+  { key: 'bulkUpload',       label: 'Bulk Upload',                   group: 'Portfolio',   to: ['/Portfolio/bulk-upload'] },
+  { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/new-owner-listings'] },
+  { key: 'offlineInquiries', label: 'Tenant Leads',                  group: 'Leads & Agreements', to: ['/Operations/offline-inquiries'] },
+  { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Leads & Agreements', to: ['/Agreements/setup'], viewOnly: true },
   { key: 'ezeeUpload',       label: 'Upload eZee Report',            group: 'Accounting',     to: ['/Finance/upload'] },
   { key: 'expenses',         label: 'Expenses & Others',             group: 'Accounting',     to: ['/Finance/expenses'] },
   { key: 'monthEnd',         label: 'Month-End Payout',              group: 'Accounting',     to: ['/Finance/month-end'] },
   { key: 'invoices',         label: 'Invoices & Receipts',           group: 'Accounting',     to: ['/Finance/invoices'] },
-  { key: 'offlinePayments',  label: 'Offline Payments',              group: 'Accounting',     to: ['/Finance/offline-payments'] },
-  { key: 'portfolio',        label: 'Owners, Properties & Bookings', group: 'Portfolio',   to: ['/Portfolio/owners', '/Portfolio/properties', '/Portfolio/bookings'] },
-  { key: 'bulkUpload',       label: 'Bulk Upload',                   group: 'Portfolio',   to: ['/Portfolio/bulk-upload'] },
-  { key: 'offlineInquiries', label: 'Tenant Leads',             group: 'Operations',  to: ['/Operations/offline-inquiries'] },
-  { key: 'bookingForms',     label: 'Booking Forms',                 group: 'Operations',  to: ['/Operations/booking-forms'], viewOnly: true },
-  { key: 'newOwnerListings', label: 'Owner Leads',            group: 'Procurement', to: ['/Procurement/new-owner-listings'] },
+  { key: 'reports',          label: 'Reports',                       group: 'Accounting',     to: ['/Reports'] },
   { key: 'playbook',         label: 'Playbook (Onboarding, Business Model)', group: 'Content', to: [], editOnly: true },
   { key: 'sops',             label: 'HR SOP pages',                  group: 'Content',     to: [], editOnly: true },
-  { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Agreements', to: ['/Agreements/setup'], viewOnly: true },
   { key: 'performance',      label: 'Performance Management',        group: 'Performance', to: ['/Performance/quarters'] }
 ];
 
@@ -31,20 +32,20 @@ export const PAGES = [
 // Content rows only have an Edit tick (everyone can read them). The saved ticks still use the '<key>.view' / '<key>.edit' names above,
 // so the security rules and the sidebar work as before.
 export const ACCESS_ROWS = [
-  { id: 'reports', label: 'Reports', group: 'Accounting', keys: ['reports'] },
+  { id: 'portfolio', label: 'Owners, Properties & Bookings', group: 'Portfolio', keys: ['portfolio'] },
+  { id: 'bookingForms', label: 'Booking Forms', group: 'Portfolio', keys: ['bookingForms'] },
+  { id: 'offlinePayments', label: 'Offline Payments', group: 'Portfolio', keys: ['offlinePayments'] },
+  { id: 'bulkUpload', label: 'Bulk Upload', group: 'Portfolio', keys: ['bulkUpload'] },
+  { id: 'newOwnerListings', label: 'Owner Leads', group: 'Leads & Agreements', keys: ['newOwnerListings'] },
+  { id: 'offlineInquiries', label: 'Tenant Leads', group: 'Leads & Agreements', keys: ['offlineInquiries'] },
+  { id: 'agreementSetup', label: 'Agreement Setup (forms, templates, formulas)', group: 'Leads & Agreements', keys: ['agreementSetup'] },
   { id: 'ezeeUpload', label: 'Upload eZee Report', group: 'Accounting', keys: ['ezeeUpload'] },
   { id: 'expenses', label: 'Expenses & Others', group: 'Accounting', keys: ['expenses'] },
   { id: 'monthEnd', label: 'Month-End Payout', group: 'Accounting', keys: ['monthEnd'] },
   { id: 'invoices', label: 'Invoices & Receipts', group: 'Accounting', keys: ['invoices'] },
-  { id: 'offlinePayments', label: 'Offline Payments', group: 'Accounting', keys: ['offlinePayments'] },
-  { id: 'portfolio', label: 'Owners, Properties & Bookings', group: 'Portfolio', keys: ['portfolio'] },
-  { id: 'bulkUpload', label: 'Bulk Upload', group: 'Portfolio', keys: ['bulkUpload'] },
-  { id: 'offlineInquiries', label: 'Tenant Leads', group: 'Operations', keys: ['offlineInquiries'] },
-  { id: 'bookingForms', label: 'Booking Forms', group: 'Operations', keys: ['bookingForms'] },
-  { id: 'newOwnerListings', label: 'Owner Leads', group: 'Procurement', keys: ['newOwnerListings'] },
+  { id: 'reports', label: 'Reports', group: 'Accounting', keys: ['reports'] },
   { id: 'playbook', label: 'Playbook (Onboarding, Business Model)', group: 'Content', keys: ['playbook'], editOnly: true },
   { id: 'sops', label: 'HR SOP pages', group: 'Content', keys: ['sops'], editOnly: true },
-  { id: 'agreementSetup', label: 'Agreement Setup (forms, templates, formulas)', group: 'Agreements', keys: ['agreementSetup'] },
   { id: 'performance', label: 'Performance Management', group: 'Performance', keys: ['performance'] }
 ];
 // Every permission name a row stands for.
@@ -53,9 +54,9 @@ export const rowPerms = row => row.keys.flatMap(k => { const p = PAGES.find(x =>
 // One line under some groups in the tick table, so it's clear what a tick really gives.
 export const GROUP_NOTES = {
   Accounting: 'Any Accounting page lets them read the finance data. Any Accounting Edit lets them change it.',
-  Portfolio: 'Edit includes owners\' bank details and unit terms.',
+  Portfolio: 'Edit includes owners\' bank details and unit terms. Offline Payments Edit also lets them change the finance data.',
   Content: 'Everyone can read these. Edit lets them change the text.',
-  Agreements: 'Everyone can fill in agreements and see the records. This tick lets them change forms, formulas, templates and where fields print.',
+  'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
   Performance: 'Quarterly performance management (quarters, COH, KPI, TMS administration). Everyone can still see their own results without this tick.'
 };
 
