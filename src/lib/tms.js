@@ -4,7 +4,7 @@
 // kept in this code. See handoffs/Task_System_PMS_Link.md and the TMS repo's docs/PMS_LINK.md.
 //
 // PMS uids are TMS uids (staff sign in to the TMS with their PMS account), so assignees are sent as PMS uids.
-// Used by Procurement > New Owner Listings (pages/Procurement/NewListings.vue).
+// Used by Procurement > New Owner Listings (pages/Procurement/NewListings.vue) and Operations > Issues (syncIssue).
 import { auth } from './firebase.js';
 
 // Set VITE_TMS_URL in .env.local to try a TMS preview or a local copy; the live TMS is the fallback.
@@ -60,3 +60,13 @@ export function syncTask(taskId, { note = '', checklist = [], completed, started
   if (departmentId) data.departmentId = departmentId;
   return updateTask(taskId, data);
 }
+
+// Maintenance tickets (Issues): makes or updates the ticket's card in the TMS Maintenance workspace, on its property's
+// board. Call it after every change to a ticket. Only the number is sent: the TMS reads the ticket itself from the PMS
+// with your sign-in, so the PMS rules decide who may sync it. Every ticket gets a card, whatever roles are tagged.
+// Resolves { taskId (null for a Completed ticket that never had a card), columnId, column (its name, e.g. 'DOING'), status ('open'|'progress'|'done') }.
+export const syncIssue = id => sendToTasks('issue', { data: { id } });
+
+// The property boards of the TMS Maintenance workspace: the Property list when raising or editing a ticket (every
+// ticket's card goes on its property's board). [{ id, name, pmsPropertyId }]
+export const maintenanceBoards = async () => (await sendToTasks('maintenanceBoards')).boards || [];
