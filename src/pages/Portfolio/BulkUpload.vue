@@ -49,6 +49,12 @@
         ? 'Choose every property\'s file at once (or the whole Owner List workbook). Each file or sheet is matched to the property with the same code or name; check the matches below the preview.'
         : 'Each row saves its unit under this property and links it to the owner.' }} An owner already in the PMS (same IC, else email, else name when the row has neither) is reused, never added twice.</p>
 
+      <!-- Blank owner file to fill in (public/templates). base keeps the link right on Vercel previews too. -->
+      <div class="tpl-row">
+        <a class="btn tpl-btn" :href="base + 'templates/Widebed_Owner_List_Template.xlsx'" download="Widebed_Owner_List_Template.xlsx"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download template</a>
+        <span class="help">Write the property name or short code in B4, then fill in the Owners sheet under the green header, one unit per row. Drop the file here: the property is picked from B4 (check it above before saving).</span>
+      </div>
+
       <!-- All properties: which property each sheet (or CSV file) goes to -->
       <div class="table-wrap sheet-map" v-show="allMode && sheets.length">
         <table class="table">
@@ -96,7 +102,7 @@
         <div class="bu-stat skip"><b>{{ count('skip') }}</b><span>Already in the PMS</span></div>
         <div class="bu-stat bad"><b>{{ count('error') }}</b><span>With problems</span></div>
       </div>
-      <p class="bu-note" v-show="kind === 'owners' && rows.length">{{ `This will add ${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'}, ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'} and set up ${newFees} ${newFees === 1 ? 'fee' : 'fees'}.` }}</p>
+      <p class="bu-note" v-show="kind === 'owners' && rows.length"><b v-if="!allMode && propLabel()">{{ `Saving under ${propLabel()}. ` }}</b>{{ `This will add ${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'}, ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'} and set up ${newFees} ${newFees === 1 ? 'fee' : 'fees'}.` }}</p>
 
       <p class="help sheets" v-show="sheetsNote">{{ sheetsNote }}</p>
 
@@ -191,6 +197,7 @@ const me = useSession();
 //   stopAt:    rows from the first cell matching this onwards are ignored (blank = read to the end).
 const FILE_LAYOUT = {
   properties: { headerHas: '', stopAt: '' },                          // TODO when the properties file arrives
+  // If these headers change, update public/templates/Widebed_Owner_List_Template.xlsx (master copy: Docs\Owner\Widebed_Owner_List_Template.xlsx) to match.
   // Finance's "LATEST Owner List 2022 - 2026" (one sheet per property, e.g. DM).
   // Terminated units are listed below "TERMINATED UNIT"; their owners are past owners, so they are left out.
   owners: { headerHas: 'Owner Name 1', stopAt: 'TERMINATED UNIT' },
@@ -249,6 +256,7 @@ function mapPropertyRow(row) {
   };
 }
 
+// If these headers change, update public/templates/Widebed_Owner_List_Template.xlsx (master copy: Docs\Owner\Widebed_Owner_List_Template.xlsx) to match.
 // One row of the Owners file -> the fields saved in owners/{id}/private/main (personal data, PDPA).
 // Mapped to the Owner List: "Owner Name 1", "Contact No 1", "IC / Passport No", "Email Address 1".
 // Cells listing an old and a new owner on separate lines keep the "(new owner)" line (see ownerCell below).
@@ -336,8 +344,8 @@ const COLS = {
 export default {
   components: { OptionPicker },
   data() {
-    return { kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
-      properties: [], propertyId: '', newProp: { name: '', code: '' }, sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {}, fix: null, bkCtx: null };
+    return { base: import.meta.env.BASE_URL, kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
+      properties: [], propertyId: '', newProp: { name: '', code: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null };
   },
   computed: {
     previewCols() { return COLS[this.kind]; },
@@ -382,7 +390,7 @@ export default {
         : [{ value: '__skip', label: 'Leave out' }, { value: '__new', label: 'New property…' }, ...list];
     },
     setKind(k) { if (k !== this.kind) { this.kind = k; this.clear(); this.done = ''; } },
-    clear() { Object.assign(this, { rows: [], columns: [], fileName: '', error: '', sheetsNote: '', sheets: [], sheet: '', parsed: markRaw({}), sheetMap: {} }); },
+    clear() { Object.assign(this, { rows: [], columns: [], fileName: '', error: '', sheetsNote: '', sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {} }); },
     count(s) { return this.rows.filter(r => r.status === s).length; },
     show(r, key) { const v = r.data[key]; return v || v === 0 ? v : '—'; },
 
@@ -415,6 +423,11 @@ export default {
           const h = headerHas ? grid.findIndex(r => hasCell(r, headerHas)) : (grid.length ? 0 : -1);
           if (h < 0) { unused.push(sheet); continue; }
           used.push(sheet);
+          // The owner template has "Property (name or code)" in A4 and the property in B4: the cell right after a "Property..." label above the header
+          for (const r of grid.slice(0, h)) {
+            const j = r.findIndex(c => norm(c).startsWith('property'));
+            if (j >= 0 && String(r[j + 1] ?? '').trim()) { this.propHints[sheet] = String(r[j + 1]).trim(); break; }
+          }
           const above = h > 0 ? grid[h - 1] : [];
           const width = Math.max(...grid.map(r => r.length));
           const names = Array.from({ length: width }, (_, j) => String(grid[h][j] || above[j] || '').replace(/\s+/g, ' ').trim() || `Column ${j + 1}`);
@@ -449,6 +462,7 @@ export default {
           const code = this.propCode().toLowerCase();
           this.sheet = used.find(n => n.toLowerCase() === code) || used[0];
           this.sheetsNote = used.length > 1 ? `This file has ${used.length} sheets. Pick the one for this property above.` + (unused.length ? ` Left out: ${unused.join(', ')}.` : '') : '';
+          this.propFromFile();
           this.rows = await this.checkOwners(this.groups());
         }
       } catch (e) { this.error = e.message && !e.code ? e.message : friendlyError(e, 'read the file'); this.rows = []; }
@@ -552,6 +566,28 @@ export default {
       if (this.fix) f.busy = false;
     },
 
+    // The property written in the file (B4 of the owner template) -> the property in the PMS with that code or name, else null
+    propByHint(hint) {
+      const k = norm(hint); if (!k) return null;
+      const byCode = this.properties.filter(p => norm(p.code) === k), byName = this.properties.filter(p => norm(p.name) === k);
+      return byCode.length === 1 ? byCode[0] : byName.length === 1 ? byName[0] : null;
+    },
+    // Single property: the file's property is chosen for you when nothing is chosen yet; a different choice on the page is kept but flagged.
+    propFromFile() {
+      const hint = this.propHints[this.sheet]; if (!hint) return;
+      const p = this.propByHint(hint);
+      let note;
+      if (!p) note = `The file says the property is "${hint}", which is not in the PMS. Choose the property above, or New property.`;
+      else if (!this.propertyId) { this.propertyId = p.id; note = `Property taken from the file: ${p.name} (${p.code || p.id}).`; }
+      else if (this.propertyId !== p.id) note = `The file says ${p.name} (${p.code || p.id}), but ${this.propLabel()} is chosen above. Check which one is right before saving.`;
+      if (note) this.sheetsNote = [this.sheetsNote, note].filter(Boolean).join(' ');
+    },
+    // Name of the property the units will be saved under, for the preview
+    propLabel() {
+      if (this.propertyId === '__new') return this.newProp.name.trim() ? `${this.newProp.name.trim()} (new)` : 'a new property';
+      const p = this.properties.find(x => x.id === this.propertyId);
+      return p ? `${p.name} (${p.code || p.id})` : '';
+    },
     propCode() {
       if (this.propertyId === '__new') return this.newProp.code.trim().toUpperCase();
       return (this.properties.find(p => p.id === this.propertyId)?.code || '').toUpperCase();
@@ -571,10 +607,11 @@ export default {
       const map = { ...this.sheetMap };
       for (const n of this.sheets) {
         if (map[n]) continue;
-        const k = norm(n), byCode = this.properties.filter(p => norm(p.code) === k), byName = this.properties.filter(p => norm(p.name) === k),
+        const k = norm(this.propHints[n] || n), byCode = this.properties.filter(p => norm(p.code) === k), byName = this.properties.filter(p => norm(p.name) === k),
           inName = this.properties.filter(p => k.length >= 3 && norm(p.name).includes(k));
         const hit = byCode.length === 1 ? byCode[0] : byName.length === 1 ? byName[0] : inName.length === 1 ? inName[0] : null;
-        map[n] = hit ? { pid: hit.id, name: '', code: '' } : { pid: '__new', name: n.trim(), code: n.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) };
+        const label = (this.propHints[n] || n).trim();
+        map[n] = hit ? { pid: hit.id, name: '', code: '' } : { pid: '__new', name: label, code: label.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) };
       }
       this.sheetMap = map;
     },
@@ -812,6 +849,9 @@ export default {
     .file-badge { font-size: 11px; font-weight: 700; padding: 3px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
     .bu-actions { position: sticky; bottom: 0; background: var(--surface); padding: 12px 0 0; border-top: 1px solid var(--line); }
     .prop-card { margin-bottom: 16px; }
+    .tpl-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+    .tpl-row .help { margin: 0; flex: 1 1 260px; }
+    .tpl-btn { text-decoration: none; }
     .prop-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
     .prop-row .field { margin: 0; min-width: 0; flex: 1 1 220px; }
     .prop-row :deep(.op), .sheet-map :deep(.op) { display: block; }

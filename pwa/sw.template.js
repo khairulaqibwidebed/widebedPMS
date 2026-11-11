@@ -24,6 +24,7 @@ self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;   // Firestore, Auth, Drive, fonts: straight to the network
   if (url.pathname.startsWith('/api/')) return;                               // Drive function: never cached
+  if (url.pathname.startsWith('/templates/')) return;                         // Excel templates (e.g. owner list): always the real file, never index.html
   // Pages: always the network first, so a deploy shows at once. The saved page is only used offline.
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).catch(async () => (await caches.match('/index.html', { cacheName: CACHE })) || Response.error()));
