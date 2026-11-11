@@ -1,10 +1,10 @@
 <template>
   <section class="cd">
-    <h3>Documents <span class="cd-only">HR's Google Drive · only HR and the sender</span></h3>
+    <h3>Documents <span class="cd-only">{{ complaint.kind === 'director' ? "HR's Google Drive · only HR and the Directors" : "HR's Google Drive · only HR and the sender" }}</span></h3>
     <div class="cd-list" v-if="docs.length">
       <div class="cd-row" v-for="d in docs" :key="d.id">
         <span class="cd-badge">{{ ext(d.name) }}</span>
-        <div class="cd-name"><b>{{ d.name }}</b><small>{{ `${WHO[d.by] || 'Added'} · ${when(d.createdAt)}` }}</small></div>
+        <div class="cd-name"><b>{{ d.name }}</b><small>{{ `${d.threadId ? 'From the chat' : WHO[d.by] || 'Added'} · ${when(d.createdAt)}` }}</small></div>
         <button class="btn btn-sm" type="button" @click="view(d)">View</button>
         <button class="btn btn-sm" type="button" :disabled="dl === d.id" @click="download(d)">{{ dl === d.id ? '…' : 'Download' }}</button>
       </div>
@@ -22,14 +22,14 @@
 
 <script>
 // Documents on a staff complaint (11 Nov 2026): live list from complaints/{id}/docs, files in HR's own Google Drive.
-// side 'hr' or 'sender'; canAdd = HR any time, the named sender while it isn't closed.
+// side 'hr', 'sender' or 'director' (11 Nov 2026: Director complaints and anonymous senders too); canAdd = HR any time, the named sender while it isn't closed.
 import FileViewer from '@/components/FileViewer.vue';
 import { downloadFile } from '@/lib/drive.js';
-import { watchDocs, addDocs, DOC_ACCEPT, DOC_MAX_MB } from '@/pages/HR/complaints.js';
+import { watchDocs, addDocs, docKind, DOC_ACCEPT, DOC_MAX_MB } from '@/pages/HR/complaints.js';
 import { useSession } from '@/stores/session.js';
 import { toast } from '@/lib/toast.js';
 
-const WHO = { hr: 'Added by HR', sender: 'Added by the sender', anon: 'Sent with the complaint' };
+const WHO = { hr: 'Added by HR', sender: 'Added by the sender', anon: 'Added by the sender', director: 'Added by a Director' };
 
 export default {
   components: { FileViewer },
@@ -47,15 +47,16 @@ export default {
       if (!files.length) return;
       this.busy = true; this.pct = 0; this.err = '';
       try {
-        const n = await addDocs(useSession(), this.complaint, files, this.side === 'hr' ? 'hr' : 'sender', p => { this.pct = Math.round(p * 100); });
+        const by = this.side === 'sender' && this.complaint.anonymous ? 'anon' : this.side;
+        const n = await addDocs(useSession(), this.complaint, files, by, p => { this.pct = Math.round(p * 100); });
         toast(`${n} document${n === 1 ? '' : 's'} added.`);
       } catch (err) { this.err = err.message; }
       this.busy = false;
     },
-    view(d) { this.$refs.viewer.open({ name: d.name, id: d.fileId, kind: 'complaints', recordId: this.complaint.id }); },
+    view(d) { this.$refs.viewer.open({ name: d.name, id: d.fileId, kind: docKind(this.complaint), recordId: this.complaint.id }); },
     async download(d) {
       this.dl = d.id;
-      try { await downloadFile('complaints', d.fileId, d.name, this.complaint.id); } catch (err) { toast(err.message); }
+      try { await downloadFile(docKind(this.complaint), d.fileId, d.name, this.complaint.id); } catch (err) { toast(err.message); }
       this.dl = '';
     }
   }

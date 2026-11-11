@@ -7,6 +7,7 @@ import { db, auth } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, runTransaction, serverTimestamp, limit } from 'firebase/firestore';
 import { listen } from '@/lib/use-live.js';
 import { audit } from '@/lib/finance-data.js';
+import { toast } from '@/lib/toast.js';
 import { notifyRole, notifyUser } from '@/services/notificationService';
 import { uploadForLink } from '@/lib/drive.js';
 
@@ -168,17 +169,22 @@ export function checkDocs(files) {
   const big = files.find(f => f.size > DOC_MAX_MB * 1024 * 1024);
   return big ? `${big.name} is larger than ${DOC_MAX_MB} MB.` : '';
 }
-export async function addDocs(me, c, files, by, onProgress = () => {}) {
+// Drive area for a complaint's files (11 Nov 2026): both kinds sit in HR's Google Drive, in their own folders
+export const docKind = c => (c.kind === 'director' ? 'dcomplaints' : 'complaints');
+// by: 'hr', 'sender', 'director' or 'anon' (an anonymous sender: no uid saved). threadId = copies of photos sent in the chat.
+export async function addDocs(me, c, files, by, onProgress = () => {}, threadId = '') {
   const bad = checkDocs(files); if (bad) throw new Error(bad);
-  const up = await uploadForLink('complaints', files, onProgress, c.id, c.ref);
+  const up = await uploadForLink(docKind(c), files, onProgress, c.id, c.ref);
   const b = writeBatch(db);
   for (const u of up) b.set(doc(collection(db, 'complaints', c.id, 'docs')), { name: String(u.name).slice(0, 200), fileId: u.id, mimeType: u.mimeType || '',
-    by, ...(by === 'anon' ? {} : { byUid: me.user.uid }), createdAt: serverTimestamp() });
+    by, ...(by === 'anon' ? {} : { byUid: me.user.uid }), ...(threadId ? { threadId } : {}), createdAt: serverTimestamp() });
   if (by !== 'anon') audit(b, me, { action: 'complaint.doc', entity: `complaints/${c.id}`, changes: [{ field: 'documents', old: null, new: `${up.length} added` }] });
   await b.commit();
-  if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
+  if (threadId) return up.length;   // the chat message already told the other side
+  if (c.kind === 'director') tellBoth(c, `New document on complaint ${c.ref}`, 'Open the complaint to see it.');
+  else if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
     title: `HR added a document to your complaint ${c.ref}`, message: 'Open My complaints to see it.' }));
-  else if (by === 'sender') tell(notifyRole({ recipientRole: 'hr', type: 'complaint', refId: c.id, link: `/HR/staff-complaints?id=${c.id}`,
+  else if (by === 'sender' || by === 'anon') tell(notifyRole({ recipientRole: 'hr', type: 'complaint', refId: c.id, link: `/HR/staff-complaints?id=${c.id}`,
     title: `New document on complaint ${c.ref}`, message: 'The sender added a document. Open the complaint to see it.' }));
   return up.length;
 }
@@ -259,21 +265,26 @@ function tellBoth(c, title, message = 'Open the complaint for the details.', rol
 
 // Staff complaints: by = 'hr' (HR replying) or 'sender' (the named sender replying back).
 // Director complaints (HR to the Directors): by = 'hr' or 'director'; each side's bell rings when the other replies.
+// 11 Nov 2026: an anonymous sender can reply too; nothing that names them is saved (no name, no uid, no audit line).
+// Photos in a reply are also copied, full size, to HR's Google Drive (the complaint's Documents, "From the chat").
 export async function addReply(me, c, text, by, images = []) {
-  const t = clean(text), pics = images.slice(0, MAX_PHOTOS);
+  const t = clean(text), pics = images.slice(0, MAX_PHOTOS), anon = !!c.anonymous && by === 'sender';
   if (!t && !pics.length) throw new Error('Write a reply or add a photo first.');
   const b = writeBatch(db), r = doc(collection(db, 'complaints', c.id, 'thread'));
   const imgs = pics.map(im => ({ ref: doc(collection(db, 'complaints', c.id, 'images')), im }));
-  b.set(r, { text: t, by, byName: me.name || '', byUid: me.user.uid, ...(imgs.length ? { imageIds: imgs.map(x => x.ref.id) } : {}), createdAt: serverTimestamp() });
-  for (const x of imgs) b.set(x.ref, imageDoc(x.im, 'thread', r.id, me.user.uid));
-  audit(b, me, { action: 'complaint.reply', entity: `complaints/${c.id}`, changes: [{ field: 'reply', old: null, new: by === 'hr' ? 'HR' : by === 'director' ? 'Director' : 'Sender' }] });
+  b.set(r, { text: t, by, ...(anon ? {} : { byName: me.name || '', byUid: me.user.uid }), ...(imgs.length ? { imageIds: imgs.map(x => x.ref.id) } : {}), createdAt: serverTimestamp() });
+  for (const x of imgs) b.set(x.ref, imageDoc(x.im, 'thread', r.id, anon ? '' : me.user.uid));
+  if (!anon) audit(b, me, { action: 'complaint.reply', entity: `complaints/${c.id}`, changes: [{ field: 'reply', old: null, new: by === 'hr' ? 'HR' : by === 'director' ? 'Director' : 'Sender' }] });
   await b.commit();
+  const originals = pics.map(p => p.file).filter(f => f && f.size <= DOC_MAX_MB * 1024 * 1024);
+  if (originals.length) addDocs(me, c, originals, anon ? 'anon' : by, () => {}, r.id)
+    .catch(e => { console.warn('Chat photo not copied to Drive:', e); toast(`Photo sent, but not copied to HR's Drive: ${e.message}`); });
   if (c.kind === 'director') tellBoth(c, by === 'hr' ? `HR replied on complaint ${c.ref}` : `The Directors replied on complaint ${c.ref}`, 'Open the complaint to read it.');
   else if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
     title: `HR replied to your complaint ${c.ref}`, message: 'Open My complaints to read it.' }));
   else if (by === 'sender') tell(notifyRole({ recipientRole: 'hr', type: 'complaint', refId: c.id, link: `/HR/staff-complaints?id=${c.id}`,
     title: `New reply on complaint ${c.ref}`, message: 'The sender replied. Open the complaint to read it.' }));
-  return { id: r.id, text: t, by, byName: me.name || '', createdAt: null, imageIds: imgs.map(x => x.ref.id),
+  return { id: r.id, text: t, by, byName: anon ? '' : me.name || '', createdAt: null, imageIds: imgs.map(x => x.ref.id),
     images: imgs.map(x => ({ id: x.ref.id, data: x.im.data })) };
 }
 

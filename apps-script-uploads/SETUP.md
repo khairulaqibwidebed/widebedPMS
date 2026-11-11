@@ -42,10 +42,11 @@ Upload a photo on an Issue: it appears in *Widebed PMS Files > Issues > <month>*
 Documents added to staff complaints go to **HR's own Google account**, not the company Drive. Same script, separate copy:
 1. Signed in as HR's account: make a folder (e.g. *PMS Staff Complaints*), then a new Apps Script project with the same
    `Code.gs` and `appsscript.json`. Script properties: `ROOT_FOLDER_ID` = that folder, `PMS_KEY` = its own long password.
-   Run **authorize**, then deploy as a Web app (Me / Anyone).
+   Run **authorize**, then deploy as a Web app (Me / Anyone). If uploads say "Google Drive API has not been used in project ...":
+   in the editor, Services (+) > Drive API > Add (the manifest above already lists it), then run authorize again.
 2. Vercel (Production and Preview) and `vercel-drive.env.local`:
    - `DRIVE_HR_SCRIPT_URL` = HR's `/exec` URL
    - `DRIVE_HR_SCRIPT_KEY` = HR's `PMS_KEY`
-3. Firestore rules Draft 0.48 (complaints/{id}/docs) must be published.
+3. Firestore rules Draft 0.49 (complaints/{id}/docs) must be published. Director complaint files go in the same Drive, folder *Director Complaints*.
 Folders are named by the complaint ref only (e.g. `SC-0013 (ab12c)`), never the sender. Only HR and the complaint's sender can
 open the files in the PMS; nothing is removed.

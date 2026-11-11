@@ -8,7 +8,7 @@
 // Accounting, Performance, Playbook, HR, Company Settings, My Account. The Operations and Procurement groups are gone:
 // Booking Forms and Offline Payments sit in Portfolio, Owner/Tenant Leads and Agreements in Leads & Agreements.
 // Tickable pages a role can't view are dropped by navFor(), so one list can serve several roles.
-import { can, pageKeyFor } from './lib/access.js';
+import { can, navPerm } from './lib/access.js';
 
 const P = (label, to = null, icon = 'dot') => ({ label, to, icon });
 const G = (label, icon, items) => ({ label, icon, items });
@@ -19,7 +19,8 @@ const PORTFOLIO = G('Portfolio', 'layers', [P('Owners', '/Portfolio/owners', 'us
   P('Bookings', '/Portfolio/bookings', 'calendar'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'),
   P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Bulk Upload', '/Portfolio/bulk-upload', 'table')]);
 // Leads follow their ticks; Agreements and Renewals are for everyone who has this group (not HR or IT).
-const LEADS = G('Leads & Agreements', 'handshake', [P('Owner Leads', '/Procurement/new-owner-listings', 'home'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'),
+// Owner Leads (overview) follows the Owner Leads View tick; Listing Flow (work on a listing) its Edit tick (11 Nov 2026).
+const LEADS = G('Leads & Agreements', 'handshake', [P('Owner Leads', '/Procurement/owner-leads', 'home'), P('Listing Flow', '/Procurement/listing-flow', 'filePlus'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'),
   P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'refresh')]);
 const LEADS_DIR = G('Leads & Agreements', 'handshake', [...LEADS.items, P('Agreement Setup', '/Agreements/setup', 'filePen')]);
 // Month-end order.
@@ -78,7 +79,7 @@ export function homeFor(role) {
 export function navFor(me) {
   const role = (me && me.role) || '';
   if (role === 'director') return NAV.director;
-  const allowed = it => { const key = pageKeyFor(it.to); return !key || can(me, key + '.view'); };
+  const allowed = it => { const perm = navPerm(it.to); return !perm || can(me, perm); };
 
   // Interns (Staff accounts > HR details) have no Salary Advance page (5 Nov 2026)
   const out = navOf(role).map(g => ({ ...g, items: g.items.filter(it => allowed(it) && !(me.intern && it.to === '/HR/salary-advance')) })).filter(g => g.items.length);
@@ -86,8 +87,8 @@ export function navFor(me) {
 
   for (const group of NAV.director) {
     for (const it of group.items) {
-      const key = pageKeyFor(it.to);
-      if (!key || seen.has(it.to) || !can(me, key + '.view')) continue;
+      const perm = navPerm(it.to);
+      if (!perm || seen.has(it.to) || !can(me, perm)) continue;
       seen.add(it.to);
       const same = out.find(g => g.label && g.label === group.label);
       if (same) { same.items.push(it); continue; }

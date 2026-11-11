@@ -92,6 +92,7 @@
               </div>
               <div class="field" style="margin-top:12px"><label>Details</label><div class="detail">{{ sel.details }}</div></div>
               <PhotoThumbs :images="selPhotos" />
+              <ComplaintDocs :key="'d' + sel.id" :complaint="sel" :side="isHr ? 'hr' : 'director'" :can-add="!isHr || selStatus !== 'closed'" />
               <!-- Sent before 4 Nov: only file names were kept (the files were never uploaded) -->
               <div class="file-names" v-show="sel.files && sel.files.length">{{ 'File names given (not uploaded): ' + sel.files.join(', ') }}</div>
 
@@ -130,6 +131,7 @@ import { watchComplaintList, mergeRows, createComplaint, markRead, loadNotes, ad
 import PhotoPicker from '@/components/PhotoPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
+import ComplaintDocs from '@/components/ComplaintDocs.vue';
 import ComplaintChat from '@/components/ComplaintChat.vue';
 import Avatar from '@/components/Avatar.vue';
 import { friendlyError } from '@/lib/finance-data.js';
@@ -140,7 +142,7 @@ const me = useSession();
 
 export default {
   mixins: [liveMixin],
-  components: { PhotoPicker, PhotoThumbs, ComplaintChat, OptionPicker, Avatar },
+  components: { PhotoPicker, PhotoThumbs, ComplaintChat, OptionPicker, Avatar, ComplaintDocs },
   computed: {
     isHr() { return me.role === 'hr'; },
     selStatus() { return this.sel ? dirStatus(this.sel) : 'new'; },

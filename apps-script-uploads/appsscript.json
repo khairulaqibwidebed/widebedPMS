@@ -8,5 +8,14 @@
   },
   "oauthScopes": [
     "https://www.googleapis.com/auth/drive"
-  ]
+  ],
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Drive",
+        "serviceId": "drive",
+        "version": "v3"
+      }
+    ]
+  }
 }

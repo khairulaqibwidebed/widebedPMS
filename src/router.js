@@ -42,8 +42,14 @@ const routes = [
   // One address per form (tabs); the old /Operations/booking-forms opens the Reservation tab
   ticked('/Operations/booking-forms/:form(reservation|utility|property)?', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
 
-  ticked('/Procurement/new-owner-listings', () => import('./pages/Procurement/NewListings.vue'), 'Owner Leads', 'newOwnerListings'),
-  { path: '/Procurement/new-listings', redirect: to => ({ path: '/Procurement/new-owner-listings', query: to.query }) },
+  // Owner Leads (11 Nov 2026, split from the old NewListings.vue): the overview, and the Listing Flow (one listing, stage by
+  // stage: /Procurement/listing-flow/new, /Procurement/listing-flow/NL-0001, /Procurement/listing-flow/NL-0001/payment).
+  // Both open with the Owner Leads View tick; the Listing Flow sidebar item needs the Edit tick (nav.js).
+  ticked('/Procurement/owner-leads', () => import('./pages/Procurement/OwnerLeads/LeadsOverview.vue'), 'Owner Leads', 'newOwnerListings'),
+  ticked('/Procurement/listing-flow/:id?/:stage(agreement|services|renovation|furniture|payment|marketing|live)?', () => import('./pages/Procurement/OwnerLeads/ListingFlow.vue'), 'Listing Flow', 'newOwnerListings'),
+  // Old addresses (notifications and bookmarks): ?id=NL-0001 opens that listing, ?new the new-listing form, else the overview.
+  ...['/Procurement/new-owner-listings', '/Procurement/new-listings'].map(path => ({ path, redirect: to =>
+    to.query.id ? { path: `/Procurement/listing-flow/${to.query.id}`, query: {} } : 'new' in to.query ? { path: '/Procurement/listing-flow/new', query: {} } : { path: '/Procurement/owner-leads', query: {} } })),
 
   // Agreements: every role fills in forms and sees records. Setup (forms, formulas, templates, designer) needs its tick.
   page('/Agreements', () => import('./pages/Agreements/Records.vue'), 'Agreements', ALL),

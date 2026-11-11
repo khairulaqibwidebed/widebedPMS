@@ -4,7 +4,7 @@
 // kept in this code. See handoffs/Task_System_PMS_Link.md and the TMS repo's docs/PMS_LINK.md.
 //
 // PMS uids are TMS uids (staff sign in to the TMS with their PMS account), so assignees are sent as PMS uids.
-// Used by Procurement > New Owner Listings (pages/Procurement/NewListings.vue) and Operations > Issues (syncIssue).
+// Used by Owner Leads / Listing Flow (lib/owner-leads.js, pages/Procurement/OwnerLeads/) and Operations > Issues (syncIssue).
 import { auth } from './firebase.js';
 
 // Set VITE_TMS_URL in .env.local to try a TMS preview or a local copy; the live TMS is the fallback.
@@ -52,12 +52,14 @@ export const link = (taskId, pmsLink) => sendToTasks('link', { taskId, data: { p
 // One message per save: a note of what changed, the whole checklist as [{ title, done }], completed when given, and
 // started (moves a task still before DOING into DOING). Resolves { status, completed }.
 // departmentId hands the task to that department ('marketing', 'operation', ...).
-export function syncTask(taskId, { note = '', checklist = [], completed, started, departmentId } = {}) {
+// description (when given) replaces the card's description (a New Owner Listing's Description, 11 Nov 2026).
+export function syncTask(taskId, { note = '', checklist = [], completed, started, departmentId, description } = {}) {
   const data = { subtasks: checklist.slice(0, 50).map(c => ({ title: String(c.title).slice(0, 200), done: !!c.done })) };
   if (note) data.text = note.slice(0, 2000);
   if (typeof completed === 'boolean') data.completed = completed;
   if (started) data.started = true;
   if (departmentId) data.departmentId = departmentId;
+  if (typeof description === 'string') data.description = description.slice(0, 5000);
   return updateTask(taskId, data);
 }
 
@@ -70,3 +72,15 @@ export const syncIssue = id => sendToTasks('issue', { data: { id } });
 // The property boards of the TMS Maintenance workspace: the Property list when raising or editing a ticket (every
 // ticket's card goes on its property's board). [{ id, name, pmsPropertyId }]
 export const maintenanceBoards = async () => (await sendToTasks('maintenanceBoards')).boards || [];
+
+// Owner Leads (Procurement > Owner Leads / Listing Flow). Every card of the TMS board "Owner Leads" (workspace
+// "Business Development & Procurement"). Director, Procurement, Marketing, Operations.
+// [{ taskId, title, description, createdAt, updatedAt, dueDate (ISO), column (name),
+//    status ('new'|'progress'|'signed'|'live'|'cancelled'|null), assigneeUids, createdByName, pmsLink }]
+export const ownerLeads = async () => (await sendToTasks('ownerLeads')).leads || [];
+
+// Director or Procurement: moves an Owner Leads card to the column of that status (any direction).
+// status: 'new' | 'progress' | 'signed' | 'live' | 'cancelled'. Resolves { column, status, moved }.
+export const moveOwnerLead = (taskId, status) => sendToTasks('moveOwnerLead', { taskId, data: { status } });
+// A comment on an Owner Leads card, under the signed-in person's name (a listing's Remarks).
+export const commentOwnerLead = (taskId, text) => sendToTasks('commentOwnerLead', { taskId, data: { text } });

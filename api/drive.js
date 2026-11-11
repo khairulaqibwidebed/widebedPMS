@@ -16,9 +16,11 @@ import { createSign } from 'node:crypto';
 
 const KINDS = { 'offline-payments': 'Offline Payments', 'utility-bills': 'Utility Bills',
   expenses: 'Expenses', issues: 'Issues', listings: 'New Owner Listings', sops: 'HR SOPs', 'owner-payments': 'Owner Payments',
-  announcements: 'HR Announcements', complaints: 'Staff Complaints' };
+  announcements: 'HR Announcements', complaints: 'Staff Complaints', dcomplaints: 'Director Complaints' };
 // Which Google account an area uses: 'hr' = HR's own Drive (DRIVE_HR_SCRIPT_*), everything else the company Drive.
-const ACCOUNT = { complaints: 'hr' };
+const ACCOUNT = { complaints: 'hr', dcomplaints: 'hr' };
+// 11 Nov 2026: which complaint kind each area holds, and its ref format
+const COMPLAINT = { complaints: { kind: 'staff', ref: /^SC-\d{1,6}$/ }, dcomplaints: { kind: 'director', ref: /^DC-\d{1,6}$/ } };
 const acctOf = kind => ACCOUNT[kind] || 'main';
 // Areas where only some roles may upload or remove (5 Nov 2026). Everyone signed in may still view and download.
 const WRITERS = { announcements: ['hr', 'director'] };
@@ -139,14 +141,18 @@ async function recordFolder(tok, kind, recordId, label = '') {
 
 // Staff complaint files: the person must be able to read complaints/{recordId} under the Firestore rules (HR, or the
 // complaint's sender), and it must be a staff complaint. Read with their own sign-in, so the rules decide.
-async function checkComplaint(user, recordId, action) {
+// Director complaints (11 Nov 2026): the Directors and the HR person who sent it. Closed: only HR (staff) or the
+// Directors (director) may still add.
+async function checkComplaint(user, recordId, action, area) {
   if (!SAFE.test(recordId || '')) throw new HttpError(400, 'Bad complaint id.');
   const project = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'widebed-pmsdashboard';
   const r = await fetch(`https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/complaints/${recordId}`, { headers: { Authorization: `Bearer ${user.idToken}` } });
   if (!r.ok) throw new HttpError(403, 'You cannot open files on this complaint.');
   const f = (await r.json()).fields || {};
-  if (f.kind?.stringValue !== 'staff') throw new HttpError(403, 'Files can only be added to staff complaints.');
-  if (action === 'session' && f.status?.stringValue === 'closed' && (await roleOf(user)) !== 'hr') throw new HttpError(403, 'This complaint is closed.');
+  const kind = COMPLAINT[area].kind;
+  if (f.kind?.stringValue !== kind) throw new HttpError(403, 'That complaint is not in this area.');
+  if (action === 'session' && f.status?.stringValue === 'closed' && (await roleOf(user)) !== (kind === 'staff' ? 'hr' : 'director'))
+    throw new HttpError(403, 'This complaint is closed.');
   return f;
 }
 
@@ -161,8 +167,8 @@ export default async function handler(req, res) {
     if (acct === 'hr') {
       // Staff complaints: nothing is removed, and the folder is named by the ref only (never the sender)
       if (!['session', 'list', 'file'].includes(b.action)) throw new HttpError(403, 'Complaint files cannot be removed.');
-      await checkComplaint(user, b.recordId, b.action);
-      b.label = /^SC-\d{1,6}$/.test(String(b.label || '')) ? b.label : '';
+      await checkComplaint(user, b.recordId, b.action, b.kind);
+      b.label = COMPLAINT[b.kind].ref.test(String(b.label || '')) ? b.label : '';
     }
     const tok = await driveToken(acct);
     if (b.action === 'remove') {
