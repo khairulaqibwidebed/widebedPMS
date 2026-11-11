@@ -66,10 +66,15 @@ export function watchComplaintList(who, onRows, onError) {
 export function watchMyAnonComplaints(onRows, onError) {
   const rows = {}, list = anonReceipts();
   if (!list.length) { onRows([]); return () => {}; }
-  const stops = list.map(r => listen(doc(db, 'complaints', r.id), d => {
-    rows[r.id] = d ? { ...r, ...d, id: r.id, subject: r.subject, ref: showRef(d.ref || r.ref) } : null;
+  const put = (id, row) => {
+    rows[id] = row;
     if (Object.keys(rows).length === list.length) onRows(Object.values(rows).filter(Boolean));
-  }, { onError }));
+  };
+  // 11 Nov 2026: a receipt this account can't read (left in the browser by another account, or no longer anonymous)
+  // is skipped instead of failing the whole page. It stays saved, in case the rules were just not published yet.
+  const stops = list.map(r => listen(doc(db, 'complaints', r.id), d => {
+    put(r.id, d ? { ...r, ...d, id: r.id, subject: r.subject, ref: showRef(d.ref || r.ref) } : null);
+  }, { onError: e => { console.warn('[complaints] skipped anonymous receipt', r.id, e?.code); put(r.id, null); } }));
   return () => stops.forEach(stop => stop());
 }
 // Keeps the same objects for complaints already on screen (so the open one updates too), adds new ones
