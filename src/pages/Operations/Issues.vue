@@ -59,6 +59,7 @@
                   <td class="nw ct-hide last-up" :title="stamp(t.updatedIso || t.raisedAt)"><span>{{ ago(t.updatedIso || t.raisedAt) }}</span><small v-if="t.lastBy">{{ t.lastBy }}</small></td>
                 </tr>
               </template>
+              <SkeletonRows v-if="loading && !shown().length" table :cols="9" />
               <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">No tickets match.</td></tr>
             </tbody>
           </table>

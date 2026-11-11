@@ -27,6 +27,7 @@
                 <td><span class="pill" :class="st(a)[2]">{{ st(a)[0] }}</span></td>
                 <td class="num"><button class="editlink" @click.stop="open(a)">Open</button></td>
               </tr>
+              <SkeletonRows v-if="loading && !shown().length" table :cols="7" />
               <tr v-show="!loading && !shown().length"><td colspan="7" class="muted">{{ q.trim() ? `Nothing matches "${q.trim()}".` : 'No requests here.' }}</td></tr>
             </tbody>
           </table>
@@ -62,6 +63,7 @@
             <thead><tr><th>When</th><th>Request</th><th>Staff</th><th>Signature of</th><th>Made by</th></tr></thead>
             <tbody>
               <tr v-for="u in pageRows" :key="u.id"><td>{{ stamp(u.at) }}</td><td>{{ u.ref }}</td><td>{{ u.staffName }}</td><td>{{ u.signerName }}</td><td>{{ u.createdByName }}</td></tr>
+              <SkeletonRows v-if="logLoading && !uses.length" table :cols="5" />
               <tr v-show="!logLoading && !uses.length"><td colspan="5" class="muted">No forms made yet.</td></tr>
             </tbody>
           </table>

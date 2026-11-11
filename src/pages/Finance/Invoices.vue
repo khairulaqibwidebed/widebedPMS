@@ -79,6 +79,7 @@
                 </div></td>
               </tr>
             </template>
+            <SkeletonRows v-if="loading && !shown().length" table :cols="9" />
             <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">No documents match.</td></tr>
           </tbody>
         </table>

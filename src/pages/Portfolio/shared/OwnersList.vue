@@ -28,6 +28,7 @@
               <td class="num"><button class="navlink" @click.stop="$emit('open', own)">View</button></td>
             </tr>
           </template>
+          <SkeletonRows v-if="loading && !shownOwners.length" table :cols="acc.viewOnly ? (acc.canEdit ? 3 : 2) : 6" />
           <tr v-show="!loading && !shownOwners.length"><td :colspan="acc.viewOnly ? (acc.canEdit ? 3 : 2) : 6" class="muted">{{ acc.viewOnly ? 'No owners here.' : 'No owners here yet. Add one, then link their units on the Units tab.' }}</td></tr>
         </tbody>
       </table>

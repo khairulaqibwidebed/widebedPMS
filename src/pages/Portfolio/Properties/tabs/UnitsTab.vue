@@ -44,6 +44,7 @@
                 <td class="num"><button class="editlink" @click.stop="$emit('open', row)">Edit ›</button></td>
               </tr>
             </template>
+            <SkeletonRows v-if="loading && !shown.length" table :cols="acc.viewOnly ? 6 : 8" />
             <tr v-show="!loading && !shown.length"><td :colspan="acc.viewOnly ? 6 : 8" class="muted">No units match.</td></tr>
           </tbody>
         </table>

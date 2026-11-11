@@ -40,6 +40,7 @@
                 <td class="reason">{{ e.reason || '—' }}</td>
               </tr>
             </template>
+            <SkeletonRows v-if="loading && !shown().length" table :cols="6" />
             <tr v-show="!loading && !shown().length"><td colspan="6" class="muted">{{ entries.length ? 'No entries match. Load more to search further back.' : 'No changes recorded yet.' }}</td></tr>
           </tbody>
         </table>
@@ -47,7 +48,7 @@
       </Paged>
       <div class="card-foot">
         <span>Entries can't be edited or deleted. Personal details (IC, bank, phone, email, address) are never shown here, only that they changed.</span>
-        <span class="muted" v-show="loading && entries.length">Loading more…</span>
+        <span class="muted loading-line" v-show="loading && entries.length">Loading more…</span>
         <button class="btn" v-show="more && shown().length <= 10" @click="loadMore()" :disabled="loading">Load more</button>
       </div>
     </section>

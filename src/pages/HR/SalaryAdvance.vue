@@ -38,6 +38,7 @@
                 <td><span class="pill" :class="st(a)[2]">{{ staffLabel(a) }}</span><span class="by-hr" v-if="a.byHR">Made by HR</span></td>
                 <td class="num"><button class="editlink" @click.stop="open(a)">{{ a.status === 'reviewed' ? 'Sign' : 'Open' }}</button></td>
               </tr>
+              <SkeletonRows v-if="loading && !list.length" table :cols="6" />
               <tr v-show="!loading && !list.length"><td colspan="6" class="muted">You haven't asked for an advance yet.</td></tr>
             </tbody>
           </table>

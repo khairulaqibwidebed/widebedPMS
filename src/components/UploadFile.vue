@@ -1,6 +1,6 @@
 <template>
   <span class="up">
-    <label class="btn up-btn" :class="{ off: busy }"><span class="up-bar" v-if="busy" :style="{ width: pct + '%' }"></span><span class="up-txt">{{ busy ? `Uploading ${pct}%` : label }}</span>
+    <label class="btn up-btn" :class="{ off: busy, 'is-done': done }"><span class="up-bar" v-if="busy" :style="{ width: pct + '%' }"></span><ProgressRing class="up-ring" v-if="busy" :value="pct" :spinning="pct === 0" /><span class="up-txt">{{ done ? 'Uploaded' : busy ? `Uploading ${pct}%` : label }}</span>
       <input type="file" :multiple="multiple" hidden :disabled="busy" :accept="accept" @change="pick"></label>
     <span class="up-err" v-if="error">{{ error }}</span>
   </span>
@@ -14,14 +14,17 @@ import { ensureFolders, uploadForLink } from '@/lib/drive.js';
 export default {
   props: { kind: { type: String, required: true }, label: { type: String, default: '⬆ Upload file' }, recordId: { type: String, default: '' }, folderLabel: { type: String, default: '' }, multiple: { type: Boolean, default: true }, accept: { type: String, default: 'image/*,application/pdf,video/*' } },
   emits: ['done'],
-  data() { return { busy: false, pct: 0, error: '' }; },
+  data() { return { busy: false, pct: 0, error: '', done: false }; },
   mounted() { ensureFolders(); },
   methods: {
     async pick(e) {
       const list = [...e.target.files]; e.target.value = '';
       if (!list.length) return;
       this.busy = true; this.error = '';
-      try { this.$emit('done', await uploadForLink(this.kind, list, p => { this.pct = Math.round(p * 100); }, this.recordId, this.folderLabel)); }
+      try {
+        this.$emit('done', await uploadForLink(this.kind, list, p => { this.pct = Math.round(p * 100); }, this.recordId, this.folderLabel));
+        this.done = true; setTimeout(() => { this.done = false; }, 1400);   // green "Uploaded" tick for a moment
+      }
       catch (err) { this.error = err.message; }
       this.busy = false; this.pct = 0;
     }
@@ -33,6 +36,7 @@ export default {
 .btn.off { pointer-events: none; }
 .up-btn { position: relative; overflow: hidden; }
 .up-bar { position: absolute; inset: 0 auto 0 0; background: var(--accent-soft); transition: width .2s; }
-.up-txt { position: relative; }
+.up-txt, .up-ring { position: relative; }
+.up-ring { color: var(--accent); }
 .up-err { color: var(--danger, #c0392b); font-size: 12px; margin-left: 8px; }
 </style>

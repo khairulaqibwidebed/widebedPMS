@@ -61,7 +61,7 @@ function seeAll() { open.value = false; router.push('/Notifications') }
         <button type="button" class="nb-close" aria-label="Close" @click="open = false">×</button>
       </div>
       <p class="nb-msg err" v-if="error || actionError">{{ error || actionError }}</p>
-      <p class="nb-msg" v-else-if="loading">Loading…</p>
+      <p class="nb-msg loading-line" v-else-if="loading">Loading…</p>
       <p class="nb-msg" v-else-if="!latest.length">No notifications yet.</p>
       <ul class="nb-list" v-else>
         <li v-for="n in latest" :key="n.id" class="nb-li">

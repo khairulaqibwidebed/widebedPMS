@@ -27,6 +27,7 @@
               <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td>
               <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td>
             </tr>
+            <SkeletonRows v-if="loading && !shown().length" table :cols="6" />
             <tr v-show="!loading && !shown().length"><td colspan="6" class="muted">{{ q.trim() ? `Nothing matches "${q.trim()}".` : 'No complaints here.' }}</td></tr>
           </tbody>
         </table>

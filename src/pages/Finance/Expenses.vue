@@ -48,6 +48,7 @@
                 </td>
               </tr>
             </template>
+            <SkeletonRows v-if="loading && !shown().length" table :cols="7" />
             <tr v-show="!loading && !shown().length"><td colspan="7" class="muted">No lines for this month yet.</td></tr>
           </tbody>
           <tfoot v-show="live().length">

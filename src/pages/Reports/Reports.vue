@@ -91,6 +91,7 @@
               <td class="num">{{ amt(report?.total.sst) }}</td>
               <td class="num">{{ amt(report?.total.nett) }}</td>
             </tr>
+            <SkeletonRows v-if="loading && !report?.rows?.length" table :cols="9" />
             <tr v-show="!loading && report && !report.rows.length"><td colspan="9" class="muted">{{ emptyText() }}</td></tr>
           </tbody>
         </table>
