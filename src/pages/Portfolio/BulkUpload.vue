@@ -29,6 +29,14 @@
       </button>
     </div>
 
+    <!-- Properties: blank property file to fill in (public/templates) -->
+    <section class="card prop-card" v-show="kind === 'properties'">
+      <div class="tpl-row" style="margin-top:0">
+        <a class="btn tpl-btn" :href="base + 'templates/Widebed_Property_List_Template.xlsx'" download="Widebed_Property_List_Template.xlsx"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download template</a>
+        <span class="help">Fill in the Properties sheet under the green header, one property per row. Property Name and Short Code are needed. Then drop the file here.</span>
+      </div>
+    </section>
+
     <!-- Unit owners: which property the units belong to (one property per upload) -->
     <section class="card prop-card" v-show="kind === 'owners'">
       <div class="prop-row">
@@ -197,7 +205,9 @@ const me = useSession();
 //              the title from the row above is used.
 //   stopAt:    rows from the first cell matching this onwards are ignored (blank = read to the end).
 const FILE_LAYOUT = {
-  properties: { headerHas: '', stopAt: '' },                          // TODO when the properties file arrives
+  // If these headers change, update public/templates/Widebed_Property_List_Template.xlsx (master copy: Docs\Properties\Widebed_Property_List_Template.xlsx) to match.
+  // The property template has title rows above the header, so the header row is found by "Property Name".
+  properties: { headerHas: 'Property Name', stopAt: '' },
   // If these headers change, update public/templates/Widebed_Owner_List_Template.xlsx (master copy: Docs\Owner\Widebed_Owner_List_Template.xlsx) to match.
   // Finance's "LATEST Owner List 2022 - 2026" (one sheet per property, e.g. DM).
   // Terminated units are listed below "TERMINATED UNIT"; their owners are past owners, so they are left out.
@@ -243,6 +253,7 @@ function mapBookingRow(row) {
   };
 }
 
+// If these headers change, update public/templates/Widebed_Property_List_Template.xlsx (master copy: Docs\Properties\Widebed_Property_List_Template.xlsx) to match.
 // One row of the Properties file -> the fields saved on properties/{id}.
 function mapPropertyRow(row) {
   return {
