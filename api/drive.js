@@ -3,7 +3,11 @@
 //       Makes (or finds) the folder <root>/<kind>/<recordId> and opens a resumable upload. The browser then PUTs the file to uploadUrl.
 //   { action: 'file', kind, fileId }                        -> the file's bytes (max 4 MB) for the in-site viewer and downloads
 //   { action: 'list', kind, recordId }                      -> { folderLink, files: [{ id, name, mimeType, size, link }] }
-// Needs env: GOOGLE_SERVICE_ACCOUNT_JSON (company: Shared Drive) or GOOGLE_OAUTH_CLIENT_ID/_SECRET/_REFRESH_TOKEN (testing on one person's Drive), DRIVE_ROOT_FOLDER_ID, FIREBASE_API_KEY. The folder must sit in a Shared Drive
+// Company Drive (11 Nov 2026): DRIVE_SCRIPT_URL + DRIVE_SCRIPT_KEY. A small Apps Script under the company account
+// (apps-script-uploads/Code.gs, set up like Neo's Agreements script) hands this function a Drive access token and the
+// uploads folder ID; everything else below works as before. When those two are set, the GOOGLE_* and DRIVE_ROOT_FOLDER_ID
+// settings are not used.
+// Older options: GOOGLE_SERVICE_ACCOUNT_JSON (company: Shared Drive) or GOOGLE_OAUTH_CLIENT_ID/_SECRET/_REFRESH_TOKEN (testing on one person's Drive), DRIVE_ROOT_FOLDER_ID, FIREBASE_API_KEY. The folder must sit in a Shared Drive
 // the service account is a member of. Anyone with a PMS login may use it; the files themselves stay inside the Shared Drive.
 import { createSign } from 'node:crypto';
 
@@ -18,9 +22,20 @@ const API = 'https://www.googleapis.com/drive/v3', UPLOAD = 'https://www.googlea
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const b64 = v => Buffer.from(typeof v === 'string' ? v : JSON.stringify(v)).toString('base64url');
 
-let cached = { token: '', exp: 0 };
+let cached = { token: '', exp: 0, root: '' };
 async function driveToken() {
   if (cached.token && cached.exp > Date.now() + 60000) return cached.token;
+  // Company Drive through the uploads Apps Script
+  if (process.env.DRIVE_SCRIPT_URL) {
+    let j;
+    try {
+      const r = await fetch(process.env.DRIVE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'token', key: process.env.DRIVE_SCRIPT_KEY || '' }) });
+      j = await r.json();
+    } catch { throw new HttpError(502, 'Could not reach the company Drive script. Check DRIVE_SCRIPT_URL and that it is deployed for "Anyone".'); }
+    if (!j.ok || !j.token) throw new HttpError(500, `Company Drive script: ${j.error || 'no token'}`);
+    cached = { token: j.token, exp: Date.now() + (j.expiresIn || 2700) * 1000, root: j.rootFolderId || '' };
+    return cached.token;
+  }
   // Testing mode: act as one person's own Google account (their refresh token), so files go to their personal Drive
   if (process.env.GOOGLE_OAUTH_REFRESH_TOKEN) {
     const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -41,6 +56,13 @@ async function driveToken() {
   if (!r.ok) throw new HttpError(500, `Google sign-in failed: ${j.error_description || j.error || r.status}`);
   cached = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
   return cached.token;
+}
+
+// The uploads folder: from the company Drive script when it is used, otherwise DRIVE_ROOT_FOLDER_ID. Call after driveToken().
+function rootId() {
+  const root = process.env.DRIVE_SCRIPT_URL ? cached.root : process.env.DRIVE_ROOT_FOLDER_ID;
+  if (!root) throw new HttpError(500, process.env.DRIVE_SCRIPT_URL ? 'The company Drive script has no ROOT_FOLDER_ID.' : 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
+  return root;
 }
 
 // Only signed-in PMS staff may call this
@@ -86,8 +108,7 @@ async function folder(tok, parent, name) {
 const monthName = () => { const d = new Date(Date.now() + 8 * 3600e3); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${['January','February','March','April','May','June','July','August','September','October','November','December'][d.getUTCMonth()]}`; };
 // Root / Page / Month / [record]. Pages that keep one folder per record (recordId) get it inside the month; the others put files straight in the month.
 async function recordFolder(tok, kind, recordId, label = '') {
-  const root = process.env.DRIVE_ROOT_FOLDER_ID;
-  if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
+  const root = rootId();
   if (!KINDS[kind]) throw new HttpError(400, 'Unknown folder type.');
   if (recordId && !SAFE.test(recordId)) throw new HttpError(400, 'Bad record id.');
   const kindId = await folder(tok, root, KINDS[kind]);
@@ -112,8 +133,7 @@ export default async function handler(req, res) {
     if (b.action === 'remove') {
       // Moves one file to the Drive trash (restorable there). Only files inside <root>/<kind>/ can be removed.
       if (!KINDS[b.kind] || !SAFE.test(b.fileId || '')) throw new HttpError(400, 'Bad request.');
-      const root = process.env.DRIVE_ROOT_FOLDER_ID;
-      if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
+      const root = rootId();
       const kindId = await folder(tok, root, KINDS[b.kind]);
       let ok = false, ids = (await (await g(`${API}/files/${b.fileId}?fields=parents&supportsAllDrives=true`, tok)).json()).parents || [];
       for (let depth = 0; depth < 3 && !ok && ids.length; depth++) {
@@ -127,8 +147,7 @@ export default async function handler(req, res) {
     if (b.action === 'file') {
       // One file back to a signed-in user (in-site viewer and downloads). Only files inside <root>/<kind>/ are served. Vercel caps a reply at ~4.5 MB.
       if (!KINDS[b.kind] || !SAFE.test(b.fileId || '')) throw new HttpError(400, 'Bad request.');
-      const root = process.env.DRIVE_ROOT_FOLDER_ID;
-      if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
+      const root = rootId();
       const kindId = await folder(tok, root, KINDS[b.kind]);
       const meta = await (await g(`${API}/files/${b.fileId}?fields=name,mimeType,size,parents&supportsAllDrives=true`, tok)).json();
       let ok = false, ids = meta.parents || [];
@@ -143,8 +162,7 @@ export default async function handler(req, res) {
       return res.status(200).send(data);
     }
     if (b.action === 'setup') { // makes every page folder and this month's folder inside it
-      const root = process.env.DRIVE_ROOT_FOLDER_ID;
-      if (!root) throw new HttpError(500, 'DRIVE_ROOT_FOLDER_ID is not set on the server.');
+      const root = rootId();
       for (const name of Object.values(KINDS)) await folder(tok, await folder(tok, root, name), monthName());
       return res.status(200).json({ ok: true });
     }
