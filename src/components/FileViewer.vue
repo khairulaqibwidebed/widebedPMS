@@ -31,7 +31,7 @@ export default {
       const seq = this.seq = (this.seq || 0) + 1;
       this.file = f; this.src = ''; this.error = ''; this.type = this.guess(f.name); this.loading = true;
       try {
-        const u = await fileBlob(f.kind, id);
+        const u = await fileBlob(f.kind, id, f.recordId || '');
         if (this.seq !== seq) { URL.revokeObjectURL(u); return; }
         this.src = u;
         const blob = await (await fetch(u)).blob();

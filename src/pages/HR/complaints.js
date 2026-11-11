@@ -8,6 +8,7 @@ import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, ru
 import { listen } from '@/lib/use-live.js';
 import { audit } from '@/lib/finance-data.js';
 import { notifyRole, notifyUser } from '@/services/notificationService';
+import { uploadForLink } from '@/lib/drive.js';
 
 export const today = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 export const STATUS = { new: ['New', 'amber'], read: ['Read by HR', 'blue'], review: ['In review', 'blue'], closed: ['Closed', 'green'] };
@@ -97,7 +98,7 @@ export async function loadMyComplaints(uid) {
 // me = useSession(). One transaction takes the next number from counters/{name} (so two people never get
 // the same ref) and writes the complaint, its private part and the audit entry. Returns the new ref.
 // A new STAFF complaint also puts one notification on the HR bell (role notification, HR only).
-export async function createComplaint(me, kind, { subject, details, files, anonymous = false, images = [] }) {
+export async function createComplaint(me, kind, { subject, details, files, anonymous = false, images = [], docs = [] }) {
   const k = KIND[kind];
   const named = kind === 'director' || !anonymous;
   const c = doc(collection(db, 'complaints'));
@@ -142,8 +143,42 @@ export async function createComplaint(me, kind, { subject, details, files, anony
   }
 
   if (!named) keepAnonReceipt({ id: c.id, ref, date: today(), subject, anonymous: true });
+
+  // Documents (11 Nov 2026): uploaded to HR's own Google Drive after the complaint exists, then listed on it
+  if (docs.length && kind === 'staff') {
+    try { await addDocs(me, { id: c.id, ref, kind, fromId: named ? me.user.uid : null }, docs, named ? 'sender' : 'anon'); }
+    catch (e) { console.error('Documents not saved:', e.code || e.message); throw Object.assign(new Error(`Sent as ${ref}, but the documents could not be uploaded (${e.message}). ${named ? 'Add them on the complaint under My complaints.' : 'Send them to HR another way.'}`), { sentRef: ref }); }
+  }
   return ref;
 }
+
+// ---- Documents (11 Nov 2026) ----
+// complaints/{id}/docs: PDF, Word, Excel or image files on a STAFF complaint, stored in HR's own Google Drive
+// (api/drive.js kind 'complaints', folder named by the ref only). Read by the same people as the conversation.
+// by: 'hr', 'sender' (named sender) or 'anon' (the anonymous sender, only while sending). Never changed or removed.
+export const MAX_DOCS = 5, DOC_MAX_MB = 10;
+export const DOC_ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.txt,image/*';
+export function checkDocs(files) {
+  if (files.length > MAX_DOCS) return `Up to ${MAX_DOCS} documents at a time.`;
+  const big = files.find(f => f.size > DOC_MAX_MB * 1024 * 1024);
+  return big ? `${big.name} is larger than ${DOC_MAX_MB} MB.` : '';
+}
+export async function addDocs(me, c, files, by, onProgress = () => {}) {
+  const bad = checkDocs(files); if (bad) throw new Error(bad);
+  const up = await uploadForLink('complaints', files, onProgress, c.id, c.ref);
+  const b = writeBatch(db);
+  for (const u of up) b.set(doc(collection(db, 'complaints', c.id, 'docs')), { name: String(u.name).slice(0, 200), fileId: u.id, mimeType: u.mimeType || '',
+    by, ...(by === 'anon' ? {} : { byUid: me.user.uid }), createdAt: serverTimestamp() });
+  if (by !== 'anon') audit(b, me, { action: 'complaint.doc', entity: `complaints/${c.id}`, changes: [{ field: 'documents', old: null, new: `${up.length} added` }] });
+  await b.commit();
+  if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
+    title: `HR added a document to your complaint ${c.ref}`, message: 'Open My complaints to see it.' }));
+  else if (by === 'sender') tell(notifyRole({ recipientRole: 'hr', type: 'complaint', refId: c.id, link: `/HR/staff-complaints?id=${c.id}`,
+    title: `New document on complaint ${c.ref}`, message: 'The sender added a document. Open the complaint to see it.' }));
+  return up.length;
+}
+export const watchDocs = (id, onRows, onError) =>
+  listen(query(collection(db, 'complaints', id, 'docs'), orderBy('createdAt')), rows => onRows(rows.sort(byTime)), { onError });
 
 // HR opening a NEW staff complaint marks it "Read by HR" (4 Nov 2026), so the sender sees it under My complaints
 // (an anonymous sender too, on their own browser). A named sender also gets a notification; an anonymous one can't

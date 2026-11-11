@@ -1,5 +1,8 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.47, 10 Nov 2026: Issues <-> TMS Maintenance link. Directors and the tagged roles can
+// Widebed PMS Firestore rules. Draft 0.48, 11 Nov 2026 (Khairul): documents on staff complaints (complaints/{id}/docs: name and
+// Drive file id; the files sit in HR's own Google Drive). Read by the same people as the conversation. Added by HR, by the
+// named sender while it isn't Closed, or by an anonymous sender only in the first 15 minutes (no uid). Never changed or removed.
+// Draft 0.47, 10 Nov 2026: Issues <-> TMS Maintenance link. Directors and the tagged roles can
 // change a ticket's title, description and property (its card is on that property's board in the TMS), and its tmsStatus (the task system column the ticket's card is in, a map
 // { name, for }), with or without a status change, while it is Open or In progress. The task system (TMS) writes these as
 // the signed-in person, with their own PMS sign-in, so the same people can change the same tickets. Mark completed through
@@ -1037,6 +1040,528 @@ service cloud.firestore {
           && request.resource.data.data is string && request.resource.data.data.size() <= 700000
           && request.resource.data.get('byUid', '') == request.auth.uid
           && (request.resource.data.scope == 'complaint' || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string));
+        allow update, delete: if false;
+      }
+      // Draft 0.48 (Khairul): documents on a staff complaint. The file is in HR's Google Drive; this is its name and id.
+      match /docs/{did} {
+        allow read: if (isHR() && complaintNow(id).kind == 'staff')
+          || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
+          || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
+        allow create: if complaintNow(id).kind == 'staff'
+          && newKeysOnly(['name', 'fileId', 'mimeType', 'by', 'byUid', 'createdAt'])
+          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
+          && request.resource.data.fileId is string && request.resource.data.fileId.matches('^[A-Za-z0-9_-]{10,64}
+      // Draft 0.30: the Directors' own notes on a Director complaint; HR never reads those.
+      match /notes/{nid} {
+        allow read: if (isHR() && complaintNow(id).kind == 'staff') || (isDirector() && complaintNow(id).kind == 'director');
+        allow create: if ((isHR() && complaintNow(id).kind == 'staff') || (isDirector() && complaintNow(id).kind == 'director'))
+          && newKeysOnly(['text', 'byName', 'byUid', 'createdAt'])
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
+          && request.resource.data.byUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+      match /private/{docId} {
+        allow read: if isHR() && complaintNow(id).kind == 'staff';
+        allow read: if dirSide(id);
+        // Draft 0.40 backup check: the HR sender reads their own private part by its own fromUid (no get() on the parent)
+        allow read: if isHR() && resource.data.get('fromUid', null) == request.auth.uid;
+        allow read: if signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid;
+        // Written once, in the same transaction as the parent. Anonymous: no fromName.
+        allow create: if docId == 'main' && anyStaff()
+          && newKeysOnly(['subject', 'details', 'files', 'fromName', 'fromUid'])
+          && (!('fromUid' in request.resource.data) || request.resource.data.fromUid == request.auth.uid)
+          && ((complaintAfter(id).kind == 'staff'
+                && (complaintAfter(id).anonymous == true ? !('fromName' in request.resource.data) && !('fromUid' in request.resource.data) : complaintAfter(id).fromId == request.auth.uid))
+            || (complaintAfter(id).kind == 'director' && hrOrDir()));
+        allow update, delete: if false;
+      }
+    }
+
+    // ================= Procurement: New Owner Listings =================
+
+    // newOwnerListings/{NL-0001}: one new unit from service agreement to Live. New Owner Listings Edit creates and edits;
+    // anyone with the page ticked reads. Owner phone and email in private/main (editors; Operations with View read them).
+    match /newOwnerListings/{id} {
+      allow read: if listingViewer() || listingEditor();
+      allow create: if listingEditor() && id.matches('NL-[0-9]{4,}')
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.status in ['inProgress', 'live'];
+      allow update: if listingEditor()
+        && !changed().hasAny(['createdByUid', 'createdByName', 'createdAt'])
+        && request.resource.data.status in ['inProgress', 'live'];
+      allow delete: if false;
+      match /private/{docId} {
+        allow read: if (listingEditor() || (opsRole() && listingViewer())) && docId == 'main';
+        allow write: if listingEditor() && docId == 'main';
+      }
+    }
+
+    // ================= Performance management (Stage 1+2 security/revision fixes, 3 Nov 2026) =================
+    // performance.edit is not yet in presetFor()/PRESETS — until it's added, only the Director can write.
+    // Everyone reads quarter config (deadlines, status) so excluded employees can be told why they see nothing further.
+    function perfEdit() { return isDirector() || can('performance.edit'); }
+    // By business rule, Director/HR (performance.edit) may edit or delete a quarter's configuration at any
+    // lifecycle status, including finalized/archived — not restricted to draft. This is a deliberate choice,
+    // not an oversight: editing a quarter that's already in progress can change what a later recalculation
+    // produces, and deleting one does not cascade-delete its participants/evaluations/results (they stay
+    // queryable by quarterId even without a parent quarter doc). setStatus() still only touches status+stamp.
+    match /performanceQuarters/{id} {
+      allow read: if anyStaff();
+      allow create, update: if perfEdit();
+      allow delete: if perfEdit();
+    }
+
+    // Participation rosters are readable by every staff member, not just the participant themselves: COH
+    // evaluation requires every employee to see who else is eligible this quarter in order to rate them.
+    match /performanceParticipants/{id} {
+      allow read: if anyStaff();
+      allow create, update: if isDirector() || can('performance.edit');
+      allow delete: if false;
+    }
+
+    // COH questions: everyone reads (so they know what they're being rated on); only performance.edit changes them.
+    // Confirmed business rule: COH questions are Director/HR only — not the generic performance.edit tick that
+    // gates other Performance admin actions, since question wording is a Code of Conduct/HR policy matter.
+    match /cohQuestions/{id} {
+      allow read: if anyStaff();
+      allow create, update: if hrOrDir();
+      allow delete: if false;
+    }
+
+    // COH evaluations: evaluator identity is always visible to the evaluatee and to HR/Director (confirmed
+    // requirement, not an anonymous system). The id itself (quarterId_evaluatorUid_evaluateeUid) stops one
+    // evaluator from rating the same colleague twice under two different documents.
+    // The SCORE is not on this document (see private/scores below) — by business rule, the person being rated
+    // never sees the mark a specific evaluator gave them, only that the evaluation happened and who gave it.
+    match /cohEvaluations/{id} {
+      function evalDoc() { return /databases/$(database)/documents/cohEvaluations/$(id); }
+
+      // Director and HR always see every evaluation (Team overview monitoring), regardless of whether they
+      // hold the generic performance.edit tick — same confirmed business rule as cohQuestions above.
+      // (resource == null && anyStaff()): getEvaluation() probes this exact id to check "have I already rated
+      // this colleague" before the doc exists — without this clause that probe gets permission-denied instead
+      // of a normal exists:false, breaking "Evaluate" the first time anyone opens a colleague.
+      allow read: if (resource == null && anyStaff()) || isDirector() || isHR() || can('performance.edit')
+        || resource.data.evaluatorId == request.auth.uid || resource.data.evaluateeId == request.auth.uid;
+      allow create: if anyStaff() && request.resource.data.evaluatorId == request.auth.uid
+        && request.resource.data.evaluateeId != request.auth.uid
+        && id == request.resource.data.quarterId + '_' + request.resource.data.evaluatorId + '_' + request.resource.data.evaluateeId
+        && request.resource.data.status == 'submitted'
+        && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data);
+      // Resubmit: same pair, saved back as 'submitted'. Draft 0.34: also allowed from 'approved', so an evaluator can
+      // answer questions added after they submitted; it then goes back to 'submitted' for HR/Director to review again.
+      // The marks themselves are protected in private/scores below (earlier answers can't be dropped once approved).
+      allow update: if anyStaff() && resource.data.evaluatorId == request.auth.uid && resource.data.status in ['submitted', 'approved']
+        && request.resource.data.evaluatorId == resource.data.evaluatorId && request.resource.data.evaluateeId == resource.data.evaluateeId
+        && request.resource.data.status == 'submitted'
+        && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data);
+      // HR/Director approve: only the review fields change.
+      allow update: if (isDirector() || can('performance.edit'))
+        && changed().hasOnly(['status', 'reviewedBy', 'reviewedAt']) && request.resource.data.status == 'approved';
+      allow delete: if false;
+
+      // The actual marks: readable by the evaluator (it's their own input) and HR/Director (monitoring and
+      // official score calculation, see results.js::cohScoreFor) — never by the evaluatee. Immutable once
+      // written; a correction is a resubmit of the whole evaluation (both documents), not a patch here.
+      // Draft 0.32: every check on the parent is null-safe. get() on a parent that doesn't exist yet errors (= deny),
+      // which blocked every role without a separate way in (only Director, HR and Finance could evaluate).
+      match /private/scores {
+        // resource == null: the "have I rated this colleague yet" probe returns not-found instead of denied.
+        allow read: if (resource == null && anyStaff())
+          || isDirector() || isHR() || can('performance.edit')
+          || (exists(evalDoc()) && get(evalDoc()).data.evaluatorId == request.auth.uid);
+        // The parent and the scores are written in the same batch, so check the parent as it will be after the write.
+        allow create: if anyStaff()
+          && existsAfter(evalDoc())
+          && getAfter(evalDoc()).data.evaluatorId == request.auth.uid
+          && request.resource.data.ratings is list && request.resource.data.averageRating is number;
+        allow update: if anyStaff()
+          && exists(evalDoc())
+          && get(evalDoc()).data.evaluatorId == request.auth.uid
+          // Draft 0.34: while 'submitted' the evaluator may change anything; once 'approved' only by ADDING answers
+          // (new questions), and the evaluation must go back to 'submitted' in the same write for re-review.
+          && (get(evalDoc()).data.status == 'submitted'
+            || (get(evalDoc()).data.status == 'approved'
+                && getAfter(evalDoc()).data.status == 'submitted'
+                && request.resource.data.ratings.size() > resource.data.ratings.size()))
+          && request.resource.data.ratings is list && request.resource.data.averageRating is number;
+        allow delete: if false;
+      }
+    }
+
+    // KPI assignments: HR/Director create and edit; the employee and HR/Director read.
+    // (resource == null && anyStaff()) lets a getDoc() that's just probing "does this exist yet" return
+    // exists:false instead of permission-denied — without it, resource.data errors on a missing document and
+    // the whole rule denies, which is what was breaking the KPI page for a brand-new, never-submitted task.
+    match /kpiAssignments/{id} {
+      allow read: if (resource == null && anyStaff()) || isDirector() || resource.data.employeeId == request.auth.uid;
+      allow create, update: if isDirector();
+      allow delete: if false;
+    }
+
+    // KPI submissions: the employee submits their own self-assessment (status 'submitted', no final rating set
+    // yet); only HR/Director can set finalApprovedRating / reviewerId, and only by changing review fields.
+    // Draft 0.31: Director can also reopen done KPIs and send back for discussion.
+    match /kpiSubmissions/{id} {
+      allow read: if (resource == null && anyStaff()) || isDirector() || resource.data.employeeId == request.auth.uid;
+      // The employee submits or resubmits their own self-assessment, but never once it's already been
+      // done (matches the KPI.vue UI, which hides the submit form at that point) — otherwise
+      // an employee could write status back to 'submitted' with nulled-out review fields and erase a
+      // reviewer's decision.
+      allow create, update: if (resource == null || (resource.data.employeeId == request.auth.uid && resource.data.status != 'done'))
+        && request.resource.data.employeeId == request.auth.uid
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.get('finalApprovedRating', null) == null
+        && request.resource.data.get('reviewerId', null) == null;
+      // Director review and rating: provide rating/comments or approve/send back.
+      allow update: if isDirector()
+        && changed().hasOnly(['status', 'revisedRating', 'finalApprovedRating', 'reviewerId', 'reviewerComments', 'reviewReason',
+          'directorRating', 'directorComments', 'directorId', 'ratedAt', 'discussionStatus', 'reviewedAt', 'history']);
+      // Director can reopen a done KPI and send it back for discussion (allows re-rating after approval).
+      allow update: if isDirector()
+        && resource.data.status == 'done'
+        && request.resource.data.status == 'discussionRequested'
+        && changed().hasOnly(['status', 'directorRating', 'directorComments', 'directorId', 'ratedAt', 'discussionStatus', 'history']);
+      // The employee's own discussion-status flip, set alongside their replies.
+      allow update: if resource.data.employeeId == request.auth.uid && changed().hasOnly(['discussionStatus']);
+      allow delete: if false;
+    }
+
+    // KPI conversation threads: complete discussion history for each KPI.
+    // Only the assigned employee and director can access.
+    // Draft 0.32: (resource == null && anyStaff()) so the chat's "is there a thread yet" probe isn't denied.
+    match /kpiConversations/{id} {
+      allow read: if (resource == null && anyStaff()) || isDirector() || resource.data.employeeId == request.auth.uid;
+      allow create: if isDirector() && request.resource.data.assignmentId is string
+        && request.resource.data.employeeId is string && request.resource.data.directorId is string
+        && request.resource.data.messages is list && request.resource.data.status == 'active';
+      allow update: if (isDirector() || resource.data.employeeId == request.auth.uid)
+        && request.resource.data.messages is list;
+      allow delete: if false;
+    }
+
+    // KPI discussion threads (deprecated): kept for backwards compatibility.
+    match /kpiDiscussions/{id} {
+      allow read: if (resource == null && anyStaff()) || isDirector() || resource.data.employeeId == request.auth.uid;
+      allow create: if isDirector() && request.resource.data.submissionId is string && request.resource.data.employeeId is string
+        && request.resource.data.directorId is string && request.resource.data.thread is list && request.resource.data.status == 'active';
+      allow update: if (isDirector() || resource.data.employeeId == request.auth.uid) && request.resource.data.thread is list;
+      allow delete: if false;
+    }
+
+    // Discussion requests: the employee who raised it, and HR/Director, read and resolve.
+    match /performanceDiscussions/{id} {
+      allow read: if (resource == null && anyStaff()) || isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create: if request.resource.data.employeeId == request.auth.uid && request.resource.data.status == 'requested';
+      allow update: if isDirector() || can('performance.edit');
+      allow delete: if false;
+    }
+
+    // TMS performance snapshots: only HR/Director sync and approve (server-side TMS credentials never touch the
+    // frontend — this just writes the result). The employee reads their own; isFinal is never flipped back to false.
+    match /performanceTmsSnapshots/{id} {
+      allow read: if (resource == null && anyStaff()) || isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create, update: if (isDirector() || can('performance.edit')) && (resource == null || resource.data.get('isFinal', false) != true);
+      allow delete: if false;
+    }
+
+    // Final combined results, and the Stage 2 revision trail. Nobody — Director included — can write once
+    // approvalStatus is 'finalized', EXCEPT the one deliberate correction path: Director, going straight from
+    // 'finalized' to 'pendingApproval', bumping revisionNumber by exactly 1 and recording who/why. The app
+    // always writes a revisions/{rev} snapshot of the pre-correction values (results.js::requestCorrection)
+    // before this write, so a correction is never silently applied over the original finalized numbers.
+    match /performanceResults/{id} {
+      allow read: if (resource == null && anyStaff()) || isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
+      allow create, update: if (isDirector() || can('performance.edit'))
+        && (resource == null || resource.data.get('approvalStatus', 'draft') != 'finalized');
+      allow update: if isDirector() && resource.data.get('approvalStatus', 'draft') == 'finalized'
+        && request.resource.data.approvalStatus == 'pendingApproval'
+        && request.resource.data.revisionNumber == resource.data.get('revisionNumber', 1) + 1
+        && request.resource.data.get('revisionReason', '') is string && request.resource.data.get('revisionReason', '').size() > 0
+        && request.resource.data.get('correctedBy', '') == request.auth.uid;
+      allow delete: if false;
+
+      // One immutable snapshot per revision, written right before the correction above.
+      match /revisions/{rev} {
+        allow read: if isDirector() || can('performance.edit') || get(/databases/$(database)/documents/performanceResults/$(id)).data.employeeId == request.auth.uid;
+        allow create: if isDirector();
+        allow update, delete: if false;
+      }
+    }
+
+    // ================= Agreements (Draft 0.14, 0.15) =================
+    function agreementAdmin() { return can('agreementSetup.view'); }
+
+    // Form fields, formulas and column-only fields. Archived, never deleted.
+    match /agreementForms/{id} {
+      allow read: if anyStaff();
+      allow create: if agreementAdmin() && request.resource.data.name is string && request.resource.data.fields is list
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if agreementAdmin() && request.resource.data.fields is list && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // Uploaded agreement PDFs (the file itself is in Drive), their versions and where each field prints.
+    match /agreementTemplates/{id} {
+      allow read: if anyStaff();
+      allow create: if agreementAdmin() && request.resource.data.formId is string && request.resource.data.mappings is list
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if agreementAdmin() && request.resource.data.mappings is list
+        && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // One record per filled-in form. Everyone reads and writes; the form and the creator never change. Archived, never deleted.
+    match /agreementRecords/{id} {
+      allow read: if anyStaff();
+      allow create: if anyStaff() && request.resource.data.formId is string && request.resource.data.values is map
+        && request.resource.data.status in ['draft', 'submitted', 'completed', 'archived'] && request.resource.data.createdBy == request.auth.uid;
+      allow update: if anyStaff() && request.resource.data.values is map
+        && request.resource.data.status in ['draft', 'submitted', 'completed', 'archived']
+        && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // Master files: Word / Google Docs kept in Drive ("Master File (DO NOT EDIT)"). Only the record of them is here.
+    match /agreementMasters/{id} {
+      allow read: if anyStaff();
+      allow create: if agreementAdmin() && request.resource.data.docId is string && request.resource.data.createdBy == request.auth.uid;
+      allow update: if agreementAdmin() && request.resource.data.docId is string && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    // Fill-in links for outside people; the link name is the document id (/f/{slug}). Passwords are stored only as
+    // salt + SHA-256. "Anyone" links need Agreement Setup; any staff member may make a personal link for one record.
+    // Turned off or deleted (records already sent in stay). The Apps Script records submissions (it writes as the company account).
+    match /agreementLinks/{slug} {
+      function linkOk() {
+        return slug.matches('[a-z0-9-]{3,60}') && request.resource.data.slug == slug
+          && request.resource.data.kind in ['open', 'personal'] && request.resource.data.formId is string
+          && request.resource.data.get('passHash', '') is string;
+      }
+      allow read: if anyStaff();
+      allow create: if anyStaff() && linkOk() && request.resource.data.createdBy == request.auth.uid
+        && (agreementAdmin() || (request.resource.data.kind == 'personal' && request.resource.data.recordId is string));
+      allow update: if anyStaff() && linkOk() && request.resource.data.kind == resource.data.kind
+        && request.resource.data.formId == resource.data.formId && request.resource.data.createdBy == resource.data.createdBy
+        && (agreementAdmin() || resource.data.kind == 'personal');
+      // Agreement Setup deletes any link; other staff only the personal links they made.
+      allow delete: if anyStaff() && (agreementAdmin() || (resource.data.kind == 'personal' && resource.data.createdBy == request.auth.uid));
+    }
+
+    // Saved table layouts (columns, widths, filters). Shared by everyone.
+    match /agreementViews/{id} {
+      allow read, delete: if anyStaff();
+      allow create, update: if anyStaff() && request.resource.data.formId is string && request.resource.data.view is map;
+    }
+
+    // History of generated PDFs. Written once by the person who made it.
+    match /generatedAgreements/{id} {
+      allow read: if anyStaff();
+      allow create: if anyStaff() && request.resource.data.by == request.auth.uid && request.resource.data.recordId is string
+        && request.resource.data.fileId is string;
+      allow update, delete: if false;
+    }
+
+    // ================= Booking numbers (Booking Form, Create booking and the Willow Booking Details bulk upload) =================
+    // One counter per property prefix gives the next booking no. (DM-014). The Reservation Lodgment form is gone; offline bookings are the one booking record.
+    function lodgeStaff() { return finOrDir() || isOps() || can('bookingForms.view'); }
+    match /lodgmentCounters/{prefix} {
+      allow read: if lodgeStaff();
+      allow create, update: if lodgeStaff() && request.resource.data.next is int;
+      allow delete: if false;
+    }
+
+    // ================= Salary advances (Draft 0.42, 5 Nov 2026) =================
+    // Data shape and flow: src/pages/HR/advances.js.
+    function hrPath(uid)    { return /databases/$(database)/documents/staffHR/$(uid); }
+    function limitPath(uid) { return /databases/$(database)/documents/advanceLimits/$(uid); }
+    function advPath(id)    { return /databases/$(database)/documents/advances/$(id); }
+    // HR and Directors keep the details; HR can't change their own (a Director does).
+    function hrDetailsEditor(uid) { return isDirector() || (isHR() && uid != request.auth.uid); }
+
+    // IC, position and monthly salary. Never readable by the staff member.
+    match /staffHR/{uid} {
+      allow read: if hrOrDir();
+      allow create, update: if hrDetailsEditor(uid)
+        && request.resource.data.keys().hasOnly(['ic', 'position', 'salary', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && request.resource.data.ic is string && request.resource.data.position is string
+        && request.resource.data.salary is number && request.resource.data.salary >= 0
+        && request.resource.data.updatedBy == request.auth.uid
+        && getAfter(limitPath(uid)).data.limit == request.resource.data.salary * 0.5;
+      allow delete: if false;
+    }
+    // The advance limit (50% of the salary): the only part the person reads.
+    match /advanceLimits/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || hrOrDir());
+      allow create, update: if hrDetailsEditor(uid)
+        && request.resource.data.keys().hasOnly(['limit', 'updatedAt'])
+        && request.resource.data.limit == getAfter(hrPath(uid)).data.salary * 0.5;
+      allow delete: if false;
+    }
+
+    match /advances/{id} {
+      function grows()     { return request.resource.data.history is list && request.resource.data.history.size() == resource.data.history.size() + 1; }
+      function from(a, b)  { return resource.data.status == a && request.resource.data.status == b; }
+      function onlyKeys(k) { return changed().hasOnly(['status', 'history', 'updatedAt'].concat(k)); }
+      // HR moves a request on, never their own.
+      function mover()     { return isHR() && resource.data.uid != request.auth.uid; }
+      function limitOfOwner() { return get(hrPath(resource.data.uid)).data.salary * 0.5; }
+      function sub(name, d)   { return /databases/$(database)/documents/advances/$(id)/$(name)/$(d); }
+      function mine()         { return signedIn() && resource.data.uid == request.auth.uid; }
+
+      allow read: if hrOrDir() || (signedIn() && resource.data.uid == request.auth.uid);
+      // Staff: their own request, Submitted, within 50% of the salary HR entered (no salary = refused). Not interns.
+      allow create: if anyStaff() && request.resource.data.uid == request.auth.uid
+        && get(myRecord()).data.get('intern', false) != true
+        && newKeysOnly(['ref', 'uid', 'name', 'amount', 'reason', 'neededBy', 'status', 'history', 'createdAt', 'updatedAt'])
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.ref is string && request.resource.data.name is string
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && exists(hrPath(request.auth.uid))
+        && request.resource.data.amount <= get(hrPath(request.auth.uid)).data.salary * 0.5
+        && request.resource.data.reason is string && request.resource.data.reason.size() > 0 && request.resource.data.reason.size() <= 1000
+        && (!('neededBy' in request.resource.data) || request.resource.data.neededBy is string)
+        && request.resource.data.history is list && request.resource.data.history.size() == 1;
+      // HR: make the form for a staff member (byHR), straight at Reviewed; form/main and signatureUses in the same save.
+      allow create: if isHR() && request.resource.data.uid != request.auth.uid
+        && request.resource.data.byHR == true
+        && get(/databases/$(database)/documents/users/$(request.resource.data.uid)).data.get('intern', false) != true
+        && newKeysOnly(['ref', 'uid', 'name', 'amount', 'reason', 'description', 'status', 'byHR', 'approvedAmount', 'reviewedAt',
+          'reviewedBy', 'reviewedByName', 'reviewedDate', 'chloeTold', 'history', 'createdAt', 'updatedAt'])
+        && request.resource.data.status == 'reviewed'
+        && request.resource.data.ref is string && request.resource.data.name is string
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.approvedAmount == request.resource.data.amount
+        && exists(hrPath(request.resource.data.uid))
+        && request.resource.data.amount <= get(hrPath(request.resource.data.uid)).data.salary * 0.5
+        && request.resource.data.reason is string && request.resource.data.reason.size() > 0 && request.resource.data.reason.size() <= 1000
+        && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 1000))
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.chloeTold.by == request.auth.uid
+        && request.resource.data.history is list && request.resource.data.history.size() == 1
+        && existsAfter(sub('form', 'main'))
+        && existsAfter(/databases/$(database)/documents/signatureUses/$(id));
+      // Staff: withdraw while Submitted.
+      allow update: if mine() && from('submitted', 'withdrawn')
+        && onlyKeys(['withdrawnAt']) && grows();
+      // HR: reject with a reason, at Submitted or Signed.
+      allow update: if mover() && (from('submitted', 'rejected') || from('signed', 'rejected')) && grows()
+        && onlyKeys(['rejectReason', 'rejectedAt', 'rejectedBy', 'rejectedByName'])
+        && request.resource.data.rejectReason is string && request.resource.data.rejectReason.size() > 0
+        && request.resource.data.rejectedBy == request.auth.uid;
+      // HR: review (within the limit, Director told; form and signature-use line written in the same batch).
+      allow update: if mover() && from('submitted', 'reviewed') && grows()
+        && onlyKeys(['approvedAmount', 'reviewedAt', 'reviewedBy', 'reviewedByName', 'reviewedDate', 'chloeTold'])
+        && request.resource.data.approvedAmount is number && request.resource.data.approvedAmount > 0
+        && request.resource.data.approvedAmount <= limitOfOwner()
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.chloeTold.by == request.auth.uid
+        && existsAfter(sub('form', 'main'))
+        && existsAfter(/databases/$(database)/documents/signatureUses/$(id));
+      // Staff: sign (drawn on screen or a photo of the signed paper form, saved in signed/main in the same batch).
+      allow update: if mine() && from('reviewed', 'signed') && grows()
+        && resource.data.get('byHR', false) != true
+        && onlyKeys(['signMethod', 'signedAt'])
+        && request.resource.data.signMethod in ['drawn', 'upload']
+        && existsAfter(sub('signed', 'main'));
+      // HR: signed outside the PMS; the fully signed document (signed/copy) is required.
+      allow update: if mover() && from('reviewed', 'signed') && grows()
+        && onlyKeys(['signMethod', 'signedAt', 'signedCopyAt'])
+        && request.resource.data.signMethod == 'outside'
+        && existsAfter(sub('signed', 'main')) && existsAfter(sub('signed', 'copy'));
+      // HR: add or replace the fully signed document later (status unchanged).
+      allow update: if mover() && resource.data.status in ['signed', 'approved', 'paid']
+        && request.resource.data.status == resource.data.status && grows()
+        && onlyKeys(['signedCopyAt']) && existsAfter(sub('signed', 'copy'));
+      // HR: approve (pending payment), then paid with type, date and screenshot.
+      allow update: if mover() && from('signed', 'approved') && grows()
+        && onlyKeys(['approvedAt', 'approvedBy', 'approvedByName'])
+        && request.resource.data.approvedBy == request.auth.uid;
+      allow update: if mover() && from('approved', 'paid') && grows()
+        && onlyKeys(['paidDate', 'paymentType', 'paidAt', 'paidBy', 'paidByName'])
+        && request.resource.data.paidDate is string && request.resource.data.paidBy == request.auth.uid
+        && request.resource.data.paymentType in ['tng', 'bank']
+        && existsAfter(sub('payment', 'main'));
+      allow delete: if false;
+
+      // The form as reviewed (IC, salary, Director's signature): the staff member, HR and Directors. Written once, at review.
+      match /form/{doc} {
+        allow read: if hrOrDir() || (signedIn() && get(advPath(id)).data.uid == request.auth.uid);
+        allow create: if isHR() && doc == 'main'
+          && ((!exists(advPath(id)) && getAfter(advPath(id)).data.byHR == true)
+            || get(advPath(id)).data.status == 'submitted')
+          && getAfter(advPath(id)).data.uid != request.auth.uid
+          && getAfter(advPath(id)).data.status == 'reviewed'
+          && request.resource.data.uid == getAfter(advPath(id)).data.uid
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.signature == get(/databases/$(database)/documents/signatures/director).data.image;
+        allow update, delete: if false;
+      }
+      // How it was signed (main) and the fully signed document (copy): the staff member, HR and Directors read.
+      // main: the staff member when signing (drawn / upload), or HR marking it signed outside. Written once.
+      // copy: HR only, required with 'outside', can be added or replaced while signed, approved or paid.
+      match /signed/{doc} {
+        function isImage() { return request.resource.data.image is string && request.resource.data.image.size() < 700000; }
+        allow read: if hrOrDir() || (signedIn() && get(advPath(id)).data.uid == request.auth.uid);
+        allow create: if doc == 'main' && request.resource.data.by == request.auth.uid
+          && get(advPath(id)).data.status == 'reviewed' && getAfter(advPath(id)).data.status == 'signed'
+          && ((get(advPath(id)).data.uid == request.auth.uid && request.resource.data.method in ['drawn', 'upload'] && isImage())
+            || (isHR() && get(advPath(id)).data.uid != request.auth.uid && request.resource.data.method == 'outside'));
+        allow create, update: if doc == 'copy' && isHR() && get(advPath(id)).data.uid != request.auth.uid
+          && request.resource.data.by == request.auth.uid && isImage()
+          && getAfter(advPath(id)).data.status in ['signed', 'approved', 'paid'];
+        allow delete: if false;
+      }
+      // Payment screenshot: HR writes it with Paid; HR and Directors read (for the record, not the staff member).
+      match /payment/{doc} {
+        allow read: if hrOrDir();
+        allow create: if isHR() && doc == 'main' && get(advPath(id)).data.uid != request.auth.uid
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.image is string && request.resource.data.image.size() < 700000
+          && get(advPath(id)).data.status == 'approved' && getAfter(advPath(id)).data.status == 'paid';
+        allow update, delete: if false;
+      }
+      // HR's own notes. HR writes; HR and Directors read (HR never on their own request).
+      match /notes/{noteId} {
+        allow read: if isDirector() || (isHR() && get(advPath(id)).data.uid != request.auth.uid);
+        allow create: if isHR() && get(advPath(id)).data.uid != request.auth.uid
+          && request.resource.data.keys().hasOnly(['text', 'byName', 'byUid', 'createdAt'])
+          && request.resource.data.byUid == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000;
+        allow update, delete: if false;
+      }
+    }
+
+    // The Director's saved signature (default Miss Chloe), put on approved forms. HR uploads it for her; Directors may too.
+    match /signatures/{id} {
+      allow read: if hrOrDir();
+      allow create, update: if hrOrDir() && id == 'director'
+        && request.resource.data.keys().hasOnly(['signerName', 'image', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && request.resource.data.signerName is string && request.resource.data.signerName.size() > 0 && request.resource.data.signerName.size() <= 100
+        && request.resource.data.image is string && request.resource.data.image.size() < 700000
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+    // One line per form that carries the signature (id = the advance). Written with the approval, never changed.
+    match /signatureUses/{id} {
+      allow read: if hrOrDir();
+      allow create: if isHR()
+        && request.resource.data.keys().hasOnly(['advanceId', 'ref', 'staffName', 'signerName', 'createdBy', 'createdByName', 'at'])
+        && request.resource.data.advanceId == id && request.resource.data.createdBy == request.auth.uid
+        && ((!exists(advPath(id)) && getAfter(advPath(id)).data.byHR == true) || get(advPath(id)).data.status == 'submitted')
+        && getAfter(advPath(id)).data.status == 'reviewed';
+      allow update, delete: if false;
+    }
+
+  }
+}
+)
+          && ((isHR() && request.resource.data.by == 'hr' && request.resource.data.get('byUid', '') == request.auth.uid)
+            || (request.resource.data.by == 'sender' && request.resource.data.get('byUid', '') == request.auth.uid
+                && complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed')
+            || (request.resource.data.by == 'anon' && anyStaff() && complaintNow(id).get('anonymous', false) == true
+                && !('byUid' in request.resource.data) && request.time < complaintNow(id).createdAt + duration.value(15, 'm')));
         allow update, delete: if false;
       }
       // Draft 0.28 (Khairul): HR's own notes on a staff complaint; nobody else reads them.

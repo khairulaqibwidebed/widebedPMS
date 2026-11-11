@@ -10,6 +10,10 @@
           <div class="field"><label for="cSubj">Subject</label><input class="input" id="cSubj" v-model="subject" placeholder="e.g. Unfair shift changes without notice"></div>
           <div class="field"><label for="cDet">Details</label><textarea class="input" id="cDet" rows="6" style="height:140px" v-model="details" placeholder="What happened, when, and who was involved"></textarea></div>
           <div class="field"><label>Photos</label><PhotoPicker v-model="photos" /><span class="help">Up to 5 photos or screenshots. Only HR (and you) can see them.</span></div>
+          <div class="field"><label>Documents</label>
+            <label class="btn doc-pick"><input type="file" hidden multiple :accept="DOC_ACCEPT" @change="pickDocs">+ Add documents</label>
+            <div class="doc-chips" v-if="docs.length"><span class="doc-chip" v-for="(f, i) in docs" :key="f.name + i">{{ f.name }}<button type="button" aria-label="Remove" @click="docs.splice(i, 1)">×</button></span></div>
+            <span class="help">{{ `PDF, Word, Excel or images, up to ${MAX_DOCS} files of ${DOC_MAX_MB} MB. Saved in HR's Google Drive; only HR (and you) can open them.` }}</span></div>
           <label class="check"><input type="checkbox" v-model="anonymous"><span><b>Send anonymously</b><small>Your name is not saved anywhere, so HR cannot see it. It shows under My complaints on this browser only.</small></span></label>
           <div class="notice error" v-show="err">{{ err }}</div>
           <div class="actions"><button class="btn btn-primary" type="submit" :disabled="busy">{{ busy ? 'Sending…' : 'Send to HR' }}</button><button class="btn" type="button" @click="clear()">Cancel</button></div>
@@ -32,6 +36,7 @@
             <div class="kv"><span>Status</span><span><span class="pill" :class="(STATUS[open.status] || STATUS.new)[1]">{{ (STATUS[open.status] || STATUS.new)[0] }}</span></span></div>
             <div class="field" style="margin-top:12px" v-if="open.details"><label>Details</label><div class="detail">{{ open.details }}</div></div>
             <PhotoThumbs :images="photosOf('complaint')" />
+            <ComplaintDocs :key="'d' + open.id" :complaint="open" side="sender" :can-add="!open.anonymous && open.status !== 'closed'" />
           </div>
           <!-- Conversation with HR: the shared live chat (6 Nov 2026). Anonymous ones can read HR's replies but not reply. -->
           <ComplaintChat :key="open.id" :complaint="open" side="sender" :labels="{ hr: 'HR', sender: 'You' }" title="Conversation with HR"
@@ -67,7 +72,8 @@
 </template>
 
 <script>
-import { createComplaint, watchComplaintList, watchMyAnonComplaints, mergeRows, newestFirst, STATUS } from './complaints.js';
+import { createComplaint, watchComplaintList, watchMyAnonComplaints, mergeRows, newestFirst, STATUS, checkDocs, DOC_ACCEPT, MAX_DOCS, DOC_MAX_MB } from './complaints.js';
+import ComplaintDocs from '@/components/ComplaintDocs.vue';
 import { liveMixin } from '@/lib/use-live.js';
 import PhotoPicker from '@/components/PhotoPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
@@ -79,9 +85,9 @@ const me = useSession();
 
 export default {
   mixins: [liveMixin],
-  components: { PhotoPicker, PhotoThumbs, ComplaintChat },
+  components: { PhotoPicker, PhotoThumbs, ComplaintChat, ComplaintDocs },
   data() {
-    return { STATUS, open: null, images: [], photos: [], actErr: '', myName: me.name || 'With my name', list: [], showMine: false, loading: true, loadErr: '', busy: false, subject: '', details: '', anonymous: false, files: [], err: '', okMsg: '' };
+    return { STATUS, open: null, images: [], photos: [], actErr: '', myName: me.name || 'With my name', list: [], showMine: false, loading: true, loadErr: '', busy: false, subject: '', details: '', anonymous: false, files: [], docs: [], DOC_ACCEPT, MAX_DOCS, DOC_MAX_MB, err: '', okMsg: '' };
   },
   mounted() {
     let first = true;
@@ -112,7 +118,12 @@ export default {
     },
     // Photos sent with the complaint (ComplaintChat passes them up)
     photosOf() { return this.images; },
-    clear() { this.subject = ''; this.details = ''; this.anonymous = false; this.files = []; this.photos = []; this.err = ''; },
+    clear() { this.subject = ''; this.details = ''; this.anonymous = false; this.files = []; this.photos = []; this.docs = []; this.err = ''; },
+    pickDocs(e) {
+      const next = [...this.docs, ...e.target.files]; e.target.value = '';
+      const bad = checkDocs(next); this.err = bad;
+      if (!bad) this.docs = next;
+    },
     async send() {
       this.err = ''; this.okMsg = '';
       if (!this.subject.trim()) return this.err = 'Add a subject.';
@@ -120,7 +131,7 @@ export default {
       this.busy = true;
       try {
         const anonymous = this.anonymous;
-        const ref = await createComplaint(me, 'staff', { subject: this.subject.trim(), details: this.details.trim(), files: [], anonymous, images: this.photos });
+        const ref = await createComplaint(me, 'staff', { subject: this.subject.trim(), details: this.details.trim(), files: [], anonymous, images: this.photos, docs: this.docs });
         this.okMsg = `Sent to HR as ${ref}${anonymous ? ', anonymously' : ''}.`;
         if (anonymous) this.load(); this.clear();   // named ones arrive by themselves
       } catch (e) {
@@ -143,6 +154,10 @@ export default {
     .check small { display: block; color: var(--muted); font-size: 12px; }
     .filedrop b { color: var(--accent); }
     .file-names { font-size: 12px; color: var(--text-2); margin-top: 6px; }
+    .doc-pick { cursor: pointer; justify-self: start; }
+    .doc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .doc-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 4px 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); max-width: 100%; overflow-wrap: anywhere; }
+    .doc-chip button { border: 0; background: none; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; }
     .cp-modal { max-width: 1180px; width: calc(100% - 32px); height: min(860px, 90vh); display: flex; flex-direction: column; padding-bottom: 16px; }
     .cp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
     .cp-head h2 { margin-bottom: 10px; }

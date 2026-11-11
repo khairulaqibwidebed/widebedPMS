@@ -59,6 +59,7 @@
               </div>
               <div class="field" style="margin-top:12px"><label>Details</label><div class="detail">{{ sel.details }}</div></div>
               <PhotoThumbs :images="photosOf('complaint')" />
+              <ComplaintDocs :key="'d' + sel.id" :complaint="sel" side="hr" can-add />
               <!-- Complaints sent before 4 Nov kept only file names (the files themselves were never uploaded) -->
               <div class="file-names" v-show="sel.files && sel.files.length">{{ 'File names given (not uploaded): ' + sel.files.join(', ') }}</div>
 
@@ -99,6 +100,7 @@ import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
 import ComplaintChat from '@/components/ComplaintChat.vue';
 import Avatar from '@/components/Avatar.vue';
+import ComplaintDocs from '@/components/ComplaintDocs.vue';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
@@ -106,7 +108,7 @@ import { friendlyError } from '@/lib/finance-data.js';
 
 export default {
   mixins: [liveMixin],
-  components: { PhotoPicker, PhotoThumbs, OptionPicker, ComplaintChat, Avatar },
+  components: { PhotoPicker, PhotoThumbs, OptionPicker, ComplaintChat, Avatar, ComplaintDocs },
   data() {
     return {
       STATUS, list: [], loading: true, error: '', filter: 'all', q: '', sel: null,
