@@ -267,6 +267,7 @@ import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
 import TicketQuote from '@/components/TicketQuote.vue';
 import { NAV_ICONS } from '@/components/NavIcons.js';
+import { liveMixin } from '@/lib/use-live.js';
 
 const me = useSession();
 const myRole = issueTagOf(me.role);          // the word saved on tickets: 'Finance' (shown as Accounting), 'Director'
@@ -311,6 +312,7 @@ const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [
 
 export default {
   beforeCreate() { TAGS = tagsNow(); },
+  mixins: [liveMixin],
   components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer, TicketQuote },
   data() {
     return {
@@ -351,18 +353,40 @@ export default {
     },
     // Rules are not filters: Directors read every ticket; everyone else asks for tickets tagged to their role
     // and tickets they raised, and the two lists are merged.
-    async loadList() {
+    // Live (6 Nov 2026): new tickets and changes show without a refresh. Resolves when the list first arrives;
+    // calling it again while it runs does nothing.
+    loadList() {
+      if (this.liveStops.mine || this.liveStops.all) return Promise.resolve();
       const col = collection(db, 'issues');
-      const snaps = isDirector ? [await getDocs(query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT)))]
-        : await Promise.all([getDocs(query(col, where('tags', 'array-contains', myRole), limit(LIST_LIMIT))),
-          getDocs(query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)))]);
-      const seen = new Map();
-      for (const s of snaps) for (const d of s.docs) seen.set(d.id, toTicket(d.id, d.data()));
-      this.tickets = [...seen.values()];
+      const parts = isDirector ? { all: query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT)) }
+        : { tagged: query(col, where('tags', 'array-contains', myRole), limit(LIST_LIMIT)), mine: query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)) };
+      const got = {};
+      return new Promise((resolve, reject) => {
+        for (const [key, q] of Object.entries(parts)) {
+          this.live(key, q, rows => {
+            got[key] = rows;
+            if (Object.keys(got).length < Object.keys(parts).length) return;
+            const seen = new Map();
+            for (const list of Object.values(got)) for (const r of list) seen.set(r.id, toTicket(r.id, r));
+            this.tickets = [...seen.values()];
+            resolve();
+          }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the tickets'); reject(e); } });
+        }
+      }).catch(() => {});
     },
-    async loadReplies() {
-      const snap = await getDocs(query(collection(db, 'issues', this.ticket.id, 'replies'), orderBy('createdAt')));
-      this.replies = snap.docs.map(d => ({ id: d.id, links: [], ...d.data() }));
+    // The open ticket and its comments, live: someone else's comment or progress change shows at once
+    loadReplies() {
+      const id = this.ticket.id;
+      if (this.liveTicket === id) return Promise.resolve();
+      this.liveTicket = id;
+      this.live('ticket', doc(db, 'issues', id), d => {
+        if (d && this.ticket?.id === id) Object.assign(this.ticket, toTicket(id, d));
+      }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the ticket'); } });
+      return new Promise(resolve => {
+        this.live('replies', query(collection(db, 'issues', id, 'replies'), orderBy('createdAt')), rows => {
+          this.replies = rows.map(r => ({ links: [], ...r })); resolve();
+        }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the comments'); resolve(); } });
+      });
     },
     open(id) { this.$router.push({ query: { id } }); },
     back() { this.$router.push({ query: {}, state: { okMsg: this.okMsg } }); },
@@ -475,7 +499,7 @@ export default {
         this.raise = null; this.okMsg = `${id} raised and tagged ${tags.map(tagLabel).join(', ')}.`;
         this.notify({ id, tags, raisedRole: myRole, raisedByUid: me.user.uid },
           { title: `New issue ${id}`, message: `${myLabel} raised "${r.title.trim()}", tagged ${tags.map(tagLabel).join(', ')}.` });
-        await this.loadList();
+        await this.loadList();   // already live: the new ticket arrives by itself
       } catch (e) {
         console.error('Failed to raise issue:', {
           code: e.code,

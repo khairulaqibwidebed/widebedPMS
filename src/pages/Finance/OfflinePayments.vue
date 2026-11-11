@@ -4,6 +4,7 @@
       <div>
         <h1>Offline payments</h1>
         <div class="sub">Cash and bank transfers received outside the booking sites. Check each one against the bank and mark it Checked, Pending or Unknown. Unknown (no receipt) can be filled in by Operations, which makes it Edited.</div>
+        <LiveStatus class="live-line" :status="liveStatus.list?.status" :last-updated="liveStatus.list?.lastUpdated" />
       </div>
       <div class="head-actions">
         <button type="button" class="btn" v-if="canEdit" @click="openReport">Report</button>
@@ -187,6 +188,8 @@ import { loadProperties, loadUnits, audit, friendlyError, loadXlsxLib, download,
 import MonthPicker from '@/components/MonthPicker.vue';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { monthOffset } from '@/lib/format.js';
+import { liveMixin } from '@/lib/use-live.js';
+import LiveStatus from '@/components/LiveStatus.vue';
 
 const MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); MODES.unshift({ value: '', label: 'Choose method' });
 const STATUSES = ['Checked', 'Pending', 'Unknown', 'Edited'];   // Edited is set by saving an Unknown payment, never picked
@@ -195,7 +198,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '' });
 
 export default {
-  components: { FormField, OptionPicker, Paged, DriveFiles, MonthPicker },
+  mixins: [liveMixin],
+  components: { FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus },
   data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: { view(r) { this.loadHistory(r); } },
   computed: {
@@ -228,12 +232,13 @@ export default {
       try { await notifyRole({ recipientRole: 'finance', type: 'payment', refId: p.id, link: '/Finance/offline-payments', title: 'Offline payment changed from Unknown to Edited',
         message: `${who} filled in the details. Status changed from Unknown to Edited. RM ${Number(p.amount || 0).toFixed(2)} payment from ${p.guest}${p.unitCode ? ' (' + p.unitCode + ')' : ''}. Please check it.` }); } catch (e) { console.error('Accounting notification failed', e); }
     },
-    async load() {
-      this.loading = true;
-      try { this.rows = (await getDocs(query(collection(db, 'offlinePayments'), orderBy('createdAt', 'desc'), limit(500)))).docs.map(d => ({ id: d.id, ...d.data() })); }
-      catch (e) { this.error = friendlyError(e, 'load the offline payments'); }
-      this.loading = false;
-      this.fillUnits();
+    // Live (6 Nov 2026): new payments and status changes show without a refresh (newest 500, as before).
+    // Calling it again does nothing while the listener runs.
+    load() {
+      if (this.liveStops.list) return;
+      this.live('list', query(collection(db, 'offlinePayments'), orderBy('createdAt', 'desc'), limit(500)), rows => {
+        this.rows = rows; this.loading = false; this.fillUnits();
+      }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the offline payments'); this.loading = false; } });
     },
     // Booking Form payments made before the unit was saved on them: read the unit from the booking
     // What was added or changed on this payment, from the audit log (Finance and Director can read it)
@@ -253,10 +258,11 @@ export default {
       } catch { /* not allowed to read the audit log, or offline: the history stays hidden */ }
     },
     async fillUnits() {
-      const ids = [...new Set(this.rows.filter(r => !r.unitCode && r.bookingId).map(r => r.bookingId))];
-      if (!ids.length) return;
-      const found = {};
-      await Promise.all(ids.map(async id => { try { const b = await getDoc(doc(db, 'offlineBookings', id)); if (b.exists()) found[id] = b.data().unitCode || b.data().unitId || ''; } catch { /* leave blank */ } }));
+      // Each booking is read once and kept (the live list calls this on every change)
+      const found = this.bookingUnits || (this.bookingUnits = {});
+      const ids = [...new Set(this.rows.filter(r => !r.unitCode && r.bookingId && !(r.bookingId in found)).map(r => r.bookingId))];
+      await Promise.all(ids.map(async id => { try { const b = await getDoc(doc(db, 'offlineBookings', id)); found[id] = b.exists() ? (b.data().unitCode || b.data().unitId || '') : ''; } catch { /* leave blank */ } }));
+      if (!this.rows.some(r => !r.unitCode && found[r.bookingId])) return;
       this.rows = this.rows.map(r => (!r.unitCode && found[r.bookingId]) ? { ...r, unitCode: found[r.bookingId] } : r);
     },
     async openForm() {
@@ -418,6 +424,7 @@ export default {
 <style scoped>
 .head-actions { display: flex; gap: 8px; flex: none; margin-left: auto; }
 .page-head > div:first-child { flex: 1 1 320px; min-width: 0; }
+.live-line { margin-top: 6px; }
 .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .kpis .kpi { padding: 12px 14px; }
 .kpis .kpi .label { font-size: 12px; }

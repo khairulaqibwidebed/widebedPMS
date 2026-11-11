@@ -10,6 +10,7 @@ import { collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, q
 import { db, BUILTIN_ROLES, CUSTOM_ROLES, ROLE_LABEL } from '@/lib/firebase.js';
 import { notifyRole, notifyUser } from '@/services/notificationService';
 import { uploadFile, removeFile } from '@/lib/drive.js';
+import { listen } from '@/lib/use-live.js';
 
 export const KIND = 'announcements';
 export const MAX_FILES = 10;
@@ -41,6 +42,19 @@ export async function loadAll() {
   return rows(await getDocs(query(collection(db, 'announcements'), orderBy('createdAt', 'desc'))));
 }
 export async function loadFor(me) { return canPost(me.role) ? loadAll() : loadForRole(me.role); }
+
+// Live versions (6 Nov 2026, lib/use-live.js): a new, edited or deleted announcement shows without a refresh.
+// HR and Directors: the newest 200; everyone else: the newest 200 (or n) for their role. Returns stop().
+const LIVE_MAX = 200;
+export function watchFor(me, onRows, onError, n = 0) {
+  const q = canPost(me.role) && !n ? query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(LIVE_MAX))
+    : query(collection(db, 'announcements'), where('audience', 'array-contains-any', [me.role, 'everyone']), orderBy('createdAt', 'desc'), limit(n || LIVE_MAX));
+  return listen(q, r => onRows(r.map(x => ({ files: [], audience: ['everyone'], ...x }))), { onError });
+}
+// My viewed list, live, so the banner and the Unread marks clear as soon as I open one (on any screen)
+export function watchMyReads(uid, onReads, onError) {
+  return listen(doc(db, 'announcementReads', uid), d => onReads(d?.ids || {}), { onError });
+}
 
 // My own viewed list: { <id>: Timestamp }
 export async function loadMyReads(uid) {

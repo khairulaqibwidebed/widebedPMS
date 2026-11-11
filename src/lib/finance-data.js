@@ -3,10 +3,24 @@ import { db } from './firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, serverTimestamp }
   from 'firebase/firestore';
 import { byUnit } from './engine.js';
-import { cached, TTL } from './cache.js';
+import { cached, clearCache, TTL } from './cache.js';
 import { noteQuotaError, resetTime } from './quota.js';
 
 // Properties and units are kept for a while (lib/cache.js). Whatever page saves one calls clearCache().
+// Live properties list (6 Nov 2026): a property added, renamed or switched off elsewhere shows without a refresh.
+// Same rows as loadProperties (active only, by name); drops the saved copy so other pages read fresh. Returns stop().
+// listen comes from lib/use-live.js (imported lazily: use-live imports this file for friendlyError).
+export function watchProperties(onRows, onError) {
+  let stop = null, stopped = false, first = true;
+  import('@/lib/use-live.js').then(({ listen }) => {
+    if (stopped) return;
+    stop = listen(collection(db, 'properties'), rows => {
+      if (!first) clearCache('properties'); first = false;
+      onRows(rows.filter(p => p.active !== false).sort((a, b) => a.name.localeCompare(b.name)));
+    }, { onError });
+  });
+  return () => { stopped = true; stop?.(); };
+}
 export function loadProperties() {
   return cached('properties', TTL.long, async () => {
     const snap = await getDocs(collection(db, 'properties'));

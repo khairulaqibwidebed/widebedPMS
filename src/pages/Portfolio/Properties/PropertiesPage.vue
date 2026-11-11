@@ -77,7 +77,8 @@
 // and "+ Add property". Opening a property goes to /Portfolio/properties?property=<id> (PropertyPage).
 import '../portfolio.css';
 import { monthName, monthOffset } from '@/lib/format.js';
-import { loadProperties, friendlyError } from '@/lib/finance-data.js';
+import { loadProperties, watchProperties, friendlyError } from '@/lib/finance-data.js';
+import { liveMixin } from '@/lib/use-live.js';
 import { useSession } from '@/stores/session.js';
 import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
@@ -89,6 +90,7 @@ import PropertyDrawer from './PropertyDrawer.vue';
 const me = useSession();
 
 export default {
+  mixins: [liveMixin],
   components: { MonthPicker, RefreshButton, PropertyDrawer },
   data() {
     return {
@@ -114,6 +116,14 @@ export default {
   async mounted() {
     await this.go();
     this.pickUpHandoff();
+    // Live (6 Nov 2026): properties added, renamed or switched off elsewhere show without a refresh. The unit counts
+    // and month status are read again only when a property is added or removed (they are many reads).
+    const ids = list => list.map(p => p.id).sort().join('|');
+    this.liveUse('props', watchProperties(rows => {
+      const added = ids(rows) !== ids(this.properties);
+      this.properties = rows;
+      if (added) this.loadSummary().catch(e => { this.error = friendlyError(e, 'load the portfolio'); });
+    }, e => { this.error = e.friendly || friendlyError(e, 'load the properties'); }));
   },
   methods: {
     monthName, monthOnly, mixText,
@@ -137,17 +147,20 @@ export default {
         this.properties = await loadProperties();
         const url = this.url();
         if (url !== location.pathname + location.search) history.replaceState(history.state, '', url);
-        if (this.acc.viewOnly) {
-          // View-only roles: unit counts only (units read without their terms).
-          this.allUnits = await loadUnitsOf(this.properties, this.asOf, true);
-          this.monthDocs = {};
-        } else {
-          // The month summaries hold each property's units and arrangements, so units, terms, owners and expenses are not read.
-          const s = await loadPropertiesSummary(this.properties, this.asOf, me);
-          this.monthDocs = s.monthDocs; this.allUnits = s.units;
-        }
+        await this.loadSummary();
       } catch (e) { this.error = friendlyError(e, 'load the portfolio'); }
       this.loading = false;
+    },
+    async loadSummary() {
+      if (this.acc.viewOnly) {
+        // View-only roles: unit counts only (units read without their terms).
+        this.allUnits = await loadUnitsOf(this.properties, this.asOf, true);
+        this.monthDocs = {};
+      } else {
+        // The month summaries hold each property's units and arrangements, so units, terms, owners and expenses are not read.
+        const s = await loadPropertiesSummary(this.properties, this.asOf, me);
+        this.monthDocs = s.monthDocs; this.allUnits = s.units;
+      }
     },
     unitsOf(pid) { return this.allUnits.filter(x => x.propertyId === pid); },
     isDone(pid) { return this.monthDocs[pid]?.status === 'completed'; },

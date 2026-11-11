@@ -1,5 +1,9 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
+// Widebed PMS Firestore rules. Draft 0.46, 6 Nov 2026 (Khairul): Pool Sharing check on Month-end: Accounting / Directors save
+// "Confirmed 0 bookings" on a month document (poolZero only). Month summaries (unitMonths) may hold
+// 'arrangementType'. Fee arrangements need no change: they are saved on the property's rateVersions, which Accounting /
+// Directors already create.
+// Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
 // (advances byHR: created straight at Reviewed, within 50% of their salary, not interns, never for themselves), with the form
 // and the signature-use line in the same save. The staff member reads it but can't sign it in the PMS (paper only; HR marks it
 // signed outside). Also (6 Nov 2026): the Procurement Forms page is removed, so procurementForms.view leaves the procurement preset.
@@ -237,7 +241,7 @@ service cloud.firestore {
       return /databases/$(database)/documents/approvals/$(unitId + '_' + month);
     }
     function unitMonthKeys() {
-      return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'fixedRentAmount',
+      return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'arrangementType', 'fixedRentAmount',
         'firstBookingId', 'row', 'noUnit', 'dash', 'statement', 'stale', 'dirtyRev', 'cleanRev', 'marks', 'computedAt', 'computedBy'];
     }
 
@@ -564,6 +568,10 @@ service cloud.firestore {
       allow create: if finOrDir()
         && newKeysOnly(['propertyId', 'month', 'summary'])
         && id == request.resource.data.propertyId + '_' + request.resource.data.month;
+      // Pool Sharing check (Draft 0.46): "Confirmed 0 bookings" per unit, with who and when (poolZero only).
+      allow create: if finOrDir() && newKeysOnly(['propertyId', 'month', 'poolZero'])
+        && id == request.resource.data.propertyId + '_' + request.resource.data.month;
+      allow update: if finOrDir() && changed().hasOnly(['poolZero']);
       allow update: if finOrDir()
         && changed().hasOnly(['propertyId', 'month', 'summary'])
         && request.resource.data.propertyId == resource.data.get('propertyId', request.resource.data.propertyId)

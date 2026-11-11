@@ -15,7 +15,8 @@
 //                                       a unit added or edited ('0000-00|unitId'), a property rate version ('2026-08').
 //   A summary keeps the counters it was worked out from (cleanRev / rev). Different numbers = stale: the page works
 //   it out again from the full data with the engine, for just those units, and writes it back (Finance/Director).
-import { ARRANGEMENTS, effectiveRates, unitStatement, byUnit } from './engine.js';
+import { effectiveRates, unitStatement, byUnit } from './engine.js';
+import { feeType } from './fee-types.js';
 
 // Raise when what a summary holds or how it is worked out changes: every summary is then worked out again once.
 export const SUMMARY_VERSION = 2;   // 2: Booking.com method changed (3 Nov 2026), so saved summaries are worked out again
@@ -48,10 +49,13 @@ export function markedUnits(property, month) {
 export function statementRecord(s, u, month) {
   return {
     unitId: u.id, unitCode: u.unitCode, ownerId: u.ownerId || null, propertyId: u.propertyId, month,
-    arrangement: s.rates.arrangement || 'notSetUp', arrangementLabel: ARRANGEMENTS[s.rates.arrangement]?.label || 'Not set up',
+    arrangement: s.rates.arrangement || 'notSetUp', arrangementLabel: s.rates.setUp ? s.rates.label : 'Not set up',
     fixed: s.fixed, status: s.status,
-    rates: { serviceFeePct: s.rates.serviceFeePct, utilityFeePct: s.rates.utilityFeePct, sstOnFeePct: s.rates.sstOnFeePct,
+    rates: { type: s.rates.type, serviceFeePct: s.rates.serviceFeePct, utilityFeePct: s.rates.utilityFeePct, sstOnFeePct: s.rates.sstOnFeePct,
       fixedRentAmount: s.rates.fixedRentAmount, versionId: s.rates.versionId },
+    // Pool Sharing: the property pot, Net Rental #, this unit's % and share (null for every other type)
+    pool: s.pool ? { pot: s.pool.pot, netRentalPct: s.pool.netRentalPct, netRental: s.pool.netRental, price: s.pool.price, totalPrice: s.pool.totalPrice,
+      unitPct: s.pool.unitPct, share: s.pool.share, ownGross: s.pool.ownGross, missingPrice: !!s.pool.missingPrice, units: s.pool.units } : null,
     lines: s.lines.map(l => { const bk = { ...l.booking, ...(l.booking.edits || {}) }; return ({ id: l.booking.id || null, cleaning: l.cleaning || 0, cleaningIn: !!l.cleaningIn, reservationNo: bk.reservationNo, source: bk.source, otaKey: l.otaKey, arrival: bk.arrival,
       departure: bk.departure, nights: bk.nights, method: l.method, guestPaid: l.guestPaid, platform: l.platform,
       pto: l.pto, estimated: l.estimated, final: !!l.final, edited: l.edited, note: l.note, financeAmount: l.booking.financeAmount ?? null,
@@ -59,12 +63,34 @@ export function statementRecord(s, u, month) {
     expenseLines: s.expenses.map(e => ({ expenseId: e.id, date: e.date, kind: e.kind, type: e.type, description: e.description, amount: e.signed })),
     totals: { nights: s.nights, totalReceivable: s.totalReceivable, serviceFee: s.serviceFee || 0, utilityFee: s.utilityFee || 0, sstOnFee: s.sstOnFee || 0,
       entitlement: s.entitlement ?? s.totalReceivable, totalExpenses: s.totalExpenses ?? (s.reimburse - s.deduction), netReceivable: s.netReceivable ?? s.payout,
-      roundingAdjust: s.roundingAdjust || 0, payout: s.payout, deduction: s.deduction || 0, reimburse: s.reimburse || 0, bookingIncome: s.bookingIncome ?? null }
+      roundingAdjust: s.roundingAdjust || 0, payout: s.payout, deduction: s.deduction || 0, reimburse: s.reimburse || 0, bookingIncome: s.bookingIncome ?? null,
+      ...(s.netRental != null ? { netRental: s.netRental } : {}), ...(s.grossRental != null ? { grossRental: s.grossRental } : {}) }
   };
 }
 
+// The booking and expense lines for the owner's PDF and Excel statement. Accounting's layout adds up the booking lines
+// and takes the fees from that total, so: Profit Sharing adds the unit's expenses as one line before the fees (and leaves
+// them out of the expenses below); Pool Sharing adds one line that takes the unit's own Gross Rental to its pool share.
+export function fileLines(rec) {
+  const lines = (rec.lines || []).map(l => ({ source: l.source, arrival: l.arrival, departure: l.departure, nights: l.nights, amount: l.pto }));
+  let exps = rec.expenseLines || [];
+  const type = rec.rates?.type, pc = x => `${+(Number(x || 0) * 100).toFixed(2)}%`, rm = x => (Number(x) || 0).toFixed(2);
+  if (type === 'profit') {
+    const before = exps.filter(e => e.kind === 'expense');
+    if (before.length) {
+      lines.push({ source: 'Unit expenses (before fees)', nights: 0, amount: before.reduce((s, e) => s + (Number(e.amount) || 0), 0) });
+      exps = exps.filter(e => e.kind !== 'expense');
+    }
+  }
+  if (type === 'pool' && rec.pool) {
+    const own = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0), p = rec.pool;
+    lines.push({ source: `Pool share: ${pc(p.unitPct)} of Net Rental # RM ${rm(p.netRental)} (${pc(p.netRentalPct)} of pot RM ${rm(p.pot)})`, nights: 0, amount: p.share - own });
+  }
+  return { lines, expenses: exps.map(e => ({ description: e.description, amount: e.amount })) };
+}
+
 // What the Month-end list needs of a statement: everything but the booking and expense lines.
-const ROW_KEYS = ['unitId', 'unitCode', 'ownerId', 'propertyId', 'month', 'arrangement', 'arrangementLabel', 'fixed', 'status', 'rates', 'totals'];
+const ROW_KEYS = ['unitId', 'unitCode', 'ownerId', 'propertyId', 'month', 'arrangement', 'arrangementLabel', 'fixed', 'status', 'rates', 'totals', 'pool'];
 export function listRow(rec) {
   const row = {};
   for (const k of ROW_KEYS) row[k] = rec[k] ?? null;
@@ -75,14 +101,15 @@ export function listRow(rec) {
 
 // The engine's draft for one unit, exactly as Month-end payout worked it out (null = no row this month).
 // unit: the active unit record with .terms for the month, or null when the bookings name a unit with no record.
-export function draftRecord({ propertyId, month, unitId, unit, propertyRates, bookings, expenses }) {
+// pool: Pool Sharing units only, the unit's entry from engine.poolShares() for the whole property.
+export function draftRecord({ propertyId, month, unitId, unit, propertyRates, bookings, expenses, pool = null }) {
   const active = bookings.filter(b => b.status !== 'cancelled');
   if (!unit && !active.length) return null;   // a unit with no record shows only when it has bookings
   const u = unit || { id: unitId, unitCode: active[0].unitCode, propertyId, terms: null, termHistory: [] };
   const rates = effectiveRates(propertyRates, u.terms);
   const ex = (expenses || []).filter(e => !e.deleted);
-  if (!active.length && !ex.length && rates.arrangement !== 'fixedRent') return null;
-  return statementRecord(unitStatement({ unit: u, rates, bookings: active, expenses: ex }), u, month);
+  if (!active.length && !ex.length && !(rates.setUp && feeType(rates.type).everyMonth)) return null;   // fixed rent and pool units always have a row
+  return statementRecord(unitStatement({ unit: u, rates, bookings: active, expenses: ex, pool }), u, month);
 }
 
 const tsMs = t => (t?.toMillis ? t.toMillis() : (t?.seconds != null ? t.seconds * 1000 : null));
@@ -90,7 +117,7 @@ const n = v => Number(v) || 0;
 
 // One unit summary. bookings / expenses: this unit's documents for the month in the order Firestore returns them
 // (document id), all statuses; statement: statements/{unitId}_{month} or null.
-export function unitSummary({ propertyId, month, unitId, unit, propertyRates, bookings, expenses, statement }) {
+export function unitSummary({ propertyId, month, unitId, unit, propertyRates, bookings, expenses, statement, pool = null }) {
   const none = isNone(unitId);
   const active = bookings.filter(b => b.status !== 'cancelled');
   const live = (expenses || []).filter(e => !e.deleted);
@@ -98,7 +125,7 @@ export function unitSummary({ propertyId, month, unitId, unit, propertyRates, bo
   let row = null;
   if (!none) {
     if (completed) row = listRow({ ...statement, status: 'completed' });
-    else { const rec = draftRecord({ propertyId, month, unitId, unit, propertyRates, bookings, expenses }); row = rec && listRow(rec); }
+    else { const rec = draftRecord({ propertyId, month, unitId, unit, propertyRates, bookings, expenses, pool }); row = rec && listRow(rec); }
   }
   // Dashboard figures (dashboard-data.js worked these out from every booking of the month)
   const code = none ? '(no unit)' : (unit ? unit.unitCode : unitId);
@@ -119,6 +146,7 @@ export function unitSummary({ propertyId, month, unitId, unit, propertyRates, bo
     engineVersion: SUMMARY_VERSION,
     inUnits: !!unit,                                   // an active unit record (counted on the Dashboard and Portfolio)
     hasTerms: !!unit?.terms, arrangement: unit?.terms?.arrangement || null, fixedRentAmount: unit?.terms?.fixedRentAmount ?? null,
+    arrangementType: unit?.terms ? (effectiveRates(propertyRates, unit.terms).setUp ? effectiveRates(propertyRates, unit.terms).type : null) : null,
     firstBookingId: active[0]?.id || null,             // where a unit with no record comes in Month-end's checklist
     row,
     // A list of the "room not recognised" bookings (pseudo unit only)
@@ -136,10 +164,12 @@ export function unitSummary({ propertyId, month, unitId, unit, propertyRates, bo
 }
 
 // The fields a unit summary document holds (written with mergeFields, so dirtyRev is never overwritten).
-export const UNIT_FIELDS = ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'fixedRentAmount',
+export const UNIT_FIELDS = ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'arrangementType', 'fixedRentAmount',
   'firstBookingId', 'row', 'noUnit', 'dash', 'statement', 'stale', 'cleanRev', 'marks', 'computedAt', 'computedBy'];
 
 const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+// A unit summary on fixed rent (summaries saved before 6 Nov 2026 have no arrangementType; their fixed key was 'fixedRent')
+const isFixedSum = u => u.arrangementType === 'fixed' || (!u.arrangementType && u.arrangement === 'fixedRent');
 const FIRST = 8;   // the Dashboard shows 8 items of Needs attention
 
 // The property's month summary, added up from its unit summaries.
@@ -155,14 +185,14 @@ export function propertySummary(unitSums) {
     version: SUMMARY_VERSION,
     unitCount: inUnits.length,
     // Portfolio list: each unit's arrangement for the month
-    units: inUnits.map(u => ({ id: u.unitId, unitCode: u.unitCode, hasTerms: u.hasTerms, arrangement: u.arrangement, fixedRentAmount: u.fixedRentAmount })).sort(byId),
+    units: inUnits.map(u => ({ id: u.unitId, unitCode: u.unitCode, hasTerms: u.hasTerms, arrangement: u.arrangement, arrangementType: isFixedSum(u) ? 'fixed' : u.arrangementType || null, fixedRentAmount: u.fixedRentAmount })).sort(byId),
     bookings: s.reduce((t, u) => t + u.dash.bookings, 0),
     income: s.reduce((t, u) => t + u.dash.income, 0),
     expenses: s.reduce((t, u) => t + u.dash.expenses, 0),
     statementsDone: done.length,
     balToPay: done.map(u => u.dash.payout).filter(p => p > 0).reduce((t, p) => t + p, 0),
     byStatus: {
-      fixedRent: inUnits.filter(u => u.arrangement === 'fixedRent').length,
+      fixedRent: inUnits.filter(isFixedSum).length,
       draft: inUnits.filter(u => !u.dash.completed).length,
       negative: done.filter(u => u.dash.payout < 0).length,
       estimated: s.filter(u => !isNone(u.unitId) && u.dash.ctripMissing > 0).length,

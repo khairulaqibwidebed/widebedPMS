@@ -260,7 +260,7 @@
 // HR and Directors: every salary advance. HR moves them on (never their own); Directors read everything, keep the
 // signature up to date if they want, and see the log of forms carrying the signature. Data: ./advances.js.
 // Not a page of its own: SalaryAdvance.vue shows it under its Requests / Signature / Signature log tabs (prop tab).
-import { fileKind, loadFormStaff, createByHR, loadAdvances, getStaffHR, getDept, reviewAdvance, markSignedOutside, uploadSignedCopy, approveAdvance, rejectAdvance, markPaid,
+import { fileKind, loadFormStaff, createByHR, watchAdvances, getStaffHR, getDept, reviewAdvance, markSignedOutside, uploadSignedCopy, approveAdvance, rejectAdvance, markPaid,
   loadForm, loadSigned, loadSignedCopy, loadPayment, loadNotes, addNote, loadSignature, saveSignature, loadSignatureUses, imageFile,
   limitOf, todayIso, STATUS, STEP, PAY_TYPES, SIGN_METHOD, DEFAULT_SIGNER } from './advances.js';
 import { buildAdvancePdf, advanceFileName } from '@/lib/advance-pdf.js';
@@ -275,7 +275,10 @@ import ImageDrop from '@/components/ImageDrop.vue';
 const me = useSession();
 const FILTERS = [['all', 'All statuses'], ...Object.entries(STATUS).map(([k, v]) => [k, v[0]])];
 
+import { liveMixin } from '@/lib/use-live.js';
+
 export default {
+  mixins: [liveMixin],
   components: { OptionPicker, Avatar, ImageDrop },
   props: { tab: { type: String, default: 'requests' } },
   data() {
@@ -369,10 +372,17 @@ export default {
       } catch (e) { this.nf.err = e.code ? friendlyError(e, 'make the form') : e.message; }
       this.busy = false;
     },
-    async load() {
-      this.loading = true;
-      try { this.list = await loadAdvances(); } catch (e) { this.error = friendlyError(e, 'load the requests'); }
-      this.loading = false;
+    // Live (6 Nov 2026): new requests and status changes show without a refresh; the open request updates in place.
+    // Resolves when the list first arrives; calling it again while it runs does nothing.
+    load() {
+      if (this.liveStops.list) return Promise.resolve();
+      return new Promise(resolve => {
+        this.liveUse('list', watchAdvances(rows => {
+          const old = new Map(this.list.map(a => [a.id, a]));
+          this.list = rows.map(r => { const o = old.get(r.id); return o ? Object.assign(o, r) : r; });
+          this.loading = false; resolve();
+        }, e => { this.error = e.friendly || friendlyError(e, 'load the requests'); this.loading = false; resolve(); }));
+      });
     },
     shown() {
       const q = this.q.trim().toLowerCase();

@@ -21,9 +21,13 @@
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <div class="staff-filters">
-      <div class="pills brand">
+      <input class="input staff-search" type="search" v-model="search" placeholder="Search name, email or role" aria-label="Search staff">
+      <!-- Active / Inactive switch (6 Nov 2026), same look as Issues' Customer / In-house: the white pill slides to the picked tab -->
+      <div class="staff-seg" role="tablist" aria-label="Account status" :style="{ '--i': filters.findIndex(f => f.key === filter) }">
+        <span class="staff-thumb" aria-hidden="true"></span>
         <template v-for="f in filters" :key="f.key">
-          <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ `${f.label} (${count(f.key)})` }}</button>
+          <button type="button" role="tab" :aria-selected="String(filter === f.key)" :class="{ on: filter === f.key }" @click="filter = f.key">
+            {{ f.label }}<span class="n">{{ count(f.key) }}</span></button>
         </template>
       </div>
       <OptionPicker v-model="roleFilter" :options="roleOptions" label="Filter by role" />
@@ -33,6 +37,9 @@
       </div>
     </div>
 
+    <!-- The list fades and slides a little when Active / Inactive changes -->
+    <Transition name="staff-swap" mode="out-in">
+    <div :key="filter">
     <Paged :items="shown()" v-slot="{ pageRows }">
     <div class="table-wrap soft-wrap">
       <table class="table staff-table hover-rows">
@@ -47,7 +54,7 @@
                 <span class="tag custom-tag" v-if="isCustom(row)" title="Page access changed from the role's usual pages">Custom access</span>
               </td>
               <td>{{ row.lastLoginAt ? when(row.lastLoginAt) : 'Never' }}</td>
-              <td><span class="pill" :class="row.active === false ? 'grey' : 'green'">{{ row.active === false ? 'Turned off' : 'Active' }}</span></td>
+              <td><span class="pill" :class="row.active === false ? 'grey' : 'green'">{{ row.active === false ? 'Inactive' : 'Active' }}</span></td>
               <td>{{ row.createdAt ? joined(row.createdAt) : '—' }}</td>
               <td class="row-acts">
                 <template v-if="row.id === myUid || locked(row)"><span class="muted">—</span></template>
@@ -65,6 +72,8 @@
       </table>
     </div>
     </Paged>
+    </div>
+    </Transition>
     <p class="note staff-note">Changing a role, page access or turning an account off asks for a reason and is saved in the audit log. Nothing is deleted.</p>
 
     <!-- Account log: read only when it is opened -->
@@ -270,8 +279,8 @@ export default {
       ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, when,
       myUid: me.user.uid,
       users: [], loading: true, error: '', okMsg: '',
-      filter: 'all', roleFilter: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
-      filters: [{ key: 'all', label: 'All' }, { key: 'active', label: 'Active' }, { key: 'off', label: 'Turned off' }],
+      filter: 'active', roleFilter: '', search: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
+      filters: [{ key: 'active', label: 'Active' }, { key: 'off', label: 'Inactive' }],
       panel: {}, panelOpen: false
     };
   },
@@ -315,7 +324,9 @@ export default {
     },
     // Someone whose saved ticks differ from their role's usual pages.
     isCustom(u) { return u.role !== 'director' && Array.isArray(u.perms) && !samePerms(u.perms, presetOf(u.role)); },
-    hasRoleFilter(u) { return !this.roleFilter || u.role === this.roleFilter; },
+    hasRoleFilter(u) { return (!this.roleFilter || u.role === this.roleFilter) && this.hasSearch(u); },
+    // Search box: name, email or role (incl. "Intern"), any part, case ignored
+    hasSearch(u) { const q = this.search.trim().toLowerCase(); return !q || [u.displayName, u.email, this.roleText(u)].some(x => String(x || '').toLowerCase().includes(q)); },
     match(u, key) {
       if (key === 'all') return true;
       if (key === 'off') return u.active === false;
@@ -477,10 +488,31 @@ export default {
 </script>
 
 <style scoped>
+    /* Active / Inactive switch: two equal tabs; the white pill (thumb) slides under the picked one (as on Issues) */
+    .staff-seg { --i: 0; position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: none; width: 240px; height: 40px;
+      padding: 3px; border-radius: 10px; background: var(--chip); border: 1px solid var(--border); box-sizing: border-box; }
+    .staff-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 2); border-radius: 7px;
+      background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 0 0 1px var(--border);
+      transform: translateX(calc(var(--i) * 100%)); transition: transform .28s cubic-bezier(.4, 0, .2, 1); }
+    .staff-seg button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 0;
+      border: 0; background: none; padding: 0 8px; border-radius: 7px; font: inherit; font-size: 13px; font-weight: 600;
+      color: var(--muted); cursor: pointer; white-space: nowrap; transition: color .2s ease, transform .1s ease; }
+    .staff-seg button:hover, .staff-seg button.on { color: var(--text); }
+    .staff-seg .n { min-width: 18px; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px; text-align: center;
+      background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--text-2); transition: background .2s ease, color .2s ease; }
+    .staff-seg button.on .n { background: var(--accent); color: #fff; }
+    .staff-seg button:active { transform: scale(.97); }
+    .staff-swap-enter-active { transition: opacity .2s ease, transform .2s ease; }
+    .staff-swap-leave-active { transition: opacity .12s ease, transform .12s ease; }
+    .staff-swap-enter-from { opacity: 0; transform: translateY(6px); }
+    .staff-swap-leave-to { opacity: 0; transform: translateY(-4px); }
+    @media (prefers-reduced-motion: reduce) { .staff-thumb, .staff-swap-enter-active, .staff-swap-leave-active { transition: none; } }
+    @media (max-width: 640px) { .staff-seg { width: 100%; } }
     .head-tools.push { margin-left: auto; display: flex; gap: 8px; }
     .info-btn { padding: 8px 10px; color: var(--accent); border: 1.5px solid var(--accent); }
     .info-btn:hover { background: var(--accent-soft); }
     .staff-filters { margin-bottom: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+    .staff-search { width: 260px; max-width: 100%; }
     .staff-table td { white-space: nowrap; }
     /* Long names wrap onto the next line instead of widening the table (4 Nov 2026) */
     .staff-table td:first-child { white-space: normal; overflow-wrap: anywhere; min-width: 140px; max-width: 220px; }

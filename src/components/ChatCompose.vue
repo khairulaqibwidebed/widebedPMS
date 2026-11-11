@@ -8,7 +8,7 @@
       </div>
     </div>
     <div class="cc-bar">
-      <PhotoPicker class="cc-clip" compact :previews="false" :model-value="photos" @update:model-value="v => $emit('update:photos', v)" />
+      <PhotoPicker v-if="allowPhotos" class="cc-clip" compact :previews="false" :model-value="photos" @update:model-value="v => $emit('update:photos', v)" />
       <textarea ref="box" class="cc-input" rows="1" maxlength="2000" :placeholder="placeholder" :aria-label="placeholder" :value="modelValue"
         @input="onInput" @keydown.enter.exact.prevent="send" />
       <button type="button" class="cc-send" :disabled="!canSend" aria-label="Send" title="Send (Enter)" @click="send">
@@ -29,7 +29,8 @@ import PhotoViewer from '@/components/PhotoViewer.vue';
 export default {
   components: { PhotoPicker, PhotoViewer },
   props: { modelValue: { type: String, default: '' }, photos: { type: Array, default: () => [] }, busy: { type: Boolean, default: false },
-    placeholder: { type: String, default: 'Type a message' } },
+    placeholder: { type: String, default: 'Type a message' },
+    allowPhotos: { type: Boolean, default: true } },   // false: no paperclip (KPI chat, 6 Nov 2026)
   emits: ['update:modelValue', 'update:photos', 'send'],
   data() { return { at: null }; },
   computed: { canSend() { return !this.busy && (!!this.modelValue.trim() || this.photos.length > 0); } },

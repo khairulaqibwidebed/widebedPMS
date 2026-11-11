@@ -147,12 +147,14 @@ import { askConfirm } from '@/lib/confirm.js';
 import Paged from '@/components/Paged.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
+import { liveMixin } from '@/lib/use-live.js';
 
 const me = useSession();
 const msOf = t => (t?.toMillis ? t.toMillis() : 0);
 
 const HISTORY_PAGE = 30;   // the history is an audit log: 30 entries per read, only when the History tab is opened, more on request
 export default {
+  mixins: [liveMixin],
   components: { MonthPicker, OptionPicker, Paged },
   data() {
     return {
@@ -197,14 +199,20 @@ export default {
       this.loading = true; this.error = '';
       try {
         this.properties = await loadProperties();
-        const [w, rc] = await Promise.all([
-          getDocs(query(collection(db, 'approvals'), where('status', '==', 'submitted'))),
-          getCountFromServer(query(collection(db, 'approvals'), where('status', '==', 'returned'))).then(r => r.data().count).catch(() => null)
-        ]);
-        this.waiting = w.docs.map(d => ({ id: d.id, ...d.data() }));
-        this.returnedCount = rc;
-      } catch (e) { this.error = friendlyError(e, 'load the approvals'); }
-      this.loading = false;
+      } catch (e) { this.error = friendlyError(e, 'load the approvals'); this.loading = false; return; }
+      // Live (6 Nov 2026): statements sent, approved or returned by someone else show without a refresh.
+      // If the open one is approved or returned elsewhere, its drawer closes with a note.
+      this.live('waiting', query(collection(db, 'approvals'), where('status', '==', 'submitted')), rows => {
+        this.waiting = rows; this.loading = false;
+        if (this.sel && !this.busy && this.tab === 'waiting' && !rows.some(r => r.id === this.sel.id)) {
+          this.sel = null; this.okMsg = 'That statement was just approved or returned by someone else.';
+        }
+        this.countReturned();
+      }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the approvals'); this.loading = false; } });
+    },
+    // Returned count for the tab (a count costs one read per 1,000)
+    countReturned() {
+      getCountFromServer(query(collection(db, 'approvals'), where('status', '==', 'returned'))).then(r => { this.returnedCount = r.data().count; }).catch(() => {});
     },
     // Reaching the last loaded page fetches the next 30 (nothing is read ahead of time)
     onHistPage({ page, last }) { if (page >= last && this.historyMore && !this.historyBusy) this.loadHistory(true); },

@@ -13,7 +13,7 @@
 // kpiDiscussions/{submissionId}   { submissionId, assignmentId, employeeId, directorId, quarterId,
 //                                   thread: [{ by, byUid, byName, message, at, role: 'director'|'employee' }],
 //                                   status: 'active'|'resolved', createdAt, resolvedAt }
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, serverTimestamp, addDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { notifyUser, notifyRole } from '@/services/notificationService.js';
@@ -463,16 +463,12 @@ export async function addChatMessage(assignmentId, message) {
     edited: null
   };
 
-  const messages = conv.messages || [];
-  messages.push(newMsg);
-
+  // Neo's file, changed 6 Nov 2026 by Khairul: add the message with arrayUnion instead of writing back the whole list,
+  // so two people sending at the same moment never lose one. Edit / delete below still rewrite the list.
   const otherUid = s.role === 'director' ? conv.employeeId : conv.directorId;
-  const unreadBy = conv.unreadBy || [];
-  if (!unreadBy.includes(otherUid)) unreadBy.push(otherUid);
-
   await updateDoc(doc(db, 'kpiConversations', assignmentId), {
-    messages,
-    unreadBy,
+    messages: arrayUnion(newMsg),
+    ...(otherUid ? { unreadBy: arrayUnion(otherUid) } : {}),
     updatedAt: serverTimestamp()
   });
 
@@ -531,10 +527,9 @@ export async function addSystemMessage(assignmentId, type, details) {
     deleted: false
   };
 
-  const messages = conv.messages || [];
-  messages.push(systemMsg);
-
-  const updateData = { messages, updatedAt: serverTimestamp() };
+  // Neo's file, changed 6 Nov 2026 by Khairul: arrayUnion so a message sent at the same moment is not lost
+  const otherUid = s.role === 'director' ? conv.employeeId : conv.directorId;
+  const updateData = { messages: arrayUnion(systemMsg), ...(otherUid ? { unreadBy: arrayUnion(otherUid) } : {}), updatedAt: serverTimestamp() };
   if (type === 'rating_changed' || type === 'rating_approved') {
     updateData.currentRating = details.rating;
     updateData.status = type === 'rating_approved' ? 'resolved' : 'active';

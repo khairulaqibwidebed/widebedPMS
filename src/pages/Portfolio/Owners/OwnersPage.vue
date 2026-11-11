@@ -37,7 +37,8 @@ import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
-import { loadOwners, loadUnitsOf, loadBroughtForward } from '@/lib/portfolio-data.js';
+import { loadOwners, watchOwners, loadUnitsOf, loadBroughtForward } from '@/lib/portfolio-data.js';
+import { liveMixin } from '@/lib/use-live.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import RefreshButton from '@/components/RefreshButton.vue';
@@ -47,6 +48,7 @@ import OwnerDrawer from '../shared/OwnerDrawer.vue';
 const me = useSession();
 
 export default {
+  mixins: [liveMixin],
   components: { OptionPicker, MonthPicker, RefreshButton, OwnersList, OwnerDrawer },
   data() {
     const q = this.$route.query;
@@ -66,6 +68,12 @@ export default {
   async mounted() {
     await this.go();
     this.pickUpHandoff();
+    // Live (6 Nov 2026): owners added or changed elsewhere show without a refresh (units and balances stay as loaded)
+    let first = true;
+    this.liveUse('owners', watchOwners(this.acc.viewOnly, this.acc.canEdit, rows => {
+      if (first) { first = false; return; }   // the first answer is what go() just showed
+      this.owners = rows;
+    }, e => { this.error = e.friendly || friendlyError(e, 'load the owners'); }, this.owners));
   },
   methods: {
     // This page's address with the property and month (month left out when it is the current one).
@@ -106,6 +114,7 @@ export default {
       if (own && this.acc.viewOnly && !this.acc.canEdit) return;
       this.drawer = { owner: own, prefill };
     },
+    // The live owners list shows the saved owner by itself; units may have changed, so read the page again
     async onSaved(msg) {
       this.drawer = null;
       this.okMsg = msg;

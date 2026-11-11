@@ -68,7 +68,7 @@
             <template v-for="(row, i) in pageRows" :key="i">
               <tr>
                 <td class="unitcell"><b>{{ kind === 'property' ? row.unitCode : row.label }}</b>
-                  <small>{{ kind === 'property' ? row.arrangements.map(a => ARR[a] || 'Not set up').join(', ') : (ARR[row.arrangement] || 'Not set up') }}</small>
+                  <small>{{ kind === 'property' ? row.arrangements.map(a => ARR(a)).join(', ') : (ARR(row.arrangement)) }}</small>
                   <span class="est" v-show="row.estimated"> · Ctrip estimate</span></td>
                 <td class="num">{{ row.bookings }}</td>
                 <td class="num">{{ amt(row.gross) }}</td>
@@ -116,7 +116,8 @@
 <script>
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
-import { ARRANGEMENTS, bookingPTO, effectiveRates, byUnit } from '@/lib/engine.js';
+import { bookingPTO, effectiveRates, byUnit } from '@/lib/engine.js';
+import { arrangementName } from '@/lib/fee-types.js';
 import { loadProperties, loadSetup, loadBookings, loadExpenses, friendlyError, download, toCSV, loadXlsxLib } from '@/lib/finance-data.js';
 import { amt, dmy, dayOffset } from '@/lib/format.js';
 import { propertyReport, unitReport, monthsToLoad, monthPieces } from '@/lib/reports.js';
@@ -125,7 +126,8 @@ import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
 const me = useSession();
 
-const ARR = Object.fromEntries(Object.entries(ARRANGEMENTS).map(([k, v]) => [k, v.label]));
+// Arrangement names (each property's own list, remembered as reports.js reads its rate versions)
+const ARR = arrangementName;
 const QUICK = [{ key: 'thisMonth', label: 'This month' }, { key: 'lastMonth', label: 'Last month' }, { key: 'last3', label: 'Last 3 months' }, { key: 'thisYear', label: 'This year' }, { key: 'lastYear', label: 'Last year' }];
 const pad = n => String(n).padStart(2, '0');
 const lastDay = (y, m) => new Date(y, m, 0).getDate();
@@ -242,8 +244,8 @@ export default {
       const head = [this.kind === 'property' ? 'Unit' : 'Period', 'Arrangement', 'Bookings', 'Gross Rental (RM)', 'Service Fees (RM)', 'Utility Fees (RM)', 'Expenses (RM)', 'SST %', 'SST (RM)', 'Nett Total for Owner (RM)'];
       const line = (label, arr, r) => [label, arr, r.bookings, r2(r.gross), r2(r.service), r2(r.utility), r2(-r.expenses), this.rates(r), r2(r.sst), r2(r.nett)];
       const rows = this.report.rows.map(r => this.kind === 'property'
-        ? line(r.unitCode, r.arrangements.map(a => ARR[a] || 'Not set up').join(', '), r)
-        : line(r.label, ARR[r.arrangement] || 'Not set up', r));
+        ? line(r.unitCode, r.arrangements.map(a => ARR(a)).join(', '), r)
+        : line(r.label, ARR(r.arrangement), r));
       return {
         meta: [
           [`Widebed · ${this.kind === 'property' ? 'Property report' : 'Unit report'}`],

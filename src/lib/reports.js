@@ -5,7 +5,10 @@
 //   expenses and reimbursements count by their own date
 //   fixed rent is shared by days (15-28 Feb = 14 of 28 days of February's rent)
 //   nothing is rounded to RM 0.05, so a full month can differ from the completed payout by a few sen
+//   Profit Sharing takes the fees from Gross Rental less the unit's expenses. Pool Sharing is NOT pooled here (a report
+//   piece has one unit only): its rows show the unit's own Gross Rental, flagged pool, so they won't match the statement.
 import { effectiveRates, bookingPTO, byUnit } from './engine.js';
+import { arrangementsOf, rememberArrangements } from './fee-types.js';
 
 // Same rule as finance-data.js latestVersion (copied so this file stays free of Firebase).
 const ms = t => (t?.toMillis ? t.toMillis() : 0);
@@ -37,22 +40,24 @@ export function monthPieces(from, to) {
 // One unit, one piece of a month.
 function pieceFigures({ unit, piece, rateVersions, bookings, expenses, rangeMonths }) {
   const terms = latestVersion(unit.termHistory || [], piece.month);
-  const rates = effectiveRates(latestVersion(rateVersions, piece.month), terms);
+  const version = latestVersion(rateVersions, piece.month);
+  rememberArrangements(arrangementsOf(version));   // names for the report rows
+  const rates = effectiveRates(version, terms);
   const bk = bookings.filter(b => b.unitId === unit.id && b.status !== 'cancelled' && b.departure >= piece.from && b.departure <= piece.to);
   // A brought-forward line repeats a negative balance from a month that is already inside the range, so it is left out then
   const ex = expenses.filter(e => e.unitId === unit.id && !e.deleted && e.date >= piece.from && e.date <= piece.to
     && !(e.kind === 'broughtForward' && rangeMonths.has(e.sourceMonth)));
   const expensesNet = ex.reduce((s, e) => s + (e.kind === 'reimburse' ? -Math.abs(n(e.amount)) : Math.abs(n(e.amount))), 0);
-  const fixed = rates.arrangement === 'fixedRent';
+  const fixed = rates.type === 'fixed';
   let gross, service = 0, utility = 0, sst = 0;
   if (fixed) gross = n(rates.fixedRentAmount) * piece.days / piece.monthDays;
-  else {
-    gross = bk.reduce((s, b) => s + bookingPTO(b, rates).pto, 0);
-    service = gross * n(rates.serviceFeePct);
-    utility = gross * n(rates.utilityFeePct);
-    sst = service * n(rates.sstOnFeePct);
-  }
-  return { gross, service, utility, expenses: expensesNet, sst, sstPct: fixed ? 0 : n(rates.sstOnFeePct),
+  else gross = bk.reduce((s, b) => s + bookingPTO(b, rates).pto, 0);
+  // Fees: on the rent or Gross Rental; Profit Sharing on Gross Rental less the unit's expenses (never below 0)
+  const base = rates.type === 'profit' ? Math.max(0, gross - ex.filter(e => e.kind === 'expense').reduce((s, e) => s + Math.abs(n(e.amount)), 0)) : gross;
+  service = base * n(rates.serviceFeePct);
+  utility = base * n(rates.utilityFeePct);
+  sst = service * n(rates.sstOnFeePct);
+  return { gross, service, utility, expenses: expensesNet, sst, sstPct: n(rates.sstOnFeePct), pool: rates.type === 'pool',
     nett: gross - service - utility - sst - expensesNet, bookings: bk.length, lines: ex.length,
     arrangement: rates.arrangement, fixed, estimated: !fixed && bk.some(b => bookingPTO(b, rates).estimated) };
 }

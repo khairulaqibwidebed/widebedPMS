@@ -124,7 +124,7 @@
 // conversation between HR and the Directors with photos (components/ComplaintChat.vue, rules Draft 0.29).
 // 4 Nov 2026: the Directors set the status (Read by the Directors / In review / Closed with a note / reopen) and keep their
 // own notes; every update notifies HR and the Directors (complaints.js tellBoth, rules Draft 0.30).
-import { loadComplaints, loadMyDirectorComplaints, createComplaint, markRead, loadNotes, addNote, setStatus, DSTATUS, dirStatus } from './complaints.js';
+import { watchComplaintList, mergeRows, createComplaint, markRead, loadNotes, addNote, setStatus, DSTATUS, dirStatus } from './complaints.js';
 import PhotoPicker from '@/components/PhotoPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
@@ -132,10 +132,12 @@ import ComplaintChat from '@/components/ComplaintChat.vue';
 import Avatar from '@/components/Avatar.vue';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
+import { liveMixin } from '@/lib/use-live.js';
 
 const me = useSession();
 
 export default {
+  mixins: [liveMixin],
   components: { PhotoPicker, PhotoThumbs, ComplaintChat, OptionPicker, Avatar },
   computed: {
     isHr() { return me.role === 'hr'; },
@@ -159,19 +161,23 @@ export default {
       notes: [], notesLoading: false, noteText: '', closing: false, closeNote: '', actErr: ''
     };
   },
-  async mounted() {
-    await this.load();
-    // From a notification: open that complaint
-    const id = this.$route.query.id, c = id && this.list.find(x => x.id === id);
-    if (c) this.open(c);
+  mounted() {
+    let first = true;
+    this.load(() => {
+      if (!first) return;
+      first = false;   // from a notification: open that complaint
+      const id = this.$route.query.id, c = id && this.list.find(x => x.id === id);
+      if (c) this.open(c);
+    });
   },
   methods: {
-    async load() {
-      this.loading = true; this.loadErr = '';
-      // HR sees only the Director complaints they sent themselves (5 Nov 2026); the Directors see all
-      try { this.list = this.isHr ? await loadMyDirectorComplaints(me.user.uid) : await loadComplaints('director'); }
-      catch (e) { this.loadErr = friendlyError(e, 'load the complaints'); }
-      this.loading = false;
+    // Live (6 Nov 2026): new complaints and status changes show without a refresh, the open one too.
+    // HR sees only the Director complaints they sent themselves (5 Nov 2026); the Directors see all
+    load(after) {
+      this.loadErr = '';
+      this.liveUse('list', watchComplaintList(this.isHr ? { kind: 'director', fromId: me.user.uid } : { kind: 'director' }, rows => {
+        this.list = mergeRows(this.list, rows); this.loading = false; after?.();
+      }, e => { this.loadErr = friendlyError(e, 'load the complaints'); this.loading = false; }));
     },
     clear() { this.subject = ''; this.details = ''; this.photos = []; this.err = ''; },
     st(c) { return DSTATUS[dirStatus(c)] || DSTATUS.new; },
@@ -201,8 +207,7 @@ export default {
     status(to, text = '') {
       return this.run(async () => {
         await setStatus(me, this.sel, to, text);
-        // The closing note is a message in the conversation
-        if (text) this.$refs.chat?.thread.push({ text: text.trim(), by: 'director', byName: me.name, closing: true, createdAt: null });
+        // The closing note is a message in the conversation; the live chat shows it by itself
         this.sel.status = to; this.closing = false; this.closeNote = '';
       }, 'change the status');
     },
@@ -214,9 +219,9 @@ export default {
       this.busy = true;
       try {
         const ref = await createComplaint(me, 'director', { subject: this.subject.trim(), details: this.details.trim(), files: [], images: this.photos });
-        this.okMsg = `Sent to the Directors as ${ref}.`; this.clear(); await this.load();
+        this.okMsg = `Sent to the Directors as ${ref}.`; this.clear();   // the live list adds it
       } catch (e) {
-        if (e.sentRef) { this.okMsg = `Sent to the Directors as ${e.sentRef}.`; this.err = e.message; this.clear(); await this.load(); }
+        if (e.sentRef) { this.okMsg = `Sent to the Directors as ${e.sentRef}.`; this.err = e.message; this.clear(); }
         else this.err = friendlyError(e, 'send the complaint');
       }
       this.busy = false;
