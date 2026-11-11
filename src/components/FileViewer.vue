@@ -4,7 +4,7 @@
       <div class="modal vwr" role="dialog" :aria-label="file.name">
         <div class="vwr-head"><b>{{ file.name }}</b><span><a class="btn" v-if="file.url" :href="file.url" target="_blank" rel="noopener">Open in Drive</a> <a class="btn" v-if="file.download && src" :href="src" :download="file.name">Download</a> <button type="button" class="btn" @click="close">Close</button></span></div>
         <div class="vwr-body">
-          <p class="help" v-if="loading">Loading…</p>
+          <p class="help loading-line" v-if="loading">Loading…</p>
           <div class="notice error" v-else-if="error">{{ error }}</div>
           <img v-else-if="type === 'image'" :src="src" :alt="file.name">
           <video v-else-if="type === 'video'" :src="src" controls></video>

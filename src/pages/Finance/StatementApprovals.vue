@@ -75,7 +75,7 @@
           </table>
         </div>
         </Paged>
-        <div class="card-foot" v-if="historyBusy && historyLoaded"><span class="help">Loading more…</span></div>
+        <div class="card-foot" v-if="historyBusy && historyLoaded"><span class="help loading-line">Loading more…</span></div>
         <div class="card-foot" v-else-if="historyMore && shownHistory.length <= 10"><button class="btn" @click="loadHistory(true)">Load more</button></div>
       </section>
     </template>

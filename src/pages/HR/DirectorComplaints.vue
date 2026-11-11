@@ -30,6 +30,7 @@
             <tbody>
               <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="showSent = false; open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.subject }}</td><td><span class="who-cell"><Avatar :uid="c.fromUid" :name="c.fromName" role="hr" :size="24" />{{ c.fromName }}</span></td>
                 <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td></tr>
+              <SkeletonRows v-if="loading && !list.length" table :cols="5" />
               <tr v-show="!loading && !list.length"><td colspan="5" class="muted">Nothing sent yet.</td></tr>
             </tbody>
           </table>
@@ -59,6 +60,7 @@
             <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td><span class="who-cell"><Avatar :uid="c.fromUid" :name="c.fromName" role="hr" :size="24" />{{ c.fromName }}</span></td><td>{{ c.subject }}</td>
               <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td>
               <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td></tr>
+            <SkeletonRows v-if="loading && !inboxShown.length" table :cols="6" />
             <tr v-show="!loading && !inboxShown.length"><td colspan="6" class="muted">{{ q.trim() ? `Nothing matches "${q.trim()}".` : list.length ? 'No complaints with this status.' : 'No complaints yet.' }}</td></tr>
           </tbody>
         </table>

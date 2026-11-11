@@ -44,7 +44,8 @@
               <td>{{ r.submittedByName || '—' }}</td>
               <td class="num"><button type="button" class="btn" @click="view = r; editing = false; pendingLink = ''">View</button></td>
             </tr>
-            <tr v-if="!pageRows.length"><td colspan="10" class="muted empty">{{ loading ? 'Loading…' : 'No offline payments found.' }}</td></tr>
+            <SkeletonRows v-if="loading && !pageRows.length" table :cols="10" />
+            <tr v-if="!loading && !pageRows.length"><td colspan="10" class="muted empty">No offline payments found.</td></tr>
           </tbody>
         </table></div>
       </Paged>

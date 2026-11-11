@@ -85,7 +85,7 @@
         <h2 style="margin-top:0;">{{ picker.employeeName }} — TMS tasks for {{ quarter?.name }}</h2>
         <p class="muted" style="margin-top:-6px;">Quarter {{ quarter?.startDate }} to {{ quarter?.endDate }}. Tick the tasks that count for this quarter.</p>
 
-        <p class="muted" v-if="picker.loading">Loading tasks from the task system…</p>
+        <p class="muted loading-line" v-if="picker.loading">Loading tasks from the task system…</p>
         <div class="notice error" v-else-if="picker.error">{{ picker.error }}</div>
 
         <template v-else>

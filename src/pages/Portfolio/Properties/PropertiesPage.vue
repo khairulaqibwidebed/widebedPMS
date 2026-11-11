@@ -59,6 +59,7 @@
                 <td class="num"><button class="navlink" @click.stop="openPropertyPage(p.id)">Open →</button></td>
               </tr>
             </template>
+            <SkeletonRows v-if="loading && !shownProperties.length" table :cols="acc.viewOnly ? 5 : 7" />
             <tr v-show="!loading && !shownProperties.length"><td :colspan="acc.viewOnly ? 5 : 7" class="muted">{{ acc.viewOnly ? 'No properties yet.' : 'No properties yet. Add one, or upload an eZee report and it is created for you.' }}</td></tr>
           </tbody>
         </table>

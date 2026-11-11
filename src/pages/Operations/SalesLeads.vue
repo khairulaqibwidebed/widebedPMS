@@ -48,6 +48,7 @@
                     <td class="num"><button class="editlink" @click="go('lead', ld.id)">{{ ld.assignedTo || !canAssign ? 'View' : 'Assign' }}</button></td>
                   </tr>
                 </template>
+                <SkeletonRows v-if="loading && !shown().length" table :cols="8" />
                 <tr v-show="!loading && !shown().length"><td colspan="8" class="muted">No inquiries here.</td></tr>
               </tbody>
             </table>

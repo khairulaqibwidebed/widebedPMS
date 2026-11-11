@@ -38,6 +38,7 @@
                 <span class="muted" v-else title="Your own details are changed by a Director">—</span>
               </td>
             </tr>
+            <SkeletonRows v-if="loading && !shown().length" table :cols="6" />
             <tr v-show="!loading && !shown().length"><td colspan="6" class="muted">No staff match.</td></tr>
           </tbody>
         </table>

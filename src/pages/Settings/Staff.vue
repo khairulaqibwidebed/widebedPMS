@@ -67,6 +67,7 @@
               </td>
             </tr>
           </template>
+          <SkeletonRows v-if="loading && !shown().length" table :cols="7" />
           <tr v-show="!loading && !shown().length"><td colspan="7" class="muted">No staff match.</td></tr>
         </tbody>
       </table>
@@ -84,7 +85,7 @@
         <div class="drawer-body">
           <p class="help" style="margin:0 0 12px">Who was invited, who changed role or page access and who was turned off or back on, newest first.</p>
           <div class="notice error" v-show="logsError">{{ logsError }}</div>
-          <div class="empty" v-show="logsLoading">Loading…</div>
+          <div class="empty loading-line" v-show="logsLoading">Loading…</div>
           <Paged :items="changes" :size="10" v-slot="{ pageRows }">
             <div class="changes logs-list">
               <template v-for="c in pageRows" :key="c.id"><div>{{ c.text }}</div></template>

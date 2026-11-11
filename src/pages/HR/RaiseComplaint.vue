@@ -52,6 +52,7 @@
               <td>{{ c.anonymous ? 'Anonymous' : myName }}</td>
               <td><span class="pill" :class="(STATUS[c.status] || STATUS.new)[1]">{{ (STATUS[c.status] || STATUS.new)[0] }}</span>
                 <div class="help" v-if="c.readAt?.toDate">{{ 'Read ' + c.readAt.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) }}</div></td></tr>
+            <SkeletonRows v-if="loading && !list.length" table :cols="5" />
             <tr v-show="!loading && !list.length"><td colspan="5" class="muted">You haven't sent any complaints.</td></tr>
           </tbody>
         </table>

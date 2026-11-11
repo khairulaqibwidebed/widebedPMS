@@ -20,7 +20,7 @@
           <h3>Booking</h3>
           <div class="field"><label class="req">Booking ID</label>
             <OptionPicker class="fld-pick" v-model="bookingId" :options="bookingOptions" label="Booking ID" searchable /></div>
-          <p class="help" v-if="loading">Loading bookings…</p>
+          <p class="help loading-line" v-if="loading">Loading bookings…</p>
           <p class="help" v-else-if="!bookings.length">No bookings found.</p>
           <p class="help ok-note" v-else-if="existing">A bill is already saved for this booking and has been filled in on the Bills step. Change anything and press Save to update it.</p>
           <div class="kvs" v-if="picked">

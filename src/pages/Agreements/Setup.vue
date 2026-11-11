@@ -38,6 +38,7 @@
                 <button class="act-pill danger" @click="archive('master', m)">Archive</button>
               </td>
             </tr>
+            <SkeletonRows v-if="loading && !masters.length" table :cols="5" />
             <tr v-if="!loading && !masters.length"><td colspan="5" class="muted">No master files yet. Add a Word file or a Google Docs link.</td></tr>
           </tbody>
         </table>
@@ -75,6 +76,7 @@
                 <button class="act-pill danger" @click="archive('form', f)">Archive</button>
               </td>
             </tr>
+            <SkeletonRows v-if="loading && !forms.length" table :cols="7" />
             <tr v-if="!loading && !forms.length"><td colspan="7" class="muted">No forms yet. Start from the tenancy forms in your sheet or a blank one.</td></tr>
           </tbody>
         </table>
@@ -111,6 +113,7 @@
                 <button class="act-pill danger" @click="archive('template', t)">Archive</button>
               </td>
             </tr>
+            <SkeletonRows v-if="loading && !templates.length" table :cols="7" />
             <tr v-if="!loading && !templates.length"><td colspan="7" class="muted">No templates yet.</td></tr>
           </tbody>
         </table>

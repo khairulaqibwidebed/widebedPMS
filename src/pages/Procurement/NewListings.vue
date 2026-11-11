@@ -65,6 +65,7 @@
                     <td><span class="pill" :class="tmsState(l)[1]">{{ tmsState(l)[0] }}</span></td>
                   </tr>
                 </template>
+                <SkeletonRows v-if="loading && !shown().length" table :cols="7" />
                 <tr v-show="!loading && !shown().length"><td colspan="7" class="muted">No listings here.</td></tr>
               </tbody>
             </table>
