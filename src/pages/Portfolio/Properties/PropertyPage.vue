@@ -228,7 +228,9 @@ export default {
       if (p.id !== this.propertyId) { this.$router.replace(this.url(p.id, 'units')); return; }
       takeHandoff();
       if (this.ptab !== 'units') { this.ptab = 'units'; this.syncUrl(); }
+      // Types of service on the listing: its service fee is filled in as the unit's own service fee % (prefill only).
       this.openUnit(null, { unitCode: [p.code, h.unit].filter(Boolean).join(' '), reason: `New owner listing ${h.listingId}`, fromListing: h,
+        ...(h.serviceFee ? { serviceFeePct: h.serviceFee.pct } : {}),
         ownerId: this.owners.some(x => x.id === h.portfolio?.ownerId && x.active !== false) ? h.portfolio.ownerId : '' });
     }
   }

@@ -1,5 +1,10 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.50, 11 Nov 2026 (Khairul): anonymous senders can reply in their staff complaint's
+// Widebed PMS Firestore rules. Draft 0.51, 11 Nov 2026 (Khairul): Owner Leads statuses. newOwnerListings status may be
+// inProgress (older), progress, signed, live or cancelled (Not proceeding). Status and its fields (prevStatus, signedAt,
+// liveAt, cancelledAt/By/ByUid, cancelReason) change only by Directors and Procurement (also from the TMS, which writes as
+// the signed-in person); Marketing may only take a listing to Live (with liveAt). Only Directors reopen a cancelled one.
+// The owner's phone and email (newOwnerListings/{id}/private/main) now only Directors and Procurement read and write.
+// Draft 0.50, 11 Nov 2026 (Khairul): anonymous senders can reply in their staff complaint's
 // conversation (and add photos or documents) while it isn't Closed; nothing naming them is saved (no byUid, no byName).
 // Documents on Director complaints too (HR's Drive; the Directors and the HR sender). docs may carry threadId (a chat photo).
 // Draft 0.49 (Neo), 11 Nov 2026: Staff Attendance (Flutter app on this same Firebase project, PMS sign-in).
@@ -238,6 +243,16 @@ service cloud.firestore {
     // New Owner Listings.
     function listingViewer()   { return can('newOwnerListings.view'); }
     function listingEditor()   { return can('newOwnerListings.edit'); }
+    // Draft 0.51: lead statuses
+    function listingMover()    { return isDirector() || role() == 'procurement'; }
+    function listingStatuses() { return ['inProgress', 'progress', 'signed', 'live', 'cancelled']; }
+    function oldListingStatus() { return resource.data.get('status', 'inProgress'); }
+    function listingStatusOk() {
+      return !changed().hasAny(['status', 'prevStatus', 'signedAt', 'liveAt', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancelReason'])
+        || (listingMover() && (isDirector() || oldListingStatus() != 'cancelled' || !changed().hasAny(['status'])))
+        || (role() == 'marketing' && request.resource.data.status == 'live' && oldListingStatus() in ['inProgress', 'progress', 'signed']
+            && !changed().hasAny(['prevStatus', 'signedAt', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancelReason']));
+    }
 
     // ---- Paths and writes ----
     function docPath(col, id)    { return /databases/$(database)/documents/$(col)/$(id); }
@@ -1120,14 +1135,15 @@ service cloud.firestore {
       allow read: if listingViewer() || listingEditor();
       allow create: if listingEditor() && id.matches('NL-[0-9]{4,}')
         && request.resource.data.createdByUid == request.auth.uid
-        && request.resource.data.status in ['inProgress', 'live'];
+        && request.resource.data.status in ['inProgress', 'progress'];
       allow update: if listingEditor()
         && !changed().hasAny(['createdByUid', 'createdByName', 'createdAt'])
-        && request.resource.data.status in ['inProgress', 'live'];
+        && request.resource.data.get('status', 'inProgress') in listingStatuses()
+        && listingStatusOk();
       allow delete: if false;
       match /private/{docId} {
-        allow read: if (listingEditor() || (opsRole() && listingViewer())) && docId == 'main';
-        allow write: if listingEditor() && docId == 'main';
+        allow read: if listingMover() && listingViewer() && docId == 'main';
+        allow write: if listingMover() && listingEditor() && docId == 'main';
       }
     }
 

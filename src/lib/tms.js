@@ -4,7 +4,7 @@
 // kept in this code. See handoffs/Task_System_PMS_Link.md and the TMS repo's docs/PMS_LINK.md.
 //
 // PMS uids are TMS uids (staff sign in to the TMS with their PMS account), so assignees are sent as PMS uids.
-// Used by Procurement > New Owner Listings (pages/Procurement/NewListings.vue) and Operations > Issues (syncIssue).
+// Used by Owner Leads / Listing Flow (lib/owner-leads.js, pages/Procurement/OwnerLeads/) and Operations > Issues (syncIssue).
 import { auth } from './firebase.js';
 
 // Set VITE_TMS_URL in .env.local to try a TMS preview or a local copy; the live TMS is the fallback.
@@ -70,3 +70,13 @@ export const syncIssue = id => sendToTasks('issue', { data: { id } });
 // The property boards of the TMS Maintenance workspace: the Property list when raising or editing a ticket (every
 // ticket's card goes on its property's board). [{ id, name, pmsPropertyId }]
 export const maintenanceBoards = async () => (await sendToTasks('maintenanceBoards')).boards || [];
+
+// Owner Leads (Procurement > Owner Leads / Listing Flow). Every card of the TMS board "Owner Leads" (workspace
+// "Business Development & Procurement"). Director, Procurement, Marketing, Operations.
+// [{ taskId, title, description, createdAt, updatedAt, dueDate (ISO), column (name),
+//    status ('new'|'progress'|'signed'|'live'|'cancelled'|null), assigneeUids, createdByName, pmsLink }]
+export const ownerLeads = async () => (await sendToTasks('ownerLeads')).leads || [];
+
+// Director or Procurement: moves an Owner Leads card to the column of that status (any direction).
+// status: 'new' | 'progress' | 'signed' | 'live' | 'cancelled'. Resolves { column, status, moved }.
+export const moveOwnerLead = (taskId, status) => sendToTasks('moveOwnerLead', { taskId, data: { status } });

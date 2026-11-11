@@ -37,7 +37,8 @@
             <OptionPicker class="full-pick" v-model="u.arrangement" :options="arrangementOptions" label="Arrangement" searchable />
             <span class="help" v-if="chosen">{{ `${FEE_TYPES[chosen.type]?.label || chosen.type}: ${FEE_TYPES[chosen.type]?.explain || ''}` }}<FormulaInfo :type="chosen.type" /></span>
             <span class="help" v-else-if="u.arrangement">This arrangement is not on this property's Fees & rates for the month. Pick another.</span>
-            <span class="help" v-else>Arrangements are set up on the Fees & rates tab.</span></div>
+            <span class="help" v-else>Arrangements are set up on the Fees & rates tab.</span>
+            <span class="help from-listing" v-if="u.isNew && u.fromListing?.serviceFee">{{ `From ${u.fromListing.listingId}: ${u.fromListing.serviceFee.label} rent, service fee ${u.fromListing.serviceFee.pct}%. It is filled in as this unit's service fee once you pick an arrangement; clear it to use the arrangement's number.` }}</span></div>
           <div class="field" v-show="isFixed"><label for="uFix" class="req">Fixed rent a month (RM)</label><input class="input" id="uFix" type="number" step="0.01" v-model="u.fixedRentAmount"></div>
           <template v-if="chosen">
             <div class="grid-3">

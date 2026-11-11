@@ -327,7 +327,7 @@ const QUICK = {
     { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' }],
   marketing: [{ label: 'Raise a ticket', to: '/Operations/issues', desc: 'Report a problem or ask a team', icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
     { label: 'Open Portfolio', to: '/Portfolio/properties', desc: 'Browse properties, units and owners', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10' },
-    { label: 'Open Owner leads', to: '/Procurement/new-owner-listings', desc: 'Tick the Marketing checklist', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8' }]
+    { label: 'Open Listing Flow', to: '/Procurement/listing-flow', desc: 'Tick the Marketing checklist', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8' }]
 };
 
 export default {
@@ -393,10 +393,10 @@ export default {
         { label: 'Properties', value: this.pf.properties.length, to: '/Portfolio/properties', hint: 'Active in Portfolio' },
         { label: 'Units', value: this.pf.unitCount, to: '/Portfolio/properties', hint: 'Across all properties' }
       ];
-      if (this.view === 'procurement') list.push({ label: 'Owner leads', value: this.listings.notLive, to: '/Procurement/new-owner-listings',
+      if (this.view === 'procurement') list.push({ label: 'Owner leads', value: this.listings.notLive, to: '/Procurement/owner-leads',
         hint: `Not live yet · ${this.listings.unsigned} agreement not signed · ${this.listings.count - this.listings.notLive} live` });
       if (this.view === 'marketing') list.push({ label: 'Listings for Marketing', value: this.listings.forMarketing, alert: this.listings.forMarketing > 0,
-        to: '/Procurement/new-owner-listings', hint: `Payment confirmed, not live yet · ${this.listings.notLive} of ${this.listings.count} not live` });
+        to: '/Procurement/listing-flow', hint: `Payment confirmed, not live yet · ${this.listings.notLive} of ${this.listings.count} not live` });
       return list;
     },
     newestTickets() { return [...this.tickets].sort((a, b) => ms(b.createdAt) - ms(a.createdAt)); },

@@ -163,7 +163,7 @@ export async function loadHR() {
 // is confirmed, so "for Marketing" = paid and not live yet.
 export async function loadListingCounts() {
   const list = rows(await getDocs(collection(db, 'newOwnerListings')));
-  const notLive = list.filter(x => x.status !== 'live');
+  const notLive = list.filter(x => x.status !== 'live' && x.status !== 'cancelled');   // Not proceeding counts as neither
   return { count: list.length, notLive: notLive.length, forMarketing: notLive.filter(x => x.payment?.confirmed).length,
     unsigned: notLive.filter(x => !x.agreement?.signed && x.agreement?.skipped).length };
 }
