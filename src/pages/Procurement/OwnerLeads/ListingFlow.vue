@@ -90,7 +90,7 @@
           <StageServices v-else-if="tab === 'services'" :d="d" :can-edit="editable" :n="numberOf('services')" />
           <StageRenovation v-else-if="tab === 'renovation'" :d="d" :listing-id="l.id" :can-edit="editable" :n="numberOf('renovation')" @copy="copy" />
           <StageFurniture v-else-if="tab === 'furniture'" :d="d" :can-edit="editable" :n="numberOf('furniture')" @copy="copy" />
-          <StagePayment v-else-if="tab === 'payment'" :d="d" :listing-id="l.id" :can-edit="editable" :busy="busy" :n="numberOf('payment')" @confirm-payment="confirmPayment" />
+          <StagePayment v-else-if="tab === 'payment'" :d="d" :listing-id="l.id" :can-edit="editable" :busy="busy" :pdf-busy="pdfBusy" :n="numberOf('payment')" @confirm-payment="confirmPayment" @download-quote="downloadQuote" />
           <StageMarketing v-else-if="tab === 'marketing'" :d="d" :can-edit="editable" :busy="busy" :mk-task="mkTask" :tasks-error="tasksError" :tasks-loading="tasksLoading"
             :n="numberOf('marketing')" @go-live="goLive" @refresh-tasks="loadTasks" />
           <StageLive v-else-if="tab === 'live'" :d="d" :portfolio="l.portfolio || null" :can-edit="editable" :busy="busy" :can-add-portfolio="canAddPortfolio"
@@ -216,7 +216,7 @@ import { notifyRole } from '@/services/notificationService';
 import { toast } from '@/lib/toast.js';
 import { handOff } from '@/lib/handoff.js';
 import {
-  LINK_TYPE, LIST_LIMIT, STAGES, STAGE_KEYS, PORTFOLIO_ADDERS, CONTACT_READERS, toRow, draftOf, clone, money, nowIso, sameData,
+  LINK_TYPE, LIST_LIMIT, STAGES, STAGE_KEYS, PORTFOLIO_ADDERS, CONTACT_READERS, toRow, draftOf, clone, money, rm, depositOf, nowIso, sameData,
   stagesFor, stageDoneOf, stagePartOf, currentKeyOf, stageNote, validate, saveListing, pushListing, loadContact,
   startFromTask, placeOf, tmsState, full, stamp, errText, listingLink, stageText, serviceFeeOf,
   LEAD_STATUS, UNIT_TYPES, SOURCES, STATUS_MOVERS, LEAD_READERS, statusOf, agingOf, moveCard, setNotProceeding, reopenListing, reconcile
@@ -230,6 +230,8 @@ import StageServices from './stages/StageServices.vue';
 import StageRenovation from './stages/StageRenovation.vue';
 import StageFurniture from './stages/StageFurniture.vue';
 import StagePayment from './stages/StagePayment.vue';
+import { buildQuotePdf, quoteFileName } from '@/lib/listing-quote-pdf.js';
+import { downloadBytes } from '@/lib/agreements/bytes.js';
 import StageMarketing from './stages/StageMarketing.vue';
 import StageLive from './stages/StageLive.vue';
 
@@ -252,7 +254,7 @@ export default {
       listings: [], listLoading: true, properties: [],
       mode: '', l: null, saved: null, d: null, c: blankContact(), c0: blankContact(), tab: 'agreement', wantStage: '', notFound: false, remoteChanged: false, newDirty: false,
       linked: [], tasksLoading: false, tasksError: '', showDetails: false, histOpen: false,
-      formError: '', okMsg: '', error: '', loading: false, busy: false
+      formError: '', okMsg: '', error: '', loading: false, busy: false, pdfBusy: false
     };
   },
   computed: {
@@ -413,24 +415,56 @@ export default {
       } catch (e) { this.formError = errText(e, 'send to the task system'); }
       this.busy = false;
     },
-    async confirmPayment() {
-      if (!(money(this.d.payment.amount) > 0)) { this.formError = 'Add the final amount before confirming the payment.'; return; }
+    // kind: 'full' (Payment confirmed), 'deposit' (Deposit received) or 'balance' (Balance received).
+    // Marketing starts once the money is in (Khairul 11 Nov): Full payment confirmed, or the deposit received. Those
+    // notify the Marketing team; Balance received only marks the listing paid in full (payment.confirmed).
+    async confirmPayment(kind = 'full') {
+      const d = this.d, p = d.payment, total = money(p.amount);
+      if (!(total > 0)) { this.formError = 'Add the final amount before confirming the payment.'; return; }
+      if (kind !== 'full') {
+        if (!(depositOf(d) > 0)) { this.formError = 'Add the deposit amount first.'; return; }
+        if (depositOf(d) >= total) { this.formError = 'The deposit must be less than the final amount.'; return; }
+      }
+      if (kind === 'balance' && !p.deposit.received) { this.formError = 'Confirm the deposit first.'; return; }
       const me = useSession();
-      const keep = clone(this.d.payment), keepMk = clone(this.d.marketing), at = nowIso();
-      Object.assign(this.d.payment, { confirmed: true, confirmedByUid: me.user.uid, confirmedByName: me.name, confirmedAt: at });
-      Object.assign(this.d.marketing, { notifiedAt: at, notifiedByName: me.name });
-      if (!(await this.save())) { this.d.payment = keep; this.d.marketing = keepMk; return; }
+      const keep = clone(p), keepMk = clone(d.marketing), at = nowIso();
+      const who = { receivedByUid: me.user.uid, receivedByName: me.name, receivedAt: at };
+      // Marketing is told once: on Payment confirmed or Deposit received (an older Marketing task counts as told)
+      const tell = kind !== 'balance' && !d.marketing.notifiedAt && !d.marketing.taskId;
+      if (kind === 'deposit') Object.assign(p.deposit, { received: true, ...who });
+      else {
+        if (kind === 'balance') Object.assign(p.balance, { received: true, ...who });
+        Object.assign(p, { confirmed: true, confirmedByUid: me.user.uid, confirmedByName: me.name, confirmedAt: at });
+      }
+      if (tell) Object.assign(d.marketing, { notifiedAt: at, notifiedByName: me.name });
+      if (!(await this.save())) { d.payment = keep; d.marketing = keepMk; return; }
+      const l = this.l;
+      const done = kind === 'deposit' ? `deposit ${rm(p.deposit.amount)} received` : kind === 'balance' ? 'balance received, paid in full' : 'payment confirmed';
+      if (!tell) { this.okMsg = `${l.id}: ${done}.`; return; }
       // The Marketing team's bell: one role notification, opened straight to this listing.
-      const l = this.l, items = this.d.marketing.items.filter(m => m.on).map(m => m.title);
+      const items = d.marketing.items.filter(m => m.on).map(m => m.title);
       try {
         await notifyRole({ recipientRole: 'marketing', type: 'listing', refId: l.id, link: listingLink(l.id),
           title: `New listing for Marketing: ${l.id}`,
-          message: `Payment confirmed for ${placeOf(this.d)}.` + (items.length ? ` Marketing: ${items.join(', ')}.` : '') });
-        this.okMsg = `${l.id}: payment confirmed and the Marketing team notified.`;
+          message: `${kind === 'deposit' ? 'Deposit received' : 'Payment confirmed'} for ${placeOf(d)}.` + (items.length ? ` Marketing: ${items.join(', ')}.` : '') });
+        this.okMsg = `${l.id}: ${done} and the Marketing team notified.`;
       } catch (e) {
         console.error('Notification failed:', e);
-        this.okMsg = `${l.id}: payment confirmed. The Marketing notification could not be sent: ${e.message}`;
+        this.okMsg = `${l.id}: ${done}. The Marketing notification could not be sent: ${e.message}`;
       }
+    },
+    // Quotation PDF of what the Payment stage shows (unsaved changes included). Owner phone and email only for
+    // Directors and Procurement.
+    async downloadQuote() {
+      if (this.pdfBusy) return;
+      this.pdfBusy = true; this.formError = '';
+      try {
+        const l = { ...this.d, id: this.l.id };
+        const bytes = await buildQuotePdf(l, { contact: this.canSeeContact ? this.c : null, by: useSession().name });
+        downloadBytes(bytes, quoteFileName(l));
+        if (this.dirty) toast('The PDF includes your unsaved changes.');
+      } catch (e) { this.formError = `Could not make the quotation PDF: ${e.message || e}`; }
+      this.pdfBusy = false;
     },
     async goLive() {
       await this.markLive();

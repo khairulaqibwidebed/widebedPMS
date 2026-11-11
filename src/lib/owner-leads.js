@@ -18,7 +18,7 @@ import { doc, getDoc, writeBatch, updateDoc, runTransaction, arrayUnion, serverT
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
-import { link, syncTask, moveOwnerLead } from '@/lib/tms.js';
+import { link, syncTask, moveOwnerLead, commentOwnerLead } from '@/lib/tms.js';
 
 export const LINK_TYPE = 'newOwnerListing';
 export const LIST_LIMIT = 300;
@@ -115,6 +115,17 @@ export const FURN = [
   { key: 'essential', label: 'Essential items', doneText: 'All essential items have been fully added in.' }
 ];
 export const PAY_LINKS = [['quotationUrl', 'Quotation PDF'], ['invoiceUrl', 'Owner invoice'], ['proofUrl', 'Payment proof']];
+// Payment type (11 Nov 2026): Full payment, or Deposit + balance. Each part of a deposit payment has its own proof link
+// and its own "received" (who, when). payment.confirmed stays the "paid in full" flag (for Deposit + balance it is set
+// when the balance is received). Marketing starts once the money is in: Full payment confirmed, or for Deposit + balance
+// the deposit received (Khairul 11 Nov). mkReadyOf is that check; stage done, the task moving to Marketing and the
+// dashboards read it. Older listings have no type: Full.
+export const PAY_TYPES = [
+  { key: 'full', label: 'Full payment', hint: 'The owner pays the final amount at once' },
+  { key: 'deposit', label: 'Deposit + balance', hint: 'A deposit first, the balance later' }
+];
+export const payTypeLabel = k => PAY_TYPES.find(t => t.key === k)?.label || 'Full payment';
+const PART = () => ({ proofUrl: '', received: false, receivedByUid: null, receivedByName: '', receivedAt: '' });
 const MK_DEFAULT = ['Logo & Branding', 'Website', 'IG', 'FB', 'TikTok', 'Google Business', 'Flyer', 'Social media content'];
 export const DETAILS = [['property', 'property'], ['unit', 'unit'], ['ownerName', 'owner name'], ['title', 'title'], ['description', 'description'], ['dueDate', 'due date'],
   ['unitType', 'unit type'], ['sizeSqft', 'size'], ['source', 'source'], ['remarks', 'remarks']];
@@ -148,7 +159,8 @@ export function blank() {
     services: { rentType: '', items: allItems(true), maintenance: 'none', notes: '', legacy: false },
     renovation: { items: RENO_DEFAULT.map(([group, title]) => ({ id: lineId(), group, title, status: 'notStarted', cost: '' })), links: [], internalNotes: '', ownerNotes: '' },
     furniture: { big: [], electrical: [], essential: [] },
-    payment: { quotationUrl: '', invoiceUrl: '', proofUrl: '', amount: '', confirmed: false, confirmedByUid: null, confirmedByName: '', confirmedAt: '' },
+    payment: { type: 'full', quotationUrl: '', invoiceUrl: '', proofUrl: '', amount: '', confirmed: false, confirmedByUid: null, confirmedByName: '', confirmedAt: '',
+      deposit: { amount: '', ...PART() }, balance: PART() },
     marketing: { items: MK_DEFAULT.map(title => ({ title, on: false })), taskId: null, sentAt: '', sentByName: '', notifiedAt: '', notifiedByName: '' },
     live: { live: false, at: '', byName: '', overrideReason: '', opsGroup: false }
   };
@@ -158,6 +170,10 @@ export function withDefaults(data) {
   const b = blank(), out = { ...data };
   for (const k of SECTIONS) out[k] = { ...b[k], ...(data[k] || {}) };
   out.furniture = { ...b.furniture, ...(data.furniture || {}) };
+  const p = data.payment || {};
+  out.payment.type = p.type === 'deposit' ? 'deposit' : 'full';
+  out.payment.deposit = { ...b.payment.deposit, ...(p.deposit || {}) };
+  out.payment.balance = { ...b.payment.balance, ...(p.balance || {}) };
   // Listings made before Types of service: renovation and amenities ticked (both stages show, as before), the rest
   // unticked, rent type Not set. legacy = the stage counts as done so they don't jump back to it.
   out.services = data.services
@@ -181,9 +197,21 @@ export const subDoneOf = (l, k) => l.furniture[k].length > 0 && l.furniture[k].e
 export const furnUsed = l => FURN.filter(f => l.furniture[f.key].length > 0);
 // Marketing checklist: every line ticked (Khairul 27 Oct: no Go Live before it is 100%).
 export const mkDoneOf = l => l.marketing.items.length > 0 && l.marketing.items.every(m => m.on);
-// The TMS department that holds the listing's task: Procurement, then Marketing once the payment is confirmed, then
-// Operations once it is Live.
-export const deptOf = l => (l.live.live ? 'operation' : l.payment.confirmed ? 'marketing' : 'procurement');
+// The TMS department that holds the listing's task: Procurement, then Marketing once Marketing can start (mkReadyOf),
+// then Operations once it is Live.
+export const deptOf = l => (l.live.live ? 'operation' : mkReadyOf(l) ? 'marketing' : 'procurement');
+
+// ---- payment parts ----
+export const isDeposit = l => l.payment.type === 'deposit';
+// Marketing can start: paid in full, or the deposit received on a Deposit + balance listing
+export const mkReadyOf = l => !!l.payment.confirmed || (isDeposit(l) && !!l.payment.deposit.received);
+// Deposit in, balance not yet
+export const balanceDueOf = l => isDeposit(l) && !!l.payment.deposit.received && !l.payment.confirmed;
+export const depositOf = l => money(l.payment.deposit.amount);
+export const balanceOf = l => money(money(l.payment.amount) - depositOf(l));
+// The proof links of the payment type in use: [[path, label]] (path 'proofUrl' or 'deposit.proofUrl' / 'balance.proofUrl')
+export const proofLinksOf = l => (isDeposit(l) ? [['deposit.proofUrl', 'Deposit proof'], ['balance.proofUrl', 'Balance proof']] : [['proofUrl', 'Payment proof']]);
+export const linkAt = (l, path) => path.split('.').reduce((o, k) => o?.[k], l.payment) || '';
 
 // The stages this listing shows, in order. All six for now (Phase 2: Renovation / Furniture only when chosen).
 export function stagesFor(l) {
@@ -191,14 +219,15 @@ export function stagesFor(l) {
 }
 
 // Each stage counts as done when: agreement signed or skipped for now (with a note); every renovation line Done; every
-// furniture line ticked in each sub-stage that has lines (empty ones are not needed); payment confirmed; Marketing
+// furniture line ticked in each sub-stage that has lines (empty ones are not needed); payment confirmed (or the deposit
+// received on a Deposit + balance listing: the balance is still shown as due); Marketing
 // notified and every checklist line ticked (or an older Marketing task sent); Live.
 export function stageDoneOf(l, key) {
   if (key === 'agreement') return l.agreement.signed || (l.agreement.skipped && !!l.agreement.skipNote.trim());
   if (key === 'services') return !!l.services.rentType || !!l.services.legacy;
   if (key === 'renovation') return l.renovation.items.length > 0 && l.renovation.items.every(x => x.status === 'done');
   if (key === 'furniture') return furnUsed(l).length > 0 && furnUsed(l).every(f => subDoneOf(l, f.key));
-  if (key === 'payment') return l.payment.confirmed;
+  if (key === 'payment') return mkReadyOf(l);
   if (key === 'marketing') return !!l.marketing.taskId || (!!l.marketing.notifiedAt && mkDoneOf(l));
   return l.live.live;
 }
@@ -209,7 +238,7 @@ export function stagePartOf(l, key) {
   if (key === 'services') return l.services.maintenance !== 'none' || !!l.services.notes.trim();
   if (key === 'renovation') return l.renovation.items.some(x => x.status !== 'notStarted');
   if (key === 'furniture') return FURN.some(f => l.furniture[f.key].some(x => x.done));
-  if (key === 'payment') return PAY_LINKS.some(([k]) => !!l.payment[k]) || money(l.payment.amount) > 0;
+  if (key === 'payment') return PAY_LINKS.some(([k]) => !!l.payment[k]) || money(l.payment.amount) > 0 || l.payment.deposit.received || !!l.payment.deposit.proofUrl;
   if (key === 'marketing') return !!l.marketing.notifiedAt || l.marketing.items.some(m => m.on);
   return false;
 }
@@ -225,7 +254,7 @@ export function stageNote(l, key) {
   if (key === 'services') return l.services.rentType ? `${rentLabel(l.services.rentType)} rent` : l.services.legacy ? 'Not set (older)' : 'Not set';
   if (key === 'renovation') return `${l.renovation.items.filter(x => x.status === 'done').length}/${l.renovation.items.length} done`;
   if (key === 'furniture') return furnUsed(l).length ? `${furnUsed(l).filter(f => subDoneOf(l, f.key)).length}/${furnUsed(l).length} completed` : 'No items yet';
-  if (key === 'payment') return l.payment.confirmed ? 'Confirmed' : 'Waiting';
+  if (key === 'payment') return l.payment.confirmed ? (isDeposit(l) ? 'Paid in full' : 'Confirmed') : balanceDueOf(l) ? 'Balance due' : 'Waiting';
   if (key === 'marketing') return l.marketing.taskId ? 'Sent' : !l.marketing.notifiedAt ? 'Waiting' : `${l.marketing.items.filter(m => m.on).length}/${l.marketing.items.length} done`;
   return l.live.live ? 'Live' : 'Not yet';
 }
@@ -260,7 +289,8 @@ export function checklistOf(l) {
     { title: `Types of service${l.services.rentType ? `: ${rentLabel(l.services.rentType)} rent` : ''}`, done: stageDoneOf(l, 'services') },
     ...(serviceOn(l, 'renovation') ? l.renovation.items.filter(x => x.title.trim()).map(x => ({ title: `Renovation: ${x.title.trim()}`, done: x.status === 'done' })) : []),
     ...(serviceOn(l, 'amenities') ? FURN.map(f => ({ title: `Furniture: ${f.label}`, done: subDoneOf(l, f.key) || (!l.furniture[f.key].length && stageDoneOf(l, 'furniture')) })) : []),
-    { title: 'Final quotation & payment confirmed', done: l.payment.confirmed },
+    ...(isDeposit(l) ? [{ title: 'Deposit received', done: l.payment.deposit.received }] : []),
+    { title: isDeposit(l) ? 'Balance received (paid in full)' : 'Final quotation & payment confirmed', done: l.payment.confirmed },
     { title: 'Marketing notified', done: !!(l.marketing.taskId || l.marketing.notifiedAt) },
     { title: 'Live', done: l.live.live }
   ];
@@ -319,7 +349,17 @@ export function summarize(a, b, contactChanged) {
 
   for (const [k, label] of PAY_LINKS) if ((a.payment[k] || '') !== (b.payment[k] || '')) out.push(`${label} link ${b.payment[k] ? (a.payment[k] ? 'changed' : 'added') : 'removed'}.`);
   if (money(a.payment.amount) !== money(b.payment.amount)) out.push(`Final amount ${rm(b.payment.amount)}.`);
-  if (b.payment.confirmed && !a.payment.confirmed) out.push(`Payment confirmed by ${b.payment.confirmedByName}.`);
+  const p0 = a.payment, p1 = b.payment;
+  if ((p0.type || 'full') !== p1.type) out.push(`Payment type: ${payTypeLabel(p1.type)}.`);
+  if (isDeposit(b)) {
+    if (money(p0.deposit?.amount) !== money(p1.deposit.amount)) out.push(`Deposit ${rm(p1.deposit.amount)} (balance ${rm(balanceOf(b))}).`);
+    for (const k of ['deposit', 'balance']) {
+      const was = p0[k]?.proofUrl || '', now = p1[k].proofUrl || '', label = k === 'deposit' ? 'Deposit' : 'Balance';
+      if (was !== now) out.push(`${label} proof link ${now ? (was ? 'changed' : 'added') : 'removed'}.`);
+    }
+    if (p1.deposit.received && !p0.deposit?.received) out.push(`Deposit ${rm(p1.deposit.amount)} received, confirmed by ${p1.deposit.receivedByName}.`);
+    if (p1.balance.received && !p0.balance?.received) out.push(`Balance ${rm(balanceOf(b))} received, confirmed by ${p1.balance.receivedByName}. Paid in full.`);
+  } else if (p1.confirmed && !p0.confirmed) out.push(`Payment confirmed by ${p1.confirmedByName}.`);
   if (b.marketing.notifiedAt && !a.marketing.notifiedAt) out.push('Marketing team notified.');
 
   const mk = x => x.marketing.items.filter(m => m.on).map(m => m.title).join(', ');
@@ -345,6 +385,12 @@ export function validate(d, contact) {
   if (FURN.some(f => d.furniture[f.key].some(x => !x.item.trim()))) return 'Give each furniture line an item name, or remove it.';
   if ([...d.renovation.items, ...FURN.flatMap(f => d.furniture[f.key])].some(x => String(x.cost ?? '').trim() && isNaN(Number(String(x.cost).replace(/,/g, ''))))) return 'Costs are numbers in RM, e.g. 2500.';
   for (const [k, label] of PAY_LINKS) if (d.payment[k] && !httpsOk(d.payment[k])) return `The ${label} link must be a Google Drive link starting with https://.`;
+  if (isDeposit(d)) {
+    for (const [path, label] of proofLinksOf(d)) if (linkAt(d, path) && !httpsOk(linkAt(d, path))) return `The ${label} link must be a Google Drive link starting with https://.`;
+    const dep = String(d.payment.deposit.amount ?? '').trim();
+    if (dep && isNaN(Number(dep.replace(/,/g, '')))) return 'The deposit is a number in RM, e.g. 2000.';
+    if (dep && money(d.payment.amount) > 0 && depositOf(d) >= money(d.payment.amount)) return 'The deposit must be less than the final amount.';
+  }
   if (!emailOk((contact?.ownerEmail || '').trim())) return 'That owner email doesn\'t look right.';
   return '';
 }
@@ -379,7 +425,9 @@ export async function saveListing({ l, before, d, c, c0, live = false }) {
   const h = entry(text);
   const prevSync = l.tmsSync || {};
   // Saved as "not sent" first, so a closed tab or lost connection still shows it; cleared once the task has it.
-  const tmsSync = l.tmsTaskId ? { linked: prevSync.linked !== false, pending: true, pendingNote: [prevSync.pending ? prevSync.pendingNote : '', lines.join('\n')].filter(Boolean).join('\n'),
+  // Remarks filled in or changed: sent to the card as a comment by pushListing (kept in pendingRemarks until it goes).
+  const remarks = (d.remarks || '').trim(), remarksNew = !!remarks && remarks !== (before.remarks || '').trim();
+  const tmsSync = l.tmsTaskId ? { ...prevSync, ...(remarksNew ? { pendingRemarks: remarks } : {}), linked: prevSync.linked !== false, pending: true, pendingNote: [prevSync.pending ? prevSync.pendingNote : '', lines.join('\n')].filter(Boolean).join('\n'),
     error: prevSync.error || '', at: prevSync.at || '' } : null;
   const ref = doc(db, 'newOwnerListings', l.id);
   const b = writeBatch(db);
@@ -405,8 +453,13 @@ export async function pushListing(l, { completed } = {}) {
     if (!linked) { await link(l.tmsTaskId, { type: LINK_TYPE, id: l.id }); linked = true; }
     await syncTask(l.tmsTaskId, { note: s.pendingNote || '', checklist: checklistOf(l), completed: completed ?? (l.live.live ? true : undefined),
       started: stageDoneOf(l, 'agreement'), departmentId: deptOf(l) });
-    next = { linked: true, pending: false, pendingNote: '', error: '', at: nowIso() };
+    next = { ...(s.pendingStatus ? { pendingStatus: s.pendingStatus } : {}), linked: true, pending: false, pendingNote: '', error: '', at: nowIso() };
     message = `${l.id} saved and sent to the task system.`;
+    if (s.pendingRemarks) {
+      const r = await sendRemarks(l.tmsTaskId, s.pendingRemarks);
+      if (r.error) { next = { ...next, pending: true, pendingRemarks: s.pendingRemarks, error: r.error }; message = `${l.id} saved and sent. The remarks did not reach the card yet: ${r.error}`; }
+      else if (r.sent) message = `${l.id} saved and sent to the task system, remarks added as a comment.`;
+    }
   } catch (e) {
     next = { ...s, linked, pending: true, error: e.message };
     message = `${l.id} saved here. Not sent to task system: ${e.message}`;
@@ -414,6 +467,13 @@ export async function pushListing(l, { completed } = {}) {
   try { await updateDoc(doc(db, 'newOwnerListings', l.id), { tmsSync: next }); l.tmsSync = next; }
   catch (e) { throw stop(friendlyError(e, 'note the task system result')); }
   return { sent: !next.pending, message };
+}
+
+// The listing's Remarks as a comment on its Owner Leads card. A card on another board is left alone (not an error).
+// Resolves { sent, error }.
+async function sendRemarks(taskId, remarks) {
+  try { await commentOwnerLead(taskId, `Remarks (from the PMS): ${remarks}`); return { sent: true, error: '' }; }
+  catch (e) { return /is not on the/i.test(e.message) ? { sent: false, error: '' } : { sent: false, error: e.message }; }
 }
 
 // A new listing (NL number from the counter, in one transaction). task = the TMS task it starts from, or null.
@@ -451,7 +511,12 @@ export async function startFromTask(t, fields = {}) {
     message = `${id} started and linked to the card.`;
     try { tmsColumn = (await moveOwnerLead(task.id, 'progress')).column; message = `${id} started; the card is in ${tmsColumn}.`; }
     catch (e) { tmsSync.pendingStatus = 'progress'; message = `${id} started and linked. The card could not be moved to In Progress yet: ${e.message}`; }
-  } catch (e) { tmsSync = { linked: false, pending: true, pendingNote: '', error: e.message, at: '', pendingStatus: 'progress' }; message = `${id} started. Not linked in the task system yet: ${e.message}`; }
+    const remarks = (fields.remarks || '').trim();
+    if (remarks) {
+      const r = await sendRemarks(task.id, remarks);
+      if (r.error) { Object.assign(tmsSync, { pending: true, pendingRemarks: remarks, error: r.error }); message += ` The remarks did not reach the card yet: ${r.error}`; }
+    }
+  } catch (e) { tmsSync = { linked: false, pending: true, pendingNote: '', error: e.message, at: '', pendingStatus: 'progress', ...((fields.remarks || '').trim() ? { pendingRemarks: fields.remarks.trim() } : {}) }; message = `${id} started. Not linked in the task system yet: ${e.message}`; }
   await updateDoc(doc(db, 'newOwnerListings', id), { tmsSync, ...(tmsColumn ? { tmsColumn } : {}) }).catch(() => {});
   return { id, message };
 }

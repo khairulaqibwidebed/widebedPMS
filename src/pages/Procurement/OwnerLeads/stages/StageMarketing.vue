@@ -1,7 +1,7 @@
 <template>
   <section class="card" aria-label="Marketing">
     <div class="card-head"><h2>{{ `${n}. Marketing` }}</h2><span class="pill" :class="d.marketing.taskId || d.marketing.notifiedAt ? 'green' : 'grey'">{{ d.marketing.taskId ? 'Sent to Marketing' : d.marketing.notifiedAt ? 'Marketing notified' : 'Not notified' }}</span></div>
-    <div class="notice warn" v-if="!d.payment.confirmed && !d.marketing.taskId">Marketing is notified once the final payment is confirmed (Payment stage).</div>
+    <div class="notice warn" v-if="!mkReadyOf(d) && !d.marketing.taskId">Marketing is notified once the payment is confirmed, or the deposit received (Payment stage).</div>
     <div class="kv" v-if="d.marketing.notifiedAt"><span>Notified</span><span>{{ `By ${d.marketing.notifiedByName}, ${stamp(d.marketing.notifiedAt)}` }}</span></div>
     <template v-if="!d.marketing.taskId && canEdit && !d.live.live">
       <div class="mk-head">
@@ -27,7 +27,7 @@
       <button class="btn" @click="$emit('refresh-tasks')" :disabled="tasksLoading">{{ tasksLoading ? 'Checking…' : 'Refresh' }}</button>
     </template>
     <div class="actions" v-if="canEdit && !d.live.live">
-      <button class="btn btn-primary" @click="$emit('go-live')" :disabled="busy || !stageDoneOf(d, 'marketing')" :title="!d.payment.confirmed ? 'Confirm the payment first (Payment stage)' : stageDoneOf(d, 'marketing') ? '' : 'Tick every marketing item first'">Go Live</button>
+      <button class="btn btn-primary" @click="$emit('go-live')" :disabled="busy || !stageDoneOf(d, 'marketing')" :title="!mkReadyOf(d) ? 'Confirm the payment or the deposit first (Payment stage)' : stageDoneOf(d, 'marketing') ? '' : 'Tick every marketing item first'">Go Live</button>
     </div>
     <p class="help" v-if="d.live.live">{{ `Live since ${stamp(d.live.at)}. Handover to Operations is in the Live stage.` }}</p>
   </section>
@@ -35,7 +35,7 @@
 
 <script>
 // Stage: Marketing (the checklist; Go Live is done by the page: save, then notify Operations).
-import { stamp, stageDoneOf } from '@/lib/owner-leads.js';
+import { stamp, stageDoneOf, mkReadyOf } from '@/lib/owner-leads.js';
 
 export default {
   props: { d: { type: Object, required: true }, canEdit: Boolean, busy: Boolean, mkTask: { type: Object, default: null },
@@ -43,7 +43,7 @@ export default {
   emits: ['go-live', 'refresh-tasks'],
   data() { return { mkAdd: '' }; },
   methods: {
-    stamp, stageDoneOf,
+    stamp, stageDoneOf, mkReadyOf,
     addMk() {
       const t = this.mkAdd.trim();
       if (!t) return;

@@ -80,3 +80,5 @@ export const ownerLeads = async () => (await sendToTasks('ownerLeads')).leads ||
 // Director or Procurement: moves an Owner Leads card to the column of that status (any direction).
 // status: 'new' | 'progress' | 'signed' | 'live' | 'cancelled'. Resolves { column, status, moved }.
 export const moveOwnerLead = (taskId, status) => sendToTasks('moveOwnerLead', { taskId, data: { status } });
+// A comment on an Owner Leads card, under the signed-in person's name (a listing's Remarks).
+export const commentOwnerLead = (taskId, text) => sendToTasks('commentOwnerLead', { taskId, data: { text } });

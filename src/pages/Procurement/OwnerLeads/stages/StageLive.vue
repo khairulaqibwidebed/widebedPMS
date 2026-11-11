@@ -6,7 +6,8 @@
       <div class="kv" v-if="d.live.overrideReason"><span>Before Marketing was done</span><span>{{ d.live.overrideReason }}</span></div>
     </template>
     <template v-else-if="canEdit">
-      <div class="notice warn" v-if="!stageDoneOf(d, 'marketing')">{{ d.payment.confirmed ? `Finish the marketing checklist first (${d.marketing.items.filter(m => m.on).length} of ${d.marketing.items.length} done, Marketing stage).` : 'The payment is not confirmed yet (Payment stage), so Marketing has not started.' }}</div>
+      <div class="notice warn" v-if="!stageDoneOf(d, 'marketing')">{{ mkReadyOf(d) ? `Finish the marketing checklist first (${d.marketing.items.filter(m => m.on).length} of ${d.marketing.items.length} done, Marketing stage).` : 'The payment (or the deposit) is not confirmed yet (Payment stage), so Marketing has not started.' }}</div>
+      <div class="notice warn" v-if="balanceDueOf(d)">{{ `The balance (${rm(balanceOf(d))}) is not received yet (Payment stage).` }}</div>
       <div class="notice warn" v-else-if="mkTask && !mkTask.completed">{{ `The Marketing task is not completed yet (${mkTask.subtasksDone} of ${mkTask.subtasksTotal} done).` }}</div>
       <button class="btn btn-primary" @click="$emit('mark-live')" :disabled="busy || !stageDoneOf(d, 'marketing')">Mark as Live</button>
     </template>
@@ -40,7 +41,7 @@
 
 <script>
 // Stage: Live (Mark as Live, the handover to Operations, Create property / unit / owner in Portfolio).
-import { stamp, stageDoneOf, serviceFeeOf } from '@/lib/owner-leads.js';
+import { stamp, stageDoneOf, serviceFeeOf, mkReadyOf, balanceDueOf, balanceOf, rm } from '@/lib/owner-leads.js';
 
 export default {
   props: { d: { type: Object, required: true }, portfolio: { type: Object, default: null }, canEdit: Boolean, busy: Boolean,
@@ -48,6 +49,6 @@ export default {
   emits: ['mark-live', 'to-portfolio'],
   data() { return { createOpen: false }; },
   computed: { fee() { return serviceFeeOf(this.d); } },
-  methods: { stamp, stageDoneOf }
+  methods: { stamp, stageDoneOf, mkReadyOf, balanceDueOf, balanceOf, rm }
 };
 </script>
