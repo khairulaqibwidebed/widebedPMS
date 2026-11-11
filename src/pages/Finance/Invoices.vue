@@ -104,7 +104,7 @@
       </div>
     </template></Teleport>
 
-    <OwnerPaymentModal v-if="paying" :doc="paying" @close="paying = null" @saved="m => { paying = null; ok = m; load(); }" />
+    <OwnerPaymentModal v-if="paying" :doc="paying" @close="paying = null" @saved="m => { paying = null; ok = m; }" />
 
     <!-- View one document (read-only) -->
     <template v-if="viewing">
@@ -153,9 +153,11 @@ import { toast } from '@/lib/toast.js';
 import { byUnit } from '@/lib/engine.js';
 import { loadProperties, friendlyError, download, loadXlsxLib } from '@/lib/finance-data.js';
 import { buildStatementPdf, loadPdfKit } from '@/lib/statement-pdf.js';
+import { fileLines } from '@/lib/summaries.js';
 import { rm, amt, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
+import { liveMixin } from '@/lib/use-live.js';
 
 const me = useSession();
 
@@ -175,6 +177,7 @@ import MonthPicker from '@/components/MonthPicker.vue';
 import OwnerPaymentModal, { PAY, payStatusOf } from '@/components/OwnerPaymentModal.vue';
 const PAY_FILTERS = [{ value: 'all', label: 'Any payment status' }, { value: 'pending', label: 'Pending Payment' }, { value: 'paid', label: 'Paid' }, { value: 'none', label: 'Nothing to pay' }];
 export default {
+  mixins: [liveMixin],
   components: { OptionPicker, MonthPicker, OwnerPaymentModal },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
@@ -207,20 +210,22 @@ export default {
     property() { return this.properties.find(p => p.id === this.propertyId) || {}; },
     code() { return (this.property().code || this.property().name || 'WB').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4) || 'WB'; },
 
-    async load() {
+    load() {
       if (!this.propertyId) { this.loading = false; return; }
       this.loading = true; this.error = ''; this.picked = []; this.dl.open = false;
       if (this.paying) this.paying = null;
-      try {
-        const snap = await getDocs(query(collection(db, 'statements'), where('propertyId', '==', this.propertyId), where('month', '==', this.month)));
+      // Live (6 Nov 2026): a statement approved, paid or recalled by someone else shows without a refresh.
+      // A new property or month replaces the listener (same key).
+      const pid = this.propertyId, month = this.month;
+      this.live('docs', query(collection(db, 'statements'), where('propertyId', '==', pid), where('month', '==', month)), rows => {
+        if (pid !== this.propertyId || month !== this.month) return;
         const code = this.code();
-        const st = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => s.status === 'completed')
+        const st = rows.filter(s => s.status === 'completed')
           .sort((a, b) => byUnit(a.unitCode, b.unitCode))
           .map(s => ({ id: s.id, type: 'statement', no: `OS-${code}-${yymm(this.month)}-${digits(s.unitCode)}`, unitCode: s.unitCode, month: s.month,
             amount: s.totals?.payout ?? 0, completedOn: dayText(s.completedAt), completedBy: s.completedByName || '', revision: s.revision || 1, statement: s }));
-        this.docs = st;
-      } catch (e) { this.error = friendlyError(e, 'load the documents'); }
-      this.loading = false;
+        this.docs = st; this.loading = false;
+      }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the documents'); this.loading = false; } });
     },
     count(t) { return this.docs.filter(d => d.type === t).length; },
     // Owner payment status of a row (statements only); older completed statements without one count as waiting
@@ -293,8 +298,7 @@ export default {
         const s = list[i].statement;
         out.push(await buildStatementPdf(X.lib, X.fontkit, X.fonts, {
           unitCode: s.unitCode, month: s.month, rates: s.rates, payout: s.totals?.payout ?? 0, payouts: {},
-          lines: (s.lines || []).map(l => ({ source: l.source, arrival: l.arrival, departure: l.departure, nights: l.nights, amount: l.pto })),
-          expenses: (s.expenseLines || []).map(e => ({ description: e.description, amount: e.amount })), nextBooking: null }));
+          ...fileLines(s), nextBooking: null }));   // booking and expense lines (Profit and Pool Sharing add their own line)
         this.dl.pct = Math.round(((i + 1) / list.length) * 100);
       }
       let bytes = out[0];

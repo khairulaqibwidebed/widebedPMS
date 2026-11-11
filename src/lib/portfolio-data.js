@@ -4,7 +4,9 @@
 import { markRaw } from 'vue';
 import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, serverTimestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
-import { ARRANGEMENTS, DEFAULT_OTA, DM_STARTER } from '@/lib/engine.js';
+import { listen } from '@/lib/use-live.js';
+import { DEFAULT_OTA, DM_STARTER } from '@/lib/engine.js';
+import { FEE_TYPES, arrangementsOf, rememberArrangements, arrangementName, arrangementType, knownArrangement } from '@/lib/fee-types.js';
 import { loadUnits, loadSetup, latestVersion, audit, friendlyError } from '@/lib/finance-data.js';
 import { propertyMonth, markFrom, canWriteSummaries } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
@@ -20,7 +22,7 @@ export const UNIT_INFO = ['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks
 export const STATES = ['Johor', 'Kedah', 'Kelantan', 'Melaka', 'Negeri Sembilan', 'Pahang', 'Perak', 'Perlis', 'Pulau Pinang', 'Sabah', 'Sarawak', 'Selangor', 'Terengganu',
   'W.P. Kuala Lumpur', 'W.P. Labuan', 'W.P. Putrajaya'];
 export const UNIT_TYPES = ['Studio', '1 bedroom', '2 bedrooms', '3 bedrooms', 'Dual key', 'Penthouse', 'Other'];
-export const UNIT_FILTERS = [{ key: 'all', label: 'All' }, { key: 'none', label: 'Not set up' }, { key: 'share', label: 'Profit share' }, { key: 'fixed', label: 'Fixed rent' }, { key: 'long', label: 'Long-term' }];
+export const UNIT_FILTERS = [{ key: 'all', label: 'All' }, { key: 'none', label: 'Not set up' }, { key: 'share', label: 'Sharing' }, { key: 'fixed', label: 'Fixed rent' }, { key: 'mid', label: 'Mid-term tenant' }, { key: 'long', label: 'Long-term tenant' }];
 const AUDIT_PAGE = 30;
 const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -33,13 +35,24 @@ export const dateOnly = t => { if (!t) return ''; const d = t.toDate ? t.toDate(
 export const prevMonth = ym => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 export const shortName = m => (m ? `${MON3[+m.slice(5, 7) - 1]} ${m.slice(0, 4)}` : '');
 export const monthOnly = m => monthName(m).split(' ')[0];
-export const arrLabel = a => ARRANGEMENTS[a]?.label || (a ? a : 'Not set up');
-export const arrangementOptions = () => [{ value: '', label: 'Not set up' }, ...Object.entries(ARRANGEMENTS).map(([k, a]) => ({ value: k, label: a.label }))];
-// "3 fixed · 2 profit share · 1 not set up"
+// Arrangements are saved per property (fee-types.js). Their names are remembered as each property's rates are read.
+export const arrLabel = a => arrangementName(a);
+// A unit's fee type from its terms: 'revenue' | 'profit' | 'pool' | 'midTenant' | 'tenant' | 'fixed', or null (not set up / unknown)
+export const typeOfTerms = t => (t ? t.arrangementType || arrangementType(t.arrangement) : null);
+export const isFixedTerms = t => typeOfTerms(t) === 'fixed';
+const SHARE_TYPES = ['revenue', 'profit', 'pool'];
+// Unit drawer: this property's arrangements, short term first. list = arrangementsOf(rate version)
+export function arrangementOptions(list) {
+  const order = { short: 0, mid: 1, long: 2 };
+  return [{ value: '', label: 'Not set up' }, ...Object.entries(list || {})
+    .sort((a, b) => (order[a[1].section] ?? 3) - (order[b[1].section] ?? 3) || String(a[1].name).localeCompare(String(b[1].name)))
+    .map(([k, a]) => { const t = FEE_TYPES[a.type]?.label || a.type; return { value: k, label: a.name === t ? a.name : `${a.name} · ${t}` }; })];
+}
+// "3 fixed · 2 sharing · 1 not set up"
 export function mixText(list) {
-  const n = k => list.filter(x => x.terms?.arrangement === k).length;
-  const share = list.filter(x => /profitShare/.test(x.terms?.arrangement || '')).length, none = list.filter(x => !x.terms).length;
-  return [n('fixedRent') && `${n('fixedRent')} fixed`, share && `${share} profit share`, n('longTermTenant') && `${n('longTermTenant')} LT`, none && `${none} not set up`].filter(Boolean).join(' · ');
+  const n = k => list.filter(x => typeOfTerms(x.terms) === k).length;
+  const share = list.filter(x => SHARE_TYPES.includes(typeOfTerms(x.terms))).length, none = list.filter(x => !x.terms).length;
+  return [n('fixed') && `${n('fixed')} fixed`, share && `${share} sharing`, n('midTenant') && `${n('midTenant')} MT`, n('tenant') && `${n('tenant')} LT`, none && `${none} not set up`].filter(Boolean).join(' · ');
 }
 // View-only: "3 Studio · 2 1 bedroom" from each unit's type (no arrangement, it is in the terms).
 export function typeText(list) {
@@ -48,12 +61,12 @@ export function typeText(list) {
 }
 // Units filter pills on a property's Units tab.
 export function matchArrangement(x, key) {
-  const a = x.terms?.arrangement;
-  return key === 'all' || (key === 'none' && !a) || (key === 'share' && /profitShare/.test(a || '')) || (key === 'fixed' && a === 'fixedRent') || (key === 'long' && a === 'longTermTenant');
+  const a = x.terms?.arrangement, t = typeOfTerms(x.terms);
+  return key === 'all' || (key === 'none' && !a) || (key === 'share' && SHARE_TYPES.includes(t)) || (key === 'fixed' && t === 'fixed') || (key === 'mid' && t === 'midTenant') || (key === 'long' && t === 'tenant');
 }
 // Audit log: one line per changed field. Personal fields are logged as "(changed)" only, so they read "Bank name updated".
 export function changeList(a) {
-  const v = x => (x == null || x === '' ? '—' : Array.isArray(x) ? (x.join(', ') || '—') : ARRANGEMENTS[x]?.label || String(x));
+  const v = x => (x == null || x === '' ? '—' : Array.isArray(x) ? (x.join(', ') || '—') : knownArrangement(String(x))?.name || String(x));
   const names = { ownerId: 'Owner', aliases: 'eZee names', active: 'Active', arrangement: 'Arrangement', units: 'Units', status: 'Status',
     fullName: 'Full name', coOwners: 'Co-owners', dob: 'Date of birth', bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account',
     ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID' };
@@ -63,7 +76,7 @@ export function changeList(a) {
 }
 export function actionText(a) {
   const label = ({ 'unit.create': 'Unit added', 'unit.update': 'Unit changed', 'unitTerms.starter': 'Starter settings', 'rates.create': 'Fees & rates', 'property.create': 'Property added',
-    'property.update': 'Property changed', 'month.complete': 'Month completed', 'month.reopen': 'Month reopened', 'statement.complete': 'Statement completed', 'statement.reopen': 'Statement reopened', 'statement.send': 'Statement sent', 'statement.pullback': 'Statement pulled back', 'statement.return': 'Statement sent back',
+    'property.update': 'Property changed', 'arrangement.create': 'Arrangement added', 'arrangement.update': 'Arrangement changed', 'arrangement.delete': 'Arrangement deleted', 'month.complete': 'Month completed', 'month.reopen': 'Month reopened', 'statement.complete': 'Statement completed', 'statement.reopen': 'Statement reopened', 'statement.send': 'Statement sent', 'statement.pullback': 'Statement pulled back', 'statement.return': 'Statement sent back',
     'owner.create': 'Owner added', 'owner.update': 'Owner changed', 'owner.deactivate': 'Owner deactivated', 'owner.reactivate': 'Owner reactivated', 'owner.delete': 'Owner deleted',
     'unit.delete': 'Unit deleted', 'ezee.upload': 'eZee report uploaded', 'unitTerms.create': 'Unit settings changed', 'expense.create': 'Expense added',
     'expense.update': 'Expense changed', 'expense.remove': 'Expense removed' })[a.action]
@@ -98,10 +111,33 @@ export async function loadOwners(viewOnly, canEdit) {
   });
   return [...list].sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id));
 }
+// Live owners list (6 Nov 2026, lib/use-live.js): an owner added or changed by someone else shows without a refresh.
+// Each owner's private part is read once and kept (read again only for an owner whose main record changed).
+// Also drops the saved copy loadOwners keeps, so other pages read fresh. Returns stop().
+// seed = the owners already on screen (from loadOwners), so their private parts are not read twice.
+export function watchOwners(viewOnly, canEdit, onRows, onError, seed = []) {
+  const privs = {}, seenAt = {};
+  const stamp = x => JSON.stringify(x.updatedAt || x.createdAt || '');
+  seed.forEach(x => { privs[x.id] = x.private || {}; seenAt[x.id] = stamp(x); });
+  let turn = 0;
+  return listen(query(collection(db, 'owners'), limit(1000)), async rows => {
+    const mine = ++turn;
+    const todo = viewOnly && !canEdit ? [] : rows.filter(x => !(x.id in privs) || seenAt[x.id] !== stamp(x));
+    await Promise.all(todo.map(async x => {
+      const d = await getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null);
+      privs[x.id] = d?.exists?.() ? d.data() : {}; seenAt[x.id] = stamp(x);
+    }));
+    if (mine !== turn) return;
+    clearCache('owners:');
+    onRows(rows.map(x => ({ ...x, private: privs[x.id] || {} }))
+      .sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id)));
+  }, { onError });
+}
 // Units (with their terms and history, or without terms for view-only roles) of the given properties.
 export async function loadUnitsOf(properties, asOf, viewOnly) {
   const sets = await Promise.all(properties.map(p => cached(`set:${p.id}:${viewOnly ? 'v' : asOf}`, TTL.mid,
     () => (viewOnly ? loadUnits(p.id).then(units => ({ units })) : loadSetup(p.id, asOf)))));
+  if (!viewOnly) sets.forEach(s => rememberArrangements(arrangementsOf(s.rates)));   // names and types of each property's arrangements
   return sets.flatMap(s => s.units);
 }
 // The month document of each property: { [propertyId]: { status, completedUnits, ... } }, 'open' when there is none.
@@ -122,7 +158,7 @@ export async function loadPropertiesSummary(properties, asOf, me) {
   return {
     monthDocs: Object.fromEntries(properties.map((p, i) => [p.id, pms[i]?.month || { status: 'open' }])),
     units: pms.flatMap((pm, i) => pm.summary.units.map(x => ({ id: x.id, unitCode: x.unitCode, propertyId: properties[i].id,
-      terms: x.hasTerms ? { arrangement: x.arrangement, fixedRentAmount: x.fixedRentAmount } : null })))
+      terms: x.hasTerms ? { arrangement: x.arrangement, arrangementType: x.arrangementType || null, fixedRentAmount: x.fixedRentAmount } : null })))
   };
 }
 // A property's change history, 30 at a time, newest first (index: auditLog propertyId + at).
@@ -157,7 +193,9 @@ export async function loadRates(propertyId, asOf) {
     const v = { ...d, ...(cur?.ota?.[k] || {}) };
     form[k] = { label: d.label, payout: v.payout, commission: +(v.commissionPct * 100).toFixed(4), paymentFee: +((v.paymentFeePct || 0) * 100).toFixed(4), sstPct: v.sstPct ?? 0.08 };
   }
-  return { form, effectiveFrom: asOf, reason: '', earlyToOwner: cur?.earlyCheckInToOwner !== false, tourismTax: cur?.tourismTaxPerNight ?? 10, current: cur };
+  const arrangements = arrangementsOf(cur);
+  rememberArrangements(arrangements);
+  return { form, effectiveFrom: asOf, reason: '', earlyToOwner: cur?.earlyCheckInToOwner !== false, tourismTax: cur?.tourismTaxPerNight ?? 10, current: cur, arrangements };
 }
 // Payout history of an owner's units, newest month first.
 export async function loadPayouts(unitIds) {
@@ -191,6 +229,24 @@ export async function loadOfflineBookings(propertyId) {
     ps.docs.forEach(d => { const x = d.data(); if (x.bookingId) { paid[x.bookingId] = (paid[x.bookingId] || 0) + (Number(x.amount) || 0); (pays[x.bookingId] ||= []).push({ date: x.date || '', amount: Number(x.amount) || 0 }); } });
   } catch (e) { paid = null; pays = null; /* no access to payments: the amount shows a dash */ }
   return { bookings, paid, pays };
+}
+// Live version for ONE property (6 Nov 2026, lib/use-live.js): bookings and their payments, so a booking or payment
+// added or changed by someone else shows without a refresh. onData gets the same { bookings, paid, pays } as above.
+// "All properties" stays on loadOfflineBookings (too many reads to keep live). Returns stop().
+export function watchOfflineBookings(propertyId, onData, onError) {
+  let bookings = null, paid, pays, payReady = false;
+  const push = () => { if (bookings && payReady) onData({ bookings, paid, pays }); };
+  const stops = [
+    listen(query(collection(db, 'offlineBookings'), where('propertyId', '==', propertyId), limit(300)), rows => {
+      bookings = rows.sort((a, b) => (b.arrival || '').localeCompare(a.arrival || '')); push();
+    }, { onError }),
+    listen(query(collection(db, 'offlinePayments'), where('propertyId', '==', propertyId), limit(500)), rows => {
+      paid = {}; pays = {};
+      rows.forEach(x => { if (x.bookingId) { paid[x.bookingId] = (paid[x.bookingId] || 0) + (Number(x.amount) || 0); (pays[x.bookingId] ||= []).push({ date: x.date || '', amount: Number(x.amount) || 0 }); } });
+      payReady = true; push();
+    }, { onError: () => { paid = null; pays = null; payReady = true; push(); } })   // no access to payments: the amount shows a dash
+  ];
+  return () => stops.forEach(stop => stop());
 }
 // The guest's name for the Tenant column (private data): from the tenant record, or the booking's private part.
 export async function loadGuestName(r) {
@@ -323,9 +379,11 @@ export async function reactivateOwner(me, id, reason) {
 
 // ---------- writes: units ----------
 // detailsOnly: Marketing editing a unit change its details and eZee names only.
-export async function saveUnit(me, { id, isNew, detailsOnly, propertyId, code, aliases, ownerId, info, active, terms, termsChanged, effectiveFrom, reason, changes }) {
+// purchasePrice (Accounting / Directors): used by Pool Sharing; undefined = left as it is.
+export async function saveUnit(me, { id, isNew, detailsOnly, propertyId, code, aliases, ownerId, info, active, purchasePrice, terms, termsChanged, effectiveFrom, reason, changes }) {
   const b = writeBatch(db);
-  const unitData = { propertyId, unitCode: code, ezeeRoomMatch: code, aliases, ownerId, info, active, updatedAt: serverTimestamp(), updatedBy: me.user.uid };
+  const unitData = { propertyId, unitCode: code, ezeeRoomMatch: code, aliases, ownerId, info, active, updatedAt: serverTimestamp(), updatedBy: me.user.uid,
+    ...(purchasePrice !== undefined ? { purchasePrice } : {}) };
   if (isNew) unitData.createdAt = serverTimestamp(), unitData.createdBy = me.user.uid;
   b.set(doc(db, 'units', id), detailsOnly ? { aliases, info, updatedAt: serverTimestamp(), updatedBy: me.user.uid } : unitData, { merge: true });
   markFrom(b, propertyId, ALL_MONTHS, id);   // this unit's month summaries are worked out again (owner, status, settings)
@@ -368,11 +426,38 @@ export async function loadStarter(me, propertyId, asOf, units) {
 }
 
 // ---------- writes: properties and rates ----------
+// OTA commissions and property rules. The arrangements in force that month are carried into the new version (when the
+// property has a saved list), so a rate change never drops them.
 export async function saveRates(me, propertyId, { effectiveFrom, ota, earlyToOwner, tourismTax, reason }) {
+  const versions = (await getDocs(collection(db, 'properties', propertyId, 'rateVersions'))).docs.map(d => ({ id: d.id, ...d.data() }));
+  const inForce = latestVersion(versions, effectiveFrom);
   const b = writeBatch(db);
   b.set(doc(db, 'properties', propertyId, 'rateVersions', `${effectiveFrom}_${Date.now()}`), { effectiveFrom, ota,
-    earlyCheckInToOwner: earlyToOwner, tourismTaxPerNight: tourismTax, reason, createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+    earlyCheckInToOwner: earlyToOwner, tourismTaxPerNight: tourismTax, ...(inForce?.arrangements ? { arrangements: inForce.arrangements } : {}),
+    reason, createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
   audit(b, me, { action: 'rates.create', entity: `properties/${propertyId}/rateVersions`, propertyId, month: effectiveFrom, reason });
+  markFrom(b, propertyId, effectiveFrom);   // every unit's summary from that month on is worked out again
+  await b.commit();
+}
+// Add, change or delete one fee arrangement from a month on (Fees & rates popup). Arrangements live on the property's
+// rate versions, which are add-only: a new version is added for the month picked with the change, and again for every
+// later version (each copied with the same change), so later months keep their other changes and get this one too.
+// Months before keep the old numbers. arr = the arrangement's fields, or null to delete it. changes = audit lines.
+export async function saveArrangement(me, propertyId, { id, arr, effectiveFrom, reason, changes, isNew }) {
+  const versions = (await getDocs(collection(db, 'properties', propertyId, 'rateVersions'))).docs.map(d => ({ id: d.id, ...d.data() }));
+  const months = [...new Set([effectiveFrom, ...versions.map(v => v.effectiveFrom).filter(m => m > effectiveFrom)])].sort();
+  const b = writeBatch(db), ts = Date.now();
+  for (const m of months) {
+    const base = latestVersion(versions, m);
+    const list = { ...arrangementsOf(base) };
+    if (arr) list[id] = { ...arr, effectiveFrom, reason }; else delete list[id];
+    b.set(doc(db, 'properties', propertyId, 'rateVersions', `${m}_${ts}`), {
+      effectiveFrom: m, ota: base?.ota || DEFAULT_OTA, earlyCheckInToOwner: base ? base.earlyCheckInToOwner !== false : true,
+      tourismTaxPerNight: base?.tourismTaxPerNight ?? 10, arrangements: list,
+      reason: m === effectiveFrom ? reason : `${reason} (carried into the ${m} rates)`, createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+  }
+  audit(b, me, { action: !arr ? 'arrangement.delete' : isNew ? 'arrangement.create' : 'arrangement.update', entity: `properties/${propertyId}/arrangements/${id}`,
+    propertyId, month: effectiveFrom, changes, reason });
   markFrom(b, propertyId, effectiveFrom);   // every unit's summary from that month on is worked out again
   await b.commit();
 }

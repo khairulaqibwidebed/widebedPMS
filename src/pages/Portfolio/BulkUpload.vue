@@ -166,7 +166,8 @@ import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimes
 import { idPrefix } from '@/lib/lodgment.js';
 import { db } from '@/lib/firebase.js';
 import { clearCache } from '@/lib/cache.js';
-import { ARRANGEMENTS, DEFAULT_OTA, unitIdOf } from '@/lib/engine.js';
+import { DEFAULT_OTA, unitIdOf } from '@/lib/engine.js';
+import { legacyRate } from '@/lib/fee-types.js';
 import { markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/lib/finance-data.js';
@@ -291,8 +292,8 @@ function feeTerms(d) {
   const um = /^\s*(\d+(?:\.\d+)?)\s*%*\s*$/.exec(d.utilText || '');
   let service = fee / 100, utility = um ? Number(um[1]) / 100 : 0;
   if (!um && fee === 40) { service = 0.2; utility = 0.2; }
-  const arrangement = utility > 0 ? 'profitShare40' : 'profitShare20', def = ARRANGEMENTS[arrangement];
-  const own = (v, k) => (Math.abs(v - def[k]) < 1e-9 ? null : v);   // null = the arrangement's normal rate
+  const arrangement = utility > 0 ? 'profitShare40' : 'profitShare20';
+  const own = (v, k) => (Math.abs(v - legacyRate(arrangement, k)) < 1e-9 ? null : v);   // null = the arrangement's normal rate
   const p = v => `${Math.round(v * 1000) / 10}%`;
   return { terms: { arrangement, fixedRentAmount: null, serviceFeePct: own(service, 'serviceFeePct'), utilityFeePct: own(utility, 'utilityFeePct'), sstOnFeePct: null },
     label: utility > 0 ? `${p(service)} + ${p(utility)} utilities` : `${p(service)} service fee` };

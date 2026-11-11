@@ -33,28 +33,11 @@
             <div class="field" style="margin-top:12px" v-if="open.details"><label>Details</label><div class="detail">{{ open.details }}</div></div>
             <PhotoThumbs :images="photosOf('complaint')" />
           </div>
-          <section class="cp-chat">
-            <div class="chat-head">
-              <h3>Conversation with HR</h3>
-              <p class="help">{{ open.anonymous ? 'Sent anonymously: you can read HR\'s replies here (on this browser) but not reply.' : 'You get a notification when HR replies.' }}</p>
-            </div>
-            <div class="chat-msgs" ref="chat">
-              <div class="loading-bar" v-show="fuLoading"></div>
-              <div class="msg-row" v-for="m in thread" :key="m.id || m.text" :class="m.by === 'hr' ? 'theirs' : 'mine'">
-                <Avatar class="msg-av" :uid="m.byUid" :name="m.byName" :role="m.by === 'hr' ? 'hr' : null" :size="30" />
-                <div class="msg" :class="m.by === 'hr' ? 'hr' : 'me'">
-                  <div class="who">{{ m.by === 'hr' ? 'HR' + (m.byName ? ' · ' + m.byName : '') : 'You' }}<span v-if="m.closing" class="tag">Closing note</span><span class="when">{{ when(m.createdAt) }}</span></div>
-                  <div class="txt" v-if="m.text">{{ m.text }}</div>
-                  <PhotoThumbs :images="photosOf(m)" />
-                </div>
-              </div>
-              <p class="chat-empty" v-if="!fuLoading && !thread.length">No replies from HR yet.</p>
-            </div>
-            <div class="chat-compose" v-if="!open.anonymous && open.status !== 'closed'">
-              <ChatCompose v-model="replyText" v-model:photos="replyPhotos" :busy="busy" placeholder="Reply to HR" @send="reply()" />
-            </div>
-            <p class="chat-closed" v-else-if="open.status === 'closed'">This complaint is closed. Raise a new one if something is still wrong.</p>
-          </section>
+          <!-- Conversation with HR: the shared live chat (6 Nov 2026). Anonymous ones can read HR's replies but not reply. -->
+          <ComplaintChat :key="open.id" :complaint="open" side="sender" :labels="{ hr: 'HR', sender: 'You' }" title="Conversation with HR"
+            :hint="open.anonymous ? 'Sent anonymously: you can read HR\'s replies here (on this browser) but not reply.' : 'You get a notification when HR replies.'"
+            placeholder="Reply to HR" empty="No replies from HR yet." :can-reply="!open.anonymous && open.status !== 'closed'"
+            :closed-text="open.status === 'closed' ? 'This complaint is closed. Raise a new one if something is still wrong.' : ''" @complaint-photos="p => images = p" />
         </div>
       </template>
       <template v-else>
@@ -83,54 +66,51 @@
 </template>
 
 <script>
-import { createComplaint, loadMyComplaints, loadThread, loadImages, addReply, STATUS } from './complaints.js';
+import { createComplaint, watchComplaintList, watchMyAnonComplaints, mergeRows, newestFirst, STATUS } from './complaints.js';
+import { liveMixin } from '@/lib/use-live.js';
 import PhotoPicker from '@/components/PhotoPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
-import ChatCompose from '@/components/ChatCompose.vue';
-import Avatar from '@/components/Avatar.vue';
+import ComplaintChat from '@/components/ComplaintChat.vue';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 
 const me = useSession();
 
 export default {
-  components: { PhotoPicker, PhotoThumbs, ChatCompose, Avatar },
+  mixins: [liveMixin],
+  components: { PhotoPicker, PhotoThumbs, ComplaintChat },
   data() {
-    return { STATUS, open: null, thread: [], images: [], photos: [], replyPhotos: [], fuLoading: false, replyText: '', actErr: '', myName: me.name || 'With my name', list: [], showMine: false, loading: true, loadErr: '', busy: false, subject: '', details: '', anonymous: false, files: [], err: '', okMsg: '' };
+    return { STATUS, open: null, images: [], photos: [], actErr: '', myName: me.name || 'With my name', list: [], showMine: false, loading: true, loadErr: '', busy: false, subject: '', details: '', anonymous: false, files: [], err: '', okMsg: '' };
   },
-  watch: {
-    // Keep the newest message in view, like a messaging app
-    'thread.length'() { this.$nextTick(() => { const el = this.$refs.chat; if (el) el.scrollTop = el.scrollHeight; }); }
-  },
-  async mounted() {
-    await this.load();
-    // From a notification: open that complaint
-    const id = this.$route.query.id, c = id && this.list.find(x => x.id === id);
-    if (c) { this.showMine = true; this.view(c); }
+  mounted() {
+    let first = true;
+    this.load(() => {
+      if (!first) return;
+      first = false;   // from a notification: open that complaint
+      const id = this.$route.query.id, c = id && this.list.find(x => x.id === id);
+      if (c) { this.showMine = true; this.view(c); }
+    });
   },
   methods: {
-    async load() {
-      this.loading = true; this.loadErr = '';
-      try { this.list = await loadMyComplaints(me.user.uid); }
-      catch (e) { this.loadErr = friendlyError(e, 'load your complaints'); }
-      this.loading = false;
+    // Live (6 Nov 2026): HR's status changes show without a refresh. Named ones by fromId; anonymous ones from this
+    // browser's saved refs (one small listener each). Called again after sending an anonymous one, to add its ref.
+    load(after) {
+      this.loadErr = '';
+      let named = null, anon = null;
+      const show = () => {
+        if (!named || !anon) return;
+        this.list = mergeRows(this.list, [...named, ...anon].sort(newestFirst)); this.loading = false; after?.();
+      };
+      const fail = e => { this.loadErr = friendlyError(e, 'load your complaints'); this.loading = false; };
+      this.liveUse('named', watchComplaintList({ kind: 'staff', fromId: me.user.uid }, rows => { named = rows; show(); }, fail));
+      this.liveUse('anon', watchMyAnonComplaints(rows => { anon = rows; show(); }, fail));
     },
     async view(c) {
-      this.open = c; this.thread = []; this.images = []; this.replyText = ''; this.replyPhotos = []; this.actErr = ''; this.fuLoading = true;
-      try { const [t, im] = await Promise.all([loadThread(c.id), loadImages(c.id)]); if (this.open === c) { this.thread = t; this.images = im; } }
-      catch (e) { this.actErr = friendlyError(e, 'load the replies'); }
-      this.fuLoading = false;
+      // HR's replies show live inside ComplaintChat (6 Nov 2026); it stops listening when the window closes
+      this.open = c; this.images = []; this.actErr = '';
     },
-    when(t) { return t?.toDate ? t.toDate().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Just now'; },
-    // Photos sent with the complaint ('complaint'), or with one reply (a thread message)
-    photosOf(m) { return m === 'complaint' ? this.images.filter(i => i.scope === 'complaint') : (m.images || this.images.filter(i => (m.imageIds || []).includes(i.id))); },
-    async reply() {
-      if (this.busy || (!this.replyText.trim() && !this.replyPhotos.length)) return;
-      this.busy = true; this.actErr = '';
-      try { this.thread.push(await addReply(me, this.open, this.replyText, 'sender', this.replyPhotos)); this.replyText = ''; this.replyPhotos = []; }
-      catch (e) { this.actErr = e.code ? friendlyError(e, 'send the reply') : e.message; }
-      this.busy = false;
-    },
+    // Photos sent with the complaint (ComplaintChat passes them up)
+    photosOf() { return this.images; },
     clear() { this.subject = ''; this.details = ''; this.anonymous = false; this.files = []; this.photos = []; this.err = ''; },
     async send() {
       this.err = ''; this.okMsg = '';
@@ -141,9 +121,9 @@ export default {
         const anonymous = this.anonymous;
         const ref = await createComplaint(me, 'staff', { subject: this.subject.trim(), details: this.details.trim(), files: [], anonymous, images: this.photos });
         this.okMsg = `Sent to HR as ${ref}${anonymous ? ', anonymously' : ''}.`;
-        this.clear(); await this.load();
+        if (anonymous) this.load(); this.clear();   // named ones arrive by themselves
       } catch (e) {
-        if (e.sentRef) { this.okMsg = `Sent to HR as ${e.sentRef}.`; this.err = e.message; this.clear(); await this.load(); }
+        if (e.sentRef) { this.okMsg = `Sent to HR as ${e.sentRef}.`; this.err = e.message; this.load(); this.clear(); }
         else this.err = friendlyError(e, 'send the complaint');
       }
       this.busy = false;
@@ -169,47 +149,12 @@ export default {
     .cp-x:hover { background: var(--hover); color: var(--text); }
     .cp-split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; }   /* the sender has less to show: narrower details, wider chat */
     .cp-left { min-height: 0; overflow-y: auto; padding-right: 16px; scrollbar-gutter: stable; }
-    .cp-chat { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); overflow: hidden; }
-    .chat-head { padding: 12px 14px 8px; background: var(--surface); border-bottom: 1px solid var(--border); }
-    .chat-head h3 { font-size: 14px; margin: 0 0 2px; }
-    .chat-head .help { margin: 0; font-size: 12px; }
-    .chat-msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px; }
-    .chat-msgs .msg { max-width: 82%; }
-    .msg.hr { align-self: flex-start; }
-    .msg.me { align-self: flex-end; }
-    .chat-empty { margin: auto; color: var(--muted); font-size: 13px; text-align: center; }
-    .chat-compose { display: grid; gap: 8px; padding: 10px 12px 12px; background: var(--surface); border-top: 1px solid var(--border); }
-    .chat-compose textarea { min-height: 64px; max-height: 160px; resize: vertical; }
-    .chat-closed { margin: 0; padding: 12px 14px; background: var(--surface); border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
     @media (max-width: 860px) {
       .cp-modal { height: auto; }
       .cp-split { grid-template-columns: 1fr; }
       .cp-left { overflow: visible; padding-right: 0; }
-      .cp-chat { min-height: 420px; }
-      .chat-msgs { max-height: 60vh; }
     }
     .back { margin-bottom: 10px; height: 30px; padding: 0 10px; font-size: 12px; }
-    .fu { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
-    .fu h3 { font-size: 14px; margin: 0 0 4px; }
-    .msgs { display: grid; gap: 8px; margin: 10px 0; }
-    .msg { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); max-width: 92%; }
-    .msg.hr { background: var(--surface); justify-self: start; }
-    .msg.me { background: var(--accent-soft); justify-self: end; }
-    .who { font-size: 11px; font-weight: 600; color: var(--text-2); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 3px; }
-    .when { color: var(--muted); font-weight: 400; }
-    .tag { background: var(--green-soft); color: var(--green); padding: 0 6px; border-radius: 999px; }
-    .txt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
-    .compose { display: grid; gap: 8px; margin-top: 8px; }
-    .compose textarea { min-height: 70px; }
-    .compose .btn { justify-self: end; }
-    .compose-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
-
-    /* Profile pictures beside each message (4 Nov 2026): the other side on the left, yours on the right */
-    .msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 88%; }
-    .msg-row.mine { align-self: flex-end; flex-direction: row-reverse; }
-    .msg-row.theirs { align-self: flex-start; }
-    .chat-msgs .msg-row .msg { max-width: none; min-width: 0; }
-    .msg-av { margin-bottom: 2px; }
     .who-cell { display: inline-flex; align-items: center; gap: 8px; }
     .detail { white-space: pre-wrap; font-size: 13px; background: var(--hover); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
 </style>

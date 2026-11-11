@@ -238,7 +238,8 @@ import { collection, doc, getDocs, query, where, writeBatch, serverTimestamp }
   from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { clearCache } from '@/lib/cache.js';
-import { parseCSV, readEzee, bookingPTO, effectiveRates, DEFAULT_OTA, DM_STARTER, ARRANGEMENTS, unitIdOf, byUnit, r2, nextMonth } from '@/lib/engine.js';
+import { parseCSV, readEzee, bookingPTO, effectiveRates, DEFAULT_OTA, DM_STARTER, unitIdOf, byUnit, r2, nextMonth } from '@/lib/engine.js';
+import { legacyRate, arrangementName } from '@/lib/fee-types.js';
 import { parseFinanceStatement, sheetText, rowHash } from '@/lib/finance-import.js';
 import { markDirty, markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
@@ -562,11 +563,11 @@ export default {
       for (const sm of st.summaries) {
         const code2 = unitFor(sm.unitCode);
         if (!sm.terms || fromFile.has(code2)) continue;
-        const d = ARRANGEMENTS[sm.terms.arrangement], own = k => (Math.abs(sm.terms[k] - d[k]) < 1e-9 ? null : sm.terms[k]);
+        const own = k => (Math.abs(sm.terms[k] - (legacyRate(sm.terms.arrangement, k) ?? 0)) < 1e-9 ? null : sm.terms[k]);
         fromFile.set(code2, { arrangement: sm.terms.arrangement, fixedRentAmount: null, serviceFeePct: own('serviceFeePct'), utilityFeePct: own('utilityFeePct'), sstOnFeePct: own('sstOnFeePct') });
       }
       const setupNow = prop ? await loadSetup(prop.id, st.month) : { units: [] };
-      const val = (t, k) => (t[k] ?? ARRANGEMENTS[t.arrangement]?.[k] ?? 0);
+      const val = (t, k) => (t[k] ?? legacyRate(t.arrangement, k) ?? 0);
       const same = (a, b) => a && b && a.arrangement === b.arrangement && Math.abs((a.fixedRentAmount || 0) - (b.fixedRentAmount || 0)) < 0.005 &&
         ['serviceFeePct', 'utilityFeePct', 'sstOnFeePct'].every(k => Math.abs(val(a, k) - val(b, k)) < 1e-9);
       const termChanges = [];
@@ -576,8 +577,8 @@ export default {
         const latest = cur ? latestVersion(cur.termHistory || [], st.month) : null;
         if (same(latest, t)) continue;
         termChanges.push({ unitCode, unitId: unitIdOf(property.id, unitCode), terms: t, isNew: !latest,
-          label: `${unitCode}: ${ARRANGEMENTS[t.arrangement].label}${t.fixedRentAmount ? ` RM ${amt(t.fixedRentAmount)}` : ''}` +
-            (latest ? ` (was ${ARRANGEMENTS[latest.arrangement]?.label || latest.arrangement}${latest.fixedRentAmount ? ` RM ${amt(latest.fixedRentAmount)}` : ''})` : '') });
+          label: `${unitCode}: ${arrangementName(t.arrangement)}${t.fixedRentAmount ? ` RM ${amt(t.fixedRentAmount)}` : ''}` +
+            (latest ? ` (was ${arrangementName(latest.arrangement)}${latest.fixedRentAmount ? ` RM ${amt(latest.fixedRentAmount)}` : ''})` : '') });
       }
       termChanges.sort((a, b) => byUnit(a.unitCode, b.unitCode));
       // Daily rental bookings: the eZee report Finance pasted into the file, with Finance's own amount per booking from the unit sheets

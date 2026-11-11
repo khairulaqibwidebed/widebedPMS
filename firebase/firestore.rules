@@ -1,5 +1,14 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
+// Widebed PMS Firestore rules. Draft 0.47, 10 Nov 2026: Issues <-> TMS Maintenance link. Directors and the tagged roles can
+// change a ticket's title, description and property (its card is on that property's board in the TMS), and its tmsStatus (the task system column the ticket's card is in, a map
+// { name, for }), with or without a status change, while it is Open or In progress. The task system (TMS) writes these as
+// the signed-in person, with their own PMS sign-in, so the same people can change the same tickets. Mark completed through
+// this rule also needs doneByUid == the person. Nothing else changes; Completed tickets stay locked.
+// Draft 0.46, 6 Nov 2026 (Khairul): Pool Sharing check on Month-end: Accounting / Directors save
+// "Confirmed 0 bookings" on a month document (poolZero only). Month summaries (unitMonths) may hold
+// 'arrangementType'. Fee arrangements need no change: they are saved on the property's rateVersions, which Accounting /
+// Directors already create.
+// Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
 // (advances byHR: created straight at Reviewed, within 50% of their salary, not interns, never for themselves), with the form
 // and the signature-use line in the same save. The staff member reads it but can't sign it in the PMS (paper only; HR marks it
 // signed outside). Also (6 Nov 2026): the Procurement Forms page is removed, so procurementForms.view leaves the procurement preset.
@@ -237,7 +246,7 @@ service cloud.firestore {
       return /databases/$(database)/documents/approvals/$(unitId + '_' + month);
     }
     function unitMonthKeys() {
-      return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'fixedRentAmount',
+      return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'arrangementType', 'fixedRentAmount',
         'firstBookingId', 'row', 'noUnit', 'dash', 'statement', 'stale', 'dirtyRev', 'cleanRev', 'marks', 'computedAt', 'computedBy'];
     }
 
@@ -564,6 +573,10 @@ service cloud.firestore {
       allow create: if finOrDir()
         && newKeysOnly(['propertyId', 'month', 'summary'])
         && id == request.resource.data.propertyId + '_' + request.resource.data.month;
+      // Pool Sharing check (Draft 0.46): "Confirmed 0 bookings" per unit, with who and when (poolZero only).
+      allow create: if finOrDir() && newKeysOnly(['propertyId', 'month', 'poolZero'])
+        && id == request.resource.data.propertyId + '_' + request.resource.data.month;
+      allow update: if finOrDir() && changed().hasOnly(['poolZero']);
       allow update: if finOrDir()
         && changed().hasOnly(['propertyId', 'month', 'summary'])
         && request.resource.data.propertyId == resource.data.get('propertyId', request.resource.data.propertyId)
@@ -786,6 +799,18 @@ service cloud.firestore {
         && (!('type' in request.resource.data) || request.resource.data.type in ['customer', 'inhouse'])
         && request.resource.data.status in ['open', 'progress', 'done']
         && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+      // Draft 0.47: title, description, property and the task system column (tmsStatus), from the Issues page or the task system (TMS),
+      // with or without a status change: Directors and the tagged roles, while the ticket is Open or In progress.
+      allow update: if anyStaff() && resource.data.status in ['open', 'progress']
+        && (isDirector() || myIssueTag() in resource.data.tags)
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'tmsStatus', 'audit', 'updatedAt'])
+        && request.resource.data.status in ['open', 'progress', 'done']
+        && (request.resource.data.status != 'done' || request.resource.data.get('doneByUid', '') == request.auth.uid)
+        && request.resource.data.get('title', '') is string
+        && request.resource.data.get('title', '').size() > 0 && request.resource.data.get('title', '').size() <= 200
+        && request.resource.data.get('body', '') is string && request.resource.data.get('body', '').size() <= 5000
+        && request.resource.data.get('property', '') is string && request.resource.data.get('property', '').size() <= 80
+        && (!('tmsStatus' in request.resource.data) || request.resource.data.tmsStatus is map);
       // Delete ticket: Directors only, any status. Marked deleted with a reason, never removed; nothing changes it after.
       allow update: if isDirector() && resource.data.status != 'deleted'
         && changed().hasOnly(['status', 'deletedAt', 'deletedBy', 'deletedByUid', 'deleteReason', 'audit', 'updatedAt'])

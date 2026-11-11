@@ -9,22 +9,27 @@
 
 <script>
 // Dashboard banner (5 Nov 2026): the newest announcement meant for me that I haven't opened yet.
-// Cost per dashboard visit: one query (newest 10 for my role) + one document (my viewed list).
+// Live (6 Nov 2026): a new announcement shows while the dashboard is open, and the banner goes once I open it
+// anywhere. Cost: the newest 10 for my role + my viewed list once, then only changes.
 // × hides it until the dashboard is left; it comes back next visit until the announcement is opened.
 // Uses the person's real role (not a Director's "View as").
 import { useSession } from '@/stores/session.js';
-import { loadForRole, loadMyReads, isUnread, posterLabel } from '@/pages/HR/announcements.js';
+import { watchFor, watchMyReads, isUnread, posterLabel } from '@/pages/HR/announcements.js';
+import { liveMixin } from '@/lib/use-live.js';
 
 export default {
-  data: () => ({ unread: [], hidden: false }),
-  computed: { latest() { return this.unread[0] || null; } },
-  async mounted() {
+  mixins: [liveMixin],
+  data: () => ({ items: null, reads: null, hidden: false }),
+  computed: {
+    unread() { const me = useSession(); return this.items && this.reads ? this.items.filter(a => isUnread(a, me, this.reads)) : []; },
+    latest() { return this.unread[0] || null; }
+  },
+  mounted() {
     const me = useSession();
     if (!me.user || !me.role) return;
-    try {
-      const [items, reads] = await Promise.all([loadForRole(me.role, 10), loadMyReads(me.user.uid)]);
-      this.unread = items.filter(a => isUnread(a, me, reads));
-    } catch (e) { console.warn('Announcements banner not loaded:', e); }
+    const warn = e => console.warn('Announcements banner not loaded:', e);
+    this.liveUse('items', watchFor({ role: me.role }, rows => { this.items = rows; }, warn, 10));
+    this.liveUse('reads', watchMyReads(me.user.uid, r => { this.reads = r; }, warn));
   },
   methods: { posterLabel }
 };

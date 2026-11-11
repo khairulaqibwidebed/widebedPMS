@@ -67,7 +67,7 @@
                 <div class="msgs" v-if="notes.length">
                   <div class="msg note" v-for="n in notes" :key="n.id || n.text"><div class="who"><Avatar :uid="n.byUid" :name="n.byName" role="hr" :size="18" />{{ n.byName || 'HR' }}<span class="when">{{ when(n.createdAt) }}</span></div><div class="txt">{{ n.text }}</div></div>
                 </div>
-                <p class="help" v-else-if="!fuLoading">No notes yet.</p>
+                <p class="help" v-else-if="!notesLoading">No notes yet.</p>
                 <div class="compose">
                   <textarea class="input" v-model="noteText" maxlength="2000" placeholder="e.g. Spoke to the supervisor on 5 Nov" aria-label="HR note"></textarea>
                   <button class="btn" :disabled="busy || !noteText.trim()" @click="note()">Add note</button>
@@ -75,29 +75,12 @@
               </section>
             </div>
 
-            <!-- Conversation with the sender (they see it under My complaints) -->
-            <section class="cp-chat">
-              <div class="chat-head">
-                <h3>{{ sel.anonymous ? 'Conversation · Anonymous' : 'Conversation · ' + (sel.fromName || 'Sender') }}</h3>
-                <p class="help">{{ sel.anonymous ? 'They see replies on the browser they sent it from, with no notification, and cannot reply.' : 'They see these under My complaints, get a notification for each reply, and can reply back.' }}</p>
-              </div>
-              <div class="chat-msgs" ref="chat">
-                <div class="loading-bar" v-show="fuLoading"></div>
-                <div class="msg-row" v-for="m in thread" :key="m.id || m.text" :class="m.by === 'hr' ? 'mine' : 'theirs'">
-                  <Avatar class="msg-av" :anonymous="m.by !== 'hr' && sel.anonymous" :uid="m.byUid" :name="m.by === 'hr' ? m.byName : sel.fromName" :role="m.by === 'hr' ? 'hr' : null" :size="30" />
-                  <div class="msg" :class="m.by === 'hr' ? 'hr' : 'them'">
-                    <div class="who">{{ m.by === 'hr' ? 'HR' + (m.byName ? ' · ' + m.byName : '') : (sel.anonymous ? 'Sender' : sel.fromName || 'Sender') }}<span v-if="m.closing" class="tag">Closing note</span><span class="when">{{ when(m.createdAt) }}</span></div>
-                    <div class="txt" v-if="m.text">{{ m.text }}</div>
-                    <PhotoThumbs :images="photosOf(m)" />
-                  </div>
-                </div>
-                <p class="chat-empty" v-if="!fuLoading && !thread.length">No replies yet. Your first reply starts the conversation.</p>
-              </div>
-              <div class="chat-compose" v-if="sel.status !== 'closed'">
-                <ChatCompose v-model="replyText" v-model:photos="replyPhotos" :busy="busy" placeholder="Reply to the sender" @send="reply()" />
-              </div>
-              <p class="chat-closed" v-else>Closed. Pick another status on the left to reopen it and reply.</p>
-            </section>
+            <!-- Conversation with the sender (they see it under My complaints). Shared live chat since 6 Nov 2026. -->
+            <ComplaintChat :key="sel.id" :complaint="sel" side="hr" :labels="{ hr: 'HR', sender: sel.anonymous ? 'Anonymous' : (sel.fromName || 'Sender') }"
+              :anonymous-other="sel.anonymous" :title="sel.anonymous ? 'Conversation · Anonymous' : 'Conversation · ' + (sel.fromName || 'Sender')"
+              :hint="sel.anonymous ? 'They see replies on the browser they sent it from, with no notification, and cannot reply.' : 'They see these under My complaints, get a notification for each reply, and can reply back.'"
+              placeholder="Reply to the sender" empty="No replies yet. Your first reply starts the conversation." :can-reply="sel.status !== 'closed'"
+              closed-text="Closed. Pick another status on the left to reopen it and reply." @complaint-photos="p => images = p" />
           </div>
         </div>
       </div>
@@ -108,11 +91,12 @@
 <script>
 // Only HR reads staff complaints. Opening a New one marks it Read by HR (the only change allowed); nobody edits or deletes them.
 // Anonymous ones carry no sender at all.
-import { loadComplaints, markStaffRead, loadThread, loadNotes, loadImages, addReply, addNote, setStatus, STATUS } from './complaints.js';
+import { watchComplaintList, mergeRows, markStaffRead, loadNotes, addNote, setStatus, STATUS } from './complaints.js';
+import { liveMixin } from '@/lib/use-live.js';
 import PhotoPicker from '@/components/PhotoPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
-import ChatCompose from '@/components/ChatCompose.vue';
+import ComplaintChat from '@/components/ComplaintChat.vue';
 import Avatar from '@/components/Avatar.vue';
 import { useSession } from '@/stores/session.js';
 
@@ -120,17 +104,14 @@ const me = useSession();
 import { friendlyError } from '@/lib/finance-data.js';
 
 export default {
-  components: { PhotoPicker, PhotoThumbs, OptionPicker, ChatCompose, Avatar },
+  mixins: [liveMixin],
+  components: { PhotoPicker, PhotoThumbs, OptionPicker, ComplaintChat, Avatar },
   data() {
     return {
       STATUS, list: [], loading: true, error: '', filter: 'all', q: '', sel: null,
-      thread: [], notes: [], images: [], replyPhotos: [], fuLoading: false, replyText: '', noteText: '', closing: false, closeNote: '', busy: false, actErr: '',
+      notes: [], images: [], notesLoading: false, noteText: '', closing: false, closeNote: '', busy: false, actErr: '',
       filters: [['all', 'All'], ['new', 'New'], ['read', 'Read by HR'], ['review', 'In review'], ['closed', 'Closed']]
     };
-  },
-  watch: {
-    // Keep the newest message in view, like a messaging app
-    'thread.length'() { this.$nextTick(() => { const el = this.$refs.chat; if (el) el.scrollTop = el.scrollHeight; }); }
   },
   computed: {
     // New is only where a complaint starts; HR moves it on from there
@@ -139,13 +120,17 @@ export default {
     },
     statusOptions() { return ['new', 'read', 'review', 'closed'].map(k => ({ value: k, label: STATUS[k][0], disabled: k === 'new' })); }
   },
-  async mounted() {
-    try { this.list = await loadComplaints('staff'); }
-    catch (e) { this.error = friendlyError(e, 'load the complaints'); }
-    this.loading = false;
-    // From a notification: open that complaint
-    const id = this.$route.query.id, c = id && this.list.find(x => x.id === id);
-    if (c) this.open(c);
+  mounted() {
+    // Live (6 Nov 2026): new complaints and status changes show without a refresh, the open one too
+    let first = true;
+    this.liveUse('list', watchComplaintList({ kind: 'staff' }, rows => {
+      this.list = mergeRows(this.list, rows); this.loading = false;
+      if (first) {   // from a notification: open that complaint
+        first = false;
+        const id = this.$route.query.id, c = id && this.list.find(x => x.id === id);
+        if (c) this.open(c);
+      }
+    }, e => { this.error = friendlyError(e, 'load the complaints'); this.loading = false; }));
   },
   methods: {
     st(c) { return STATUS[c.status] || STATUS.new; },
@@ -157,10 +142,12 @@ export default {
     },
     // Open the complaint; a New one becomes Read by HR for the sender (best effort: reading never fails because of it)
     async open(c) {
-      this.sel = c; this.thread = []; this.notes = []; this.images = []; this.replyText = ''; this.replyPhotos = []; this.noteText = ''; this.closing = false; this.actErr = '';
-      this.fuLoading = true;
-      const load = Promise.all([loadThread(c.id), loadNotes(c.id), loadImages(c.id)]).then(([t, n, im]) => { if (this.sel === c) { this.thread = t; this.notes = n; this.images = im; } })
-        .catch(e => { this.actErr = friendlyError(e, 'load the replies and notes'); }).finally(() => { this.fuLoading = false; });
+      this.sel = c; this.notes = []; this.images = []; this.noteText = ''; this.closing = false; this.actErr = '';
+      // The conversation and its photos are live inside ComplaintChat (6 Nov 2026); notes are HR-only and load once
+      this.notesLoading = true;
+      const load = loadNotes(c.id).then(n => { if (this.sel === c) this.notes = n; })
+        .catch(e => { this.actErr = friendlyError(e, 'load the notes'); })
+        .finally(() => { if (this.sel === c) this.notesLoading = false; });
       if (c.status === 'new') {
         try { if (await markStaffRead(me, c)) c.status = 'read'; }
         catch (e) { console.warn('Could not mark it read:', e.code || e.message); }
@@ -173,17 +160,12 @@ export default {
       try { await fn(); } catch (e) { this.actErr = e.code ? friendlyError(e, what) : e.message; }
       this.busy = false;
     },
-    // Photos sent with the complaint ('complaint'), or with one reply (a thread message)
-    photosOf(m) { return m === 'complaint' ? this.images.filter(i => i.scope === 'complaint') : (m.images || this.images.filter(i => (m.imageIds || []).includes(i.id))); },
-    reply() {
-      if (this.busy || (!this.replyText.trim() && !this.replyPhotos.length)) return;
-      return this.run(async () => { this.thread.push(await addReply(me, this.sel, this.replyText, 'hr', this.replyPhotos)); this.replyText = ''; this.replyPhotos = []; }, 'send the reply');
-    },
+    // Photos sent with the complaint (ComplaintChat passes them up)
+    photosOf() { return this.images; },
     note() { return this.run(async () => { this.notes.push(await addNote(me, this.sel, this.noteText)); this.noteText = ''; }, 'add the note'); },
     status(to, text = '') {
       return this.run(async () => {
         await setStatus(me, this.sel, to, text);
-        if (text) this.thread.push({ text: text.trim(), by: 'hr', byName: me.name, closing: true, createdAt: null });
         this.sel.status = to; this.closing = false; this.closeNote = '';
       }, 'change the status');
     },
@@ -215,24 +197,10 @@ export default {
     .cp-split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; }   /* same sizes as the staff side (RaiseComplaint.vue) */
     .cp-left { min-height: 0; overflow-y: auto; padding-right: 12px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }   /* HR notes can make it scroll: a thin, quiet scrollbar */
     .cp-left::-webkit-scrollbar { width: 6px; } .cp-left::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    .cp-chat { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); overflow: hidden; }
-    .chat-head { padding: 12px 14px 8px; background: var(--surface); border-bottom: 1px solid var(--border); }
-    .chat-head h3 { font-size: 14px; margin: 0 0 2px; }
-    .chat-head .help { margin: 0; font-size: 12px; }
-    .chat-msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px; }
-    .chat-msgs .msg { max-width: 82%; }
-    .msg.hr { align-self: flex-end; }
-    .msg.them { align-self: flex-start; }
-    .chat-empty { margin: auto; color: var(--muted); font-size: 13px; text-align: center; }
-    .chat-compose { display: grid; gap: 8px; padding: 10px 12px 12px; background: var(--surface); border-top: 1px solid var(--border); }
-    .chat-compose textarea { min-height: 64px; max-height: 160px; resize: vertical; }
-    .chat-closed { margin: 0; padding: 12px 14px; background: var(--surface); border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
     @media (max-width: 860px) {
       .cp-modal { height: auto; }
       .cp-split { grid-template-columns: 1fr; }
       .cp-left { overflow: visible; padding-right: 0; }
-      .cp-chat { min-height: 420px; }
-      .chat-msgs { max-height: 60vh; }
     }
     /* Status drop-down: as wide as its text (no forced width) */
     /* Its list opens to the left, so the right edge of the details column doesn't cut it off */
@@ -247,8 +215,6 @@ export default {
     .only { font-size: 11px; font-weight: 600; color: var(--amber); background: var(--amber-soft); padding: 1px 8px; border-radius: 999px; }
     .msgs { display: grid; gap: 8px; margin: 10px 0; }
     .msg { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); max-width: 92%; }
-    .msg.hr { background: var(--accent-soft); justify-self: end; }
-    .msg.them { background: var(--surface); justify-self: start; }
     .msg.note { background: var(--amber-soft); max-width: 100%; }
     .who { font-size: 11px; font-weight: 600; color: var(--text-2); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 3px; }
     .when { color: var(--muted); font-weight: 400; }
@@ -258,13 +224,6 @@ export default {
     .compose textarea, .close-box textarea { min-height: 70px; }
     .compose .btn { justify-self: end; }
     .compose-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
-
-    /* Profile pictures beside each message (4 Nov 2026): the other side on the left, yours on the right */
-    .msg-row { display: flex; align-items: flex-end; gap: 8px; max-width: 88%; }
-    .msg-row.mine { align-self: flex-end; flex-direction: row-reverse; }
-    .msg-row.theirs { align-self: flex-start; }
-    .chat-msgs .msg-row .msg { max-width: none; min-width: 0; }
-    .msg-av { margin-bottom: 2px; }
     .who-cell { display: inline-flex; align-items: center; gap: 8px; }
     .list-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
     .search-box { position: relative; flex: 1 1 260px; max-width: 420px; }

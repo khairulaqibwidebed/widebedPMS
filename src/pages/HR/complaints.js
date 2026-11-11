@@ -4,7 +4,8 @@
 // My complaints. An anonymous one keeps nothing about the sender, not even in the audit log; the sender's own
 // browser remembers which refs they sent (wb.myAnonComplaints) so they can still see the status.
 import { db, auth } from '@/lib/firebase.js';
-import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, runTransaction, serverTimestamp, limit } from 'firebase/firestore';
+import { listen } from '@/lib/use-live.js';
 import { audit } from '@/lib/finance-data.js';
 import { notifyRole, notifyUser } from '@/services/notificationService';
 
@@ -37,6 +38,45 @@ export async function loadMyDirectorComplaints(uid) {
   const snap = await getDocs(query(collection(db, 'complaints'), where('kind', '==', 'director'), where('fromId', '==', uid)));
   return withPrivate(snap.docs);
 }
+
+// Live complaint lists (6 Nov 2026): status changes show without a refresh. Listens to the parent records only
+// (status, read); the private part (subject, details, name) is read once per complaint and kept.
+// who: { kind } for an inbox, { kind, fromId } for "my" complaints. onRows gets the full rows, newest first.
+// Returns stop(). Pages merge the rows with mergeRows so an open complaint updates in place.
+const LIST_MAX = 300;
+export function watchComplaintList(who, onRows, onError) {
+  const privs = {};
+  const conds = [where('kind', '==', who.kind), ...(who.fromId ? [where('fromId', '==', who.fromId)] : [])];
+  let turn = 0;
+  return listen(query(collection(db, 'complaints'), ...conds, limit(LIST_MAX)), async parents => {
+    const mine = ++turn;
+    try {
+      await Promise.all(parents.filter(p => !privs[p.id]).map(async p => {
+        const d = await getDoc(doc(db, 'complaints', p.id, 'private', 'main'));
+        privs[p.id] = d.exists() ? d.data() : {};
+      }));
+    } catch (e) { return onError?.(e); }
+    if (mine !== turn) return;   // a newer snapshot already arrived
+    onRows(parents.map(p => ({ subject: '', details: '', fromName: '', files: [], ...p, ...privs[p.id], ref: showRef(p.ref) }))
+      .sort((a, b) => ms(b.createdAt) - ms(a.createdAt) || b.ref.localeCompare(a.ref)));
+  }, { onError });
+}
+// Anonymous complaints sent from this browser: one small listener per saved ref (status only)
+export function watchMyAnonComplaints(onRows, onError) {
+  const rows = {}, list = anonReceipts();
+  if (!list.length) { onRows([]); return () => {}; }
+  const stops = list.map(r => listen(doc(db, 'complaints', r.id), d => {
+    rows[r.id] = d ? { ...r, ...d, id: r.id, subject: r.subject, ref: showRef(d.ref || r.ref) } : null;
+    if (Object.keys(rows).length === list.length) onRows(Object.values(rows).filter(Boolean));
+  }, { onError }));
+  return () => stops.forEach(stop => stop());
+}
+// Keeps the same objects for complaints already on screen (so the open one updates too), adds new ones
+export function mergeRows(old, rows) {
+  const byId = new Map(old.map(c => [c.id, c]));
+  return rows.map(r => { const o = byId.get(r.id); return o ? Object.assign(o, r) : r; });
+}
+export const newestFirst = (a, b) => ms(b.createdAt) - ms(a.createdAt) || String(b.ref).localeCompare(String(a.ref));
 
 // Anonymous refs sent from this browser (the PMS keeps no link to the sender).
 const ANON_KEY = 'wb.myAnonComplaints';
@@ -149,6 +189,17 @@ const byTime = (a, b) => ms(a.createdAt) - ms(b.createdAt);
 export async function loadThread(id) {
   const snap = await getDocs(query(collection(db, 'complaints', id, 'thread'), orderBy('createdAt')));
   return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTime);
+}
+// Live conversation (6 Nov 2026): listens to the thread and photos so a new message shows on every open screen without
+// a refresh. onChange gets { thread } or { images }; a message you just sent shows at once with an estimated time.
+// Returns a stop function: call it when the complaint is closed or another one is opened.
+// Runs on lib/use-live.js listen(), so two screens on the same complaint share one listener and it stops on sign-out.
+export function watchConversation(id, onChange, onError) {
+  const stops = [
+    listen(query(collection(db, 'complaints', id, 'thread'), orderBy('createdAt')), rows => onChange({ thread: rows.sort(byTime) }), { onError }),
+    listen(query(collection(db, 'complaints', id, 'images'), orderBy('createdAt')), rows => onChange({ images: rows.sort(byTime) }), { onError })
+  ];
+  return () => stops.forEach(stop => stop());
 }
 export async function loadNotes(id) {
   const snap = await getDocs(query(collection(db, 'complaints', id, 'notes'), orderBy('createdAt')));
