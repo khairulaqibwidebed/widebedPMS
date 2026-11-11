@@ -35,9 +35,11 @@ const PLAYBOOK = G('Playbook', 'bookOpen', [P('Onboarding', '/Playbook/onboardin
 // HR: things to do first, then SOPs (one page for every SOP, 6 Nov 2026).
 const SOPS = [P('SOPs', '/HR/sops', 'scrollText')];
 const HR_STAFF = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), P('Salary Advance', '/HR/salary-advance', 'coins'), P('Raise a Complaint', '/HR/raise-complaint', 'flag'), ...SOPS]);
-const HR_DIR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), P('Salary Advance', '/HR/salary-advance', 'coins'), P('Raise a Complaint', '/HR/raise-complaint', 'flag'),
+// Attendance (11 Nov 2026): Directors and HR only, never tickable.
+const ATTENDANCE = P('Attendance', '/HR/attendance', 'clock');
+const HR_DIR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), ATTENDANCE, P('Salary Advance', '/HR/salary-advance', 'coins'), P('Raise a Complaint', '/HR/raise-complaint', 'flag'),
   P('Director Complaints', '/HR/director-complaints', 'shieldAlert'), ...SOPS]);
-const HR_HR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), P('Salary Advance', '/HR/salary-advance', 'coins'),
+const HR_HR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), ATTENDANCE, P('Salary Advance', '/HR/salary-advance', 'coins'),
   P('Staff Complaints', '/HR/staff-complaints', 'messageAlert'), P('Director Complaints', '/HR/director-complaints', 'shieldAlert'), ...SOPS]);
 // Every role's own account page, last in the sidebar.
 const MY_ACCOUNT = G('My Account', 'userCircle', [P('Profile & Appearance', '/Settings/appearance', 'palette')]);

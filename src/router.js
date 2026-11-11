@@ -88,6 +88,8 @@ const routes = [
   page('/HR/raise-complaint', () => import('./pages/HR/RaiseComplaint.vue'), 'Raise a Complaint', ALL),
   // Announcements: everyone reads; HR and Directors post (5 Nov 2026). Never tickable.
   page('/HR/announcements', () => import('./pages/HR/Announcements.vue'), 'Announcements', ALL),
+  // Staff Attendance (11 Nov 2026): everyone's clock-ins from the attendance app, holidays, office settings. Directors and HR only.
+  page('/HR/attendance', () => import('./pages/HR/Attendance.vue'), 'Attendance', DH),
   page('/Notifications', () => import('./pages/Notifications.vue'), 'Notifications', ALL),
   page('/whats-new', () => import('./pages/WhatsNew/WhatsNew.vue'), "What's New", ALL),
 
