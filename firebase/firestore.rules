@@ -1,5 +1,7 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.54, 11 Nov 2026: Staff Attendance off-site. Staff may clock in and out away from the office;
+// Widebed PMS Firestore rules. Draft 0.55, 11 Nov 2026 (Khairul): republish only. Neo's Draft 0.54 (attendance off-site) with
+// Khairul's Draft 0.53 (Owner Leads statuses) kept, so neither drops the other. No rule changes.
+// Draft 0.54, 11 Nov 2026: Staff Attendance off-site. Staff may clock in and out away from the office;
 // each clock-in / clock-out is saved with InArea true (Normal) or false (Off-site), and the server checks that flag against its own
 // distance sum, so it can't be faked as Normal. HR / Directors can turn off-site off in config/attendance (allowOffsite: false):
 // then, as before, only inside the office area. Fake-GPS is still refused. Nothing else changes.

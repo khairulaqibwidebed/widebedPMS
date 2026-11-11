@@ -14,7 +14,7 @@
             <small>{{ [t.column || 'New', t.dueDate ? `Due ${full(tmsDate(t.dueDate))}` : '', t.createdByName ? `from ${t.createdByName}` : '', `${leadAging(t).text} old`].filter(Boolean).join(' · ') }}</small>
             <span v-if="t.description">{{ t.description.length > 120 ? t.description.slice(0, 120) + '…' : t.description }}</span>
           </div>
-          <button class="btn btn-primary" @click="$emit('start', t)" :disabled="busy">Start listing</button>
+          <button class="btn btn-primary btn-sm" @click="$emit('start', t)" :disabled="busy">Start listing</button>
         </div>
       </template>
     </div>
@@ -36,11 +36,12 @@ export default {
 </script>
 
 <style scoped>
-.ol-inbox h2 { font-size: 15px; margin: 0; }
+.ol-inbox h2 { font-size: 15px; margin: 0; white-space: nowrap; }
+.ol-inbox .card-head { flex-wrap: wrap; gap: 4px 8px; }
 .inbox-list { display: grid; gap: 8px; }
-.inbox-row { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.inbox-row { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
 .inbox-row .btn { justify-self: start; }
 .inbox-text { display: grid; gap: 2px; min-width: 0; font-size: 13px; }
 .inbox-text small { color: var(--muted); font-size: 12px; }
-.inbox-text span { color: var(--text-2); overflow-wrap: anywhere; }
+.inbox-text span { color: var(--text-2); overflow-wrap: anywhere; font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 </style>

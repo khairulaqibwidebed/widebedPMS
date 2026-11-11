@@ -79,8 +79,8 @@ export const SERVICES = [
   { key: 'rentalCollection', label: 'Rental collection', hint: 'Collects the rent every month' },
   { key: 'billPayment', label: 'Bill payment', hint: 'Pays the unit\'s bills' },
   { key: 'cleaning', label: 'Cleaning', hint: { daily: 'On every check-out', monthly: 'Once a month; extra cleaning from RM80', yearly: 'On request, from RM80', '': 'Depends on the rent type' } },
-  { key: 'renovation', label: 'Renovation & interior design', hint: 'Adds the Renovation stage', stage: 'renovation' },
-  { key: 'amenities', label: 'Short-term rent amenities', hint: 'Adds the Furniture stage', stage: 'furniture', notFor: ['yearly'] }
+  { key: 'renovation', label: 'Renovation & interior design', hint: 'Adds the Renovation and Furniture stages', stages: ['renovation', 'furniture'] },
+  { key: 'amenities', label: 'Short-term rent amenities', hint: 'Adds the Furniture stage', stages: ['furniture'], notFor: ['yearly'] }
 ];
 // Yearly maintenance package (sheet "Yearly Maintenance Package"). TODO: what each package covers (the sheet and its
 // text differ on air-con servicing and Change Battery).
@@ -94,6 +94,9 @@ export const packageOf = k => PACKAGES.find(p => p.key === k) || PACKAGES[0];
 const allItems = on => Object.fromEntries(SERVICES.map(x => [x.key, on]));
 // Is a service in use? (Amenities never for Yearly rent.)
 export const serviceOn = (l, key) => !!l.services.items[key] && !(SERVICES.find(x => x.key === key)?.notFor || []).includes(l.services.rentType);
+// Is a stage shown (Khairul 11 Nov): Renovation with Renovation & interior design; Furniture with either service
+export const stageOn = (l, stage) => SERVICES.some(x => (x.stages || []).includes(stage) && serviceOn(l, x.key));
+export const STAGE_LABEL = { renovation: 'Renovation', furniture: 'Furniture' };
 // Something typed in the stage a service adds (unticking it then asks first; the items are kept).
 export function stageHasContent(l, key) {
   if (key === 'renovation') { const r = l.renovation; return r.items.some(x => x.custom || x.status !== 'notStarted' || money(x.cost)) || r.links.length > 0 || !!r.internalNotes.trim() || !!r.ownerNotes.trim(); }
@@ -155,8 +158,8 @@ export const entry = text => ({ at: nowIso(), by: useSession().name, text });
 export function blank() {
   return {
     agreement: { signed: false, date: '', skipped: false, skipNote: '', signedDuringStage: null },
-    // New listings start with every service ticked; untick what the owner doesn't take.
-    services: { rentType: '', items: allItems(true), maintenance: 'none', notes: '', legacy: false },
+    // New listings start with no service ticked (Khairul 11 Nov); tick what the owner takes.
+    services: { rentType: '', items: allItems(false), maintenance: 'none', notes: '', legacy: false },
     renovation: { items: RENO_DEFAULT.map(([group, title]) => ({ id: lineId(), group, title, status: 'notStarted', cost: '' })), links: [], internalNotes: '', ownerNotes: '' },
     furniture: { big: [], electrical: [], essential: [] },
     payment: { type: 'full', quotationUrl: '', invoiceUrl: '', proofUrl: '', amount: '', confirmed: false, confirmedByUid: null, confirmedByName: '', confirmedAt: '',
@@ -180,7 +183,16 @@ export function withDefaults(data) {
     ? { ...b.services, ...data.services, items: { ...allItems(false), ...(data.services.items || {}) } }
     : { ...b.services, items: { ...allItems(false), renovation: true, amenities: true }, legacy: true };
   for (const [k] of DETAILS) out[k] = data[k] == null ? '' : String(data[k]);
+  out.remarksLog = remarksLogOf(data);
   return out;
+}
+// Remarks as comments (11 Nov 2026): each comment is { text, byUid, byName, at }, oldest first, shown like the TMS
+// comments. remarks keeps the latest one (lists, overview, search). An older listing with only remarks: one entry.
+export const remarkEntry = text => { const me = useSession(); return { text: String(text).trim(), byUid: me.user?.uid || null, byName: me.name || '', at: nowIso() }; };
+function remarksLogOf(data) {
+  if (Array.isArray(data.remarksLog)) return data.remarksLog.map(x => ({ text: String(x?.text || ''), byUid: x?.byUid || null, byName: x?.byName || '', at: x?.at || '' }));
+  const old = String(data.remarks || '').trim();
+  return old ? [{ text: old, byUid: null, byName: '', at: '' }] : [];
 }
 // A Firestore row (from use-live.js: { id, ...data }) as the screens use it.
 export function toRow(data) {
@@ -189,7 +201,7 @@ export function toRow(data) {
     startedOn: (data.startedOn || isoOf(data.createdAt)).slice(0, 10), updated: isoOf(data.updatedAt) };
 }
 // The editable part of a listing (details and every stage), compared to find unsaved changes.
-export const draftOf = l => clone(Object.fromEntries([...DETAILS.map(x => x[0]), ...SECTIONS].map(k => [k, l[k]])));
+export const draftOf = l => clone(Object.fromEntries([...DETAILS.map(x => x[0]), 'remarksLog', ...SECTIONS].map(k => [k, l[k]])));
 
 // ---- stages ----
 export const subDoneOf = (l, k) => l.furniture[k].length > 0 && l.furniture[k].every(x => x.done);
@@ -215,7 +227,7 @@ export const linkAt = (l, path) => path.split('.').reduce((o, k) => o?.[k], l.pa
 
 // The stages this listing shows, in order. All six for now (Phase 2: Renovation / Furniture only when chosen).
 export function stagesFor(l) {
-  return STAGE_KEYS.filter(k => !(k === 'renovation' && !serviceOn(l, 'renovation')) && !(k === 'furniture' && !serviceOn(l, 'amenities')));
+  return STAGE_KEYS.filter(k => !STAGE_LABEL[k] || stageOn(l, k));
 }
 
 // Each stage counts as done when: agreement signed or skipped for now (with a note); every renovation line Done; every
@@ -269,8 +281,8 @@ export const furnTotal = l => money(FURN.reduce((t, f) => t + sumLines(l.furnitu
 export function quoteParts(l) {
   const pkg = packageOf(l.services.maintenance);
   return [
-    ...(serviceOn(l, 'renovation') ? [[`Renovation (incl. ${FEE_PCT}% procurement fee)`, money(renoCost(l) + renoFee(l))]] : []),
-    ...(serviceOn(l, 'amenities') ? [['Furniture', furnTotal(l)]] : []),
+    ...(stageOn(l, 'renovation') ? [[`Renovation (incl. ${FEE_PCT}% procurement fee)`, money(renoCost(l) + renoFee(l))]] : []),
+    ...(stageOn(l, 'furniture') ? [['Furniture', furnTotal(l)]] : []),
     ...(pkg.price ? [[`Maintenance ${pkg.label} (a year)`, pkg.price]] : [])
   ];
 }
@@ -287,8 +299,8 @@ export function checklistOf(l) {
   return [
     { title: 'Service agreement signed', done: l.agreement.signed },
     { title: `Types of service${l.services.rentType ? `: ${rentLabel(l.services.rentType)} rent` : ''}`, done: stageDoneOf(l, 'services') },
-    ...(serviceOn(l, 'renovation') ? l.renovation.items.filter(x => x.title.trim()).map(x => ({ title: `Renovation: ${x.title.trim()}`, done: x.status === 'done' })) : []),
-    ...(serviceOn(l, 'amenities') ? FURN.map(f => ({ title: `Furniture: ${f.label}`, done: subDoneOf(l, f.key) || (!l.furniture[f.key].length && stageDoneOf(l, 'furniture')) })) : []),
+    ...(stageOn(l, 'renovation') ? l.renovation.items.filter(x => x.title.trim()).map(x => ({ title: `Renovation: ${x.title.trim()}`, done: x.status === 'done' })) : []),
+    ...(stageOn(l, 'furniture') ? FURN.map(f => ({ title: `Furniture: ${f.label}`, done: subDoneOf(l, f.key) || (!l.furniture[f.key].length && stageDoneOf(l, 'furniture')) })) : []),
     ...(isDeposit(l) ? [{ title: 'Deposit received', done: l.payment.deposit.received }] : []),
     { title: isDeposit(l) ? 'Balance received (paid in full)' : 'Final quotation & payment confirmed', done: l.payment.confirmed },
     { title: 'Marketing notified', done: !!(l.marketing.taskId || l.marketing.notifiedAt) },
@@ -296,11 +308,16 @@ export function checklistOf(l) {
   ];
 }
 
+// Comments added in b since a (their text)
+const newRemarks = (a, b) => (b.remarksLog || []).slice((a.remarksLog || []).length).map(x => x.text).filter(Boolean);
+
 // What changed between two versions of a listing, as short lines (history, audit reason and the task note).
 export function summarize(a, b, contactChanged) {
   const out = [];
-  const det = DETAILS.filter(([k]) => (a[k] || '') !== (b[k] || '')).map(x => x[1]);
+  const det = DETAILS.filter(([k]) => k !== 'remarks' && (a[k] || '') !== (b[k] || '')).map(x => x[1]);
   if (det.length) out.push(`Details updated (${det.join(', ')}).`);
+  const added = newRemarks(a, b).length;
+  if (added) out.push(added > 1 ? `${added} comments added.` : 'Comment added.');
   if (contactChanged) out.push('Owner contact details updated.');
   const g0 = a.agreement, g = b.agreement;
   if (g.signed && !g0.signed) out.push(`Service agreement signed${g.date ? ` on ${g.date}` : ''}${g.signedDuringStage ? ` (signed during ${g.signedDuringStage})` : ''}.`);
@@ -425,9 +442,13 @@ export async function saveListing({ l, before, d, c, c0, live = false }) {
   const h = entry(text);
   const prevSync = l.tmsSync || {};
   // Saved as "not sent" first, so a closed tab or lost connection still shows it; cleared once the task has it.
-  // Remarks filled in or changed: sent to the card as a comment by pushListing (kept in pendingRemarks until it goes).
-  const remarks = (d.remarks || '').trim(), remarksNew = !!remarks && remarks !== (before.remarks || '').trim();
-  const tmsSync = l.tmsTaskId ? { ...prevSync, ...(remarksNew ? { pendingRemarks: remarks } : {}), linked: prevSync.linked !== false, pending: true, pendingNote: [prevSync.pending ? prevSync.pendingNote : '', lines.join('\n')].filter(Boolean).join('\n'),
+  // New comments (Remarks): only the new text is sent to the card as a comment by pushListing (kept in pendingRemarks
+  // until it goes; one not sent yet is kept in front).
+  const added = newRemarks(before, d);
+  const pendingRemarks = added.length ? [prevSync.pendingRemarks || '', ...added].filter(Boolean).join('\n') : '';
+  // Description changed here: the next send replaces the card's description (pendingDescription until it goes)
+  const descChanged = (before.description || '').trim() !== (d.description || '').trim();
+  const tmsSync = l.tmsTaskId ? { ...prevSync, ...(pendingRemarks ? { pendingRemarks } : {}), ...(descChanged ? { pendingDescription: true } : {}), linked: prevSync.linked !== false, pending: true, pendingNote: [prevSync.pending ? prevSync.pendingNote : '', lines.join('\n')].filter(Boolean).join('\n'),
     error: prevSync.error || '', at: prevSync.at || '' } : null;
   const ref = doc(db, 'newOwnerListings', l.id);
   const b = writeBatch(db);
@@ -452,7 +473,7 @@ export async function pushListing(l, { completed } = {}) {
   try {
     if (!linked) { await link(l.tmsTaskId, { type: LINK_TYPE, id: l.id }); linked = true; }
     await syncTask(l.tmsTaskId, { note: s.pendingNote || '', checklist: checklistOf(l), completed: completed ?? (l.live.live ? true : undefined),
-      started: stageDoneOf(l, 'agreement'), departmentId: deptOf(l) });
+      started: stageDoneOf(l, 'agreement'), departmentId: deptOf(l), ...(s.pendingDescription ? { description: (l.description || '').trim() } : {}) });
     next = { ...(s.pendingStatus ? { pendingStatus: s.pendingStatus } : {}), linked: true, pending: false, pendingNote: '', error: '', at: nowIso() };
     message = `${l.id} saved and sent to the task system.`;
     if (s.pendingRemarks) {
@@ -485,7 +506,8 @@ export async function createListing(fields, contact, task) {
     const cs = await tx.get(cRef);
     const n = cs.exists() ? cs.data().next || 1 : 1, id = num('NL', n), ref = doc(db, 'newOwnerListings', id);
     if ((await tx.get(ref)).exists()) throw stop(`${id} already exists. Ask a Director to check counters/newOwnerListings.`);
-    const data = { ...blank(), ...fields, stage: 1, status: 'progress', startedOn: nowIso().slice(0, 10),
+    const first = String(fields.remarks || '').trim();
+    const data = { ...blank(), ...fields, ...(first ? { remarks: first, remarksLog: [remarkEntry(first)] } : {}), stage: 1, status: 'progress', startedOn: nowIso().slice(0, 10),
       tmsTaskId: task?.id || null, tmsSync: task ? { linked: false, pending: true, pendingNote: '', error: '', at: '' } : null,
       createdByUid: me.user.uid, createdByName: me.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), history: [h] };
     tx.set(cRef, { next: n + 1 });

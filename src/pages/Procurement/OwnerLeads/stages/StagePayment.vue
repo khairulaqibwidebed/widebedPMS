@@ -89,7 +89,7 @@ const ProofLink = {
         ? h('a', { href: url, target: '_blank', rel: 'noopener', onClick: e => { e.preventDefault(); this.$emit('open', this.label, url); } }, 'Open') : '—')]);
     }
     return h('div', { class: 'field' }, [
-      h('label', { for: id }, `${this.label} (Google Drive link)`),
+      h('label', { for: id }, [`${this.label} (Google Drive link) `, h('span', { class: 'muted' }, 'optional')]),
       h('input', { class: 'input', id, value: url, placeholder: 'https://drive.google.com/…', onInput: e => this.set(e.target.value) }),
       h('div', { style: 'margin-top:6px' }, [h(UploadFile, { kind: 'listings', recordId: this.listingId, folderLabel: `${this.d.property} ${this.d.unit}`, multiple: false,
         accept: 'image/*,application/pdf', onDone: f => this.set(f[0].url) })])

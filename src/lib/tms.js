@@ -52,12 +52,14 @@ export const link = (taskId, pmsLink) => sendToTasks('link', { taskId, data: { p
 // One message per save: a note of what changed, the whole checklist as [{ title, done }], completed when given, and
 // started (moves a task still before DOING into DOING). Resolves { status, completed }.
 // departmentId hands the task to that department ('marketing', 'operation', ...).
-export function syncTask(taskId, { note = '', checklist = [], completed, started, departmentId } = {}) {
+// description (when given) replaces the card's description (a New Owner Listing's Description, 11 Nov 2026).
+export function syncTask(taskId, { note = '', checklist = [], completed, started, departmentId, description } = {}) {
   const data = { subtasks: checklist.slice(0, 50).map(c => ({ title: String(c.title).slice(0, 200), done: !!c.done })) };
   if (note) data.text = note.slice(0, 2000);
   if (typeof completed === 'boolean') data.completed = completed;
   if (started) data.started = true;
   if (departmentId) data.departmentId = departmentId;
+  if (typeof description === 'string') data.description = description.slice(0, 5000);
   return updateTask(taskId, data);
 }
 

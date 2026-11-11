@@ -23,15 +23,11 @@
         </label>
       </template>
     </div>
-    <p class="help" v-if="sv.rentType === 'yearly'">Short-term rent amenities are not offered for Yearly rent, so there is no Furniture stage.</p>
+    <p class="help" v-if="sv.rentType === 'yearly'">Short-term rent amenities are not offered for Yearly rent: the Furniture stage shows only with Renovation & interior design.</p>
     <p class="help" v-if="kept.length">{{ `Kept but left out of the quotation (unticked): ${kept.join(', ')}.` }}</p>
 
     <div class="form-sec">Yearly maintenance package</div>
-    <div class="sv-pk" role="group" aria-label="Maintenance package">
-      <template v-for="p in PACKAGES" :key="p.key">
-        <label class="tick"><input type="radio" name="svPkg" :value="p.key" v-model="sv.maintenance" :disabled="!canEdit"> {{ p.price ? `${p.label} · ${rm(p.price)} a year` : p.label }}</label>
-      </template>
-    </div>
+    <OptionPicker class="sv-pk-select" v-model="sv.maintenance" :options="pkgOptions" label="Yearly maintenance package" :disabled="!canEdit" />
     <p class="help">The package is added to the final quotation.</p>
 
     <div class="field" style="margin-top:12px"><label for="svNotes">Notes</label>
@@ -42,28 +38,34 @@
 
 <script>
 // Stage: Types of service (rent type, the services the owner takes, the yearly maintenance package). Ticking
-// "Renovation & interior design" shows the Renovation stage, "Short-term rent amenities" the Furniture stage. Unticking
+// "Renovation & interior design" shows the Renovation and Furniture stages, "Short-term rent amenities" the Furniture stage. Unticking
 // one whose stage has something in it asks first; its items are kept but left out of the quotation.
-import { RENT_TYPES, SERVICES, SERVICE_FEE, PACKAGES, rentLabel, serviceOn, stageHasContent, rm } from '@/lib/owner-leads.js';
+import { RENT_TYPES, SERVICES, SERVICE_FEE, PACKAGES, STAGE_LABEL, rentLabel, stageOn, stageHasContent, rm } from '@/lib/owner-leads.js';
 import { askConfirm } from '@/lib/confirm.js';
+import OptionPicker from '@/components/OptionPicker.vue';
 
 export default {
+  components: { OptionPicker },
   props: { d: { type: Object, required: true }, canEdit: Boolean, n: { type: Number, default: 2 } },
   data() { return { RENT_TYPES, SERVICE_FEE, PACKAGES }; },
   computed: {
     sv() { return this.d.services; },
+    pkgOptions() { return PACKAGES.map(p => ({ value: p.key, label: p.price ? `${p.label} · ${rm(p.price)} a year` : p.label })); },
     shownServices() { return SERVICES.filter(x => !(x.notFor || []).includes(this.sv.rentType)); },
     // Stages with content whose service is off now
-    kept() { return SERVICES.filter(x => x.stage && !serviceOn(this.d, x.key) && stageHasContent(this.d, x.stage)).map(x => x.label); }
+    kept() { return Object.keys(STAGE_LABEL).filter(k => !stageOn(this.d, k) && stageHasContent(this.d, k)).map(k => `${STAGE_LABEL[k]} items`); }
   },
   methods: {
     rentLabel, rm,
     hintOf(x) { return typeof x.hint === 'string' ? x.hint : x.hint[this.sv.rentType || '']; },
     // Losing a stage that has content: ask first. Resolves true to go ahead.
     async okToHide(x) {
-      if (!x.stage || !serviceOn(this.d, x.key) || !stageHasContent(this.d, x.stage)) return true;
-      return askConfirm({ title: `Hide the ${x.stage === 'renovation' ? 'Renovation' : 'Furniture'} stage?`,
-        message: `${x.label} has items in its stage. They are kept, but left out of the quotation until it is ticked again.`, confirmText: 'Untick' });
+      // The stages that would go (Furniture stays while the other service is still ticked) and have something in them
+      const after = { ...this.d, services: { ...this.sv, items: { ...this.sv.items, [x.key]: false } } };
+      const gone = Object.keys(STAGE_LABEL).filter(k => stageOn(this.d, k) && !stageOn(after, k) && stageHasContent(this.d, k)).map(k => STAGE_LABEL[k]);
+      if (!gone.length) return true;
+      return askConfirm({ title: `Hide the ${gone.join(' and ')} stage${gone.length > 1 ? 's' : ''}?`,
+        message: `${gone.join(' and ')} ${gone.length > 1 ? 'have' : 'has'} items. They are kept, but left out of the quotation until shown again.`, confirmText: 'Untick' });
     },
     async toggle(x, e) {
       const want = e.target.checked;
@@ -84,8 +86,9 @@ export default {
 <style scoped>
 .ag-opts.sv-rent { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 600px) { .ag-opts.sv-rent { grid-template-columns: minmax(0, 1fr); } }
-.sv-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.mk-grid.sv-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .sv-grid .mk-tile span { display: grid; gap: 2px; text-align: left; }
 .sv-grid .mk-tile small { font-weight: 400; color: var(--muted); font-size: 12px; }
 .sv-pk { display: flex; flex-wrap: wrap; }
+.sv-pk-select { max-width: 340px; }
 </style>
