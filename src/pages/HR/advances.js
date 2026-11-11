@@ -105,6 +105,9 @@ export async function loadAdvances() { return rows(await getDocs(collection(db, 
 export const watchAdvances = (onRows, onError) => listen(collection(db, 'advances'), r => onRows([...r].sort(byNewest)), { onError });
 const byNewest = (a, b) => ms(b.createdAt) - ms(a.createdAt) || String(b.ref).localeCompare(String(a.ref));
 export async function loadMyAdvances(uid) { return rows(await getDocs(query(collection(db, 'advances'), where('uid', '==', uid)))); }
+// Staff's own list, live (11 Nov 2026): HR's review, approval and payment show without a refresh. Returns stop().
+export const watchMyAdvances = (uid, onRows, onError) =>
+  listen(query(collection(db, 'advances'), where('uid', '==', uid)), r => onRows([...r].sort(byNewest)), { onError });
 
 export async function createAdvance(me, limit, { amount, reason }) {
   const a = money(amount), r = clean(reason);
