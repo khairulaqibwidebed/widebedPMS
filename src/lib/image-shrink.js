@@ -29,3 +29,10 @@ export async function shrinkImage(file) {
   }
   throw new Error(`${file.name} is too detailed to send. Try a smaller photo or a screenshot.`);
 }
+
+// 11 Nov 2026: keeps the original file on a shrunk photo, hidden (not enumerable), so it never ends up in Firestore or a
+// copy of the object; complaint chats upload it to HR's Drive. photo.file is undefined for anything else.
+export function keepOriginal(photo, file) {
+  Object.defineProperty(photo, 'file', { value: file, enumerable: false });
+  return photo;
+}

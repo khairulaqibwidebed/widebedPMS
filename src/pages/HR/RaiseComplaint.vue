@@ -20,14 +20,14 @@
         </form>
       </section>
     </div>
-    <div class="modal-back" v-if="showMine" @click.self="showMine = false" v-esc="() => { showMine = false }">
+    <div class="modal-back" v-if="showMine" @click.self="closeMine" v-esc="closeMine">
     <div class="modal" :class="{ 'cp-modal': open }" role="dialog" aria-label="My complaints" :style="open ? null : 'max-width:760px;width:calc(100% - 32px)'">
       <!-- One complaint: details on the left, the conversation with HR on the right like a messaging app (4 Nov 2026).
            Named complaints that aren't closed can reply. Phones: stacked. -->
       <template v-if="open">
         <div class="cp-head">
           <h2>{{ open.ref + (open.subject ? ' · ' + open.subject : '') }}</h2>
-          <button type="button" class="cp-x" aria-label="Close" @click="showMine = false; open = null">×</button>
+          <button type="button" class="cp-x" aria-label="Close" @click="closeMine">×</button>
         </div>
         <div class="notice error" v-show="actErr">{{ actErr }}</div>
         <div class="cp-split">
@@ -36,12 +36,12 @@
             <div class="kv"><span>Status</span><span><span class="pill" :class="(STATUS[open.status] || STATUS.new)[1]">{{ (STATUS[open.status] || STATUS.new)[0] }}</span></span></div>
             <div class="field" style="margin-top:12px" v-if="open.details"><label>Details</label><div class="detail">{{ open.details }}</div></div>
             <PhotoThumbs :images="photosOf('complaint')" />
-            <ComplaintDocs :key="'d' + open.id" :complaint="open" side="sender" :can-add="!open.anonymous && open.status !== 'closed'" />
+            <ComplaintDocs :key="'d' + open.id" :complaint="open" side="sender" :can-add="open.status !== 'closed'" />
           </div>
           <!-- Conversation with HR: the shared live chat (6 Nov 2026). Anonymous ones can read HR's replies but not reply. -->
           <ComplaintChat :key="open.id" :complaint="open" side="sender" :labels="{ hr: 'HR', sender: 'You' }" title="Conversation with HR"
             :hint="open.anonymous ? 'Sent anonymously: you can read HR\'s replies here (on this browser) but not reply.' : 'You get a notification when HR replies.'"
-            placeholder="Reply to HR" empty="No replies from HR yet." :can-reply="!open.anonymous && open.status !== 'closed'"
+            placeholder="Reply to HR" empty="No replies from HR yet." :can-reply="open.status !== 'closed'"
             :closed-text="open.status === 'closed' ? 'This complaint is closed. Raise a new one if something is still wrong.' : ''" @complaint-photos="p => images = p" />
         </div>
       </template>
@@ -64,7 +64,7 @@
       </div>
       </Paged>
       <p class="help" style="margin-top:8px" v-if="list.length">Click a complaint to see HR's replies.</p>
-      <div class="modal-foot"><button class="btn" @click="showMine = false">Close</button></div>
+      <div class="modal-foot"><button class="btn" @click="closeMine">Close</button></div>
       </template>
     </div>
     </div>
@@ -112,6 +112,7 @@ export default {
       this.liveUse('named', watchComplaintList({ kind: 'staff', fromId: me.user.uid }, rows => { named = rows; show(); }, fail));
       this.liveUse('anon', watchMyAnonComplaints(rows => { anon = rows; show(); }, fail));
     },
+    closeMine() { this.showMine = false; this.open = null; },
     async view(c) {
       // HR's replies show live inside ComplaintChat (6 Nov 2026); it stops listening when the window closes
       this.open = c; this.images = []; this.actErr = '';

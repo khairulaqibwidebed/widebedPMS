@@ -26,7 +26,7 @@
 // Pick photos to send with a complaint or a reply. They are shrunk in the browser (lib/image-shrink.js) and kept as
 // data URLs in v-model until the form saves them. Up to `max` photos.
 //   <PhotoPicker v-model="photos" :max="5" />
-import { shrinkImage } from '@/lib/image-shrink.js';
+import { shrinkImage, keepOriginal } from '@/lib/image-shrink.js';
 import PhotoViewer from '@/components/PhotoViewer.vue';
 
 export default {
@@ -45,7 +45,7 @@ export default {
       this.waiting = todo.length;
       for (const f of todo) {
         this.stepPct = 15; const tick = setInterval(() => { this.stepPct = Math.min(90, this.stepPct + 15); }, 120);
-        try { out.push(await shrinkImage(f)); this.$emit('update:modelValue', [...out]); } catch (err) { this.error = err.message; }
+        try { out.push(keepOriginal(await shrinkImage(f), f)); this.$emit('update:modelValue', [...out]); } catch (err) { this.error = err.message; }
         clearInterval(tick); this.waiting--;
       }
       this.$emit('update:modelValue', out);

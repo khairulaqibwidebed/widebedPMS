@@ -80,7 +80,7 @@
             <!-- Conversation with the sender (they see it under My complaints). Shared live chat since 6 Nov 2026. -->
             <ComplaintChat :key="sel.id" :complaint="sel" side="hr" :labels="{ hr: 'HR', sender: sel.anonymous ? 'Anonymous' : (sel.fromName || 'Sender') }"
               :anonymous-other="sel.anonymous" :title="sel.anonymous ? 'Conversation · Anonymous' : 'Conversation · ' + (sel.fromName || 'Sender')"
-              :hint="sel.anonymous ? 'They see replies on the browser they sent it from, with no notification, and cannot reply.' : 'They see these under My complaints, get a notification for each reply, and can reply back.'"
+              :hint="sel.anonymous ? 'They see replies on the browser they sent it from, with no notification, and can reply back.' : 'They see these under My complaints, get a notification for each reply, and can reply back.'"
               placeholder="Reply to the sender" empty="No replies yet. Your first reply starts the conversation." :can-reply="sel.status !== 'closed'"
               closed-text="Closed. Pick another status on the left to reopen it and reply." @complaint-photos="p => images = p" />
           </div>
