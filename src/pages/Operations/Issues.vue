@@ -162,8 +162,9 @@
               <button type="button" role="radio" :aria-checked="String(raise.type === 'inhouse')" :class="{ on: raise.type === 'inhouse' }" @click="raise.type = 'inhouse'"><b>In-house</b><small>Office, staff or company matters</small></button>
             </div></div>
           <div class="field"><label class="req" for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
-          <!-- Every ticket, In-house or Customer, has a property: its card goes to that property's board in the task system -->
-          <div class="field"><label class="req" for="rProp">Property</label>
+          <!-- Customer tickets only: the property, and the ticket's card goes to that property's board in the task system
+               (Maintenance). In-house tickets stay in the PMS and have no property. -->
+          <div class="field" v-if="raise.type === 'customer'"><label class="req" for="rProp">Property</label>
             <select v-if="propertyChoices().length" class="input" id="rProp" v-model="raise.property" @change="raise.unit = ''">
               <option value="">Choose the property</option>
               <option v-for="p in propertyChoices()" :key="p" :value="p">{{ p }}</option>
@@ -223,10 +224,10 @@
       <template v-if="edit">
         <form class="modal" role="dialog" aria-label="Edit title and description" @submit.prevent="saveEdit()" style="max-width:520px">
           <h2>{{ 'Edit ' + ticket.id }}</h2>
-          <p class="help" v-show="!ticket.property" style="margin-top:0">This ticket has no property yet, so it has no card in the task system. Choose its property.</p>
+          <p class="help" v-show="typeOf(ticket) === 'customer' && !ticket.property" style="margin-top:0">This Customer ticket has no property yet, so it has no card in the task system. Choose its property.</p>
           <div class="notice error" v-show="edit.error">{{ edit.error }}</div>
           <div class="field"><label class="req" for="eTitle">Title</label><input class="input" id="eTitle" ref="eTitle" v-model="edit.title" maxlength="200"></div>
-          <div class="field"><label class="req" for="eProp">Property</label>
+          <div class="field" v-if="typeOf(ticket) === 'customer'"><label class="req" for="eProp">Property</label>
             <select v-if="propertyChoices().length" class="input" id="eProp" v-model="edit.property">
               <option value="">Choose the property</option>
               <option v-for="p in propertyChoices(edit.property)" :key="p" :value="p">{{ p }}</option>
@@ -507,14 +508,16 @@ export default {
       const r = this.raise;
       if (!TYPE_LABEL[r.type]) return r.error = 'Choose Customer or In-house.';
       if (!r.title.trim()) return r.error = 'Give the ticket a title.';
-      if (!r.property.trim()) return r.error = 'Choose the property.';
+      if (r.type === 'customer' && !r.property.trim()) return r.error = 'Choose the property.';
       if (r.type === 'customer' && !r.unit.trim()) return r.error = 'Choose the unit for a customer ticket.';
       if (!r.body.trim()) return r.error = 'Describe what happened.';
       if (!r.tags.length && !TAGS.includes(myRole)) return r.error = 'Tag at least one role to handle it.';
       if (r.linkUrl.trim()) { this.addLink(r); if (r.error) return; }
       const code = r.type === 'inhouse' ? '' : r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
       if (unit && !sameName(unit.propertyName, r.property)) return r.error = `${unit.unitCode} is in ${unit.propertyName}, not ${r.property.trim()}.`;
-      const propertyName = r.property.trim().slice(0, 80), propertyId = unit?.propertyId || this.propertyIdOf(propertyName);
+      // Customer: the chosen property; In-house: none (it stays in the PMS)
+      const propertyName = r.type === 'customer' ? r.property.trim().slice(0, 80) : '';
+      const propertyId = propertyName ? unit?.propertyId || this.propertyIdOf(propertyName) : null;
       const tags = TAGS.filter(g => r.tags.includes(g) || g === myRole);
       const h = this.entry(`raised the ${TYPE_LABEL[r.type]} ticket, tagged ${tags.map(tagLabel).join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
       this.busy = true; r.error = '';
@@ -539,7 +542,8 @@ export default {
         this.notify({ id, tags, raisedRole: myRole, raisedByUid: me.user.uid },
           { title: `New issue ${id}`, message: `${myLabel} raised "${r.title.trim()}", tagged ${tags.map(tagLabel).join(', ')}.` });
         await this.loadList();
-        await this.toTms(this.tickets.find(x => x.id === id) || { id, status: 'open', tags });
+        // Customer tickets go to the task system (Maintenance); In-house ones stay here
+        if (r.type === 'customer') await this.toTms(this.tickets.find(x => x.id === id) || { id, status: 'open', tags });
       } catch (e) {
         console.error('Failed to raise issue:', {
           code: e.code,
@@ -599,7 +603,10 @@ export default {
       this.busy = true; this.error = '';
       try {
         await this.change({ type: to }, [`changed the type from ${TYPE_LABEL[from]} to ${TYPE_LABEL[to]}`], 'issue.type', [{ field: 'type', old: TYPE_LABEL[from], new: TYPE_LABEL[to] }]);
-        t.type = to; this.okMsg = `${t.id} is now a ${TYPE_LABEL[to]} ticket.`;
+        t.type = to; this.okMsg = `${t.id} is now a ${TYPE_LABEL[to]} ticket.`
+          + (to === 'inhouse' ? ' Its task system card is removed (In-house tickets stay in the PMS).'
+            : t.property ? '' : ' Choose its property (Edit) so it goes to the task system.');
+        this.toTms(t);   // Customer: its card is made; In-house: its card is removed
       } catch (e) { this.error = friendlyError(e, 'change the type'); }
       this.busy = false;
     },
@@ -716,9 +723,10 @@ export default {
       this.loadBoards();
     },
     async saveEdit() {
-      const e = this.edit, t = this.ticket, title = e.title.trim(), body = e.body.trim(), property = e.property.trim().slice(0, 80);
+      const e = this.edit, t = this.ticket, title = e.title.trim(), body = e.body.trim(), customer = typeOf(t) === 'customer';
+      const property = customer ? e.property.trim().slice(0, 80) : (t.property || '');   // In-house: unchanged
       if (!title) return e.error = 'Give the ticket a title.';
-      if (!property) return e.error = 'Choose the property.';
+      if (customer && !property) return e.error = 'Choose the property.';
       if (!body) return e.error = 'Describe what happened.';
       const lines = [], changes = [];
       if (title !== t.title) { lines.push(`changed the title (was "${t.title.slice(0, 80)}")`); changes.push({ field: 'title', old: t.title, new: title }); }
