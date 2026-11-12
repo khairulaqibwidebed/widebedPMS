@@ -1,5 +1,35 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.47, 10 Nov 2026: Issues <-> TMS Maintenance link. Directors and the tagged roles can
+// Widebed PMS Firestore rules. Draft 0.54, 11 Nov 2026: Staff Attendance off-site. Staff may clock in and out away from the office;
+// each clock-in / clock-out is saved with InArea true (Normal) or false (Off-site), and the server checks that flag against its own
+// distance sum, so it can't be faked as Normal. HR / Directors can turn off-site off in config/attendance (allowOffsite: false):
+// then, as before, only inside the office area. Fake-GPS is still refused. Nothing else changes.
+// Draft 0.53, 11 Nov 2026 (Khairul): Owner Leads statuses. newOwnerListings status may be
+// inProgress (older), progress, signed, live or cancelled (Not proceeding). Status and its fields (prevStatus, signedAt,
+// liveAt, cancelledAt/By/ByUid, cancelReason) change only by Directors and Procurement (also from the TMS, which writes as
+// the signed-in person); Marketing may only take a listing to Live (with liveAt). Only Directors reopen a cancelled one.
+// The owner's phone and email (newOwnerListings/{id}/private/main) now only Directors and Procurement read and write.
+// Draft 0.52, 11 Nov 2026: Staff Attendance, several clock-ins a day. After clocking out, staff can clock in
+// again (out to a client and back): session 2, 3… up to 10 (attendance/{uid}_{day}_s2 …), only once the one before is clocked out,
+// still inside the office area with the server's time; late is decided only by the day's first clock-in. HR / Director
+// corrections may also fix a later session. Nothing else changes.
+// Draft 0.51, 11 Nov 2026: Staff Attendance corrections. On the PMS Attendance page (HR > Attendance) HR and
+// Directors can add a missing day or fix a clock-in / clock-out for anyone except themselves, with a note (editNote) and their
+// uid and the server time (editedBy, editedAt). The record's person and date never change. Still nobody deletes. Nothing else changes.
+// Draft 0.50, 11 Nov 2026 (Khairul): anonymous senders can reply in their staff complaint's
+// conversation (and add photos or documents) while it isn't Closed; nothing naming them is saved (no byUid, no byName).
+// Documents on Director complaints too (HR's Drive; the Directors and the HR sender). docs may carry threadId (a chat photo).
+// Draft 0.49 (Neo), 11 Nov 2026: Staff Attendance (Flutter app on this same Firebase project, PMS sign-in).
+// attendance/{uid}_{YYYY-MM-DD}: one record per person per Malaysia day. Any active staff member creates only their own,
+// for today, with the server's time, inside the office area (config/attendance: lat, lng, radiusM, cosLat, lateAfterMin,
+// workDays). After lateAfterMin (9:10 AM) on a working day the record must say late with a typed reason; on a weekend or a
+// holiday (attendanceHolidays/{date}) it is offDay. Clock out once, the same day, inside the area, then workedMinutes once
+// (checked against the two server times); nothing else can change.
+// Staff read only their own; HR and Directors read all. Nobody deletes. attendanceHolidays: everyone reads, HR and Directors
+// write. config/attendance: everyone reads (config/{docId} allows only some roles), HR and Directors write. Nothing else changes.
+// Draft 0.48, 11 Nov 2026 (Khairul): documents on staff complaints (complaints/{id}/docs: name and
+// Drive file id; the files sit in HR's own Google Drive). Read by the same people as the conversation. Added by HR, by the
+// named sender while it isn't Closed, or by an anonymous sender only in the first 15 minutes (no uid). Never changed or removed.
+// Draft 0.47, 10 Nov 2026: Issues <-> TMS Maintenance link. Directors and the tagged roles can
 // change a ticket's title, description and property (its card is on that property's board in the TMS), and its tmsStatus (the task system column the ticket's card is in, a map
 // { name, for }), with or without a status change, while it is Open or In progress. The task system (TMS) writes these as
 // the signed-in person, with their own PMS sign-in, so the same people can change the same tickets. Mark completed through
@@ -224,6 +254,16 @@ service cloud.firestore {
     // New Owner Listings.
     function listingViewer()   { return can('newOwnerListings.view'); }
     function listingEditor()   { return can('newOwnerListings.edit'); }
+    // Draft 0.51: lead statuses
+    function listingMover()    { return isDirector() || role() == 'procurement'; }
+    function listingStatuses() { return ['inProgress', 'progress', 'signed', 'live', 'cancelled']; }
+    function oldListingStatus() { return resource.data.get('status', 'inProgress'); }
+    function listingStatusOk() {
+      return !changed().hasAny(['status', 'prevStatus', 'signedAt', 'liveAt', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancelReason'])
+        || (listingMover() && (isDirector() || oldListingStatus() != 'cancelled' || !changed().hasAny(['status'])))
+        || (role() == 'marketing' && request.resource.data.status == 'live' && oldListingStatus() in ['inProgress', 'progress', 'signed']
+            && !changed().hasAny(['prevStatus', 'signedAt', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancelReason']));
+    }
 
     // ---- Paths and writes ----
     function docPath(col, id)    { return /databases/$(database)/documents/$(col)/$(id); }
@@ -995,10 +1035,14 @@ service cloud.firestore {
           && (request.resource.data.text.size() > 0
             || (request.resource.data.get('imageIds', []) is list && request.resource.data.get('imageIds', []).size() > 0))
           && request.resource.data.get('imageIds', []).size() <= 5
-          && request.resource.data.byUid == request.auth.uid
-          && ((isHR() && request.resource.data.by == 'hr')
-            || (request.resource.data.by == 'sender' && complaintNow(id).get('fromId', null) == request.auth.uid
-                && complaintNow(id).status != 'closed' && !('closing' in request.resource.data)));
+          && ((request.resource.data.get('byUid', '') == request.auth.uid
+              && ((isHR() && request.resource.data.by == 'hr')
+                || (request.resource.data.by == 'sender' && complaintNow(id).get('fromId', null) == request.auth.uid
+                    && complaintNow(id).status != 'closed' && !('closing' in request.resource.data))))
+            // Draft 0.49: the anonymous sender (no uid or name saved)
+            || (anyStaff() && request.resource.data.by == 'sender' && complaintNow(id).get('anonymous', false) == true
+                && complaintNow(id).status != 'closed' && !('byUid' in request.resource.data) && !('byName' in request.resource.data)
+                && !('closing' in request.resource.data)));
         // Draft 0.29: a Director complaint's conversation is between HR and the Directors
         allow read: if dirSide(id);
         // Draft 0.30: a closing note (closing) comes only from the Directors; HR can't write once it is Closed.
@@ -1028,8 +1072,10 @@ service cloud.firestore {
                   || (anyStaff() && complaintNow(id).get('anonymous', false) == true && !('byUid' in request.resource.data)
                       && request.time < complaintNow(id).createdAt + duration.value(15, 'm'))))
             || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string
-                && request.resource.data.get('byUid', '') == request.auth.uid
-                && (isHR() || (complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed'))));
+                && ((request.resource.data.get('byUid', '') == request.auth.uid
+                    && (isHR() || (complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed')))
+                  || (anyStaff() && complaintNow(id).get('anonymous', false) == true && complaintNow(id).status != 'closed'
+                    && !('byUid' in request.resource.data)))));
         // Draft 0.29: Director complaints: HR and Directors read and add photos (with the complaint or a reply)
         allow read: if dirSide(id);
         allow create: if dirSide(id)
@@ -1037,6 +1083,32 @@ service cloud.firestore {
           && request.resource.data.data is string && request.resource.data.data.size() <= 700000
           && request.resource.data.get('byUid', '') == request.auth.uid
           && (request.resource.data.scope == 'complaint' || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string));
+        allow update, delete: if false;
+      }
+      // Draft 0.48 (Khairul): documents on a staff complaint. The file is in HR's Google Drive; this is its name and id.
+      match /docs/{did} {
+        allow read: if (isHR() && complaintNow(id).kind == 'staff')
+          || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
+          || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
+        allow create: if complaintNow(id).kind == 'staff'
+          && newKeysOnly(['name', 'fileId', 'mimeType', 'by', 'byUid', 'threadId', 'createdAt'])
+          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
+          && request.resource.data.fileId is string && request.resource.data.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
+          && ((isHR() && request.resource.data.by == 'hr' && request.resource.data.get('byUid', '') == request.auth.uid)
+            || (request.resource.data.by == 'sender' && request.resource.data.get('byUid', '') == request.auth.uid
+                && complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed')
+            // Draft 0.49: an anonymous sender any time while it isn't Closed (was the first 15 minutes only)
+            || (request.resource.data.by == 'anon' && anyStaff() && complaintNow(id).get('anonymous', false) == true
+                && !('byUid' in request.resource.data) && complaintNow(id).status != 'closed'));
+        // Draft 0.49: Director complaints (HR's Drive). The Directors any time; the HR sender while it isn't Closed.
+        allow read: if dirSide(id);
+        allow create: if dirSide(id)
+          && newKeysOnly(['name', 'fileId', 'mimeType', 'by', 'byUid', 'threadId', 'createdAt'])
+          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
+          && request.resource.data.fileId is string && request.resource.data.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
+          && request.resource.data.get('byUid', '') == request.auth.uid
+          && ((isDirector() && request.resource.data.by == 'director')
+            || (isHR() && request.resource.data.by == 'hr' && complaintNow(id).get('status', '') != 'closed'));
         allow update, delete: if false;
       }
       // Draft 0.28 (Khairul): HR's own notes on a staff complaint; nobody else reads them.
@@ -1074,14 +1146,15 @@ service cloud.firestore {
       allow read: if listingViewer() || listingEditor();
       allow create: if listingEditor() && id.matches('NL-[0-9]{4,}')
         && request.resource.data.createdByUid == request.auth.uid
-        && request.resource.data.status in ['inProgress', 'live'];
+        && request.resource.data.status in ['inProgress', 'progress'];
       allow update: if listingEditor()
         && !changed().hasAny(['createdByUid', 'createdByName', 'createdAt'])
-        && request.resource.data.status in ['inProgress', 'live'];
+        && request.resource.data.get('status', 'inProgress') in listingStatuses()
+        && listingStatusOk();
       allow delete: if false;
       match /private/{docId} {
-        allow read: if (listingEditor() || (opsRole() && listingViewer())) && docId == 'main';
-        allow write: if listingEditor() && docId == 'main';
+        allow read: if listingMover() && listingViewer() && docId == 'main';
+        allow write: if listingMover() && listingEditor() && docId == 'main';
       }
     }
 
@@ -1541,6 +1614,143 @@ service cloud.firestore {
         && ((!exists(advPath(id)) && getAfter(advPath(id)).data.byHR == true) || get(advPath(id)).data.status == 'submitted')
         && getAfter(advPath(id)).data.status == 'reviewed';
       allow update, delete: if false;
+    }
+
+    // ---------------- Staff Attendance (Draft 0.49) ----------------
+    function attCfgPath() { return /databases/$(database)/documents/config/attendance; }
+    // Office settings. Until HR or a Director saves them, the defaults agreed on 11 Nov 2026 (Micasa Shoppes, 250 m, late after 9:10).
+    function attCfg() {
+      return exists(attCfgPath()) ? get(attCfgPath()).data
+        : {'lat': 3.156812, 'lng': 101.722188, 'radiusM': 250, 'cosLat': 0.998483, 'lateAfterMin': 550, 'workDays': [1, 2, 3, 4, 5],
+           'allowOffsite': true};
+    }
+    // Draft 0.54: clocking in / out away from the office is allowed (saved as Off-site, InArea false) unless HR turns it off.
+    // The InArea flag the phone sends must match the server's own distance check, so nobody can mark themselves Normal.
+    function attPlaceOk(lat, lng, inArea) {
+      return lat is number && lng is number && inArea == attInArea(lat, lng)
+        && (inArea || attCfg().get('allowOffsite', true) == true);
+    }
+    function attPad(n) { return n < 10 ? '0' + string(n) : string(n); }
+    // The server's time in Malaysia (UTC+8, no daylight saving).
+    function myNow() { return request.time + duration.value(8, 'h'); }
+    function attToday() { let t = myNow(); return string(t.year()) + '-' + attPad(t.month()) + '-' + attPad(t.day()); }
+    // Inside the office circle, from the phone's reported position (metres, flat-earth sum: exact enough at 250 m).
+    function attInArea(lat, lng) {
+      let c = attCfg();
+      let dy = (lat - c.lat) * 111320;
+      let dx = (lng - c.lng) * 111320 * c.cosLat;
+      return lat is number && lng is number && dy * dy + dx * dx <= c.radiusM * c.radiusM;
+    }
+    function attWorkDay(date) {
+      return myNow().dayOfWeek() in attCfg().workDays && !exists(/databases/$(database)/documents/attendanceHolidays/$(date));
+    }
+    function attLate(date) {
+      let t = myNow();
+      return attWorkDay(date) && t.hours() * 60 + t.minutes() > attCfg().lateAfterMin;
+    }
+    // Draft 0.52: the session before n (today, this person) exists and is clocked out.
+    function attPrevId(n) {
+      return n == 2 ? request.auth.uid + '_' + attToday() : request.auth.uid + '_' + attToday() + '_s' + string(n - 1);
+    }
+    function attPrevClosed(n) {
+      let p = /databases/$(database)/documents/attendance/$(attPrevId(n));
+      return exists(p) && ('clockOut' in get(p).data);
+    }
+
+    match /attendance/{id} {
+      // Your own records (a list query must filter uid == you). resource == null: "has today's record been made yet?"
+      allow read: if hrOrDir() || (anyStaff() && (resource == null || resource.data.uid == request.auth.uid));
+      // Clock in (Draft 0.52: several per day). Session 1 is {uid}_{day} and decides late / off day; going out and coming back
+      // makes session 2, 3… ({uid}_{day}_s2 …, at most 10), allowed only once the one before is clocked out. Never late.
+      allow create: if anyStaff()
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'role', 'date', 'session', 'clockIn', 'clockInLat',
+             'clockInLng', 'clockInAccuracy', 'clockInDistance', 'clockInInArea', 'clockInMocked', 'late', 'lateReason', 'offDay',
+             'status', 'platform', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.date == attToday()
+        && request.resource.data.clockIn == request.time
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.clockInMocked == false
+        && attPlaceOk(request.resource.data.clockInLat, request.resource.data.clockInLng, request.resource.data.clockInInArea)
+        && request.resource.data.offDay == !attWorkDay(attToday())
+        && request.resource.data.late is bool
+        && ((
+              !('session' in request.resource.data)
+              && id == request.auth.uid + '_' + attToday()
+              && (!attLate(attToday()) || request.resource.data.late == true)
+              && (request.resource.data.late == false
+                  || (request.resource.data.lateReason is string && request.resource.data.lateReason.size() >= 3
+                      && request.resource.data.lateReason.size() <= 300))
+              && request.resource.data.status == (request.resource.data.offDay ? 'offDay' : (request.resource.data.late ? 'late' : 'present'))
+            ) || (
+              request.resource.data.session is int
+              && request.resource.data.session >= 2 && request.resource.data.session <= 10
+              && id == request.auth.uid + '_' + attToday() + '_s' + string(request.resource.data.session)
+              && attPrevClosed(request.resource.data.session)
+              && request.resource.data.late == false
+              && !('lateReason' in request.resource.data)
+              && request.resource.data.status == (request.resource.data.offDay ? 'offDay' : 'present')
+            ));
+      // Clock out: once, the same Malaysia day, inside the area, with the server's time.
+      // Then (second save) workedMinutes, which must equal clockOut - clockIn from the two server times (rounded down, 1 min slack).
+      allow update: if anyStaff()
+        && resource.data.uid == request.auth.uid
+        && ((
+              resource.data.date == attToday()
+              && !('clockOut' in resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockOut', 'clockOutLat', 'clockOutLng',
+                   'clockOutAccuracy', 'clockOutDistance', 'clockOutInArea', 'clockOutMocked', 'updatedAt'])
+              && request.resource.data.clockOut == request.time
+              && request.resource.data.updatedAt == request.time
+              && request.resource.data.clockOutMocked == false
+              && attPlaceOk(request.resource.data.clockOutLat, request.resource.data.clockOutLng, request.resource.data.clockOutInArea)
+            ) || (
+              'clockOut' in resource.data
+              && !('workedMinutes' in resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['workedMinutes'])
+              && request.resource.data.workedMinutes is int
+              && request.resource.data.workedMinutes >= (resource.data.clockOut.toMillis() - resource.data.clockIn.toMillis()) / 60000 - 1
+              && request.resource.data.workedMinutes <= (resource.data.clockOut.toMillis() - resource.data.clockIn.toMillis()) / 60000 + 1
+            ));
+      // Draft 0.51: HR / Director corrections (PMS Attendance page). Never their own record; the person and the date stay.
+      allow create, update: if hrOrDir()
+        && request.resource.data.uid is string && request.resource.data.uid != request.auth.uid
+        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (id == request.resource.data.uid + '_' + request.resource.data.date
+            || id == request.resource.data.uid + '_' + request.resource.data.date + '_s' + string(request.resource.data.get('session', 0)))
+        && (resource == null || (resource.data.uid == request.resource.data.uid && resource.data.date == request.resource.data.date))
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'role', 'date', 'session', 'clockIn', 'clockInLat', 'clockInLng',
+             'clockInAccuracy', 'clockInDistance', 'clockInInArea', 'clockInMocked', 'late', 'lateReason', 'offDay', 'status',
+             'platform', 'createdAt', 'updatedAt', 'clockOut', 'clockOutLat', 'clockOutLng', 'clockOutAccuracy', 'clockOutDistance',
+             'clockOutInArea', 'clockOutMocked', 'workedMinutes', 'editedBy', 'editedByName', 'editedAt', 'editNote'])
+        && request.resource.data.clockIn is timestamp
+        && (!('clockOut' in request.resource.data)
+            || (request.resource.data.clockOut is timestamp && request.resource.data.clockOut > request.resource.data.clockIn))
+        && (!('workedMinutes' in request.resource.data) || request.resource.data.workedMinutes is int)
+        && request.resource.data.status in ['present', 'late', 'offDay']
+        && request.resource.data.editedBy == request.auth.uid
+        && request.resource.data.editedAt == request.time
+        && request.resource.data.editNote is string && request.resource.data.editNote.size() >= 3 && request.resource.data.editNote.size() <= 300;
+      allow delete: if false;
+    }
+
+    // Public holidays, kept by HR on the PMS Attendance page. id = YYYY-MM-DD.
+    match /attendanceHolidays/{date} {
+      allow read: if anyStaff();
+      allow write: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // Office location, radius and late time for attendance.
+    match /config/attendance {
+      allow read: if anyStaff();
+      allow write: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['officeName', 'address', 'lat', 'lng', 'radiusM', 'cosLat', 'workStartMin',
+             'workEndMin', 'lateAfterMin', 'workDays', 'allowOffsite', 'updatedBy', 'updatedAt'])
+        && request.resource.data.get('allowOffsite', true) is bool
+        && request.resource.data.lat is number && request.resource.data.lng is number
+        && request.resource.data.radiusM is number && request.resource.data.radiusM >= 50 && request.resource.data.radiusM <= 2000
+        && request.resource.data.cosLat is number && request.resource.data.lateAfterMin is int && request.resource.data.workDays is list;
     }
 
   }

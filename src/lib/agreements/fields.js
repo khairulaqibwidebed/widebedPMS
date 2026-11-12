@@ -34,6 +34,41 @@ export const hasValue = f => f.type !== 'section';
 // Can be placed on an agreement page (attachments are kept with the record, not printed).
 export const placeable = f => hasValue(f) && f.type !== 'file';
 export const hasOptions = f => f.type === 'dropdown' || f.type === 'radio';
+// A field's choices, tidied for saving and for the form: trimmed, no empty ones, no repeats (the form builder keeps the
+// list as typed while you edit it).
+export function cleanOptions(list) {
+  const seen = new Set(), out = [];
+  for (const o of list || []) {
+    const t = String(o ?? '').trim(), k = t.toLowerCase();
+    if (!t || seen.has(k)) continue;
+    seen.add(k); out.push(t);
+  }
+  return out;
+}
+// Where a choice is used: the field's own default, and other fields' "Show only when" rules.
+export function choiceUsers(fields, field, choice) {
+  const c = String(choice ?? '').trim();
+  if (!c) return [];
+  return [
+    ...(field.default === c ? ['It is this field\'s default value'] : []),
+    ...fields.filter(x => x.showIf?.fieldId === field.id && x.showIf.op !== 'filled' && x.showIf.value === c).map(x => `"${x.label}" shows only when it is picked`)
+  ];
+}
+// A choice was renamed: the default and the rules that used the old text follow it.
+export function renameChoice(fields, field, from, to) {
+  if (field.default === from) field.default = to;
+  for (const x of fields) if (x.showIf?.fieldId === field.id && x.showIf.value === from) x.showIf.value = to;
+}
+// Where the dragged thing goes: before row [i] when the pointer is in its top half, else after it.
+export const dropIndex = (i, pointerY, rowTop, rowHeight) => (pointerY < rowTop + rowHeight / 2 ? i : i + 1);
+// Move list[from] so it ends up at insertion point [to] (0..list.length, counted before the move). Returns a new list.
+export function moveTo(list, from, to) {
+  const out = [...list];
+  if (from < 0 || from >= out.length) return out;
+  const [x] = out.splice(from, 1);
+  out.splice(from < to ? to - 1 : to, 0, x);
+  return out;
+}
 export const isEditableInGrid = f => !['section', 'formula', 'signature', 'image', 'file'].includes(f.type);
 export const onForm = f => f.onForm !== false;
 

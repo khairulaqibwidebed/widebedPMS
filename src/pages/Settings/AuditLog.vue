@@ -40,7 +40,6 @@
                 <td class="reason">{{ e.reason || '—' }}</td>
               </tr>
             </template>
-            <SkeletonRows v-if="loading && !shown().length" table :cols="6" />
             <tr v-show="!loading && !shown().length"><td colspan="6" class="muted">{{ entries.length ? 'No entries match. Load more to search further back.' : 'No changes recorded yet.' }}</td></tr>
           </tbody>
         </table>
@@ -48,7 +47,7 @@
       </Paged>
       <div class="card-foot">
         <span>Entries can't be edited or deleted. Personal details (IC, bank, phone, email, address) are never shown here, only that they changed.</span>
-        <span class="muted loading-line" v-show="loading && entries.length">Loading more…</span>
+        <span class="muted" v-show="loading && entries.length">Loading more…</span>
         <button class="btn" v-show="more && shown().length <= 10" @click="loadMore()" :disabled="loading">Load more</button>
       </div>
     </section>
@@ -68,7 +67,7 @@ const AREAS = [{ key: 'all', label: 'All' }, { key: 'money', label: 'Expenses & 
   { key: 'ops', label: 'Inquiries & issues' }, { key: 'hr', label: 'HR & Playbook' }];
 const AREA_OF = { expense: 'money', ctrip: 'money', unit: 'units', unitTerms: 'units', rates: 'units', property: 'units', owner: 'owners',
   statement: 'statements', month: 'statements', ezee: 'uploads', financeStatement: 'uploads', staff: 'staff',
-  offlineInquiry: 'ops', offlineBooking: 'ops', tenant: 'ops', issue: 'ops', sop: 'hr', complaint: 'hr', onboarding: 'hr', playbook: 'hr', brandLogo: 'hr', advance: 'hr', staffHR: 'staff', signature: 'hr' };
+  offlineInquiry: 'ops', offlineBooking: 'ops', tenant: 'ops', issue: 'ops', sop: 'hr', complaint: 'hr', onboarding: 'hr', playbook: 'hr', brandLogo: 'hr', advance: 'hr', staffHR: 'staff', signature: 'hr', attendance: 'hr' };
 const ACTIONS = {
   'expense.create': 'Added an expense line', 'expense.update': 'Edited an expense line', 'expense.remove': 'Removed an expense line',
   'ctrip.enter': 'Typed a Trip.com amount', 'unit.create': 'Added a unit', 'unit.update': 'Changed unit settings',
@@ -82,8 +81,10 @@ const ACTIONS = {
   'tenant.update': "Edited a tenant's details", 'issue.create': 'Raised an issue', 'booking.restore': 'Restored a booking', 'booking.delete': 'Deleted a booking permanently', 'issueQuote.create': 'Added a quote to a ticket', 'issueQuote.update': 'Edited a ticket quote', 'issueQuote.approve': 'Approved a ticket quote', 'issueQuote.reject': 'Rejected a ticket quote', 'issueQuote.invoice': 'Added a ticket invoice to an owner statement', 'issueQuote.paid': 'Marked a ticket vendor paid', 'issue.comment': 'Commented on an issue', 'issue.progress': 'Moved an issue to In progress',
   'issue.tags': 'Changed an issue\'s tags', 'issue.type': 'Changed an issue\'s type (Customer or In-house)','issue.complete': 'Completed an issue', 'sop.update': 'Edited an SOP', 'sop.create': 'Made a new SOP', 'sop.delete': 'Deleted an SOP', 'sop.icon': "Changed an SOP's icon",'sop.docAdd': 'Added an SOP document', 'sop.docRemove': 'Removed an SOP document',
   'advance.create': 'Asked for a salary advance', 'advance.withdrawn': 'Withdrew a salary advance', 'advance.rejected': 'Rejected a salary advance', 'advance.approved': 'Approved a salary advance (form made)', 'advance.sent': 'Sent a salary advance form to staff', 'advance.paid': 'Marked a salary advance paid', 'advance.note': 'Added an HR note to a salary advance', 'advance.hrCreated': 'Made a salary advance form for a staff member', 'staffHR.update': 'Changed HR details (IC, position or salary)', 'signature.update': 'Changed the signature on salary advance forms',
-  'complaint.create': 'Sent a complaint', 'complaint.hrRead': 'Read a staff complaint (HR)', 'complaint.reply': 'Replied on a staff complaint', 'complaint.note': 'Added an HR note to a complaint', 'complaint.doc': 'Added a document to a staff complaint', 'complaint.status': 'Changed a staff complaint status', 'complaint.read': 'Read a Director complaint', 'onboarding.tick': 'Ticked an onboarding step', 'playbook.update': 'Edited a Playbook page',
-  'brandLogo.update': 'Changed a brand logo'
+  'complaint.create': 'Sent a complaint', 'complaint.hrRead': 'Read a staff complaint (HR)', 'complaint.reply': 'Replied on a staff complaint', 'complaint.note': 'Added an HR note to a complaint', 'complaint.status': 'Changed a staff complaint status', 'complaint.read': 'Read a Director complaint', 'onboarding.tick': 'Ticked an onboarding step', 'playbook.update': 'Edited a Playbook page',
+  'brandLogo.update': 'Changed a brand logo',
+  'attendance.correct': 'Fixed a staff attendance record', 'attendance.add': 'Added a missing attendance record', 'attendance.settings': 'Changed the attendance office settings',
+  'attendance.holiday': 'Added a public holiday', 'attendance.holidayRemove': 'Removed a public holiday'
 };
 // Personal data (PDPA): show that it changed, never the value.
 const PII = /(^|\.)(ic|icPassport|passport|nric|email|phone|whatsapp|wechat|address|bank|bankName|bankAccount|accountNo|accountHolder|dob|dateOfBirth|fullName|name|contact)/i;

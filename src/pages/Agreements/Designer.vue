@@ -188,6 +188,7 @@ import { FONTS, LINE, openPdf, mappingText } from '@/lib/agreements/pdf.js';
 import { loadFile } from '@/lib/agreements/drive.js';
 import { uploadTemplateFile, templateFromMaster, offPage } from '@/lib/agreements/templates.js';
 import { useUndo, useAutosave } from '@/lib/agreements/history.js';
+import { startDragScroll } from '@/lib/agreements/drag-scroll.js';
 import './agreements.css';
 
 const route = useRoute(), router = useRouter();
@@ -272,7 +273,10 @@ function placeAt(fieldId, page, rx, ry) {
   mappings.value = [...mappings.value, m];
   selectedId.value = m.id;
 }
-function startDrag(e, f) { e.dataTransfer.setData('text/x-agreement-field', f.id); e.dataTransfer.effectAllowed = 'copy'; }
+function startDrag(e, f) {
+  e.dataTransfer.setData('text/x-agreement-field', f.id); e.dataTransfer.effectAllowed = 'copy';
+  startDragScroll(pagesBox.value);   // scrolls the pages up or down while you drag near the edge (stops by itself on drop)
+}
 function onDrop(e, page) {
   const id = e.dataTransfer.getData('text/x-agreement-field');
   if (!id) return;
