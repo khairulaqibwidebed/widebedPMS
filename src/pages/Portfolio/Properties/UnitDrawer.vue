@@ -36,8 +36,8 @@
           <div class="field"><label for="uArr">Arrangement</label>
             <OptionPicker class="full-pick" v-model="u.arrangement" :options="arrangementOptions" label="Arrangement" searchable />
             <span class="help" v-if="chosen">{{ `${FEE_TYPES[chosen.type]?.label || chosen.type}: ${FEE_TYPES[chosen.type]?.explain || ''}` }}<FormulaInfo :type="chosen.type" /></span>
-            <span class="help" v-else-if="u.arrangement">This arrangement is not on this property's Fees & rates for the month. Pick another.</span>
-            <span class="help" v-else>Arrangements are set up on the Fees & rates tab.</span>
+            <span class="help" v-else-if="u.arrangement">This arrangement is not on Fees & Rates for the month. Pick another.</span>
+            <span class="help" v-else>Arrangements are set up on Portfolio > Fees & Rates.</span>
             <span class="help from-listing" v-if="u.isNew && u.fromListing?.serviceFee">{{ `From ${u.fromListing.listingId}: ${u.fromListing.serviceFee.label} rent, service fee ${u.fromListing.serviceFee.pct}%. It is filled in as this unit's service fee once you pick an arrangement; clear it to use the arrangement's number.` }}</span></div>
           <div class="field" v-show="isFixed"><label for="uFix" class="req">Fixed rent a month (RM)</label><input class="input" id="uFix" type="number" step="0.01" v-model="u.fixedRentAmount"></div>
           <template v-if="chosen">
@@ -143,13 +143,21 @@ export default {
     },
     ownerOptions() {
       return [{ value: '', label: 'No owner linked' }, ...this.owners.filter(x => x.active !== false || x.id === this.u.ownerId)
-        .map(o => ({ value: o.id, label: ownerLabel(this.owners, o.id, this.acc.viewOnly) }))];
+        .map(o => ({ value: o.id, label: this.ownerPickLabel(o) }))];
     }
   },
   methods: {
     amt, monthName, arrLabel, pctOut,
+    // Roles that can't read owner names (PDPA) saw "Owner linked" on every row (12 Nov 2026): they now see the owner's
+    // code and their units in this property, so the rows can be told apart. Others see the name as before.
+    ownerPickLabel(o) {
+      const name = ownerLabel(this.owners, o.id, this.acc.viewOnly);
+      if (name !== 'Owner linked') return name;
+      const units = this.units.filter(x => x.ownerId === o.id).map(x => x.unitCode).filter(Boolean);
+      return `Owner ${o.code || o.id}` + (units.length ? ` · ${units.slice(0, 3).join(', ')}${units.length > 3 ? ` +${units.length - 3}` : ''}` : '');
+    },
     async loadArrangements() {
-      try { this.arrangements = (await loadRates(this.property.id, this.u.effectiveFrom)).arrangements; }
+      try { this.arrangements = (await loadRates(this.property.id, this.u.effectiveFrom, { merged: true })).arrangements; }   // with the shared Fees & Rates
       catch (e) { this.u.error = friendlyError(e, 'load the fee arrangements'); }
     },
     setBusy(v) { this.busy = v; this.$emit('busy', v); },

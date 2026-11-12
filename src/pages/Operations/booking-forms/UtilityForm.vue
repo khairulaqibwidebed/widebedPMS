@@ -101,6 +101,8 @@ import { reactive } from 'vue';
 import { collection, doc, getDoc, getDocs, limit, query, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
+import { withState } from '@/lib/states.js';
+import { scoped, getScoped } from '@/lib/property-scope.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import FormField from '@/components/FormField.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
@@ -181,7 +183,8 @@ export default {
     async load() {
       this.loading = true;
       try {
-        const [bs, us] = await Promise.all([getDocs(query(collection(db, 'offlineBookings'), limit(300))), getDocs(query(collection(db, 'utilityBills'), limit(500)))]);
+        // Only my properties' bookings and bills (lib/property-scope.js)
+        const [bs, us] = await Promise.all([getScoped(scoped(query(collection(db, 'offlineBookings'), limit(300)))), getScoped(scoped(query(collection(db, 'utilityBills'), limit(500))))]);
         this.bills = Object.fromEntries(us.docs.map(d => [d.id, d.data()]));
         this.bookings = bs.docs.filter(d => d.data().status !== 'cancelled').map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => String(b.arrival || '').localeCompare(String(a.arrival || '')));
@@ -237,9 +240,10 @@ export default {
           batch.update(doc(db, 'utilityBills', b.id), { ...data, updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name });
           audit(batch, me, { action: 'utilityBill.update', entity: `utilityBills/${b.id}`, propertyId: b.propertyId || null, changes });
         } else {
-          batch.set(doc(db, 'utilityBills', b.id), {
+          // The bill carries its booking's property's state
+          batch.set(doc(db, 'utilityBills', b.id), await withState(b.propertyId, {
             bookingId: b.id, propertyId: b.propertyId || '', propertyName: b.propertyName || '', unitCode: b.unitCode || '', ...data,
-            utilityStatus: 'Ready_to_Send', createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+            utilityStatus: 'Ready_to_Send', createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name }));
           audit(batch, me, { action: 'utilityBill.create', entity: `utilityBills/${b.id}`, propertyId: b.propertyId || null,
             changes: [{ field: 'total', old: null, new: this.total }] });
         }

@@ -1,4 +1,5 @@
 rules_version = '2';
+<<<<<<< HEAD
 // Widebed PMS Firestore rules. Draft 0.61, 12 Nov 2026: Staff Attendance, several locations. config/attendance may hold
 // `places` (up to 30: name, address, lat, lng, radiusM, cosLat), the company's properties next to the main office. A clock-in /
 // clock-out inside one is Normal and saves which one (clockInPlaceIdx / clockOutPlaceIdx: -1 = the main office, else the
@@ -6,6 +7,9 @@ rules_version = '2';
 // the phone really is inside the place it names. Outside all of them it is Off-site (if allowed) and the place text is the
 // address the phone looked up (up to 200 characters). Apps from before this draft still work (main office only). Nothing else changes.
 // Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
+=======
+// Widebed PMS Firestore rules. Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
+>>>>>>> 2a330bcf25adaea6a41b0cd1cd0290256e62d9b7
 // property (Portfolio > Fees & Rates). Read and add-only create, the same people as a property's rateVersions. Nothing else changed.
 // Draft 0.59, 12 Nov 2026: Staff Attendance, holidays per person. A public holiday
 // (attendanceHolidays/{date}) may leave some staff out (exceptUids: a list of uids, HR unticks them in the PMS). For them that

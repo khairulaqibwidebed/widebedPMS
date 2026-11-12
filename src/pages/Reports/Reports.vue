@@ -14,7 +14,7 @@
 
     <section class="card" style="margin-bottom:20px">
       <div class="card-head"><h2>What to report</h2>
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="changeProperty()" /></div>
+        <PropertyPicker v-model="propertyId" :properties="properties" @change="changeProperty()" /></div>
       <div class="seg" style="max-width:420px" role="tablist" aria-label="Report type">
         <button type="button" :class="{ on: kind === 'property' }" @click="kind = 'property'; run()">Property report</button>
         <button type="button" :class="{ on: kind === 'unit' }" @click="kind = 'unit'; run()">Unit report</button>
@@ -120,6 +120,8 @@ import { db } from '@/lib/firebase.js';
 import { bookingPTO, effectiveRates, byUnit } from '@/lib/engine.js';
 import { arrangementName } from '@/lib/fee-types.js';
 import { loadProperties, loadSetup, loadBookings, loadExpenses, friendlyError, download, toCSV, loadXlsxLib } from '@/lib/finance-data.js';
+import { scoped, getScoped } from '@/lib/property-scope.js';
+import { withShared } from '@/lib/shared-rates.js';
 import { amt, dmy, dayOffset } from '@/lib/format.js';
 import { propertyReport, unitReport, monthsToLoad, monthPieces } from '@/lib/reports.js';
 import { useSession } from '@/stores/session.js';
@@ -146,8 +148,9 @@ function quickRange(key) {
 }
 
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 export default {
-  components: { OptionPicker },
+  components: { PropertyPicker, OptionPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -177,7 +180,7 @@ export default {
     async dailyExport() {
       this.exporting = true; this.exportNote = ''; this.error = '';
       try {
-        const snap = await getDocs(query(collection(db, 'bookings'), where('departure', '==', this.exportDate)));
+        const snap = await getScoped(scoped(query(collection(db, 'bookings'), where('departure', '==', this.exportDate))));   // my properties only
         const rows = snap.docs.map(d => d.data()).filter(b => b.status !== 'cancelled' && Number(b.nights) < 30);
         const propName = id => this.properties.find(p => p.id === id)?.name || id;
         rows.sort((a, b) => propName(a.propertyId).localeCompare(propName(b.propertyId)) || byUnit(a.unitCode || '', b.unitCode || ''));
@@ -201,7 +204,7 @@ export default {
       this.loading = true; this.error = ''; this.cache = { bookings: {}, expenses: {} };
       try {
         const [setup, rv] = await Promise.all([loadSetup(this.propertyId, '9999-12'), getDocs(collection(db, 'properties', this.propertyId, 'rateVersions'))]);
-        this.units = setup.units; this.rateVersions = rv.docs.map(d => ({ id: d.id, ...d.data() }));
+        this.units = setup.units; this.rateVersions = await withShared(rv.docs.map(d => ({ id: d.id, ...d.data() })));   // with the shared Fees & Rates
         const want = params.get('unit');
         this.unitId = this.units.some(u => u.id === want) ? want : (this.units.some(u => u.id === this.unitId) ? this.unitId : this.units[0]?.id || '');
       } catch (e) { this.error = friendlyError(e, 'load the units'); }

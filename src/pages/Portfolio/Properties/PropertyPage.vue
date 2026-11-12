@@ -9,7 +9,7 @@
           <span>{{ ` › ${property.name || ''}` + (acc.viewOnly ? ' · view only' : '') }}</span></div>
       </div>
       <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="switchProperty()" />
+        <PropertyPicker v-model="propertyId" :properties="properties" @change="switchProperty()" />
         <MonthPicker :ahead="1" v-model="asOf" @change="reload()" v-if="!acc.viewOnly" />
         <RefreshButton @refresh="go()" />
         <button class="btn btn-primary" v-show="ptab === 'units'" @click="openUnit(null)" v-if="acc.canAdd">+ Add unit</button>
@@ -71,6 +71,7 @@ import { portfolioAccess } from '@/lib/portfolio-access.js';
 import { loadOwners, loadUnitsOf, loadMonthDocs, loadBroughtForward, loadAuditPage, loadUnitTypes, loadStarter, forgetUnits,
   handoffProperty } from '@/lib/portfolio-data.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import RefreshButton from '@/components/RefreshButton.vue';
 import OwnersList from '../shared/OwnersList.vue';
@@ -85,9 +86,9 @@ import AuditTab from './tabs/AuditTab.vue';
 const me = useSession();
 
 export default {
-  components: { OptionPicker, MonthPicker, RefreshButton, OwnersList, OwnerDrawer, PropertyDrawer, UnitDrawer, OverviewTab, UnitsTab, RatesTab, AuditTab },
+  components: { PropertyPicker, OptionPicker, MonthPicker, RefreshButton, OwnersList, OwnerDrawer, PropertyDrawer, UnitDrawer, OverviewTab, UnitsTab, RatesTab, AuditTab },
   data() {
-    const q = this.$route.query, acc = portfolioAccess(me.role);
+    const q = this.$route.query, acc = portfolioAccess(me.role, me);
     const asOf = q.month || monthOffset(0);
     const months = Array.from({ length: 25 }, (_, i) => monthOffset(1 - i));
     if (!months.includes(asOf)) months.push(asOf);
@@ -155,7 +156,7 @@ export default {
         // View-only roles read units without their terms, and no months, expenses or owner private docs.
         const view = this.acc.viewOnly;
         const [owners, units, monthDocs, bf] = await Promise.all([
-          loadOwners(view, this.acc.canEdit),
+          loadOwners(view, this.acc.ownerNames),
           loadUnitsOf([p], this.asOf, view),
           view ? {} : loadMonthDocs([p], this.asOf),
           view ? [] : loadBroughtForward(p.id, this.asOf)

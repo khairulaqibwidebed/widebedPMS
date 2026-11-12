@@ -219,7 +219,9 @@
       <div class="modal" role="dialog" aria-label="Start listing" style="max-width:560px;width:calc(100% - 32px)">
         <div class="card-head"><h2>Start listing</h2></div>
         <p class="help">{{ `"${startLead.title}" gets the next NL number, is linked to its card, and the card moves to In Progress. These can be filled in later too.` }}</p>
+        <div class="notice error" v-show="startError">{{ startError }}</div>
         <div class="d-grid">
+          <div class="field"><label for="slState" class="req">State</label><OptionPicker class="full-pick" v-model="startForm.state" :options="[{ value: '', label: 'Choose the state' }, ...stateList.map(s => ({ value: s, label: s }))]" label="State" /></div>
           <div class="field"><label for="slType">Unit type</label><select class="select" id="slType" v-model="startForm.unitType"><option value="">Not set</option><template v-for="t in UNIT_TYPES" :key="t"><option :value="t">{{ t }}</option></template></select></div>
           <FormField id="slSize" label="Size (sq ft)" v-model="startForm.sizeSqft" inputmode="numeric" placeholder="e.g. 850" />
           <div class="field"><label for="slSrc">Source</label><select class="select" id="slSrc" v-model="startForm.source"><option value="">Not set</option><template v-for="t in SOURCES" :key="t"><option :value="t">{{ t }}</option></template></select></div>
@@ -259,6 +261,7 @@ import { can } from '@/lib/access.js';
 import { liveMixin } from '@/lib/use-live.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { loadProperties } from '@/lib/finance-data.js';
+import { stateChoices, statesOf } from '@/lib/states.js';
 import { listTasksFor, ownerLeads } from '@/lib/tms.js';
 import { notifyRole } from '@/services/notificationService';
 import { toast } from '@/lib/toast.js';
@@ -270,6 +273,7 @@ import {
   LEAD_STATUS, UNIT_TYPES, SOURCES, STATUS_MOVERS, LEAD_READERS, statusOf, agingOf, moveCard, setNotProceeding, reopenListing, reconcile
 } from '@/lib/owner-leads.js';
 import FormField from '@/components/FormField.vue';
+import OptionPicker from '@/components/OptionPicker.vue';
 import PropertyField from './PropertyField.vue';
 import ListingsPanel from './ListingsPanel.vue';
 import NewLead from './NewLead.vue';
@@ -287,7 +291,7 @@ const BASE = '/Procurement/listing-flow';
 const blankContact = () => ({ ownerPhone: '', ownerEmail: '' });
 
 export default {
-  components: { FormField, PropertyField, ListingsPanel, NewLead, StageAgreement, StageServices, StageRenovation, StageFurniture, StagePayment, StageMarketing, StageLive },
+  components: { FormField, OptionPicker, PropertyField, ListingsPanel, NewLead, StageAgreement, StageServices, StageRenovation, StageFurniture, StagePayment, StageMarketing, StageLive },
   mixins: [liveMixin],
   data() {
     const me = useSession();
@@ -296,7 +300,7 @@ export default {
       newRemark: '',   // the Remarks "new comment" box: added to d.remarksLog on Save
       uid: me.user?.uid || '', isDirector: me.role === 'director', mover: STATUS_MOVERS.includes(me.role), readsLeads: LEAD_READERS.includes(me.role),
       leads: [], leadsError: '', leadsLoaded: false, leadsIn: false, syncing: false, syncNotes: [], now: Date.now(),
-      startLead: null, startForm: {}, npOpen: false, npReason: '',
+      startLead: null, startForm: {}, startError: '', npOpen: false, npReason: '',
       canEdit: can(me, 'newOwnerListings.edit'), hasInbox: ['director', 'procurement'].includes(me.role),
       canAddPortfolio: PORTFOLIO_ADDERS.includes(me.role), canSeeContact: CONTACT_READERS.includes(me.role),
       whose: me.role === 'director' ? 'everyone' : 'mine',
@@ -310,6 +314,8 @@ export default {
     };
   },
   computed: {
+    // States a new listing can be for: every state for a Director, else the user's own
+    stateList() { return stateChoices(useSession()); },
     canNotProceed() { return this.mover && this.canEdit && !['live', 'cancelled'].includes(this.leadStatus); },
     moreItems() { return this.canNotProceed || (this.isDirector && this.leadStatus === 'cancelled'); },
     // The Summary card: the key facts of the open listing
@@ -583,11 +589,15 @@ export default {
     },
 
     // ----- new listings -----
-    askStart(t) { this.startLead = t; this.startForm = { unitType: '', sizeSqft: '', source: '', remarks: '' }; },
+    askStart(t) {
+      const mine = statesOf(useSession());
+      this.startLead = t; this.startError = ''; this.startForm = { state: mine.length === 1 ? mine[0] : '', unitType: '', sizeSqft: '', source: '', remarks: '' };
+    },
     async confirmStart() {
       const t = this.startLead, f = this.startForm;
+      if (!f.state) { this.startError = 'Choose the state the listing is for.'; return; }
       this.startLead = null;
-      await this.startTask(t, { unitType: f.unitType, sizeSqft: String(f.sizeSqft || '').trim(), source: f.source, remarks: f.remarks.trim() });
+      await this.startTask(t, { state: f.state, unitType: f.unitType, sizeSqft: String(f.sizeSqft || '').trim(), source: f.source, remarks: f.remarks.trim() });
     },
     async notProceeding() {
       if (this.busy) return;

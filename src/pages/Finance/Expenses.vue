@@ -8,7 +8,7 @@
         <div class="sub">{{ `${propName()} · ${monthName(month)} · add them as they happen; each line goes onto its unit's statement` }}</div>
       </div>
       <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+        <PropertyPicker v-model="propertyId" :properties="properties" @change="load()" />
         <MonthPicker :ahead="1" v-model="month" @change="load()" />
       </div>
     </div>
@@ -150,6 +150,7 @@ import { loadProperties, loadUnits, loadExpenses, monthDoc, completedUnitIds, au
 import { markDirty } from '@/lib/summary-data.js';
 import { rm, amt, dmy, ddmm, monthName, shortMonth, monthOffset, dayOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { withState } from '@/lib/states.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
 const me = useSession();
@@ -162,11 +163,12 @@ let params = new URLSearchParams(location.search);
 
 import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
 export default {
-  components: { FormField, OptionPicker, MonthPicker, UploadFile, FileViewer },
+  components: { PropertyPicker, FormField, OptionPicker, MonthPicker, UploadFile, FileViewer },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -266,8 +268,8 @@ export default {
         const b = writeBatch(db);
         if (!p.id) {
           const ref = doc(collection(db, 'expenses'));
-          b.set(ref, { ...data, auto: false, sourceStatementId: null, files: keep, deleted: false,
-            createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+          b.set(ref, await withState(this.propertyId, { ...data, auto: false, sourceStatementId: null, files: keep, deleted: false,
+            createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() }));   // carries its property's state
           audit(b, me, { action: 'expense.create', entity: `expenses/${ref.id}`, propertyId: this.propertyId, month: p.month,
             changes: [{ field: 'amount', old: null, new: amount }] });
           markDirty(b, this.propertyId, p.month, [p.unitId]);   // that unit's month summary is worked out again

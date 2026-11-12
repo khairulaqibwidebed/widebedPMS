@@ -15,8 +15,9 @@ const G = (label, icon, items) => ({ label, icon, items });
 
 const TOP = { items: [P('Dashboard', '/Dashboard', 'dashboard'), P('Issues', '/Operations/issues', 'alert')] };
 // Owners, Properties and Bookings follow the Portfolio tick; Booking Forms, Offline Payments and Bulk Upload their own ticks.
+// Fees & Rates (12 Nov 2026): one set for every property; shows with Portfolio Edit (Accounting, Directors, Edit tick).
 const PORTFOLIO = G('Portfolio', 'layers', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'),
-  P('Bookings', '/Portfolio/bookings', 'calendar'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'),
+  P('Bookings', '/Portfolio/bookings', 'calendar'), P('Fees & Rates', '/Portfolio/fees-rates', 'percent'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'),
   P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Bulk Upload', '/Portfolio/bulk-upload', 'table')]);
 // Leads follow their ticks; Agreements and Renewals are for everyone who has this group (not HR or IT).
 // Owner Leads (overview) follows the Owner Leads View tick; Listing Flow (work on a listing) its Edit tick (11 Nov 2026).

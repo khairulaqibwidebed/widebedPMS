@@ -3,9 +3,11 @@
 import { db } from './firebase.js';
 import { collection, doc, getDoc, getDocFromCache, getDocs, query, where, increment, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { loadSetup, latestVersion } from './finance-data.js';
+import { withShared } from './shared-rates.js';
 import { SUMMARY_VERSION, unitSummary, propertySummary, marksFor, dirtyFor, markedUnits, noneId, isNone, unitMonthId, markKey, UNIT_FIELDS }
   from './summaries.js';
 import { byUnit, poolShares } from './engine.js';
+import { stateTag } from './states.js';
 
 // ---------- marking (inside the caller's batch) ----------
 // One or more unit-months of one property changed (a booking, a Ctrip amount, an expense, a statement).
@@ -14,7 +16,7 @@ export function markDirty(batch, propertyId, month, unitIds) {
   const ids = [...new Set(unitIds.map(u => u || noneId(propertyId)))];
   if (!propertyId || !month || !ids.length) return;
   for (const u of ids)
-    batch.set(doc(db, 'unitMonths', unitMonthId(u, month)), { propertyId, month, unitId: u, dirtyRev: increment(1), stale: true }, { merge: true });
+    batch.set(doc(db, 'unitMonths', unitMonthId(u, month)), { propertyId, month, unitId: u, dirtyRev: increment(1), stale: true, ...stateTag(propertyId) }, { merge: true });
   batch.set(doc(db, 'properties', propertyId), { summaryDirty: { [month]: increment(ids.length) } }, { merge: true });
 }
 // A change that applies from a month on: unit terms (unitId given) or a property rate version (unitId null).
@@ -77,8 +79,8 @@ export async function readUnit(propertyId, month, unitId, rateVersions, getState
     none ? null : getDoc(doc(db, 'units', unitId)),
     none ? null : getDocs(collection(db, 'units', unitId, 'terms')),
     getDocs(none ? query(collection(db, 'bookings'), where('propertyId', '==', propertyId), where('departureMonth', '==', month), where('unitId', '==', null))
-      : query(collection(db, 'bookings'), where('unitId', '==', unitId), where('departureMonth', '==', month))),
-    none ? { docs: [] } : getDocs(query(collection(db, 'expenses'), where('unitId', '==', unitId), where('month', '==', month))),
+      : query(collection(db, 'bookings'), where('propertyId', '==', propertyId), where('unitId', '==', unitId), where('departureMonth', '==', month))),
+    none ? { docs: [] } : getDocs(query(collection(db, 'expenses'), where('propertyId', '==', propertyId), where('unitId', '==', unitId), where('month', '==', month))),
     none ? null : (getStatement || getDoc)(doc(db, 'statements', `${unitId}_${month}`)),
     rateVersions ? null : getDocs(collection(db, 'properties', propertyId, 'rateVersions'))
   ]);
@@ -86,7 +88,7 @@ export async function readUnit(propertyId, month, unitId, rateVersions, getState
   // Same unit list as loadUnits: this property's units that are switched on
   if (unit && (unit.propertyId !== propertyId || unit.active === false)) unit = null;
   if (unit) { unit.termHistory = docs(terms); unit.terms = latestVersion(unit.termHistory, month); }
-  const versions = rateVersions || docs(rv);
+  const versions = rateVersions || await withShared(docs(rv));   // with the shared Fees & Rates (lib/shared-rates.js)
   return { unit, rateVersions: versions, propertyRates: latestVersion(versions, month),
     bookings: docs(bk).filter(b => b.propertyId === propertyId), expenses: docs(ex).filter(e => e.propertyId === propertyId), statement: st && st.exists() ? { id: st.id, ...st.data() } : null };
 }
@@ -164,8 +166,10 @@ export async function propertyMonth(property, month, { me = null, canWrite = fal
   }
   const summary = { ...propertySummary(final), rev: { dirty: dirtyFor(property, month), marks: marksFor(property, month) }, computedAt: serverTimestamp() };
   if (canWrite) {
-    const all = [...writes.map(s => [doc(db, 'unitMonths', unitMonthId(s.unitId, month)), s, UNIT_FIELDS]),
-      [doc(db, 'months', `${property.id}_${month}`), { propertyId: property.id, month, summary }, ['propertyId', 'month', 'summary']]];
+    // Each summary carries the property's state (lib/states.js), so staff of other states can't read it once locked
+    const tag = stateTag(property.id), tagF = tag.state ? ['state'] : [];
+    const all = [...writes.map(s => [doc(db, 'unitMonths', unitMonthId(s.unitId, month)), { ...s, ...tag }, [...UNIT_FIELDS, ...tagF]]),
+      [doc(db, 'months', `${property.id}_${month}`), { propertyId: property.id, month, summary, ...tag }, ['propertyId', 'month', 'summary', ...tagF]]];
     for (let i = 0; i < all.length; i += 400) {
       const b = writeBatch(db);
       for (const [ref, d, fields] of all.slice(i, i + 400)) b.set(ref, d, { mergeFields: fields });
