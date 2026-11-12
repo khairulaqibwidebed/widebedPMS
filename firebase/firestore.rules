@@ -1,10 +1,16 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.63, 12 Nov 2026 (Khairul): data access by property, two small gaps. (1) users/{uid}: you may
+// Widebed PMS Firestore rules. Draft 0.64, 12 Nov 2026 (Khairul): merge only. Holds Khairul's 0.62 + 0.63 and Neo's
+// One To One draft (his "0.62", noted below as 0.62-Neo). Nothing new.
+// Draft 0.63, 12 Nov 2026 (Khairul): data access by property, two small gaps. (1) users/{uid}: you may
 // add ONE property to your own `properties` list, only a property you created (so a property you add doesn't vanish for you).
 // (2) owners / tenants / tenants private: the people who already add them may save `propertyIds` (the properties the owner's
 // units or the tenant's bookings are in), nothing else. No read rule changed. This is NOT the Phase 4 lock (not planned now).
 // Draft 0.62, 12 Nov 2026 (Khairul): issueQuotes, Directors may read the whole list (the Director's
 // "Stamp and link records" reads every ticket quote; the ticket check below can't be proved for a list, so it was refused). Nothing else changed.
+// Draft 0.62-Neo, 12 Nov 2026: One To One Session (Performance). config/oneToOne keeps the
+// venues HR has used (venues: up to 50 short texts) and the one picked last (lastVenue); HR and Directors read and write it.
+// Nothing else changes: the join date is users/{uid}.joinDate (the users rules already let HR and Directors save it), and
+// deleting a COH question marks it deleted (an update HR and Directors could already make; questions are still never removed).
 // Draft 0.61, 12 Nov 2026: Staff Attendance, several locations. config/attendance may hold
 // `places` (up to 30: name, address, lat, lng, radiusM, cosLat), the company's properties next to the main office. A clock-in /
 // clock-out inside one is Normal and saves which one (clockInPlaceIdx / clockOutPlaceIdx: -1 = the main office, else the
@@ -411,6 +417,16 @@ service cloud.firestore {
     match /config/{docId} {
       allow read: if staff();
       allow write: if isDirector();
+    }
+
+    // One To One Session (Draft 0.62): the venues HR picks from on Performance > One To One Session.
+    match /config/oneToOne {
+      allow read: if hrOrDir();
+      allow write: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['venues', 'lastVenue', 'updatedBy', 'updatedAt'])
+        && request.resource.data.venues is list && request.resource.data.venues.size() <= 50
+        && request.resource.data.lastVenue is string && request.resource.data.lastVenue.size() <= 80
+        && request.resource.data.updatedBy == request.auth.uid;
     }
 
     // Unit types added with "+ Add type" on Add unit: anyone who can add or edit units may add to the list.
@@ -984,7 +1000,6 @@ service cloud.firestore {
         return request.resource.data.issueId == id && request.resource.data.chargeTo == 'owner'
           && request.resource.data.items is list && request.resource.data.items.size() > 0 && request.resource.data.items.size() <= 20;
       }
-      allow read: if isDirector();   // Draft 0.62: list for Stamp and link records
       allow read: if anyStaff() && ticketOk();
       // Any staff member: add a quote, or edit one that is Quoted or Rejected. It is saved as Quoted.
       allow create: if anyStaff() && ticketOk() && quoteOk()
