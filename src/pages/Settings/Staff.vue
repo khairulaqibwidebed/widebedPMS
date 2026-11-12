@@ -19,11 +19,20 @@
     </div>
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
+    <!-- Properties (12 Nov 2026): staff see only the properties on their record, so everyone needs at least one -->
+    <div class="notice error no-state-note" v-if="noStateCount">
+      <span>{{ `${noStateCount} active staff ${noStateCount === 1 ? 'has' : 'have'} no properties yet. They see no property data until some are given.` }}</span>
+      <button class="link" type="button" @click="noStateOnly = !noStateOnly">{{ noStateOnly ? 'Show everyone' : 'Show them' }}</button>
+    </div>
 
     <div class="staff-filters">
-      <div class="pills brand">
+      <input class="input staff-search" type="search" v-model="search" placeholder="Search name, email or role" aria-label="Search staff">
+      <!-- Active / Inactive switch (6 Nov 2026), same look as Issues' Customer / In-house: the white pill slides to the picked tab -->
+      <div class="staff-seg" role="tablist" aria-label="Account status" :style="{ '--i': filters.findIndex(f => f.key === filter) }">
+        <span class="staff-thumb" aria-hidden="true"></span>
         <template v-for="f in filters" :key="f.key">
-          <button class="pill-btn" :class="{ on: filter === f.key }" @click="filter = f.key">{{ `${f.label} (${count(f.key)})` }}</button>
+          <button type="button" role="tab" :aria-selected="String(filter === f.key)" :class="{ on: filter === f.key }" @click="filter = f.key">
+            {{ f.label }}<span class="n">{{ count(f.key) }}</span></button>
         </template>
       </div>
       <OptionPicker v-model="roleFilter" :options="roleOptions" label="Filter by role" />
@@ -33,10 +42,13 @@
       </div>
     </div>
 
+    <!-- The list fades and slides a little when Active / Inactive changes -->
+    <Transition name="staff-swap" mode="out-in">
+    <div :key="filter">
     <Paged :items="shown()" v-slot="{ pageRows }">
-    <div class="table-wrap soft-wrap">
+    <div class="table-wrap soft-wrap staff-wrap">
       <table class="table staff-table hover-rows">
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Active</th><th>Joined</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Properties</th><th>Last sign-in</th><th>Active</th><th>Joined</th><th></th></tr></thead>
         <tbody>
           <template v-for="row in pageRows" :key="row.id">
             <tr>
@@ -46,25 +58,27 @@
                 {{ roleText(row) }}
                 <span class="tag custom-tag" v-if="isCustom(row)" title="Page access changed from the role's usual pages">Custom access</span>
               </td>
+              <td class="states-cell" :class="{ 'no-state': needsState(row) }">{{ propertiesText(row) }}</td>
               <td>{{ row.lastLoginAt ? when(row.lastLoginAt) : 'Never' }}</td>
-              <td><span class="pill" :class="row.active === false ? 'grey' : 'green'">{{ row.active === false ? 'Turned off' : 'Active' }}</span></td>
+              <td><span class="pill" :class="row.active === false ? 'grey' : 'green'">{{ row.active === false ? 'Inactive' : 'Active' }}</span></td>
               <td>{{ row.createdAt ? joined(row.createdAt) : '—' }}</td>
               <td class="row-acts">
                 <template v-if="row.id === myUid || locked(row)"><span class="muted">—</span></template>
-                <template v-if="row.id !== myUid && !locked(row) && row.active !== false">
-                  <span><button class="act-pill" @click="openEdit(row)">Change access</button><button class="act-pill danger" @click="openToggle(row)">Turn off</button></span>
-                </template>
-                <template v-if="row.id !== myUid && !locked(row) && row.active === false">
-                  <button class="act-pill good" @click="openToggle(row)">Turn back on</button>
+                <!-- Turn off / Turn back on moved into the edit panel (12 Nov 2026) -->
+                <template v-if="row.id !== myUid && !locked(row)">
+                  <button class="act-pill" @click="openEdit(row)">Change access</button>
                 </template>
               </td>
             </tr>
           </template>
-          <tr v-show="!loading && !shown().length"><td colspan="7" class="muted">No staff match.</td></tr>
+          <SkeletonRows v-if="loading && !shown().length" table :cols="8" />
+          <tr v-show="!loading && !shown().length"><td colspan="8" class="muted">No staff match.</td></tr>
         </tbody>
       </table>
     </div>
     </Paged>
+    </div>
+    </Transition>
     <p class="note staff-note">Changing a role, page access or turning an account off asks for a reason and is saved in the audit log. Nothing is deleted.</p>
 
     <!-- Account log: read only when it is opened -->
@@ -75,7 +89,7 @@
         <div class="drawer-body">
           <p class="help" style="margin:0 0 12px">Who was invited, who changed role or page access and who was turned off or back on, newest first.</p>
           <div class="notice error" v-show="logsError">{{ logsError }}</div>
-          <div class="empty" v-show="logsLoading">Loading…</div>
+          <div class="empty loading-line" v-show="logsLoading">Loading…</div>
           <Paged :items="changes" :size="10" v-slot="{ pageRows }">
             <div class="changes logs-list">
               <template v-for="c in pageRows" :key="c.id"><div>{{ c.text }}</div></template>
@@ -109,28 +123,8 @@
       </div>
     </div>
 
-    <!-- Turn off / Turn back on -->
-    <template v-if="panelOpen && panel.quick">
-      <div class="modal-back" @click.self="close()" v-esc="() => { close() }">
-        <form class="modal" role="dialog" :aria-label="panel.active ? 'Turn account back on' : 'Turn account off'" @submit.prevent="save()">
-          <h2>{{ (panel.active ? 'Turn back on: ' : 'Turn off: ') + panel.displayName }}</h2>
-          <p class="help">{{ panel.active ? 'They can sign in again with their old password, or use Forgot password.' : 'They can no longer sign in or see anything. Their history stays.' }}</p>
-          <div class="notice error" v-show="panel.error">{{ panel.error }}</div>
-          <div class="field">
-            <label for="qReason">Reason</label>
-            <textarea class="input" id="qReason" v-model="panel.reason" placeholder="e.g. Left the company"></textarea>
-            <span class="help">Saved in the audit log with your name.</span>
-          </div>
-          <div class="modal-foot">
-            <button type="button" class="btn" @click="close()">Cancel</button>
-            <button class="btn btn-primary" type="submit" :disabled="panel.busy">{{ panel.busy ? 'Saving…' : (panel.active ? 'Turn back on' : 'Turn off') }}</button>
-          </div>
-        </form>
-      </div>
-    </template>
-
     <!-- Add / Edit panel -->
-    <template v-if="panelOpen && !panel.quick">
+    <template v-if="panelOpen">
       <div>
         <div class="drawer-back" @click="close()"></div>
         <aside class="drawer" role="dialog" :aria-label="panel.mode === 'add' ? 'Add staff' : 'Edit staff'" v-esc="() => { close() }">
@@ -140,6 +134,23 @@
           </div>
           <form class="drawer-body" id="staffForm" @submit.prevent="save()">
             <div class="notice error" v-show="panel.error">{{ panel.error }}</div>
+            <!-- Account status (12 Nov 2026): two clear choices instead of a small tick at the bottom -->
+            <div class="acct" v-if="panel.mode === 'edit'">
+              <div class="acct-top">
+                <b>Account status</b>
+                <span class="pill" :class="wasActive ? 'green' : 'grey'">{{ wasActive ? 'Active now' : 'Turned off now' }}</span>
+              </div>
+              <div class="acct-opts" role="radiogroup" aria-label="Account status">
+                <button type="button" role="radio" class="acct-opt on-opt" :class="{ picked: panel.active }" :aria-checked="String(panel.active)" :disabled="cantEdit" @click="panel.active = true">
+                  <span class="acct-dot"></span><span><b>Active</b><small>Can sign in and use their pages.</small></span>
+                </button>
+                <button type="button" role="radio" class="acct-opt off-opt" :class="{ picked: !panel.active }" :aria-checked="String(!panel.active)" :disabled="cantEdit" @click="panel.active = false">
+                  <span class="acct-dot"></span><span><b>Turned off</b><small>Can't sign in or see anything. Their history stays.</small></span>
+                </button>
+              </div>
+              <div class="acct-note off" v-if="wasActive && !panel.active">{{ `Saving turns off ${panel.displayName || 'this account'}. Add the reason below (e.g. Left the company).` }}</div>
+              <div class="acct-note on" v-if="!wasActive && panel.active">{{ `Saving turns ${panel.displayName || 'this account'} back on. They sign in with their old password, or use Forgot password.` }}</div>
+            </div>
             <div class="field">
               <label for="sName">Full name</label>
               <input class="input" id="sName" v-model="panel.displayName" required>
@@ -157,6 +168,9 @@
               <span class="help" v-show="!panel.isMe && locked(panel.original || {})">Only a Director can change a Director's account.</span>
               <span class="help" v-show="!panel.isMe && !canSignIn(panel.role)">This role can't sign in yet. Its pages come in a later increment.</span>
             </div>
+            <!-- The properties they may see (12 Nov 2026, data access by property) -->
+            <StaffPropertiesField v-if="panel.role !== 'director'" v-model="panel.properties" :properties="allProperties" :disabled="cantEdit" />
+            <p class="help" v-else>A Director sees every property.</p>
 
             <!-- Page access: one tick per page, starting from the role's usual pages -->
             <div class="field" v-if="panel.role !== 'director'">
@@ -187,12 +201,8 @@
 
             <template v-if="panel.mode === 'edit'">
               <div>
-                <label class="switch">
-                  <span><b>Account active</b><br><span class="help">Turned off = can't sign in or see anything. Their history stays.</span></span>
-                  <input type="checkbox" v-model="panel.active" :disabled="cantEdit">
-                </label>
                 <div class="field">
-                  <label for="sReason">Reason for the change</label>
+                  <label for="sReason" :class="{ req: changedStatus }">Reason for the change</label>
                   <textarea class="input" id="sReason" v-model="panel.reason" placeholder="e.g. Covers Expenses while Accounting is on leave"></textarea>
                   <span class="help">Saved in the audit log with your name.</span>
                 </div>
@@ -203,7 +213,8 @@
           </form>
           <div class="drawer-foot">
             <button class="btn" @click="close()">Cancel</button>
-            <button class="btn btn-primary" type="submit" form="staffForm" :disabled="panel.busy || locked(panel.original || {})">{{ panel.busy ? 'Saving…' : (panel.mode === 'add' ? 'Send invite' : 'Save changes') }}</button>
+            <button class="btn" :class="changedStatus && !panel.active ? 'btn-danger' : 'btn-primary'" type="submit" form="staffForm" :disabled="panel.busy || locked(panel.original || {})">{{ panel.busy ? 'Saving…'
+              : panel.mode === 'add' ? 'Send invite' : changedStatus ? (panel.active ? 'Save and turn back on' : 'Save and turn off') : 'Save changes' }}</button>
           </div>
         </aside>
       </div>
@@ -222,6 +233,8 @@ import { firebaseConfig } from '@/firebase-config.js';
 import { when } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import { STATES, statesOf, statesText } from '@/lib/states.js';
+import StaffPropertiesField from '@/components/StaffPropertiesField.vue';
 import { PAGES, ACCESS_ROWS, rowPerms, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel } from '@/lib/access.js';
 
 const me = useSession();
@@ -234,6 +247,7 @@ const AUTH_ERRORS = {
 
 // The ticks a role starts with (Directors need none).
 const presetOf = role => role === 'director' ? [] : cleanPerms(PRESETS[role] || []);
+const sameList = (a, b) => [...a].sort().join('|') === [...b].sort().join('|');
 // "+ Expenses & Others (edit), − Reports" for the audit log.
 function permDiff(oldList, newList) {
   const added = newList.filter(p => !oldList.includes(p)).map(p => '+ ' + permLabel(p));
@@ -256,6 +270,9 @@ async function createLogin(email, displayName) {
   }
 }
 
+// The property ids on a staff record (data access by property, 12 Nov 2026)
+const propsOf = u => (Array.isArray(u?.properties) ? u.properties.filter(Boolean) : []);
+
 function audit(batch, action, uid, changes, reason) {
   batch.set(doc(collection(db, 'auditLog')), {
     at: serverTimestamp(), uid: me.user.uid, userName: me.name, role: me.role,
@@ -264,14 +281,14 @@ function audit(batch, action, uid, changes, reason) {
 }
 
 export default {
-  components: { OptionPicker },
+  components: { OptionPicker, StaffPropertiesField },
   data() {
     return {
-      ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, when,
+      ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, when, STATES, statesText, noStateOnly: false, allProperties: [],
       myUid: me.user.uid,
       users: [], loading: true, error: '', okMsg: '',
-      filter: 'all', roleFilter: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
-      filters: [{ key: 'all', label: 'All' }, { key: 'active', label: 'Active' }, { key: 'off', label: 'Turned off' }],
+      filter: 'active', roleFilter: '', search: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
+      filters: [{ key: 'active', label: 'Active' }, { key: 'off', label: 'Inactive' }],
       panel: {}, panelOpen: false
     };
   },
@@ -292,7 +309,11 @@ export default {
     },
     // True when the ticks in the panel differ from the role's usual pages.
     panelCustom() { return !samePerms(this.panel.perms || [], presetOf(this.panel.role)); },
-    cantEdit() { return this.panel.isMe || this.locked(this.panel.original || {}); }
+    cantEdit() { return this.panel.isMe || this.locked(this.panel.original || {}); },
+    // Account status as saved, and whether the panel changes it
+    wasActive() { return this.panel.original ? this.panel.original.active !== false : true; },
+    changedStatus() { return this.panel.mode === 'edit' && this.panel.active !== this.wasActive; },
+    noStateCount() { return this.users.filter(u => this.needsState(u)).length; }
   },
   async mounted() {
     await this.load();
@@ -302,7 +323,9 @@ export default {
     async load() {
       this.loading = true;
       try {
-        const snap = await getDocs(collection(db, 'users'));
+        // Every property, to pick from (Directors and HR manage staff; the list is not limited to their own properties)
+        const [snap, ps] = await Promise.all([getDocs(collection(db, 'users')), getDocs(collection(db, 'properties')).catch(() => ({ docs: [] }))]);
+        this.allProperties = ps.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.active !== false).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         this.users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
       } catch (e) {
@@ -315,7 +338,18 @@ export default {
     },
     // Someone whose saved ticks differ from their role's usual pages.
     isCustom(u) { return u.role !== 'director' && Array.isArray(u.perms) && !samePerms(u.perms, presetOf(u.role)); },
-    hasRoleFilter(u) { return !this.roleFilter || u.role === this.roleFilter; },
+    hasRoleFilter(u) { return (!this.roleFilter || u.role === this.roleFilter) && this.hasSearch(u) && (!this.noStateOnly || this.needsState(u)); },
+    // An active account (not a Director) with no state: it sees no property data once the lock is on
+    needsState(u) { return u.active !== false && u.role !== 'director' && !propsOf(u).length; },
+    // "All (Director)" / "3 properties: Austin Hartamas, ..." / "None yet"
+    propertiesText(u) {
+      if (u.role === 'director') return 'All (Director)';
+      const ids = propsOf(u); if (!ids.length) return 'None yet';
+      const names = ids.map(id => this.allProperties.find(p => p.id === id)?.name || id);
+      return ids.length <= 2 ? names.join(', ') : `${ids.length} properties`;
+    },
+    // Search box: name, email or role (incl. "Intern"), any part, case ignored
+    hasSearch(u) { const q = this.search.trim().toLowerCase(); return !q || [u.displayName, u.email, this.roleText(u)].some(x => String(x || '').toLowerCase().includes(q)); },
     match(u, key) {
       if (key === 'all') return true;
       if (key === 'off') return u.active === false;
@@ -368,6 +402,8 @@ export default {
               c.field === 'active' ? (c.new ? `turned ${who} back on` : `turned off ${who}`)
               : c.field === 'role' ? `changed ${who} from ${ROLE_LABEL[c.old] || 'no role'} to ${ROLE_LABEL[c.new]}`
               : c.field === 'perms' ? `changed ${who}'s page access: ${permDiff(c.old || [], c.new || [])}`
+              : c.field === 'properties' ? `changed ${who}'s properties (${(c.old || []).length} to ${(c.new || []).length})`
+              : c.field === 'states' ? `changed ${who}'s states from ${(c.old || []).join(', ') || 'none'} to ${(c.new || []).join(', ') || 'none'}`
               : `renamed ${c.old || who} to ${c.new}`).join(', ');
           }
           return { id: a.id, text: `${at} · ${what}${a.reason && a.action !== 'staff.create' ? ` · reason: "${a.reason}"` : ''}` };
@@ -383,18 +419,13 @@ export default {
     openAdd() {
       this.okMsg = '';
       this.panelOpen = true;
-      this.panel = { mode: 'add', displayName: '', email: '', role: 'finance', perms: presetOf('finance'), active: true, reason: '', isMe: false, busy: false, error: '' };
+      this.panel = { mode: 'add', displayName: '', email: '', role: 'finance', perms: presetOf('finance'), properties: [], active: true, reason: '', isMe: false, busy: false, error: '' };
     },
     openEdit(u) {
       this.okMsg = '';
       this.panelOpen = true;
       this.panel = { mode: 'edit', id: u.id, original: u, displayName: u.displayName || '', email: u.email, role: u.role || 'finance',
-        perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '' };
-    },
-    openToggle(u) {
-      this.openEdit(u);
-      this.panel.active = u.active === false;
-      this.panel.quick = true;
+        perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '' };
     },
     close() { if (!this.panel.busy) this.panelOpen = false; },
 
@@ -405,7 +436,9 @@ export default {
       // Saved only when different from the role's usual pages, so later changes to a role's defaults still reach them.
       const perms = p.role === 'director' ? [] : cleanPerms(p.perms);
       const custom = p.role !== 'director' && !samePerms(perms, presetOf(p.role));
+      const properties = p.role === 'director' ? [] : [...new Set(p.properties || [])].sort();   // Directors: always every property
       if (!name) return p.error = 'Enter their full name.';
+      if (p.mode === 'add' && p.role !== 'director' && !properties.length) return p.error = 'Choose at least one property.';
       if (p.mode === 'add') {
         if (!email) return p.error = 'Enter their work email.';
         if (this.users.some(u => (u.email || '').toLowerCase() === email)) return p.error = 'Someone on the list already uses this email.';
@@ -416,12 +449,13 @@ export default {
         if (p.mode === 'add') {
           const uid = await createLogin(email, name);
           batch.set(doc(db, 'users', uid), {
-            displayName: name, email, role: p.role, active: true,
+            displayName: name, email, role: p.role, active: true, properties,
             ...(custom ? { perms } : {}),
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name
           });
           const changes = [{ field: 'role', old: null, new: p.role }];
           if (custom) changes.push({ field: 'perms', old: presetOf(p.role), new: perms });
+          if (properties.length) changes.push({ field: 'properties', old: [], new: properties });
           audit(batch, 'staff.create', uid, changes, 'New staff account');
           await batch.commit();
           try { await sendPasswordResetEmail(auth, email); } catch (_) {}
@@ -432,18 +466,19 @@ export default {
           if (name !== (o.displayName || '')) changes.push({ field: 'displayName', old: o.displayName || '', new: name });
           if (p.role !== o.role) changes.push({ field: 'role', old: o.role || null, new: p.role });
           if (!samePerms(perms, oldPerms)) changes.push({ field: 'perms', old: oldPerms, new: perms });
+          if (p.role !== 'director' && !sameList(properties, propsOf(o))) changes.push({ field: 'properties', old: propsOf(o), new: properties });
           if (p.active !== (o.active !== false)) changes.push({ field: 'active', old: o.active !== false, new: p.active });
           if (!changes.length) { p.busy = false; this.panelOpen = false; return; }
           if (!p.reason.trim()) { p.busy = false; return p.error = 'Add a short reason. It goes in the audit log.'; }
           batch.update(doc(db, 'users', p.id), {
-            displayName: name, role: p.role, active: p.active, perms: custom ? perms : deleteField(),
+            displayName: name, role: p.role, active: p.active, perms: custom ? perms : deleteField(), ...(p.role === 'director' ? {} : { properties }),
             updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name
           });
           audit(batch, 'staff.update', p.id, changes, p.reason.trim());
           await batch.commit();
           this.okMsg = `${name} updated. Changes apply the next time they open a page.`;
           // The person hears that their role or page access changed (3 Nov 2026). Not for switched-off accounts or yourself.
-          const roleChanged = p.role !== o.role, accessChanged = changes.some(c => c.field === 'perms');
+          const roleChanged = p.role !== o.role, accessChanged = changes.some(c => c.field === 'perms' || c.field === 'properties');
           if ((roleChanged || accessChanged) && p.active && p.id !== me.user.uid)
             notifyUser({ recipientUid: p.id, type: 'access', link: '/', refId: p.id,
               title: roleChanged ? `Your role is now ${ROLE_LABEL[p.role] || p.role}` : 'Your page access changed',
@@ -477,14 +512,62 @@ export default {
 </script>
 
 <style scoped>
+    /* Active / Inactive switch: two equal tabs; the white pill (thumb) slides under the picked one (as on Issues) */
+    .staff-seg { --i: 0; position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: none; width: 240px; height: 40px;
+      padding: 3px; border-radius: 10px; background: var(--chip); border: 1px solid var(--border); box-sizing: border-box; }
+    .staff-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 2); border-radius: 7px;
+      background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 0 0 1px var(--border);
+      transform: translateX(calc(var(--i) * 100%)); transition: transform .28s cubic-bezier(.4, 0, .2, 1); }
+    .staff-seg button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 0;
+      border: 0; background: none; padding: 0 8px; border-radius: 7px; font: inherit; font-size: 13px; font-weight: 600;
+      color: var(--muted); cursor: pointer; white-space: nowrap; transition: color .2s ease, transform .1s ease; }
+    .staff-seg button:hover, .staff-seg button.on { color: var(--text); }
+    .staff-seg .n { min-width: 18px; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px; text-align: center;
+      background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--text-2); transition: background .2s ease, color .2s ease; }
+    .staff-seg button.on .n { background: var(--accent); color: #fff; }
+    .staff-seg button:active { transform: scale(.97); }
+    .staff-swap-enter-active { transition: opacity .2s ease, transform .2s ease; }
+    .staff-swap-leave-active { transition: opacity .12s ease, transform .12s ease; }
+    .staff-swap-enter-from { opacity: 0; transform: translateY(6px); }
+    .staff-swap-leave-to { opacity: 0; transform: translateY(-4px); }
+    @media (prefers-reduced-motion: reduce) { .staff-thumb, .staff-swap-enter-active, .staff-swap-leave-active { transition: none; } }
+    @media (max-width: 640px) { .staff-seg { width: 100%; } }
     .head-tools.push { margin-left: auto; display: flex; gap: 8px; }
     .info-btn { padding: 8px 10px; color: var(--accent); border: 1.5px solid var(--accent); }
     .info-btn:hover { background: var(--accent-soft); }
     .staff-filters { margin-bottom: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-    .staff-table td { white-space: nowrap; }
+    .staff-search { width: 260px; max-width: 100%; }
+    /* No sideways scroll (12 Nov 2026): the table fits the page and long text wraps instead */
+    .staff-wrap { overflow-x: hidden; }
+    .staff-table { width: 100%; table-layout: auto; }
+    .staff-table td { white-space: normal; overflow-wrap: anywhere; }
+    .staff-table td:nth-child(2) { min-width: 160px; }
+    .staff-table .pill, .staff-table .act-pill, .staff-table .custom-tag { white-space: nowrap; }
     /* Long names wrap onto the next line instead of widening the table (4 Nov 2026) */
     .staff-table td:first-child { white-space: normal; overflow-wrap: anywhere; min-width: 140px; max-width: 220px; }
     .custom-tag { margin: 0 0 0 6px; }
+    /* Account status card in the edit panel */
+    .acct { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 16px; background: var(--surface); }
+    .acct-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .acct-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .acct-opt { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+      background: var(--surface); color: var(--text); font: inherit; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+    .acct-opt b { display: block; font-size: 14px; }
+    .acct-opt small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .acct-dot { flex: none; width: 12px; height: 12px; margin-top: 3px; border-radius: 50%; border: 2px solid var(--muted); }
+    .acct-opt:hover:not(:disabled) { border-color: var(--text-2); }
+    .acct-opt:disabled { cursor: not-allowed; opacity: .6; }
+    .on-opt.picked { border-color: var(--green, #2e7d32); background: color-mix(in srgb, var(--green, #2e7d32) 9%, transparent); }
+    .on-opt.picked .acct-dot { border-color: var(--green, #2e7d32); background: var(--green, #2e7d32); }
+    .off-opt.picked { border-color: var(--danger, #c0392b); background: color-mix(in srgb, var(--danger, #c0392b) 8%, transparent); }
+    .off-opt.picked .acct-dot { border-color: var(--danger, #c0392b); background: var(--danger, #c0392b); }
+    .acct-note { margin-top: 10px; font-size: 13px; padding: 8px 10px; border-radius: 8px; }
+    .acct-note.off { color: var(--danger, #c0392b); background: color-mix(in srgb, var(--danger, #c0392b) 8%, transparent); }
+    .acct-note.on { color: var(--green, #2e7d32); background: color-mix(in srgb, var(--green, #2e7d32) 9%, transparent); }
+    @media (max-width: 480px) { .acct-opts { grid-template-columns: minmax(0, 1fr); } }
+    .states-cell { white-space: normal !important; min-width: 110px; }
+    .states-cell.no-state { color: var(--danger, #c0392b); font-weight: 600; }
+    .no-state-note { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
     .name-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; }
     .name-btn:hover { text-decoration: underline; }
     .row-acts { text-align: left; }

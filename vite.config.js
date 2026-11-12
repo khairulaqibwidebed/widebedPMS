@@ -19,7 +19,7 @@ function localDriveApi() {
           if (m && !line.trim().startsWith('#')) process.env[m[1]] = m[2].replace(/^(['"])([\s\S]*)\1$/, '$2');
         }
         // Names and lengths only, never the values, so it is safe to paste into a chat
-        const keys = ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'GOOGLE_OAUTH_REFRESH_TOKEN', 'GOOGLE_SERVICE_ACCOUNT_JSON', 'DRIVE_ROOT_FOLDER_ID', 'FIREBASE_API_KEY'];
+        const keys = ['DRIVE_SCRIPT_URL', 'DRIVE_SCRIPT_KEY', 'DRIVE_HR_SCRIPT_URL', 'DRIVE_HR_SCRIPT_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'GOOGLE_OAUTH_REFRESH_TOKEN', 'GOOGLE_SERVICE_ACCOUNT_JSON', 'DRIVE_ROOT_FOLDER_ID', 'FIREBASE_API_KEY'];
         console.log('[drive] ' + keys.map(k => `${k}: ${process.env[k] ? process.env[k].length + ' chars' : 'MISSING'}`).join(' | '));
       } else console.warn('[drive] vercel-drive.env.local not found next to package.json: uploads will say the Drive settings are missing.');
       server.middlewares.use('/api/drive', (req, res) => {

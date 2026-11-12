@@ -7,7 +7,7 @@
     </div>
     <div class="d-prog" v-if="busy"><span :style="{ width: pct + '%' }"></span></div>
     <div class="notice error" v-show="error">{{ error }}</div>
-    <p class="help" v-if="loading">Loading files…</p>
+    <p class="help loading-line" v-if="loading">Loading files…</p>
     <ul class="d-list" v-else-if="files.length">
       <li v-for="f in files" :key="f.id"><span class="d-ico">{{ icon(f) }}</span><span class="d-name">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
         <button type="button" class="ico-btn" title="View" aria-label="View" @click="view(f)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
@@ -19,7 +19,7 @@
         <div class="modal vwr" role="dialog" :aria-label="viewing.name">
           <div class="vwr-head"><b>{{ viewing.name }}</b><span><a class="btn" :href="viewing.link" target="_blank" rel="noopener">Open in Drive</a> <button type="button" class="btn" @click="close">Close</button></span></div>
           <div class="vwr-body">
-            <p class="help" v-if="vLoading">Loading…</p>
+            <p class="help loading-line" v-if="vLoading">Loading…</p>
             <div class="notice error" v-else-if="vError">{{ vError }} <a :href="viewing.link" target="_blank" rel="noopener">Open in Drive</a></div>
             <img v-else-if="kindOf(viewing) === 'image'" :src="url" :alt="viewing.name">
             <video v-else-if="kindOf(viewing) === 'video'" :src="url" controls></video>

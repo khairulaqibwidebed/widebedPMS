@@ -20,6 +20,7 @@
 import { db, ROLE_LABEL } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { audit } from '@/lib/finance-data.js';
+import { listen } from '@/lib/use-live.js';
 import { notifyRole, notifyUser } from '@/services/notificationService';
 
 export const LIMIT_SHARE = 0.5;   // 50% of the monthly salary, per request
@@ -100,7 +101,13 @@ export async function getMyLimit(uid) {
 // ---------------------------------------------------------------- Requests
 const rows = snap => snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt) || String(b.ref).localeCompare(String(a.ref)));
 export async function loadAdvances() { return rows(await getDocs(collection(db, 'advances'))); }
+// Live list (6 Nov 2026, lib/use-live.js): new requests and status changes show without a refresh. Returns stop().
+export const watchAdvances = (onRows, onError) => listen(collection(db, 'advances'), r => onRows([...r].sort(byNewest)), { onError });
+const byNewest = (a, b) => ms(b.createdAt) - ms(a.createdAt) || String(b.ref).localeCompare(String(a.ref));
 export async function loadMyAdvances(uid) { return rows(await getDocs(query(collection(db, 'advances'), where('uid', '==', uid)))); }
+// Staff's own list, live (11 Nov 2026): HR's review, approval and payment show without a refresh. Returns stop().
+export const watchMyAdvances = (uid, onRows, onError) =>
+  listen(query(collection(db, 'advances'), where('uid', '==', uid)), r => onRows([...r].sort(byNewest)), { onError });
 
 export async function createAdvance(me, limit, { amount, reason }) {
   const a = money(amount), r = clean(reason);

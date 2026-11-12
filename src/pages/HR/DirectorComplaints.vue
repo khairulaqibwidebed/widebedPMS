@@ -30,6 +30,7 @@
             <tbody>
               <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="showSent = false; open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td>{{ c.subject }}</td><td><span class="who-cell"><Avatar :uid="c.fromUid" :name="c.fromName" role="hr" :size="24" />{{ c.fromName }}</span></td>
                 <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td></tr>
+              <SkeletonRows v-if="loading && !list.length" table :cols="5" />
               <tr v-show="!loading && !list.length"><td colspan="5" class="muted">Nothing sent yet.</td></tr>
             </tbody>
           </table>
@@ -59,6 +60,7 @@
             <tr class="clickable" v-for="c in pageRows" :key="c.id" @click="open(c)"><td>{{ c.ref }}</td><td>{{ c.date }}</td><td><span class="who-cell"><Avatar :uid="c.fromUid" :name="c.fromName" role="hr" :size="24" />{{ c.fromName }}</span></td><td>{{ c.subject }}</td>
               <td><span class="pill" :class="st(c)[1]">{{ st(c)[0] }}</span></td>
               <td class="num"><button class="editlink" @click.stop="open(c)">Open</button></td></tr>
+            <SkeletonRows v-if="loading && !inboxShown.length" table :cols="6" />
             <tr v-show="!loading && !inboxShown.length"><td colspan="6" class="muted">{{ q.trim() ? `Nothing matches "${q.trim()}".` : list.length ? 'No complaints with this status.' : 'No complaints yet.' }}</td></tr>
           </tbody>
         </table>
@@ -90,6 +92,7 @@
               </div>
               <div class="field" style="margin-top:12px"><label>Details</label><div class="detail">{{ sel.details }}</div></div>
               <PhotoThumbs :images="selPhotos" />
+              <ComplaintDocs :key="'d' + sel.id" :complaint="sel" :side="isHr ? 'hr' : 'director'" :can-add="!isHr || selStatus !== 'closed'" />
               <!-- Sent before 4 Nov: only file names were kept (the files were never uploaded) -->
               <div class="file-names" v-show="sel.files && sel.files.length">{{ 'File names given (not uploaded): ' + sel.files.join(', ') }}</div>
 
@@ -124,19 +127,22 @@
 // conversation between HR and the Directors with photos (components/ComplaintChat.vue, rules Draft 0.29).
 // 4 Nov 2026: the Directors set the status (Read by the Directors / In review / Closed with a note / reopen) and keep their
 // own notes; every update notifies HR and the Directors (complaints.js tellBoth, rules Draft 0.30).
-import { loadComplaints, loadMyDirectorComplaints, createComplaint, markRead, loadNotes, addNote, setStatus, DSTATUS, dirStatus } from './complaints.js';
+import { watchComplaintList, mergeRows, createComplaint, markRead, loadNotes, addNote, setStatus, DSTATUS, dirStatus } from './complaints.js';
 import PhotoPicker from '@/components/PhotoPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PhotoThumbs from '@/components/PhotoThumbs.vue';
+import ComplaintDocs from '@/components/ComplaintDocs.vue';
 import ComplaintChat from '@/components/ComplaintChat.vue';
 import Avatar from '@/components/Avatar.vue';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
+import { liveMixin } from '@/lib/use-live.js';
 
 const me = useSession();
 
 export default {
-  components: { PhotoPicker, PhotoThumbs, ComplaintChat, OptionPicker, Avatar },
+  mixins: [liveMixin],
+  components: { PhotoPicker, PhotoThumbs, ComplaintChat, OptionPicker, Avatar, ComplaintDocs },
   computed: {
     isHr() { return me.role === 'hr'; },
     selStatus() { return this.sel ? dirStatus(this.sel) : 'new'; },
@@ -159,19 +165,23 @@ export default {
       notes: [], notesLoading: false, noteText: '', closing: false, closeNote: '', actErr: ''
     };
   },
-  async mounted() {
-    await this.load();
-    // From a notification: open that complaint
-    const id = this.$route.query.id, c = id && this.list.find(x => x.id === id);
-    if (c) this.open(c);
+  mounted() {
+    let first = true;
+    this.load(() => {
+      if (!first) return;
+      first = false;   // from a notification: open that complaint
+      const id = this.$route.query.id, c = id && this.list.find(x => x.id === id);
+      if (c) this.open(c);
+    });
   },
   methods: {
-    async load() {
-      this.loading = true; this.loadErr = '';
-      // HR sees only the Director complaints they sent themselves (5 Nov 2026); the Directors see all
-      try { this.list = this.isHr ? await loadMyDirectorComplaints(me.user.uid) : await loadComplaints('director'); }
-      catch (e) { this.loadErr = friendlyError(e, 'load the complaints'); }
-      this.loading = false;
+    // Live (6 Nov 2026): new complaints and status changes show without a refresh, the open one too.
+    // HR sees only the Director complaints they sent themselves (5 Nov 2026); the Directors see all
+    load(after) {
+      this.loadErr = '';
+      this.liveUse('list', watchComplaintList(this.isHr ? { kind: 'director', fromId: me.user.uid } : { kind: 'director' }, rows => {
+        this.list = mergeRows(this.list, rows); this.loading = false; after?.();
+      }, e => { this.loadErr = friendlyError(e, 'load the complaints'); this.loading = false; }));
     },
     clear() { this.subject = ''; this.details = ''; this.photos = []; this.err = ''; },
     st(c) { return DSTATUS[dirStatus(c)] || DSTATUS.new; },
@@ -201,8 +211,7 @@ export default {
     status(to, text = '') {
       return this.run(async () => {
         await setStatus(me, this.sel, to, text);
-        // The closing note is a message in the conversation
-        if (text) this.$refs.chat?.thread.push({ text: text.trim(), by: 'director', byName: me.name, closing: true, createdAt: null });
+        // The closing note is a message in the conversation; the live chat shows it by itself
         this.sel.status = to; this.closing = false; this.closeNote = '';
       }, 'change the status');
     },
@@ -214,9 +223,9 @@ export default {
       this.busy = true;
       try {
         const ref = await createComplaint(me, 'director', { subject: this.subject.trim(), details: this.details.trim(), files: [], images: this.photos });
-        this.okMsg = `Sent to the Directors as ${ref}.`; this.clear(); await this.load();
+        this.okMsg = `Sent to the Directors as ${ref}.`; this.clear();   // the live list adds it
       } catch (e) {
-        if (e.sentRef) { this.okMsg = `Sent to the Directors as ${e.sentRef}.`; this.err = e.message; this.clear(); await this.load(); }
+        if (e.sentRef) { this.okMsg = `Sent to the Directors as ${e.sentRef}.`; this.err = e.message; this.clear(); }
         else this.err = friendlyError(e, 'send the complaint');
       }
       this.busy = false;

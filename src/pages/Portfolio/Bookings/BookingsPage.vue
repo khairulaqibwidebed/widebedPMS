@@ -11,9 +11,10 @@
         </div>
       </div>
       <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="reload()" />
+        <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="reload()" />
         <MonthPicker :ahead="1" multiple all-label="All months" v-model="monthsModel" v-if="!acc.viewOnly" />
-        <RefreshButton @refresh="go()" />
+        <RefreshButton v-if="propertyId === 'all'" @refresh="go()" />
+        <LiveStatus v-else :status="liveStatus.bookings?.status || 'live'" />
       </div>
     </div>
 
@@ -83,8 +84,11 @@ import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
 import { can } from '@/lib/access.js';
-import { MONTH_PAY, shortName, loadOfflineBookings, loadGuestName } from '@/lib/portfolio-data.js';
+import { MONTH_PAY, shortName, loadOfflineBookings, watchOfflineBookings, loadGuestName } from '@/lib/portfolio-data.js';
+import { liveMixin } from '@/lib/use-live.js';
+import LiveStatus from '@/components/LiveStatus.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import RefreshButton from '@/components/RefreshButton.vue';
 import BookingDrawer from './BookingDrawer.vue';
@@ -92,11 +96,12 @@ import BookingDrawer from './BookingDrawer.vue';
 const me = useSession();
 
 export default {
-  components: { OptionPicker, MonthPicker, RefreshButton, BookingDrawer },
+  mixins: [liveMixin],
+  components: { PropertyPicker, OptionPicker, MonthPicker, RefreshButton, BookingDrawer, LiveStatus },
   data() {
     const q = this.$route.query;
     return {
-      MONTH_PAY, acc: portfolioAccess(me.role), canForms: can(me, 'bookingForms.view'),
+      MONTH_PAY, acc: portfolioAccess(me.role, me), canForms: can(me, 'bookingForms.view'),
       // ?id=offline_BK-0001 (the link after a Reservation form is saved) opens that booking once the list is loaded
       openId: q.id || '',
       propertyId: q.property || lastProperty(true) || 'all', asOf: q.month || monthOffset(0),
@@ -161,12 +166,26 @@ export default {
         const url = this.url();
         if (url !== location.pathname + location.search) history.replaceState(history.state, '', url);
         this.bookingsLoading = true;
-        try {
-          const r = await loadOfflineBookings(this.propertyId);
-          this.bookings = r.bookings; this.paid = r.paid; this.pays = r.pays;
+        this.stopLive('bookings');
+        const show = r => {
+          // Keep the same objects for bookings already shown, so an open booking updates in place
+          const old = new Map(this.bookings.map(b => [b.id, b]));
+          this.bookings = r.bookings.map(b => { const o = old.get(b.id); return o ? Object.assign(o, b) : b; });
+          this.paid = r.paid; this.pays = r.pays;
           if (this.openId) { this.open = this.bookings.find(x => x.id === this.openId) || null; this.openId = ''; }
-        } catch (e) { this.error = friendlyError(e, 'load the offline bookings'); }
-        this.bookingsLoading = false;
+          this.bookingsLoading = false;
+        };
+        if (this.propertyId === 'all') {
+          // All properties: read once (refresh button), too many bookings to keep live
+          try { show(await loadOfflineBookings('all')); } catch (e) { this.error = friendlyError(e, 'load the offline bookings'); this.bookingsLoading = false; }
+        } else {
+          // One property: live (6 Nov 2026), a booking or payment added or changed elsewhere shows without a refresh
+          const pid = this.propertyId;
+          await new Promise(resolve => {
+            this.liveUse('bookings', watchOfflineBookings(pid, r => { if (pid === this.propertyId) show(r); resolve(); },
+              e => { this.error = friendlyError(e, 'load the offline bookings'); this.bookingsLoading = false; resolve(); }));
+          });
+        }
       } catch (e) { this.error = friendlyError(e, 'load the portfolio'); }
       this.loading = false;
     },

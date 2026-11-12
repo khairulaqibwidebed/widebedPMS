@@ -33,10 +33,11 @@ export async function uploadFile(kind, recordId, file, onProgress = () => {}, la
 }
 
 // The file as a blob URL for the in-site viewer (images, PDFs and small videos; the server refuses files over 4 MB)
-export async function fileBlob(kind, fileId) {
+// recordId: needed for staff complaint files (the server checks you can read that complaint)
+export async function fileBlob(kind, fileId, recordId = '') {
   const user = getAuth().currentUser;
   if (!user) throw new Error('Sign in again.');
-  const r = await fetch('/api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ action: 'file', kind, fileId }) });
+  const r = await fetch('/api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ action: 'file', kind, fileId, recordId }) });
   if (!r.ok) { let j = {}; try { j = await r.json(); } catch { /* ignore */ } throw new Error(j.error || `Could not open the file (${r.status}).`); }
   return URL.createObjectURL(await r.blob());
 }
@@ -54,8 +55,8 @@ export async function uploadForLink(kind, files, onProgress = () => {}, recordId
 // Drive file id from a link like https://drive.google.com/file/d/<id>/view
 export const driveId = url => (/\/d\/([A-Za-z0-9_-]{10,})/.exec(url || '') || [])[1] || '';
 // Saves a file from the app to the person's computer
-export async function downloadFile(kind, fileId, name) {
-  const u = await fileBlob(kind, fileId), a = document.createElement('a');
+export async function downloadFile(kind, fileId, name, recordId = '') {
+  const u = await fileBlob(kind, fileId, recordId), a = document.createElement('a');
   a.href = u; a.download = name || 'file'; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(u), 10000);
 }

@@ -86,7 +86,7 @@ import { amt } from '@/lib/format.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { askConfirm, showNotice } from '@/lib/confirm.js';
-import { PRIVATE, BANK, CO_OWNER_FIELDS, jointName, shortName, arrLabel, ownerUnits, carried, nextOwnerCode, loadPayouts, hasRefs, refreshOwner, noteOnListing,
+import { PRIVATE, BANK, CO_OWNER_FIELDS, jointName, shortName, arrLabel, ownerUnits, carried, nextOwnerCode, freshOwnerCode, loadPayouts, hasRefs, refreshOwner, noteOnListing,
   saveOwner, deleteOwner, deactivateOwner, reactivateOwner } from '@/lib/portfolio-data.js';
 
 const me = useSession();
@@ -137,7 +137,7 @@ export default {
     propertyNameOf(id) { return this.properties.find(p => p.id === id)?.name || ''; },
     setBusy(v) { this.busy = v; this.$emit('busy', v); },
     async done(msg, removed = false) {
-      await refreshOwner(this.o.id, this.acc.viewOnly, this.acc.canEdit, removed);
+      await refreshOwner(this.o.id, this.acc.viewOnly, this.acc.ownerNames, removed);
       this.$emit('saved', msg);
     },
     async save() {
@@ -158,7 +158,9 @@ export default {
       }
       if (!o.isNew && !changed.length) { this.$emit('close'); return; }
       if (!o.isNew && !o.reason.trim()) return o.error = 'Add a short reason. It goes in the audit log.';
-      const id = o.id || nextOwnerCode(this.owners);
+      let id = o.id;
+      try { id ||= await freshOwnerCode(this.owners); }   // a code nobody uses, also outside my properties
+      catch (e) { return o.error = friendlyError(e, 'pick an owner code'); }
       const digits = (priv.bankAccount || '').replace(/\D/g, '');
       this.setBusy(true);
       try {

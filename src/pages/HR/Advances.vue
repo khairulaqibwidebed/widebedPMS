@@ -27,6 +27,7 @@
                 <td><span class="pill" :class="st(a)[2]">{{ st(a)[0] }}</span></td>
                 <td class="num"><button class="editlink" @click.stop="open(a)">Open</button></td>
               </tr>
+              <SkeletonRows v-if="loading && !shown().length" table :cols="7" />
               <tr v-show="!loading && !shown().length"><td colspan="7" class="muted">{{ q.trim() ? `Nothing matches "${q.trim()}".` : 'No requests here.' }}</td></tr>
             </tbody>
           </table>
@@ -62,6 +63,7 @@
             <thead><tr><th>When</th><th>Request</th><th>Staff</th><th>Signature of</th><th>Made by</th></tr></thead>
             <tbody>
               <tr v-for="u in pageRows" :key="u.id"><td>{{ stamp(u.at) }}</td><td>{{ u.ref }}</td><td>{{ u.staffName }}</td><td>{{ u.signerName }}</td><td>{{ u.createdByName }}</td></tr>
+              <SkeletonRows v-if="logLoading && !uses.length" table :cols="5" />
               <tr v-show="!logLoading && !uses.length"><td colspan="5" class="muted">No forms made yet.</td></tr>
             </tbody>
           </table>
@@ -84,8 +86,9 @@
           <span class="help" v-if="nfStaff">{{ `Up to ${rm(nfLimit)} (50% of the salary)` }}</span></div>
         <div class="field"><label for="nfWhy" class="req">Reason</label>
           <input class="input" id="nfWhy" maxlength="1000" v-model="nf.reason" placeholder="e.g. Car repair"></div>
-        <div class="field"><label for="nfDsc">Description</label>
-          <textarea class="input" id="nfDsc" rows="4" maxlength="1000" v-model="nf.desc" placeholder="Details printed on the form (optional)"></textarea></div>
+        <div class="field"><label for="nfDsc">Amount of deduction (optional, printed in the HR box)</label>
+          <textarea class="input" id="nfDsc" rows="4" maxlength="1000" v-model="nf.desc" @keydown.enter="listEnter($event, 'nf.desc')"></textarea>
+          <span class="help">Enter starts the next number. Enter on an empty number ends the list.</span></div>
         <label class="check"><input type="checkbox" v-model="nf.told"><span>{{ signer }} has been told</span></label>
         <div class="notice error" v-show="nf.err">{{ nf.err }}</div>
         <div class="modal-foot">
@@ -134,7 +137,7 @@
               <section class="sa-card">
                 <h3>Request</h3>
                 <div class="detail">{{ sel.reason }}</div>
-                <div class="field" v-if="sel.description"><label>Description</label><div class="detail">{{ sel.description }}</div></div>
+                <div class="field" v-if="sel.description"><label>Amount of deduction</label><div class="detail">{{ sel.description }}</div></div>
               </section>
 
               <!-- HR notes on the left, under the request (Khairul, 5 Nov 2026) -->
@@ -160,8 +163,9 @@
                   <p class="help">Makes the form with {{ signer }}'s signature and asks the staff member to sign it.</p>
                   <div class="field"><label for="apAmt" class="req">Amount to approve (RM)</label>
                     <input class="input" id="apAmt" type="number" min="1" step="0.01" v-model="apAmount"></div>
-                  <div class="field"><label for="apNote">Note on the form (optional, printed)</label>
-                    <textarea class="input" id="apNote" maxlength="1000" v-model="apNote" placeholder="e.g. Deducted in full from the December salary"></textarea></div>
+                  <div class="field"><label for="apNote">Amount of deduction (optional, printed in the HR box)</label>
+                    <textarea class="input" id="apNote" rows="4" maxlength="1000" v-model="apNote" @keydown.enter="listEnter($event, 'apNote')"></textarea>
+                    <span class="help">Enter starts the next number. Enter on an empty number ends the list.</span></div>
                   <label class="check"><input type="checkbox" v-model="apTold"><span><b>{{ `${signer} has been told` }}</b><small>Saved with your name and the time. Her signature goes on the form automatically.</small></span></label>
                   <div class="reject-box" v-if="rjOpen">
                     <label for="rjWhy" class="req">Reason for rejecting (the staff member sees it)</label>
@@ -260,7 +264,7 @@
 // HR and Directors: every salary advance. HR moves them on (never their own); Directors read everything, keep the
 // signature up to date if they want, and see the log of forms carrying the signature. Data: ./advances.js.
 // Not a page of its own: SalaryAdvance.vue shows it under its Requests / Signature / Signature log tabs (prop tab).
-import { fileKind, loadFormStaff, createByHR, loadAdvances, getStaffHR, getDept, reviewAdvance, markSignedOutside, uploadSignedCopy, approveAdvance, rejectAdvance, markPaid,
+import { fileKind, loadFormStaff, createByHR, watchAdvances, getStaffHR, getDept, reviewAdvance, markSignedOutside, uploadSignedCopy, approveAdvance, rejectAdvance, markPaid,
   loadForm, loadSigned, loadSignedCopy, loadPayment, loadNotes, addNote, loadSignature, saveSignature, loadSignatureUses, imageFile,
   limitOf, todayIso, STATUS, STEP, PAY_TYPES, SIGN_METHOD, DEFAULT_SIGNER } from './advances.js';
 import { buildAdvancePdf, advanceFileName } from '@/lib/advance-pdf.js';
@@ -274,19 +278,35 @@ import ImageDrop from '@/components/ImageDrop.vue';
 
 const me = useSession();
 const FILTERS = [['all', 'All statuses'], ...Object.entries(STATUS).map(([k, v]) => [k, v[0]])];
+// "Amount of deduction" box (11 Nov 2026): starts filled like HR's paper form; HR types the amount and the numbered plan.
+const DEDUCT_START = 'AMOUNT OF DEDUCTION PER MONTH (RM) : RM\n    1. ';
+// The first line follows the amount to approve ("... : RM300"), as long as HR hasn't typed something else there.
+const DEDUCT_HEAD = /^(AMOUNT OF DEDUCTION PER MONTH \(RM\) : RM)[\d.,]*[ \t]*(?=\n|$)/;
+const amountText = v => (Number(v) > 0 ? String(Math.round(Number(v) * 100) / 100) : '');
+const withAmount = (s, v) => String(s || '').replace(DEDUCT_HEAD, (_, head) => head + amountText(v));
+const deductStart = v => withAmount(DEDUCT_START, v);
+// What gets saved: the amount filled in on the first line, empty numbers dropped; nothing if there is no amount and no plan.
+function deductText(s, amount) {
+  const lines = withAmount(s, amount).split('\n').filter(l => !/^\s*\d+\.\s*$/.test(l));
+  const out = lines.join('\n').trim();
+  return /^AMOUNT OF DEDUCTION PER MONTH \(RM\) : RM\s*$/.test(out) ? '' : out;
+}
+
+import { liveMixin } from '@/lib/use-live.js';
 
 export default {
+  mixins: [liveMixin],
   components: { OptionPicker, Avatar, ImageDrop },
   props: { tab: { type: String, default: 'requests' } },
   data() {
     return {
       STATUS, STEP, PAY_TYPES, SIGN_METHOD, myUid: me.user.uid, isHR: me.role === 'hr', isDirector: me.role === 'director',
       list: [], loading: true, error: '', q: '', filter: 'all', sel: null, hr: null, dept: '', notes: [], fuLoading: false,
-      busy: false, actErr: '', rjOpen: false, histOpen: false, noteText: '', apAmount: '', apNote: '', apTold: false, rjReason: '', paidDate: '', payType: '',
+      busy: false, actErr: '', rjOpen: false, histOpen: false, noteText: '', apAmount: '', apNote: DEDUCT_START, apTold: false, rjReason: '', paidDate: '', payType: '',
       signed: null, copy: null, payment: null, outImg: null, payImg: null, copyImg: null, copyOpen: false,
       sig: null, sigLoaded: false, sigLoading: false, sigName: DEFAULT_SIGNER, sigImage: null, sigErr: '',
       uses: [], logLoading: false,
-      nf: { open: false, loading: false, staff: [], uid: '', amount: '', reason: '', desc: '', told: false, err: '' }
+      nf: { open: false, loading: false, staff: [], uid: '', amount: '', reason: '', desc: DEDUCT_START, told: false, err: '' }
     };
   },
   computed: {
@@ -297,6 +317,8 @@ export default {
     nfLimit() { return this.nfStaff ? limitOf(this.nfStaff.hr.salary) : 0; }
   },
   watch: {
+    apAmount(v) { this.apNote = withAmount(this.apNote, v); },
+    'nf.amount'(v) { this.nf.desc = withAmount(this.nf.desc, v); },
     tab(t) { if (t === 'signature') this.sigErr = ''; if (t === 'log') this.openLog(); }
   },
   async mounted() {
@@ -350,17 +372,33 @@ export default {
     stamp(t) { return t?.toDate ? t.toDate().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Just now'; },
     // ---- New form ----
     async openNew() {
-      Object.assign(this.nf, { open: true, uid: '', amount: '', reason: '', desc: '', told: false, err: '' });
+      Object.assign(this.nf, { open: true, uid: '', amount: '', reason: '', desc: deductStart(''), told: false, err: '' });
       if (!this.sigLoaded) this.loadSig();
       this.nf.loading = true;
       try { this.nf.staff = await loadFormStaff(this.myUid); } catch (e) { this.nf.err = friendlyError(e, 'load the staff list'); }
       this.nf.loading = false;
     },
     closeNew() { if (!this.busy) this.nf.open = false; },
+    // Enter in the deduction box: on a numbered line ("    2. text") adds the next number with the same indent;
+    // on an empty number ("    3. ") removes it and ends the list. Shift+Enter is a plain new line.
+    listEnter(e, key) {
+      if (e.shiftKey || e.isComposing) return;
+      const ta = e.target, v = ta.value, at = ta.selectionStart;
+      if (at !== ta.selectionEnd) return;
+      const start = v.lastIndexOf('\n', at - 1) + 1, line = v.slice(start, at);
+      const m = line.match(/^(\s*)(\d+)\.\s?(.*)$/);
+      if (!m) return;
+      e.preventDefault();
+      let next, caret;
+      if (!m[3].trim() && !v.slice(at).split('\n')[0].trim()) { next = v.slice(0, start) + v.slice(at); caret = start; }
+      else { const ins = `\n${m[1]}${+m[2] + 1}. `; next = v.slice(0, at) + ins + v.slice(at); caret = at + ins.length; }
+      if (key === 'nf.desc') this.nf.desc = next; else this[key] = next;
+      this.$nextTick(() => { ta.selectionStart = ta.selectionEnd = caret; });
+    },
     async createForm() {
       this.busy = true; this.nf.err = '';
       try {
-        const { id, form } = await createByHR(me, this.nfStaff, { amount: this.nf.amount, reason: this.nf.reason, description: this.nf.desc, told: this.nf.told, sig: this.sig });
+        const { id, form } = await createByHR(me, this.nfStaff, { amount: this.nf.amount, reason: this.nf.reason, description: deductText(this.nf.desc, this.nf.amount), told: this.nf.told, sig: this.sig });
         try { download(advanceFileName(form), new Blob([await buildAdvancePdf(form)], { type: 'application/pdf' })); }
         catch { toast('Form saved, but the PDF could not be made here. Open the request and download it from Documents.'); }
         this.nf.open = false; await this.load();
@@ -369,17 +407,24 @@ export default {
       } catch (e) { this.nf.err = e.code ? friendlyError(e, 'make the form') : e.message; }
       this.busy = false;
     },
-    async load() {
-      this.loading = true;
-      try { this.list = await loadAdvances(); } catch (e) { this.error = friendlyError(e, 'load the requests'); }
-      this.loading = false;
+    // Live (6 Nov 2026): new requests and status changes show without a refresh; the open request updates in place.
+    // Resolves when the list first arrives; calling it again while it runs does nothing.
+    load() {
+      if (this.liveStops.list) return Promise.resolve();
+      return new Promise(resolve => {
+        this.liveUse('list', watchAdvances(rows => {
+          const old = new Map(this.list.map(a => [a.id, a]));
+          this.list = rows.map(r => { const o = old.get(r.id); return o ? Object.assign(o, r) : r; });
+          this.loading = false; resolve();
+        }, e => { this.error = e.friendly || friendlyError(e, 'load the requests'); this.loading = false; resolve(); }));
+      });
     },
     shown() {
       const q = this.q.trim().toLowerCase();
       return this.list.filter(a => (this.filter === 'all' || a.status === this.filter) && (!q || [a.ref, a.name].some(v => String(v || '').toLowerCase().includes(q))));
     },
     async open(a) {
-      Object.assign(this, { sel: a, hr: null, dept: '', notes: [], actErr: '', noteText: '', apAmount: a.approvedAmount ?? a.amount, apNote: '', apTold: false, rjReason: '',
+      Object.assign(this, { sel: a, hr: null, dept: '', notes: [], actErr: '', noteText: '', apAmount: a.approvedAmount ?? a.amount, apNote: deductStart(a.approvedAmount ?? a.amount), apTold: false, rjReason: '',
         paidDate: todayIso(), payType: '', rjOpen: false, histOpen: false, signed: null, copy: null, payment: null, outImg: null, payImg: null, copyImg: null, copyOpen: false, fuLoading: true });
       const after = ['signed', 'approved', 'paid'].includes(a.status);
       try {
@@ -402,7 +447,7 @@ export default {
     review() {
       return this.run(async () => {
         if (!this.sigLoaded) await this.loadSig();
-        await reviewAdvance(me, this.sel, { approvedAmount: this.apAmount, formNote: this.apNote, told: this.apTold, hr: this.hr, sig: this.sig, dept: this.dept });
+        await reviewAdvance(me, this.sel, { approvedAmount: this.apAmount, formNote: deductText(this.apNote, this.apAmount), told: this.apTold, hr: this.hr, sig: this.sig, dept: this.dept });
       }, 'review it', `${this.sel.ref} reviewed. The staff member has been asked to sign.`);
     },
     outside() { return this.run(() => markSignedOutside(me, this.sel, this.outImg), 'mark it signed', `${this.sel.ref} marked signed outside the PMS.`); },
@@ -458,7 +503,8 @@ export default {
 .search-box .input { width: 100%; padding-left: 36px; }
 .who-cell { display: inline-flex; align-items: center; gap: 8px; }
 /* Request window (restyled 5 Nov 2026) */
-.cp-modal { max-width: 1060px; width: calc(100% - 32px); max-height: 90vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+/* The window grows with its content and the page behind it scrolls (11 Nov 2026), not the window itself */
+.cp-modal { max-width: 1060px; width: calc(100% - 32px); display: flex; flex-direction: column; padding: 0; overflow: hidden; margin-bottom: 8vh; }
 .sa-head { display: flex; align-items: center; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--border); }
 .sa-title { flex: 1 1 auto; min-width: 0; }
 .sa-title h2 { margin: 0; font-size: 18px; }
@@ -467,7 +513,7 @@ export default {
 .cp-x { flex: none; width: 36px; height: 36px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 24px; line-height: 1; cursor: pointer; }
 .cp-x:hover { background: var(--hover); color: var(--text); }
 .cp-modal > .notice { margin: 12px 20px 0; }
-.sa-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 20px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.sa-body { flex: 1 1 auto; padding: 16px 20px 20px; }
 .sa-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
 .sa-fig { display: grid; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .sa-fig span { font-size: 12px; color: var(--muted); }

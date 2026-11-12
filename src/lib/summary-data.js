@@ -3,9 +3,11 @@
 import { db } from './firebase.js';
 import { collection, doc, getDoc, getDocFromCache, getDocs, query, where, increment, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { loadSetup, latestVersion } from './finance-data.js';
+import { withShared } from './shared-rates.js';
 import { SUMMARY_VERSION, unitSummary, propertySummary, marksFor, dirtyFor, markedUnits, noneId, isNone, unitMonthId, markKey, UNIT_FIELDS }
   from './summaries.js';
-import { byUnit } from './engine.js';
+import { byUnit, poolShares } from './engine.js';
+import { stateTag } from './states.js';
 
 // ---------- marking (inside the caller's batch) ----------
 // One or more unit-months of one property changed (a booking, a Ctrip amount, an expense, a statement).
@@ -14,7 +16,7 @@ export function markDirty(batch, propertyId, month, unitIds) {
   const ids = [...new Set(unitIds.map(u => u || noneId(propertyId)))];
   if (!propertyId || !month || !ids.length) return;
   for (const u of ids)
-    batch.set(doc(db, 'unitMonths', unitMonthId(u, month)), { propertyId, month, unitId: u, dirtyRev: increment(1), stale: true }, { merge: true });
+    batch.set(doc(db, 'unitMonths', unitMonthId(u, month)), { propertyId, month, unitId: u, dirtyRev: increment(1), stale: true, ...stateTag(propertyId) }, { merge: true });
   batch.set(doc(db, 'properties', propertyId), { summaryDirty: { [month]: increment(ids.length) } }, { merge: true });
 }
 // A change that applies from a month on: unit terms (unitId given) or a property rate version (unitId null).
@@ -77,8 +79,8 @@ export async function readUnit(propertyId, month, unitId, rateVersions, getState
     none ? null : getDoc(doc(db, 'units', unitId)),
     none ? null : getDocs(collection(db, 'units', unitId, 'terms')),
     getDocs(none ? query(collection(db, 'bookings'), where('propertyId', '==', propertyId), where('departureMonth', '==', month), where('unitId', '==', null))
-      : query(collection(db, 'bookings'), where('unitId', '==', unitId), where('departureMonth', '==', month))),
-    none ? { docs: [] } : getDocs(query(collection(db, 'expenses'), where('unitId', '==', unitId), where('month', '==', month))),
+      : query(collection(db, 'bookings'), where('propertyId', '==', propertyId), where('unitId', '==', unitId), where('departureMonth', '==', month))),
+    none ? { docs: [] } : getDocs(query(collection(db, 'expenses'), where('propertyId', '==', propertyId), where('unitId', '==', unitId), where('month', '==', month))),
     none ? null : (getStatement || getDoc)(doc(db, 'statements', `${unitId}_${month}`)),
     rateVersions ? null : getDocs(collection(db, 'properties', propertyId, 'rateVersions'))
   ]);
@@ -86,7 +88,7 @@ export async function readUnit(propertyId, month, unitId, rateVersions, getState
   // Same unit list as loadUnits: this property's units that are switched on
   if (unit && (unit.propertyId !== propertyId || unit.active === false)) unit = null;
   if (unit) { unit.termHistory = docs(terms); unit.terms = latestVersion(unit.termHistory, month); }
-  const versions = rateVersions || docs(rv);
+  const versions = rateVersions || await withShared(docs(rv));   // with the shared Fees & Rates (lib/shared-rates.js)
   return { unit, rateVersions: versions, propertyRates: latestVersion(versions, month),
     bookings: docs(bk).filter(b => b.propertyId === propertyId), expenses: docs(ex).filter(e => e.propertyId === propertyId), statement: st && st.exists() ? { id: st.id, ...st.data() } : null };
 }
@@ -111,22 +113,30 @@ export async function propertyMonth(property, month, { me = null, canWrite = fal
   const states = new Map(ums.map(u => [u.unitId, unitState(u, property, month)]));
   for (const u of markedUnits(property, month)) if (!byIdUm.has(u)) states.set(u, 'data');   // e.g. a unit added on Portfolio
   const needData = [...states].filter(([, s]) => s === 'data').map(([u]) => u);
-  const whole = !m?.summary || m.summary.version !== SUMMARY_VERSION || needData.length > Math.max(6, ums.length / 2);
+  // Pool Sharing: a unit's share depends on every pool unit's bookings, so any change works the whole property out again.
+  const isPool = u => u?.arrangementType === 'pool' || u?.row?.rates?.type === 'pool';
+  let whole = !m?.summary || m.summary.version !== SUMMARY_VERSION || needData.length > Math.max(6, ums.length / 2)
+    || (ums.some(isPool) && [...states.values()].some(s => s !== 'ok'));
 
-  const out = new Map();   // unitId -> summary to keep (fresh or unchanged)
-  if (whole) {
+  let out = new Map();   // unitId -> summary to keep (fresh or unchanged)
+  const wholeProperty = async () => {
+    const res = new Map();
     const all = await readProperty(property.id, month);
     const units = new Map(all.setup.units.map(u => [u.id, u]));
     const bk = group(all.bookings, 'unitId'), ex = group(all.expenses, 'unitId');
     const st = new Map(all.statements.map(s => [s.unitId, s]));
+    const pools = poolShares({ propertyRates: all.setup.rates, units: all.setup.units, bookingsByUnit: bk });   // once, before the unit statements
     const ids = new Set([...units.keys(), ...bk.keys(), ...ex.keys(), ...st.keys(), ...byIdUm.keys()]);
     ids.delete(null); ids.delete(undefined);
     if (bk.has(null) || byIdUm.has(noneId(property.id))) ids.add(noneId(property.id));
     for (const id of ids) {
-      out.set(id, unitSummary({ propertyId: property.id, month, unitId: id, unit: units.get(id) || null, propertyRates: all.setup.rates,
-        bookings: isNone(id) ? (bk.get(null) || []) : (bk.get(id) || []), expenses: ex.get(id) || [], statement: st.get(id) || null }));
+      res.set(id, unitSummary({ propertyId: property.id, month, unitId: id, unit: units.get(id) || null, propertyRates: all.setup.rates,
+        bookings: isNone(id) ? (bk.get(null) || []) : (bk.get(id) || []), expenses: ex.get(id) || [], statement: st.get(id) || null, pool: pools.get(id) || null }));
     }
-  } else {
+    return res;
+  };
+  if (whole) out = await wholeProperty();
+  else {
     let versions = null;
     for (const [u, s] of states) {
       if (s === 'ok') out.set(u, byIdUm.get(u));
@@ -138,6 +148,8 @@ export async function propertyMonth(property, month, { me = null, canWrite = fal
       out.set(u, unitSummary({ propertyId: property.id, month, unitId: u, unit: d.unit, propertyRates: d.propertyRates,
         bookings: d.bookings, expenses: d.expenses, statement: d.statement }));
     }
+    // A unit just moved onto Pool Sharing: its share needs the whole property
+    if ([...out.values()].some(isPool)) { whole = true; out = await wholeProperty(); }
   }
 
   // Write back what changed, then the property summary that adds them up
@@ -154,8 +166,10 @@ export async function propertyMonth(property, month, { me = null, canWrite = fal
   }
   const summary = { ...propertySummary(final), rev: { dirty: dirtyFor(property, month), marks: marksFor(property, month) }, computedAt: serverTimestamp() };
   if (canWrite) {
-    const all = [...writes.map(s => [doc(db, 'unitMonths', unitMonthId(s.unitId, month)), s, UNIT_FIELDS]),
-      [doc(db, 'months', `${property.id}_${month}`), { propertyId: property.id, month, summary }, ['propertyId', 'month', 'summary']]];
+    // Each summary carries the property's state (lib/states.js), so staff of other states can't read it once locked
+    const tag = stateTag(property.id), tagF = tag.state ? ['state'] : [];
+    const all = [...writes.map(s => [doc(db, 'unitMonths', unitMonthId(s.unitId, month)), { ...s, ...tag }, [...UNIT_FIELDS, ...tagF]]),
+      [doc(db, 'months', `${property.id}_${month}`), { propertyId: property.id, month, summary, ...tag }, ['propertyId', 'month', 'summary', ...tagF]]];
     for (let i = 0; i < all.length; i += 400) {
       const b = writeBatch(db);
       for (const [ref, d, fields] of all.slice(i, i + 400)) b.set(ref, d, { mergeFields: fields });

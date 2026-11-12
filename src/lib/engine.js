@@ -1,5 +1,6 @@
 // Widebed payout engine (BRD §9A). Plain JavaScript, no Firebase inside, so it can be
 // tested on its own. Used by Upload eZee report and Month-end payout.
+import { feeType, round05, DEFAULT_ARRANGEMENTS, arrangementsOf, DEFAULT_NET_RENTAL_PCT } from './fee-types.js';
 //
 // Booking PTO (payment to owner) by method, following Finance's methods:
 //   Net OTA     guestPaid = (room + SST) / (1 - commission)
@@ -16,16 +17,12 @@
 
 export const r3 = x => Math.round((x + Math.sign(x) * 1e-9) * 1000) / 1000;   // calculations keep 3 decimals; screens and files show 2
 export const r2 = x => Math.round((x + Math.sign(x) * 1e-9) * 100) / 100;
-export const round05 = x => Math.sign(x) * Math.round(Math.abs(x) / 0.05 + 1e-9) * 0.05;
+export { round05 };
 const num = v => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isFinite(n) ? n : 0; };
 
-// ---------- Arrangements (BRD §9A.8) ----------
-export const ARRANGEMENTS = {
-  profitShare40: { label: 'Profit share 40%', serviceFeePct: 0.20, utilityFeePct: 0.20, sstOnFeePct: 0 },
-  profitShare20: { label: 'Profit share 20%', serviceFeePct: 0.20, utilityFeePct: 0, sstOnFeePct: 0 },
-  longTermTenant: { label: 'Long-term tenant', serviceFeePct: 0.10, utilityFeePct: 0, sstOnFeePct: 0.08 },
-  fixedRent: { label: 'Fixed rent', serviceFeePct: 0, utilityFeePct: 0, sstOnFeePct: 0 }
-};
+// ---------- Arrangements ----------
+// Fee types and their maths live in fee-types.js (FEE_TYPES); the arrangements are saved per property on its rate
+// versions (arrangementsOf). The old hard-coded ARRANGEMENTS list is fee-types.js DEFAULT_ARRANGEMENTS now.
 
 // Property default OTA settings (ARR-10, ARR-10a). Units can override any of them.
 export const DEFAULT_OTA = {
@@ -164,18 +161,22 @@ export function readEzee(rows) {
 }
 
 // ---------- Rates ----------
-// Lookup order (PTO-02): unit terms override the arrangement's defaults; OTA settings come from
-// the property's rate version, then the unit's own OTA overrides.
+// Lookup order (PTO-02): the unit's own rate (terms) overrides its arrangement's numbers; the arrangement comes from
+// the property's rate version in force (arrangementsOf: the built-in four when the version has no list yet).
+// OTA settings come from the property's rate version, then the unit's own OTA overrides.
 export function effectiveRates(propertyRates, terms) {
   const arrangement = terms?.arrangement || null;
-  const base = ARRANGEMENTS[arrangement] || ARRANGEMENTS.profitShare20;
-  const pick = k => (terms && terms[k] != null ? terms[k] : base[k]);
+  const a = arrangement ? arrangementsOf(propertyRates)[arrangement] || null : null;
+  const base = a || DEFAULT_ARRANGEMENTS.profitShare20;   // not set up: worked out like the old default, shown as Not set up
+  const pick = (k, ak) => (terms && terms[k] != null ? terms[k] : num(base[ak]));
+  const type = a ? feeType(a.type).id : 'revenue';
   const ota = {};
   for (const [k, v] of Object.entries(DEFAULT_OTA)) ota[k] = { ...v, ...(propertyRates?.ota?.[k] || {}), ...(terms?.otaOverrides?.[k] || {}) };
   return {
-    arrangement, setUp: !!ARRANGEMENTS[arrangement],
-    serviceFeePct: pick('serviceFeePct'), utilityFeePct: pick('utilityFeePct'), sstOnFeePct: pick('sstOnFeePct'),
-    fixedRentAmount: arrangement === 'fixedRent' ? num(terms.fixedRentAmount) : null,
+    arrangement, setUp: !!a, type, label: a ? a.name : 'Not set up',
+    serviceFeePct: pick('serviceFeePct', 'servicePct'), utilityFeePct: pick('utilityFeePct', 'utilityPct'), sstOnFeePct: pick('sstOnFeePct', 'sstPct'),
+    netRentalPct: a?.netRentalPct ?? DEFAULT_NET_RENTAL_PCT,
+    fixedRentAmount: type === 'fixed' ? num(terms.fixedRentAmount) : null,
     earlyCheckInToOwner: propertyRates?.earlyCheckInToOwner !== false,
     versionId: terms?.effectiveFrom || null,
     ota
@@ -188,7 +189,7 @@ export function bookingPTO(b, rates) {
   const AU = num(v.allRoomCharges), AX = num(v.sst), AG = num(v.cleaningFee), AK = num(v.earlyCheckIn);
   const T = AU + AX + AG;                               // what the guest's booking total holds for the room
   const otaKey = v.otaKey || otaKeyOf(v.source);
-  const longTerm = otaKey === 'direct' && (num(v.nights) >= 30 || /monthly|yearly/i.test(v.rateType || '') || rates.arrangement === 'longTermTenant');
+  const longTerm = otaKey === 'direct' && (num(v.nights) >= 30 || /monthly|yearly/i.test(v.rateType || '') || !!feeType(rates.type).tenant);
   let cleaningIn = false, method, guestPaid = 0, platform = 0, pto, estimated = false, note = '';
   const o = rates.ota[otaKey];
   let final = false;
@@ -237,33 +238,43 @@ export function bookingPTO(b, rates) {
 
 // ---------- One unit, one month ----------
 // expenses: [{ kind: 'expense'|'reimburse'|'broughtForward', amount (positive), description, type, date, id }]
-export function unitStatement({ unit, rates, bookings, expenses }) {
+// pool: Pool Sharing only, this unit's entry from poolShares() (null otherwise).
+// The fees come from the unit's fee type (fee-types.js); this function has no type-specific steps.
+export function unitStatement({ unit, rates, bookings, expenses, pool = null }) {
   const lines = bookings.filter(b => b.status !== 'cancelled')
     .map(b => ({ booking: b, ...bookingPTO(b, rates) }))
     .sort((a, b) => (a.booking.departure || '').localeCompare(b.booking.departure || '') || (a.booking.arrival || '').localeCompare(b.booking.arrival || ''));
   const exp = (expenses || []).filter(e => !e.deleted).map(e => ({ ...e, signed: e.kind === 'reimburse' ? Math.abs(num(e.amount)) : -Math.abs(num(e.amount)) }));
   const nights = lines.reduce((s, l) => s + num(l.booking.nights), 0);
   const estimated = lines.filter(l => l.estimated).length;
-  const base = { unit, rates, lines, expenses: exp, nights, estimated, setUp: rates.setUp };
+  const gross = lines.reduce((s, l) => s + l.pto, 0);   // Gross Rental: the month total after OTA commission
+  const r = feeType(rates.type).calc({ gross, expenses: exp, rates, lines, pool });
+  const { expenses: used, status: forced, ...totals } = r;
+  const status = forced || (!rates.setUp ? 'notSetUp' : estimated ? 'estimated' : totals.payout < 0 ? 'negative' : 'draft');
+  return { unit, rates, lines, expenses: used || exp, nights, estimated, setUp: rates.setUp, ...totals, status };
+}
 
-  if (rates.arrangement === 'fixedRent') {
-    const deduction = exp.filter(e => e.signed < 0).reduce((s, e) => s - e.signed, 0);
-    const reimburse = exp.filter(e => e.signed > 0).reduce((s, e) => s + e.signed, 0);
-    const payout = rates.fixedRentAmount - deduction + reimburse;
-    return { ...base, fixed: true, totalReceivable: rates.fixedRentAmount, deduction, reimburse, payout, charges: rates.fixedRentAmount - payout,
-      bookingIncome: lines.reduce((s, l) => s + l.pto, 0), status: payout < 0 ? 'negative' : 'fixed' };
+// Pool Sharing (fee types with scope 'property'): one pot per property for the month. Run once per property before
+// its unit statements; each pool unit then reads its entry.
+//   pot          = Gross Rental of every pool unit in the property (units with 0 bookings count, with 0)
+//   Net Rental # = pot x the arrangement's netRentalPct (56.25% unless changed)
+//   unit share   = unit purchase price / all pool units' purchase prices x Net Rental #
+// units: [{ id, terms, purchasePrice }]; bookingsByUnit: Map unitId -> that unit's bookings for the month.
+// Returns Map unitId -> { pot, netRentalPct, netRental, price, totalPrice, unitPct, share, ownGross, missingPrice }.
+export function poolShares({ propertyRates, units, bookingsByUnit }) {
+  const members = units.map(u => ({ u, rates: effectiveRates(propertyRates, u.terms) })).filter(x => x.rates.setUp && feeType(x.rates.type).scope === 'property');
+  const out = new Map();
+  if (!members.length) return out;
+  for (const m of members) m.gross = (bookingsByUnit.get(m.u.id) || []).filter(b => b.status !== 'cancelled').reduce((s, b) => s + bookingPTO(b, m.rates).pto, 0);
+  const pot = members.reduce((s, m) => s + m.gross, 0);
+  const totalPrice = members.reduce((s, m) => s + Math.max(0, num(m.u.purchasePrice)), 0);
+  for (const m of members) {
+    const price = Math.max(0, num(m.u.purchasePrice)), unitPct = totalPrice > 0 ? price / totalPrice : 0;
+    const netRentalPct = num(m.rates.netRentalPct), netRental = pot * netRentalPct;
+    out.set(m.u.id, { pot, netRentalPct, netRental, price, totalPrice, unitPct, share: netRental * unitPct, ownGross: m.gross,
+      missingPrice: !(price > 0), units: members.length });
   }
-  const totalReceivable = lines.reduce((s, l) => s + l.pto, 0);
-  const serviceFee = totalReceivable * rates.serviceFeePct;
-  const utilityFee = totalReceivable * rates.utilityFeePct;
-  const sstOnFee = serviceFee * rates.sstOnFeePct;
-  const entitlement = totalReceivable - serviceFee - utilityFee - sstOnFee;
-  const totalExpenses = exp.reduce((s, e) => s + e.signed, 0);
-  const netReceivable = entitlement + totalExpenses;
-  const payout = round05(netReceivable);
-  const status = !rates.setUp ? 'notSetUp' : estimated ? 'estimated' : payout < 0 ? 'negative' : 'draft';
-  return { ...base, fixed: false, totalReceivable, serviceFee, utilityFee, sstOnFee, entitlement, totalExpenses, netReceivable,
-    roundingAdjust: payout - netReceivable, payout, charges: totalReceivable - payout, status };
+  return out;
 }
 
 // Payment To Owner summary (ARR-07): negatives are carried forward, not paid.

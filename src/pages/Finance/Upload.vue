@@ -6,7 +6,7 @@
         <div class="sub">Bring in the month's bookings from eZee, or a past month's completed Accounting statement as reference</div>
       </div>
       <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="reset()" :disabled="working" />
+        <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: '__auto', label: 'Multi-Property' }]" :after="properties.length ? [] : [{ value: '__new', label: 'New property (from the file)' }]" @change="reset()" :disabled="working" />
         <MonthPicker :ahead="1" v-model="month" @change="reset()" :disabled="working" />
       </div>
     </div>
@@ -57,6 +57,10 @@
                     <td>
                       <OptionPicker v-model="g.target" :options="targetOptions(g)" :label="`Property for ${g.building}`" :disabled="working || !!checks.length" />
                       <input class="input" style="height:34px;margin-top:6px;max-width:260px" v-show="g.target === '__new'" v-model="g.newName" :disabled="!!checks.length" placeholder="New property name" :aria-label="`Name for ${g.building}`">
+                      <!-- State (12 Nov 2026): a new property needs one; a code used in two states asks which property -->
+                      <select class="input st-in" v-show="g.target === '__new'" v-model="g.newState" :disabled="!!checks.length" :aria-label="`State for ${g.building}`">
+                        <option value="">Choose the state</option><option v-for="s in myStateChoices" :key="s" :value="s">{{ s }}</option></select>
+                      <div class="help ask" v-if="g.ask && !g.target">{{ `${g.ask.length} properties match ${g.code}. Pick the right one (its state is shown); the answer is remembered for the next upload.` }}</div>
                     </td>
                     <td v-show="checks.length"><span v-if="checks[gi]" class="r wrap">{{ checks[gi].note }}</span></td>
                   </tr>
@@ -88,7 +92,7 @@
             </Paged>
           </div>
           <div class="actions" style="margin-top:16px">
-            <button class="btn btn-primary" v-show="!checks.length" @click="checkAuto()" :disabled="working || auto.groups.some(g => g.target === '__new' && !g.newName.trim())">Check</button>
+            <button class="btn btn-primary" v-show="!checks.length" @click="checkAuto()" :disabled="working || auto.groups.some(g => !g.target || (g.target === '__new' && (!g.newName.trim() || !g.newState)))">Check</button>
             <button class="btn btn-primary" v-show="checks.length" @click="saveAll()" :disabled="working || !checks.some(c => c.check && c.check.records.length)">{{ `Save ${checks.filter(c => c.check && c.check.records.length).length} properties to the PMS` }}</button>
             <button class="btn" v-show="checks.length" @click="checks = []" :disabled="working">Change where they go</button>
             <button class="btn" @click="reset()">Cancel</button>
@@ -109,7 +113,7 @@
           <div class="rows">
             <template v-if="check.property.isNew">
               <div class="row"><span>{{ `New property: rooms starting with ${check.property.code}` }}</span>
-                <span class="name-cell"><input class="input" style="height:34px;width:220px" v-model="check.property.name" placeholder="Property name, e.g. D'Majestic"></span></div>
+                <span class="name-cell"><input class="input" style="height:34px;width:220px" v-model="check.property.name" placeholder="Property name, e.g. D'Majestic"><select class="input st-in" v-model="check.property.state" aria-label="State of the new property"><option value="">State</option><option v-for="s in myStateChoices" :key="s" :value="s">{{ s }}</option></select></span></div>
             </template>
             <div class="row" v-show="check.newUnits.length"><span>New units (added as "not set up")</span><span class="r wrap">{{ check.newUnits.join(', ') }}</span></div>
             <div class="row" v-show="check.lockedUnits.length"><span>Completed units (left out)</span><span class="r wrap">{{ check.lockedUnits.join(', ') }}</span></div>
@@ -137,7 +141,7 @@
             </Paged>
           </div>
           <div class="actions" style="margin-top:16px">
-            <button class="btn btn-primary" @click="save()" :disabled="working || !check.records.length || (check.property.isNew && !check.property.name.trim())">Save to the PMS</button>
+            <button class="btn btn-primary" @click="save()" :disabled="working || !check.records.length || (check.property.isNew && (!check.property.name.trim() || !check.property.state))">Save to the PMS</button>
             <button class="btn" @click="reset()">Cancel</button>
           </div>
         </div>
@@ -158,7 +162,7 @@
           <div class="rows">
             <template v-if="check.property.isNew">
               <div class="row"><span>{{ `New property: units starting with ${check.property.code}` }}</span>
-                <span class="name-cell"><input class="input" style="height:34px;width:220px" v-model="check.property.name" placeholder="Property name, e.g. D'Majestic"></span></div>
+                <span class="name-cell"><input class="input" style="height:34px;width:220px" v-model="check.property.name" placeholder="Property name, e.g. D'Majestic"><select class="input st-in" v-model="check.property.state" aria-label="State of the new property"><option value="">State</option><option v-for="s in myStateChoices" :key="s" :value="s">{{ s }}</option></select></span></div>
             </template>
             <div class="row" v-show="check.negatives.length"><span>Brought forward into <span>{{ shortName(check.next) }}</span></span>
               <span class="r wrap">{{ check.negatives.map(u => `${u.unitCode} RM ${amt(-u.payout)}`).join(', ') }}</span></div>
@@ -176,7 +180,7 @@
             <template v-for="w in check.warnings" :key="w"><div class="row"><span class="neg-amt">Check</span><span class="r wrap">{{ w }}</span></div></template>
           </div>
           <div class="actions" style="margin-top:16px">
-            <button class="btn btn-primary" @click="saveStatement()" :disabled="working || (check.property.isNew && !check.property.name.trim())">Save as reference</button>
+            <button class="btn btn-primary" @click="saveStatement()" :disabled="working || (check.property.isNew && (!check.property.name.trim() || !check.property.state))">Save as reference</button>
             <button class="btn" @click="reset()">Cancel</button>
           </div>
         </div>
@@ -238,7 +242,8 @@ import { collection, doc, getDocs, query, where, writeBatch, serverTimestamp }
   from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { clearCache } from '@/lib/cache.js';
-import { parseCSV, readEzee, bookingPTO, effectiveRates, DEFAULT_OTA, DM_STARTER, ARRANGEMENTS, unitIdOf, byUnit, r2, nextMonth } from '@/lib/engine.js';
+import { parseCSV, readEzee, bookingPTO, effectiveRates, DEFAULT_OTA, DM_STARTER, unitIdOf, byUnit, r2, nextMonth } from '@/lib/engine.js';
+import { legacyRate, arrangementName } from '@/lib/fee-types.js';
 import { parseFinanceStatement, sheetText, rowHash } from '@/lib/finance-import.js';
 import { markDirty, markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
@@ -246,10 +251,11 @@ import { loadProperties, loadUnits, loadSetup, latestVersion, monthDoc, complete
 import { monthName, monthOffset, stamp, dayOffset, amt, dmy } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
+import { scoped, getScoped, myProperties, giveMeProperties } from '@/lib/property-scope.js';
+import { stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, ezeeCandidates, rememberStates, stateTag, withState } from '@/lib/states.js';
 
 const me = useSession();
 
-const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
 const pause = ms => new Promise(r => setTimeout(r, ms));
 const CHUNK = 120;   // bookings per batch: 2 writes each, plus up to 2 summary marks each, under Firestore's 500 limit
 let params = new URLSearchParams(location.search);
@@ -268,9 +274,10 @@ async function readFile(file) {
 }
 
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 export default {
-  components: { OptionPicker, MonthPicker },
+  components: { PropertyPicker, OptionPicker, MonthPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -278,7 +285,7 @@ export default {
       properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       dragging: false, working: false, saving: false, error: '', suggestMonth: '',
-      stage: 0, percent: 0, stages: [], fileName: '', fileSize: '', fileKind: '', lastFile: null,
+      stage: 0, percent: 0, stages: [], fileName: '', fileSize: '', fileKind: '', lastFile: null, pickedAccount: '',
       check: null, auto: null, checks: [], switched: [], done: '', newUnitsSaved: false, history: []
     };
   },
@@ -293,10 +300,23 @@ export default {
   },
   computed: {
     previewRows() { return this.previewRowsFn(); },
+    // States a new property can get (every state for a Director, else mine); one of mine is picked for you
+    myStateChoices() { return stateChoices(me); },
+    defaultState() { return this.myStateChoices.length === 1 ? this.myStateChoices[0] : ''; },
     propertyOptions() { return [{ value: '__auto', label: 'Multi-Property' }, ...this.properties.map(p => ({ value: p.id, label: p.name })), ...(this.properties.length ? [] : [{ value: '__new', label: 'New property (from the file)' }])]; }
   },
   methods: {
     property() { return this.properties.find(p => p.id === this.propertyId) || null; },
+    // The building name the file uses most for a room code (e.g. "Novo" for N), for matching by eZee name
+    buildingOf(records, code) {
+      const n = {}; records.forEach(r => { if (r.propertyCode === code && r.building) n[r.building] = (n[r.building] || 0) + 1; });
+      return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || '';
+    },
+    // The one property a code in the file belongs to, or null (none, or several: then the building table asks)
+    onlyMatch(records, code) {
+      const hits = ezeeCandidates(this.properties, { code, building: this.buildingOf(records, code), account: this.pickedAccount });
+      return hits.length === 1 ? hits[0] : null;
+    },
     async loadHistory() {
       if (this.propertyId === '__new' || this.propertyId === '__auto') { this.history = []; return; }
       const snap = await getDocs(query(collection(db, 'importBatches'), where('propertyIds', 'array-contains', this.propertyId)));
@@ -317,6 +337,8 @@ export default {
       this.reset();
       if (!/\.(csv|xlsx)$/i.test(file.name)) { this.error = 'Choose the eZee report or Accounting statement as .csv or .xlsx.'; return; }
       this.lastFile = file;
+      // The eZee account of the property picked at the top: when a code matches several properties, that account wins
+      this.pickedAccount = this.property()?.info?.ezeeAccount || '';
       this.fileName = file.name; this.fileKind = /\.xlsx$/i.test(file.name) ? 'XLSX' : 'CSV';
       this.fileSize = file.size > 1048576 ? `${(file.size / 1048576).toFixed(1)} MB` : `${Math.ceil(file.size / 1024)} KB`;
       this.stages = this.freshStages(); this.working = true;
@@ -333,7 +355,7 @@ export default {
           // Multi-Property picked but the file has one building we know: go straight to that property
           const fileCodes = [...new Set(parsed.records.map(r => r.propertyCode).filter(Boolean))];
           const nk = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-          const hit = fileCodes.length === 1 ? this.properties.find(p => nk(p.code) === nk(fileCodes[0])) : null;
+          const hit = fileCodes.length === 1 ? this.onlyMatch(parsed.records, fileCodes[0]) : null;
           if (hit) { changes.push({ what: 'Property', from: 'Multi-Properties', to: hit.name }); this.propertyId = hit.id; }
           else { await this.startAuto(parsed, changes); this.working = false; return; }
         }
@@ -346,7 +368,7 @@ export default {
           // Not this property's file: switch to sorting by building instead of refusing
           if (!Object.keys(codes).length) throw new Error(`This file has no ${prop.name} rooms (rooms starting with ${prop.code}) and no recognisable rooms. Pick the right property.`);
           // One building in the file that we already know: go straight to that property
-          const only = Object.keys(codes).length === 1 ? this.properties.find(p => String(p.code).toUpperCase() === Object.keys(codes)[0].toUpperCase()) : null;
+          const only = Object.keys(codes).length === 1 ? this.onlyMatch(parsed.records, Object.keys(codes)[0]) : null;
           if (only) {
             changes.push({ what: 'Property', from: prop.name, to: only.name });
             this.propertyId = only.id; prop = only; code = only.code;
@@ -393,9 +415,10 @@ export default {
 
     async buildCheck(recs, code, byMonth, over) {
       const prop = over ? over.prop : this.property();
+      // A new property's id never takes another state's (lib/states.js newPropertyId)
       const property = prop ? { code, id: prop.id, name: prop.name, isNew: false }
-        : over ? { code, id: slug(over.newName), name: over.newName.trim(), isNew: true }
-        : { code, id: slug(code === 'DM' ? "D'Majestic" : code), name: code === 'DM' ? "D'Majestic" : '', isNew: true };
+        : over ? { code, id: over.newId || await newPropertyId(over.newName, over.state), name: over.newName.trim(), state: over.state || '', isNew: true }
+        : { code, id: await newPropertyId(code === 'DM' ? "D'Majestic" : code, this.defaultState), name: code === 'DM' ? "D'Majestic" : '', state: this.defaultState, isNew: true };
       const units = prop ? await loadUnits(prop.id) : [];
       const nk = t => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       const unitFor = unitCode => {
@@ -464,8 +487,11 @@ export default {
       // Only the new ones are looked up, 30 at a time (a missing one costs nothing; at least one read per lookup).
       const moved = {};
       const fresh = [...new Set(rows.filter(x => x.isNew).map(x => x.r.reservationNo))];
-      for (let i = 0; i < fresh.length; i += 30) {
-        const snap = await getDocs(query(collection(db, 'bookings'), where('reservationNo', 'in', fresh.slice(i, i + 30))));
+      // Staff look only in their own properties (lib/property-scope.js). Firestore allows 30 combinations per query,
+      // so they check 10 numbers x 3 properties at a time; a Director checks 30 numbers across every property.
+      const step = myProperties() ? 10 : 30;
+      for (let i = 0; i < fresh.length; i += step) {
+        const snap = await getScoped(scoped(query(collection(db, 'bookings'), where('reservationNo', 'in', fresh.slice(i, i + step))), 'propertyId', { per: 3 }));
         snap.docs.forEach(d => { const o = d.data(); if (o.departureMonth && (o.departureMonth !== month || o.propertyId !== pid)) moved[d.id] = o; });
       }
       for (const x of rows) if (x.r.status === 'active') tally[x.isNew ? 'created' : x.same ? 'unchanged' : 'changed']++;
@@ -480,7 +506,7 @@ export default {
           if (check.held?.[r.docId] === 'moved') { delete data.unitId; delete data.unitCode; }
           data.importBatchId = batchRef.id; data.lastImportedAt = serverTimestamp(); data.rawHash = hash;
           if (isNew) data.firstImportedAt = serverTimestamp();
-          b.set(doc(db, 'bookings', r.docId), data, { merge: true });
+          b.set(doc(db, 'bookings', r.docId), { ...data, ...stateTag(data.propertyId) }, { merge: true });   // carries its property's state
           b.set(doc(db, 'bookings', r.docId, 'private', 'main'), priv, { merge: true });
           // The same reservation saved earlier as ONE document (before rows were kept apart): retire it so it is not counted twice
           if (r.docId !== r.reservationNo && check.savedUnit && r.reservationNo in check.savedUnit && !retired.has(r.reservationNo)) {
@@ -512,8 +538,9 @@ export default {
       const unitPrefix = (st.units[0]?.unitCode || '').split(' ')[0];
       const isIt = p => [p.code, p.name, p.ezeeName].some(v => nk(v) && nk(v) === nk(st.propertyCode)) || (unitPrefix && nk(p.code) === nk(unitPrefix));
       if (prop && st.propertyCode && !isIt(prop)) {
-        const other = this.properties.find(isIt);
+        const others = this.properties.filter(isIt), other = others[0];
         if (!other) throw new Error(`This statement is for property ${st.propertyCode}, not ${prop.name}. Pick the right property.`);
+        if (others.length > 1) throw new Error(`More than one property matches ${st.propertyCode}: ${others.map(p => `${p.name} (${stateOf(p) || 'no state'})`).join(', ')}. Pick the right one at the top and upload again.`);
         this.propertyId = other.id; prop = other;
       }
       if (this.month !== st.month) { if (!this.months.includes(st.month)) this.months.push(st.month); this.month = st.month; }
@@ -524,7 +551,7 @@ export default {
       this.stage = 3;
       const code = prop?.code || st.propertyCode || 'DM';
       const property = prop ? { code: prop.code, id: prop.id, name: prop.name, isNew: false }
-        : { code, id: slug(code === 'DM' ? "D'Majestic" : code), name: code === 'DM' ? "D'Majestic" : '', isNew: true };
+        : { code, id: await newPropertyId(code === 'DM' ? "D'Majestic" : code, this.defaultState), name: code === 'DM' ? "D'Majestic" : '', state: this.defaultState, isNew: true };
       const units = prop ? await loadUnits(prop.id) : [];
       const bare = c => c.replace(/^[A-Z]{2,4} (?=[A-Z]\d)/, '');   // "WM B1906" is "B1906" in the Portfolio
       const unitFor = c => units.find(u => u.unitCode === c || (u.aliases || []).includes(c) || u.unitCode === bare(c))?.unitCode || c;
@@ -562,11 +589,11 @@ export default {
       for (const sm of st.summaries) {
         const code2 = unitFor(sm.unitCode);
         if (!sm.terms || fromFile.has(code2)) continue;
-        const d = ARRANGEMENTS[sm.terms.arrangement], own = k => (Math.abs(sm.terms[k] - d[k]) < 1e-9 ? null : sm.terms[k]);
+        const own = k => (Math.abs(sm.terms[k] - (legacyRate(sm.terms.arrangement, k) ?? 0)) < 1e-9 ? null : sm.terms[k]);
         fromFile.set(code2, { arrangement: sm.terms.arrangement, fixedRentAmount: null, serviceFeePct: own('serviceFeePct'), utilityFeePct: own('utilityFeePct'), sstOnFeePct: own('sstOnFeePct') });
       }
       const setupNow = prop ? await loadSetup(prop.id, st.month) : { units: [] };
-      const val = (t, k) => (t[k] ?? ARRANGEMENTS[t.arrangement]?.[k] ?? 0);
+      const val = (t, k) => (t[k] ?? legacyRate(t.arrangement, k) ?? 0);
       const same = (a, b) => a && b && a.arrangement === b.arrangement && Math.abs((a.fixedRentAmount || 0) - (b.fixedRentAmount || 0)) < 0.005 &&
         ['serviceFeePct', 'utilityFeePct', 'sstOnFeePct'].every(k => Math.abs(val(a, k) - val(b, k)) < 1e-9);
       const termChanges = [];
@@ -576,8 +603,8 @@ export default {
         const latest = cur ? latestVersion(cur.termHistory || [], st.month) : null;
         if (same(latest, t)) continue;
         termChanges.push({ unitCode, unitId: unitIdOf(property.id, unitCode), terms: t, isNew: !latest,
-          label: `${unitCode}: ${ARRANGEMENTS[t.arrangement].label}${t.fixedRentAmount ? ` RM ${amt(t.fixedRentAmount)}` : ''}` +
-            (latest ? ` (was ${ARRANGEMENTS[latest.arrangement]?.label || latest.arrangement}${latest.fixedRentAmount ? ` RM ${amt(latest.fixedRentAmount)}` : ''})` : '') });
+          label: `${unitCode}: ${arrangementName(t.arrangement)}${t.fixedRentAmount ? ` RM ${amt(t.fixedRentAmount)}` : ''}` +
+            (latest ? ` (was ${arrangementName(latest.arrangement)}${latest.fixedRentAmount ? ` RM ${amt(latest.fixedRentAmount)}` : ''})` : '') });
       }
       termChanges.sort((a, b) => byUnit(a.unitCode, b.unitCode));
       // Daily rental bookings: the eZee report Finance pasted into the file, with Finance's own amount per booking from the unit sheets
@@ -616,12 +643,16 @@ export default {
     },
     async saveStatement() {
       const c = this.check, p = c.property;
+      if (p.isNew && (this.error = this.newPropertyClash(p))) return;
       this.working = true; this.saving = true; this.error = ''; this.percent = 0;
       try {
+        // Every record saved below carries the property's state (a new property's comes from the page)
+        if (p.isNew) rememberStates([{ id: p.id, state: p.state }]);
+        const tag = await withState(p.id, {});
         const batchRef = doc(collection(db, 'importBatches'));
         let b = writeBatch(db);
         if (p.isNew) {
-          b.set(doc(db, 'properties', p.id), { name: p.name.trim(), code: p.code, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+          b.set(doc(db, 'properties', p.id), { ...propertyFields({ name: p.name.trim(), code: p.code, state: p.state }), active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
           b.set(doc(db, 'properties', p.id, 'rateVersions', '2000-01_default'), {
             effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
             reason: 'Default OTA settings, created on first upload', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp()
@@ -629,7 +660,7 @@ export default {
           audit(b, me, { action: 'property.create', entity: `properties/${p.id}`, propertyId: p.id, reason: 'New property found in Accounting statement' });
         }
         for (const code of c.newUnits) {
-          b.set(doc(db, 'units', unitIdOf(p.id, code)), { propertyId: p.id, unitCode: code, ezeeRoomMatch: code,
+          b.set(doc(db, 'units', unitIdOf(p.id, code)), { propertyId: p.id, ...tag, unitCode: code, ezeeRoomMatch: code,
             aliases: p.code === 'DM' ? (DM_STARTER.aliases[code] || []) : [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
           markFrom(b, p.id, ALL_MONTHS, unitIdOf(p.id, code));   // a new unit counts in every month's summary
         }
@@ -645,18 +676,19 @@ export default {
         // ARR-18: negative balances in the file carry into the next month as Brought Forward lines
         for (const u of c.negatives) {
           const unitId = unitIdOf(p.id, u.unitCode);
-          b.set(doc(db, 'expenses', `bf_${unitId}_${c.next}`), { propertyId: p.id, unitId, date: `${c.next}-01`, month: c.next,
+          b.set(doc(db, 'expenses', `bf_${unitId}_${c.next}`), { propertyId: p.id, ...tag, unitId, date: `${c.next}-01`, month: c.next,
             kind: 'broughtForward', type: 'broughtForward', description: `Brought forward from ${monthName(c.month)} (Accounting statement)`, amount: r2(-u.payout),
             auto: true, sourceStatementId: null, sourceMonth: c.month, sourceImportId: batchRef.id, files: [], deleted: false,
             createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
         }
         if (c.negatives.length) markDirty(b, p.id, c.next, c.negatives.map(u => unitIdOf(p.id, u.unitCode)));
         await b.commit(); clearCache();
+        if (p.isNew) await giveMeProperties([p.id]);   // whoever uploads a new property can see it (lib/property-scope.js)
         this.percent = 10;
         for (let i = 0; i < c.docs.length; i += 400) {
           b = writeBatch(db);
           for (const { id, ...d } of c.docs.slice(i, i + 400))
-            b.set(doc(db, 'payoutHistory', id), { ...d, fileName: this.fileName, importBatchId: batchRef.id,
+            b.set(doc(db, 'payoutHistory', id), { ...d, ...tag, fileName: this.fileName, importBatchId: batchRef.id,
               importedBy: me.user.uid, importedByName: me.name, importedAt: serverTimestamp() });
           await b.commit(); clearCache();
           this.percent = Math.round(10 + 45 * Math.min(1, (i + 400) / c.docs.length));
@@ -665,7 +697,7 @@ export default {
         b = writeBatch(db);
         const counts = { units: c.units.length, bookings: c.bookings?.active || 0, financeAmounts: c.bookings?.matched || 0, historyRows: c.docs.length, historyMonths: c.historyCount, negatives: c.negatives.length, balToPay: c.balToPay,
           ...(tally ? { created: tally.created, changed: tally.changed, unchanged: tally.unchanged } : {}) };
-        b.set(batchRef, { kind: 'financeStatement', fileName: this.fileName, filePath: null, months: [c.month], propertyIds: [p.id], counts, result: 'ok',
+        b.set(batchRef, { kind: 'financeStatement', fileName: this.fileName, filePath: null, months: [c.month], propertyIds: [p.id], states: tag.state ? [tag.state] : [], counts, result: 'ok',
           uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
         audit(b, me, { action: 'financeStatement.import', entity: `importBatches/${batchRef.id}`, propertyId: p.id, month: c.month,
           changes: [{ field: 'payoutHistory', old: null, new: c.docs.length }], reason: this.fileName });
@@ -686,8 +718,11 @@ export default {
       this.saving = false; this.working = false;
     },
 
+    // A new property's name or code already used in the same state (or by a property with no state yet)
+    newPropertyClash(p) { return clashIn(this.properties, { name: p.name.trim(), code: p.code, state: p.state }); },
     async save() {
       const c = this.check, p = c.property;
+      if (p.isNew && (this.error = this.newPropertyClash(p))) return;
       this.working = true; this.saving = true; this.error = ''; this.percent = 0;
       try {
         const r = await this.saveOne(c, 0, 100);
@@ -703,22 +738,32 @@ export default {
     // One property's part of the file: new property + units, bookings, the import record. lo..hi is its share of the progress bar.
     async saveOne(c, lo, hi) {
       const p = c.property, at = f => Math.round(lo + (hi - lo) * f);
+      // Every record saved below carries the property's state (a new property's comes from the page)
+      if (p.isNew) rememberStates([{ id: p.id, state: p.state }]);
+      const tag = await withState(p.id, {});
       const batchRef = doc(collection(db, 'importBatches'));
       let b = writeBatch(db);
       if (p.isNew) {
-        b.set(doc(db, 'properties', p.id), { name: p.name.trim(), code: p.code, ...(c.ezeeName ? { ezeeName: c.ezeeName } : {}), active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+        b.set(doc(db, 'properties', p.id), { ...propertyFields({ name: p.name.trim(), code: p.code, state: p.state, info: c.ezeeName ? { ezeeName: c.ezeeName } : {} }),
+          ...(c.ezeeName ? { ezeeName: c.ezeeName } : {}), active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
         b.set(doc(db, 'properties', p.id, 'rateVersions', '2000-01_default'), {
           effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
           reason: 'Default OTA settings, created on first eZee upload', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp()
         });
         audit(b, me, { action: 'property.create', entity: `properties/${p.id}`, propertyId: p.id, reason: 'New property found in eZee upload' });
+      } else if (c.rememberEzee) {
+        // A building whose code matched several properties: remember the answer as this property's eZee name
+        b.set(doc(db, 'properties', p.id), { ezeeName: c.rememberEzee, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        audit(b, me, { action: 'property.update', entity: `properties/${p.id}`, propertyId: p.id, changes: [{ field: 'ezeeName', old: null, new: c.rememberEzee }],
+          reason: 'Picked on the eZee upload (code used by more than one property)' });
       }
       for (const r of c.newUnitRecs) {
-        b.set(doc(db, 'units', r.unitId), { propertyId: p.id, unitCode: r.unitCode, ezeeRoomMatch: r.unitCode,
+        b.set(doc(db, 'units', r.unitId), { propertyId: p.id, ...tag, unitCode: r.unitCode, ezeeRoomMatch: r.unitCode,
           aliases: p.code === 'DM' ? (DM_STARTER.aliases[r.unitCode] || []) : [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
         markFrom(b, p.id, ALL_MONTHS, r.unitId);   // a new unit counts in every month's summary
       }
       await b.commit(); clearCache();
+      if (p.isNew) await giveMeProperties([p.id]);   // whoever uploads a new property can see it (lib/property-scope.js)
       this.percent = at(0.05);
       const list = c.records;
       const tally = await this.saveBookings(list, batchRef, at(0.05), at(0.95), c);
@@ -726,7 +771,7 @@ export default {
       const counts = { rows: list.length, bookings: c.active, cancelled: c.cancelled, noUnit: c.noUnit.length, ctripNeedingAmount: c.ctrip,
         created: c.newCount, updated: c.active - c.newCount, otherMonthsLeftOut: c.otherMonths.reduce((s, m) => s + m.count, 0),
         changed: tally.changed, unchanged: tally.unchanged, bookingWrites: tally.writes };
-      b.set(batchRef, { kind: 'ezee', fileName: this.fileName, filePath: null, months: [this.month], propertyIds: [p.id], counts, result: 'ok',
+      b.set(batchRef, { kind: 'ezee', fileName: this.fileName, filePath: null, months: [this.month], propertyIds: [p.id], states: tag.state ? [tag.state] : [], counts, result: 'ok',
         uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
       audit(b, me, { action: 'ezee.upload', entity: `importBatches/${batchRef.id}`, propertyId: p.id, month: this.month,
         changes: [{ field: 'bookings', old: null, new: c.active }], reason: this.fileName });
@@ -768,8 +813,10 @@ export default {
       const titleCase = n => (n === n.toUpperCase() && n.length > 4 ? n.charAt(0) + n.slice(1).toLowerCase() : n);
       const list = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code)).map(g => {
         const building = titleCase(Object.keys(g.names).sort((a, b) => g.names[b] - g.names[a])[0]);
-        const hit = this.properties.find(p => nk(p.ezeeName) === nk(building) || nk(p.name) === nk(building) || nk(p.code) === nk(g.code));
-        return { code: g.code, building, bookings: g.bookings, units: g.units.size, recs: g.recs, target: hit ? hit.id : '__new', newName: building };
+        // eZee name, then code or name, among the properties I can see (my states); several = ask, with the state shown
+        const hits = ezeeCandidates(this.properties, { code: g.code, building, account: this.pickedAccount });
+        return { code: g.code, building, bookings: g.bookings, units: g.units.size, recs: g.recs, newName: building, newState: this.defaultState,
+          target: hits.length === 1 ? hits[0].id : hits.length ? '' : '__new', ask: hits.length > 1 ? hits.map(p => p.id) : null };
       });
       if (!list.length) throw new Error('No rooms in this file could be matched to a building. The Room column should read like "Novo N-27-12 - type E-Novo 1 Bedroom Suite".');
       this.stages[1].note = `${inMonth.filter(r => r.status === 'active').length} bookings in ${list.length} buildings`;
@@ -787,18 +834,30 @@ export default {
       const all = this.auto ? this.checks.flatMap(x => lines(x.check)) : lines(this.check);
       return all.sort((a, b) => a.property.localeCompare(b.property) || (a.unit || '').localeCompare(b.unit || '', undefined, { numeric: true }) || (a.departure || '').localeCompare(b.departure || ''));
     },
+    // Several matches first (with their state), then a new property, then every other property
     targetOptions(g) {
-      return [{ value: '__new', label: 'Create new property' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))];
+      const ask = g.ask ? this.properties.filter(p => g.ask.includes(p.id)) : [];
+      const withState = p => `${p.name} (${p.code || p.id}) · ${stateOf(p) || 'no state'}`;
+      return [...(ask.length ? [{ value: '', label: 'Choose which property' }, ...ask.map(p => ({ value: p.id, label: withState(p) }))] : []),
+        { value: '__new', label: 'Create new property' },
+        ...this.properties.filter(p => !ask.includes(p)).map(p => ({ value: p.id, label: propertyLabel(p, this.properties) }))];
     },
     async checkAuto() {
       this.working = true; this.error = '';
       try {
-        const out = [];
+        const out = [], taken = new Set();
         for (const g of this.auto.groups) {
           const prop = g.target === '__new' ? null : this.properties.find(p => p.id === g.target);
           if (prop && (await monthDoc(prop.id, this.month)).status === 'completed') { out.push({ note: `${monthName(this.month)} is completed for ${prop.name}; left out`, check: null }); continue; }
-          const c = await this.buildCheck(g.recs, g.code, this.auto.byMonth, { prop, newName: g.newName || g.building });
+          let newId = null;
+          if (!prop) {
+            const clash = clashIn(this.properties, { name: (g.newName || g.building).trim(), code: g.code, state: g.newState });
+            if (clash) throw new Error(`${g.building}: ${clash}`);
+            newId = await newPropertyId(g.newName || g.building, g.newState, taken); taken.add(newId);
+          }
+          const c = await this.buildCheck(g.recs, g.code, this.auto.byMonth, { prop, newName: g.newName || g.building, newId, state: g.newState });
           c.ezeeName = g.building;
+          if (prop && g.ask) c.rememberEzee = g.building;
           const bits = [`${c.active} bookings`, c.newUnits.length ? `${c.newUnits.length} new units` : '', c.lockedUnits.length ? `${c.lockedUnits.length} completed (left out)` : '', c.property.isNew ? 'new property' : ''].filter(Boolean);
           out.push({ note: bits.join(' · '), check: c });
         }
@@ -830,6 +889,8 @@ export default {
 </script>
 
 <style scoped>
+.st-in { height: 34px; max-width: 220px; margin: 6px 0 0 6px; }
+.help.ask { color: var(--danger, #c0392b); margin-top: 4px; max-width: 320px; }
     /* Property name box shrinks on a phone instead of pushing the page sideways */
     .prev-h { margin: 18px 0 8px; font-size: 15px; }
     .name-cell { min-width: 0; }

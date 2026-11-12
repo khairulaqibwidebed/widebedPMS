@@ -1,0 +1,7 @@
+# Store text files with LF in git; Windows checkouts get CRLF. Stops whole-file diffs.
+* text=auto
+*.png binary
+*.jpg binary
+*.ico binary
+*.xlsx binary
+*.pdf binary

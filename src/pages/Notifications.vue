@@ -117,7 +117,7 @@ async function clearRead() {
 
     <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
     <div class="notice error" v-if="error || actionError">{{ error || actionError }}</div>
-    <p class="help" v-else-if="loading">Loading…</p>
+    <p class="help loading-line" v-else-if="loading">Loading…</p>
     <div class="card nf-empty" v-else-if="!sections.length">
       {{ show === 'unread' ? 'Nothing unread.' : show === 'starred' ? 'No starred notifications.' : area !== 'all' ? 'Nothing in this area.' : 'No notifications in the last ' + KEEP_DAYS + ' days.' }}
     </div>

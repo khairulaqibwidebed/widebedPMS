@@ -34,17 +34,22 @@
         <template v-if="!acc.viewOnly">
           <hr class="divider">
           <div class="field"><label for="uArr">Arrangement</label>
-            <OptionPicker class="full-pick" v-model="u.arrangement" :options="arrangementOptions" label="Arrangement" searchable /></div>
-          <div class="switch" style="border-top:0;margin-top:-6px"><span>Fixed rent</span>
-            <button type="button" class="toggle" :class="{ on: u.arrangement === 'fixedRent' }" style="border:0" @click="u.arrangement = u.arrangement === 'fixedRent' ? '' : 'fixedRent'" aria-label="Fixed rent"></button></div>
-          <div class="field" v-show="u.arrangement === 'fixedRent'"><label for="uFix" class="req">Fixed rent a month (RM)</label><input class="input" id="uFix" type="number" step="0.01" v-model="u.fixedRentAmount"></div>
-          <template v-if="u.arrangement && u.arrangement !== 'fixedRent'">
+            <OptionPicker class="full-pick" v-model="u.arrangement" :options="arrangementOptions" label="Arrangement" searchable />
+            <span class="help" v-if="chosen">{{ `${FEE_TYPES[chosen.type]?.label || chosen.type}: ${FEE_TYPES[chosen.type]?.explain || ''}` }}<FormulaInfo :type="chosen.type" /></span>
+            <span class="help" v-else-if="u.arrangement">This arrangement is not on Fees & Rates for the month. Pick another.</span>
+            <span class="help" v-else>Arrangements are set up on Portfolio > Fees & Rates.</span>
+            <span class="help from-listing" v-if="u.isNew && u.fromListing?.serviceFee">{{ `From ${u.fromListing.listingId}: ${u.fromListing.serviceFee.label} rent, service fee ${u.fromListing.serviceFee.pct}%. It is filled in as this unit's service fee once you pick an arrangement; clear it to use the arrangement's number.` }}</span></div>
+          <div class="field" v-show="isFixed"><label for="uFix" class="req">Fixed rent a month (RM)</label><input class="input" id="uFix" type="number" step="0.01" v-model="u.fixedRentAmount"></div>
+          <template v-if="chosen">
             <div class="grid-3">
-              <div class="field"><label>Service fee %</label><input class="input" type="number" step="0.01" v-model="u.serviceFeePct" :placeholder="ARRANGEMENTS[u.arrangement].serviceFeePct * 100"></div>
-              <div class="field"><label>Utility fee %</label><input class="input" type="number" step="0.01" v-model="u.utilityFeePct" :placeholder="ARRANGEMENTS[u.arrangement].utilityFeePct * 100"></div>
-              <div class="field"><label>SST on fee %</label><input class="input" type="number" step="0.01" v-model="u.sstOnFeePct" :placeholder="ARRANGEMENTS[u.arrangement].sstOnFeePct * 100"></div>
+              <div class="field"><label>Service fee %</label><input class="input" type="number" step="0.01" v-model="u.serviceFeePct" :placeholder="pctOut(chosen.servicePct || 0)"></div>
+              <div class="field"><label>Utility fee %</label><input class="input" type="number" step="0.01" v-model="u.utilityFeePct" :placeholder="pctOut(chosen.utilityPct || 0)"></div>
+              <div class="field"><label>SST on fee %</label><input class="input" type="number" step="0.01" v-model="u.sstOnFeePct" :placeholder="pctOut(chosen.sstPct || 0)"></div>
             </div>
+            <p class="help" style="margin:-6px 0 12px">Leave empty to use the arrangement's numbers. A number here is this unit's own rate.</p>
           </template>
+          <div class="field"><label for="uPrice">Purchase price (RM)</label><input class="input" id="uPrice" type="number" step="0.01" min="0" v-model="u.purchasePrice">
+            <span class="help">Pool Sharing splits the owners' part of the pot by purchase price. Accounting and Directors only.</span></div>
           <div class="grid-fields">
             <div class="field"><label>Applies from</label>
               <select class="input" v-model="u.effectiveFrom"><template v-for="m in months" :key="m"><option :value="m" :selected="m === u.effectiveFrom">{{ monthName(m) }}</option></template></select></div>
@@ -78,19 +83,21 @@
 // Unit drawer (a property's Units tab): add or edit a unit, its owner, details and, for Accounting and Directors,
 // its arrangement and fees from a month on. Directors can delete a unit with no history.
 // Tells the page "saved" with the message to show; the page closes it and loads again.
-import { ARRANGEMENTS, unitIdOf } from '@/lib/engine.js';
+import { unitIdOf } from '@/lib/engine.js';
+import { FEE_TYPES, arrangementsOf } from '@/lib/fee-types.js';
 import { amt, monthName, pct } from '@/lib/format.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { askConfirm, showNotice } from '@/lib/confirm.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import FormulaInfo from '@/components/FormulaInfo.vue';
 import { UNIT_INFO, UNIT_TYPES, pctIn, pctOut, msOf, arrLabel, arrangementOptions, ownerLabel, hasRefs, noteOnListing, forgetUnits,
-  addUnitType, saveUnit, deleteUnit } from '@/lib/portfolio-data.js';
+  addUnitType, saveUnit, deleteUnit, loadRates } from '@/lib/portfolio-data.js';
 
 const me = useSession();
 
 export default {
-  components: { OptionPicker },
+  components: { OptionPicker, FormulaInfo },
   props: {
     unit: { type: Object, default: null },          // the unit row, or null to add one
     prefill: { type: Object, default: null },       // fields from a new owner listing (Create unit)
@@ -106,20 +113,27 @@ export default {
   data() {
     const unit = this.unit, t = unit?.terms || {};
     return {
-      ARRANGEMENTS, busy: false, arrangementOptions: arrangementOptions(),
+      FEE_TYPES, busy: false, arrangements: arrangementsOf(null),   // the built-in list until this property's list is read
       u: {
         isNew: !unit, id: unit?.id || null, original: unit, unitCode: unit?.unitCode || `${this.property.code || ''} `,
         aliases: (unit?.aliases || []).join(', '), ownerId: unit?.ownerId || '', active: unit ? unit.active !== false : true,
         info: { ...Object.fromEntries(UNIT_INFO.map(k => [k, ''])), ...(unit?.info || {}) },
         arrangement: t.arrangement || '', fixedRentAmount: t.fixedRentAmount ?? '',
         serviceFeePct: pctOut(t.serviceFeePct), utilityFeePct: pctOut(t.utilityFeePct), sstOnFeePct: pctOut(t.sstOnFeePct),
+        purchasePrice: unit?.purchasePrice ?? '',
         effectiveFrom: this.asOf, reason: '', error: '',
         history: [...(unit?.termHistory || [])].sort((a, b) => (b.effectiveFrom || '').localeCompare(a.effectiveFrom || '') || msOf(b.createdAt) - msOf(a.createdAt)),
         ...(this.prefill || {})
       }
     };
   },
+  // This property's fee arrangements (Fees & rates) for the month the change applies from
+  async created() { if (!this.acc.viewOnly) await this.loadArrangements(); },
+  watch: { 'u.effectiveFrom'() { if (!this.acc.viewOnly) this.loadArrangements(); } },
   computed: {
+    arrangementOptions() { return arrangementOptions(this.arrangements); },
+    chosen() { return this.u.arrangement ? this.arrangements[this.u.arrangement] || null : null; },
+    isFixed() { return this.chosen?.type === 'fixed'; },
     unitTypeOptions() {
       const seen = new Set(), out = [];
       for (const t of [...UNIT_TYPES.filter(x => x !== 'Other'), ...this.customTypes, ...this.units.map(x => x.info?.type), this.u.info.type, 'Other']) {
@@ -129,11 +143,23 @@ export default {
     },
     ownerOptions() {
       return [{ value: '', label: 'No owner linked' }, ...this.owners.filter(x => x.active !== false || x.id === this.u.ownerId)
-        .map(o => ({ value: o.id, label: ownerLabel(this.owners, o.id, this.acc.viewOnly) }))];
+        .map(o => ({ value: o.id, label: this.ownerPickLabel(o) }))];
     }
   },
   methods: {
-    amt, monthName, arrLabel,
+    amt, monthName, arrLabel, pctOut,
+    // Roles that can't read owner names (PDPA) saw "Owner linked" on every row (12 Nov 2026): they now see the owner's
+    // code and their units in this property, so the rows can be told apart. Others see the name as before.
+    ownerPickLabel(o) {
+      const name = ownerLabel(this.owners, o.id, this.acc.viewOnly);
+      if (name !== 'Owner linked') return name;
+      const units = this.units.filter(x => x.ownerId === o.id).map(x => x.unitCode).filter(Boolean);
+      return `Owner ${o.code || o.id}` + (units.length ? ` · ${units.slice(0, 3).join(', ')}${units.length > 3 ? ` +${units.length - 3}` : ''}` : '');
+    },
+    async loadArrangements() {
+      try { this.arrangements = (await loadRates(this.property.id, this.u.effectiveFrom, { merged: true })).arrangements; }   // with the shared Fees & Rates
+      catch (e) { this.u.error = friendlyError(e, 'load the fee arrangements'); }
+    },
     setBusy(v) { this.busy = v; this.$emit('busy', v); },
     async addType(name) {
       const t = name.trim().replace(/\s+/g, ' ');
@@ -150,13 +176,17 @@ export default {
       if (!/\d/.test(code)) return u.error = `Type the unit code with its number${this.property.code ? `, like ${this.property.code} 0719` : ''}.`;
       const id = u.id || unitIdOf(pid, code);
       if (u.isNew && this.units.some(x => x.id === id)) return u.error = 'That unit already exists.';
-      if (u.arrangement === 'fixedRent' && !(Number(u.fixedRentAmount) > 0)) return u.error = 'Enter the fixed rent amount.';
+      const fixed = this.isFixed;
+      if (!this.acc.viewOnly && u.arrangement && !this.chosen && u.arrangement !== u.original?.terms?.arrangement) return u.error = 'Pick an arrangement from the list.';
+      if (fixed && !(Number(u.fixedRentAmount) > 0)) return u.error = 'Enter the fixed rent amount.';
+      const price = u.purchasePrice === '' || u.purchasePrice == null ? null : Math.round(Number(u.purchasePrice) * 100) / 100;
+      if (!this.acc.viewOnly && price != null && !(price >= 0)) return u.error = 'Purchase price must be a number, 0 or more.';
       const aliases = u.aliases.split(',').map(s => s.trim().replace(/\s+/g, ' ')).filter(Boolean);
       const old = u.original?.terms || {};
-      const fixed = u.arrangement === 'fixedRent';
+      // Every type keeps its % fields (empty = the arrangement's numbers). Fixed rent also keeps the rent.
       const terms = u.arrangement ? {
         arrangement: u.arrangement, fixedRentAmount: fixed ? Math.round(Number(u.fixedRentAmount) * 100) / 100 : null,
-        serviceFeePct: fixed ? null : pctIn(u.serviceFeePct), utilityFeePct: fixed ? null : pctIn(u.utilityFeePct), sstOnFeePct: fixed ? null : pctIn(u.sstOnFeePct)
+        serviceFeePct: pctIn(u.serviceFeePct), utilityFeePct: pctIn(u.utilityFeePct), sstOnFeePct: pctIn(u.sstOnFeePct)
       } : null;
       const termsChanged = terms && (u.isNew || !u.original.terms || Object.keys(terms).some(k => (old[k] ?? null) !== terms[k]));
       const ownerId = u.ownerId || null;
@@ -168,6 +198,7 @@ export default {
       for (const k of UNIT_INFO) if ((oldInfo[k] ?? '') !== (info[k] ?? '')) unitChanges.push({ field: k, old: oldInfo[k] ?? null, new: info[k] });
       if ((u.original?.ownerId || null) !== ownerId) unitChanges.push({ field: 'ownerId', old: u.original?.ownerId || null, new: ownerId });
       if ((u.original?.aliases || []).join(',') !== aliases.join(',')) unitChanges.push({ field: 'aliases', old: u.original?.aliases || [], new: aliases });
+      if (!this.acc.viewOnly && (u.original?.purchasePrice ?? null) !== price) unitChanges.push({ field: 'Purchase price', old: u.original?.purchasePrice != null ? `RM ${amt(u.original.purchasePrice)}` : null, new: price != null ? `RM ${amt(price)}` : null });
       if (!u.isNew && (u.original.active !== false) !== u.active) unitChanges.push({ field: 'active', old: u.original.active !== false, new: u.active });
       if (!u.isNew && !termsChanged && !unitChanges.length) { this.$emit('close'); return; }
       if (!u.reason.trim()) return u.error = 'Add a short reason. It goes in the audit log.';
@@ -176,11 +207,12 @@ export default {
         if ((old.arrangement || null) !== terms.arrangement) termChanges.push({ field: 'arrangement', old: old.arrangement || null, new: terms.arrangement });
         if (fixed && (old.fixedRentAmount ?? null) !== terms.fixedRentAmount) termChanges.push({ field: 'Fixed rent', old: old.fixedRentAmount != null ? `RM ${amt(old.fixedRentAmount)}` : null, new: `RM ${amt(terms.fixedRentAmount)}` });
         for (const [k, lbl] of [['serviceFeePct', 'Service fee'], ['utilityFeePct', 'Utility fee'], ['sstOnFeePct', 'SST on fee']])
-          if (!fixed && (old[k] ?? null) !== terms[k]) termChanges.push({ field: lbl, old: old[k] != null ? pct(old[k]) : null, new: terms[k] != null ? pct(terms[k]) : 'normal rate' });
+          if ((old[k] ?? null) !== terms[k]) termChanges.push({ field: lbl, old: old[k] != null ? pct(old[k]) : null, new: terms[k] != null ? pct(terms[k]) : 'normal rate' });
       }
       this.setBusy(true);
       try {
         await saveUnit(me, { id, isNew: u.isNew, detailsOnly: this.acc.viewOnly && !u.isNew, propertyId: pid, code, aliases, ownerId, info, active: u.active,
+          ...(this.acc.viewOnly ? {} : { purchasePrice: price }),
           terms, termsChanged, effectiveFrom: u.effectiveFrom, reason: u.reason.trim(), changes: [...unitChanges, ...termChanges] });
         const noted = u.isNew ? await noteOnListing(me, u.fromListing, 'unitId', id, 'unit') : '';
         await forgetUnits(pid);

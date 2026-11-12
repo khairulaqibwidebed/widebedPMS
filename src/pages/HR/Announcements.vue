@@ -197,13 +197,14 @@
 import { ROLE_LABEL, BUILTIN_ROLES, CUSTOM_ROLES } from '@/lib/firebase.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { askConfirm } from '@/lib/confirm.js';
+import { liveMixin } from '@/lib/use-live.js';
 import { downloadFile, fileBlob } from '@/lib/drive.js';
 import { useSession } from '@/stores/session.js';
 import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import Avatar from '@/components/Avatar.vue';
 import FileViewer from '@/components/FileViewer.vue';
-import { KIND, MAX_FILES, TITLE_MAX, MESSAGE_MAX, canPost, ms, audLabel, posterLabel, isUnread, byPinThenNew, loadFor, loadMyReads,
+import { KIND, MAX_FILES, TITLE_MAX, MESSAGE_MAX, canPost, ms, audLabel, posterLabel, isUnread, byPinThenNew, watchFor, watchMyReads, loadMyReads,
   markViewed, loadViews, countViews, loadActiveStaff, audienceOf, prepareFile, postAnnouncement, editAnnouncement, setPinned, deleteAnnouncement, remind } from './announcements.js';
 
 const FILTERS = [{ value: 'all', label: 'All' }, { value: 'unread', label: 'Unread' }, { value: 'viewed', label: 'Viewed' }];
@@ -211,6 +212,7 @@ const GROUPS = [['pinned', 'Pinned'], ['week', 'This week'], ['month', 'This mon
 const day = (d, year = true) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}) });
 
 export default {
+  mixins: [liveMixin],
   components: { FormField, OptionPicker, Avatar, FileViewer },
   data: () => ({ items: [], reads: {}, loading: true, error: '', okMsg: '', q: '', filter: 'all', openId: null,
     views: [], staff: null, counts: {}, thumbs: {}, thumbErr: {}, viewsLoading: false, viewsErr: '', sideTab: 'not', form: null, busy: false, pct: 0, deleting: null, downloading: '',
@@ -253,18 +255,24 @@ export default {
     fileCount() { return this.form ? this.form.files.length - this.form.removed.length + this.form.newFiles.length : 0; }
   },
   beforeUnmount() { this.dropThumbs(); },
-  async mounted() {
-    try {
-      const [items, reads] = await Promise.all([loadFor(this.me), loadMyReads(this.me.user.uid)]);
-      this.items = items; this.reads = reads;
+  // Live (6 Nov 2026): new, edited and deleted announcements show without a refresh; my viewed list too
+  mounted() {
+    let first = true, items = null, reads = null;
+    const fail = e => { this.error = e.friendly || friendlyError(e, 'load announcements'); this.loading = false; };
+    const ready = () => {
+      if (!items || !reads) return;
+      this.items = items; this.reads = reads; this.loading = false;
+      if (this.poster) this.loadCounts();
+      if (!first) return;
+      first = false;
       const id = this.$route.query.id;
       if (id) {
         const a = this.items.find(x => x.id === id);
         if (a) this.openItem(a); else this.error = 'That announcement was deleted, or it is not meant for your team.';
       }
-    } catch (e) { this.error = friendlyError(e, 'load announcements'); }
-    this.loading = false;
-    if (this.poster) this.loadCounts();
+    };
+    this.liveUse('items', watchFor(this.me, rows => { items = rows; ready(); }, fail));
+    this.liveUse('reads', watchMyReads(this.me.user.uid, r => { reads = r; ready(); }, fail));
   },
   methods: {
     audLabel, posterLabel, audienceOf,
@@ -302,8 +310,11 @@ export default {
     async loadCounts() {
       try {
         if (!this.staff) this.staff = await loadActiveStaff();
-        const r = await Promise.allSettled(this.items.map(a => countViews(a.id)));
-        this.counts = Object.fromEntries(this.items.map((a, i) => [a.id, r[i].status === 'fulfilled' ? r[i].value : null]));
+        // Only announcements not counted yet (the live list calls this on every change)
+        const todo = this.items.filter(a => !(a.id in (this.counts || {})));
+        if (!todo.length) return;
+        const r = await Promise.allSettled(todo.map(a => countViews(a.id)));
+        this.counts = { ...(this.counts || {}), ...Object.fromEntries(todo.map((a, i) => [a.id, r[i].status === 'fulfilled' ? r[i].value : null])) };
       } catch (e) { console.warn('View counts not loaded:', e); }
     },
     async openItem(a) {

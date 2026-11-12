@@ -4,9 +4,12 @@
 // My complaints. An anonymous one keeps nothing about the sender, not even in the audit log; the sender's own
 // browser remembers which refs they sent (wb.myAnonComplaints) so they can still see the status.
 import { db, auth } from '@/lib/firebase.js';
-import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, orderBy, writeBatch, runTransaction, serverTimestamp, limit } from 'firebase/firestore';
+import { listen } from '@/lib/use-live.js';
 import { audit } from '@/lib/finance-data.js';
+import { toast } from '@/lib/toast.js';
 import { notifyRole, notifyUser } from '@/services/notificationService';
+import { uploadForLink } from '@/lib/drive.js';
 
 export const today = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 export const STATUS = { new: ['New', 'amber'], read: ['Read by HR', 'blue'], review: ['In review', 'blue'], closed: ['Closed', 'green'] };
@@ -38,6 +41,50 @@ export async function loadMyDirectorComplaints(uid) {
   return withPrivate(snap.docs);
 }
 
+// Live complaint lists (6 Nov 2026): status changes show without a refresh. Listens to the parent records only
+// (status, read); the private part (subject, details, name) is read once per complaint and kept.
+// who: { kind } for an inbox, { kind, fromId } for "my" complaints. onRows gets the full rows, newest first.
+// Returns stop(). Pages merge the rows with mergeRows so an open complaint updates in place.
+const LIST_MAX = 300;
+export function watchComplaintList(who, onRows, onError) {
+  const privs = {};
+  const conds = [where('kind', '==', who.kind), ...(who.fromId ? [where('fromId', '==', who.fromId)] : [])];
+  let turn = 0;
+  return listen(query(collection(db, 'complaints'), ...conds, limit(LIST_MAX)), async parents => {
+    const mine = ++turn;
+    try {
+      await Promise.all(parents.filter(p => !privs[p.id]).map(async p => {
+        const d = await getDoc(doc(db, 'complaints', p.id, 'private', 'main'));
+        privs[p.id] = d.exists() ? d.data() : {};
+      }));
+    } catch (e) { return onError?.(e); }
+    if (mine !== turn) return;   // a newer snapshot already arrived
+    onRows(parents.map(p => ({ subject: '', details: '', fromName: '', files: [], ...p, ...privs[p.id], ref: showRef(p.ref) }))
+      .sort((a, b) => ms(b.createdAt) - ms(a.createdAt) || b.ref.localeCompare(a.ref)));
+  }, { onError });
+}
+// Anonymous complaints sent from this browser: one small listener per saved ref (status only)
+export function watchMyAnonComplaints(onRows, onError) {
+  const rows = {}, list = anonReceipts();
+  if (!list.length) { onRows([]); return () => {}; }
+  const put = (id, row) => {
+    rows[id] = row;
+    if (Object.keys(rows).length === list.length) onRows(Object.values(rows).filter(Boolean));
+  };
+  // 11 Nov 2026: a receipt this account can't read (left in the browser by another account, or no longer anonymous)
+  // is skipped instead of failing the whole page. It stays saved, in case the rules were just not published yet.
+  const stops = list.map(r => listen(doc(db, 'complaints', r.id), d => {
+    put(r.id, d ? { ...r, ...d, id: r.id, subject: r.subject, ref: showRef(d.ref || r.ref) } : null);
+  }, { onError: e => { console.warn('[complaints] skipped anonymous receipt', r.id, e?.code); put(r.id, null); } }));
+  return () => stops.forEach(stop => stop());
+}
+// Keeps the same objects for complaints already on screen (so the open one updates too), adds new ones
+export function mergeRows(old, rows) {
+  const byId = new Map(old.map(c => [c.id, c]));
+  return rows.map(r => { const o = byId.get(r.id); return o ? Object.assign(o, r) : r; });
+}
+export const newestFirst = (a, b) => ms(b.createdAt) - ms(a.createdAt) || String(b.ref).localeCompare(String(a.ref));
+
 // Anonymous refs sent from this browser (the PMS keeps no link to the sender).
 const ANON_KEY = 'wb.myAnonComplaints';
 const anonReceipts = () => { try { const v = JSON.parse(localStorage.getItem(ANON_KEY)); return Array.isArray(v) ? v : []; } catch { return []; } };
@@ -57,7 +104,7 @@ export async function loadMyComplaints(uid) {
 // me = useSession(). One transaction takes the next number from counters/{name} (so two people never get
 // the same ref) and writes the complaint, its private part and the audit entry. Returns the new ref.
 // A new STAFF complaint also puts one notification on the HR bell (role notification, HR only).
-export async function createComplaint(me, kind, { subject, details, files, anonymous = false, images = [] }) {
+export async function createComplaint(me, kind, { subject, details, files, anonymous = false, images = [], docs = [] }) {
   const k = KIND[kind];
   const named = kind === 'director' || !anonymous;
   const c = doc(collection(db, 'complaints'));
@@ -102,8 +149,47 @@ export async function createComplaint(me, kind, { subject, details, files, anony
   }
 
   if (!named) keepAnonReceipt({ id: c.id, ref, date: today(), subject, anonymous: true });
+
+  // Documents (11 Nov 2026): uploaded to HR's own Google Drive after the complaint exists, then listed on it
+  if (docs.length && kind === 'staff') {
+    try { await addDocs(me, { id: c.id, ref, kind, fromId: named ? me.user.uid : null }, docs, named ? 'sender' : 'anon'); }
+    catch (e) { console.error('Documents not saved:', e.code || e.message); throw Object.assign(new Error(`Sent as ${ref}, but the documents could not be uploaded (${e.message}). ${named ? 'Add them on the complaint under My complaints.' : 'Send them to HR another way.'}`), { sentRef: ref }); }
+  }
   return ref;
 }
+
+// ---- Documents (11 Nov 2026) ----
+// complaints/{id}/docs: PDF, Word, Excel or image files on a STAFF complaint, stored in HR's own Google Drive
+// (api/drive.js kind 'complaints', folder named by the ref only). Read by the same people as the conversation.
+// by: 'hr', 'sender' (named sender) or 'anon' (the anonymous sender, only while sending). Never changed or removed.
+export const MAX_DOCS = 5, DOC_MAX_MB = 10;
+export const DOC_ACCEPT = '.pdf,.doc,.docx,.xls,.xlsx,.txt,image/*';
+export function checkDocs(files) {
+  if (files.length > MAX_DOCS) return `Up to ${MAX_DOCS} documents at a time.`;
+  const big = files.find(f => f.size > DOC_MAX_MB * 1024 * 1024);
+  return big ? `${big.name} is larger than ${DOC_MAX_MB} MB.` : '';
+}
+// Drive area for a complaint's files (11 Nov 2026): both kinds sit in HR's Google Drive, in their own folders
+export const docKind = c => (c.kind === 'director' ? 'dcomplaints' : 'complaints');
+// by: 'hr', 'sender', 'director' or 'anon' (an anonymous sender: no uid saved). threadId = copies of photos sent in the chat.
+export async function addDocs(me, c, files, by, onProgress = () => {}, threadId = '') {
+  const bad = checkDocs(files); if (bad) throw new Error(bad);
+  const up = await uploadForLink(docKind(c), files, onProgress, c.id, c.ref);
+  const b = writeBatch(db);
+  for (const u of up) b.set(doc(collection(db, 'complaints', c.id, 'docs')), { name: String(u.name).slice(0, 200), fileId: u.id, mimeType: u.mimeType || '',
+    by, ...(by === 'anon' ? {} : { byUid: me.user.uid }), ...(threadId ? { threadId } : {}), createdAt: serverTimestamp() });
+  if (by !== 'anon') audit(b, me, { action: 'complaint.doc', entity: `complaints/${c.id}`, changes: [{ field: 'documents', old: null, new: `${up.length} added` }] });
+  await b.commit();
+  if (threadId) return up.length;   // the chat message already told the other side
+  if (c.kind === 'director') tellBoth(c, `New document on complaint ${c.ref}`, 'Open the complaint to see it.');
+  else if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
+    title: `HR added a document to your complaint ${c.ref}`, message: 'Open My complaints to see it.' }));
+  else if (by === 'sender' || by === 'anon') tell(notifyRole({ recipientRole: 'hr', type: 'complaint', refId: c.id, link: `/HR/staff-complaints?id=${c.id}`,
+    title: `New document on complaint ${c.ref}`, message: 'The sender added a document. Open the complaint to see it.' }));
+  return up.length;
+}
+export const watchDocs = (id, onRows, onError) =>
+  listen(query(collection(db, 'complaints', id, 'docs'), orderBy('createdAt')), rows => onRows(rows.sort(byTime)), { onError });
 
 // HR opening a NEW staff complaint marks it "Read by HR" (4 Nov 2026), so the sender sees it under My complaints
 // (an anonymous sender too, on their own browser). A named sender also gets a notification; an anonymous one can't
@@ -150,6 +236,17 @@ export async function loadThread(id) {
   const snap = await getDocs(query(collection(db, 'complaints', id, 'thread'), orderBy('createdAt')));
   return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTime);
 }
+// Live conversation (6 Nov 2026): listens to the thread and photos so a new message shows on every open screen without
+// a refresh. onChange gets { thread } or { images }; a message you just sent shows at once with an estimated time.
+// Returns a stop function: call it when the complaint is closed or another one is opened.
+// Runs on lib/use-live.js listen(), so two screens on the same complaint share one listener and it stops on sign-out.
+export function watchConversation(id, onChange, onError) {
+  const stops = [
+    listen(query(collection(db, 'complaints', id, 'thread'), orderBy('createdAt')), rows => onChange({ thread: rows.sort(byTime) }), { onError }),
+    listen(query(collection(db, 'complaints', id, 'images'), orderBy('createdAt')), rows => onChange({ images: rows.sort(byTime) }), { onError })
+  ];
+  return () => stops.forEach(stop => stop());
+}
 export async function loadNotes(id) {
   const snap = await getDocs(query(collection(db, 'complaints', id, 'notes'), orderBy('createdAt')));
   return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTime);
@@ -168,21 +265,26 @@ function tellBoth(c, title, message = 'Open the complaint for the details.', rol
 
 // Staff complaints: by = 'hr' (HR replying) or 'sender' (the named sender replying back).
 // Director complaints (HR to the Directors): by = 'hr' or 'director'; each side's bell rings when the other replies.
+// 11 Nov 2026: an anonymous sender can reply too; nothing that names them is saved (no name, no uid, no audit line).
+// Photos in a reply are also copied, full size, to HR's Google Drive (the complaint's Documents, "From the chat").
 export async function addReply(me, c, text, by, images = []) {
-  const t = clean(text), pics = images.slice(0, MAX_PHOTOS);
+  const t = clean(text), pics = images.slice(0, MAX_PHOTOS), anon = !!c.anonymous && by === 'sender';
   if (!t && !pics.length) throw new Error('Write a reply or add a photo first.');
   const b = writeBatch(db), r = doc(collection(db, 'complaints', c.id, 'thread'));
   const imgs = pics.map(im => ({ ref: doc(collection(db, 'complaints', c.id, 'images')), im }));
-  b.set(r, { text: t, by, byName: me.name || '', byUid: me.user.uid, ...(imgs.length ? { imageIds: imgs.map(x => x.ref.id) } : {}), createdAt: serverTimestamp() });
-  for (const x of imgs) b.set(x.ref, imageDoc(x.im, 'thread', r.id, me.user.uid));
-  audit(b, me, { action: 'complaint.reply', entity: `complaints/${c.id}`, changes: [{ field: 'reply', old: null, new: by === 'hr' ? 'HR' : by === 'director' ? 'Director' : 'Sender' }] });
+  b.set(r, { text: t, by, ...(anon ? {} : { byName: me.name || '', byUid: me.user.uid }), ...(imgs.length ? { imageIds: imgs.map(x => x.ref.id) } : {}), createdAt: serverTimestamp() });
+  for (const x of imgs) b.set(x.ref, imageDoc(x.im, 'thread', r.id, anon ? '' : me.user.uid));
+  if (!anon) audit(b, me, { action: 'complaint.reply', entity: `complaints/${c.id}`, changes: [{ field: 'reply', old: null, new: by === 'hr' ? 'HR' : by === 'director' ? 'Director' : 'Sender' }] });
   await b.commit();
+  const originals = pics.map(p => p.file).filter(f => f && f.size <= DOC_MAX_MB * 1024 * 1024);
+  if (originals.length) addDocs(me, c, originals, anon ? 'anon' : by, () => {}, r.id)
+    .catch(e => { console.warn('Chat photo not copied to Drive:', e); toast(`Photo sent, but not copied to HR's Drive: ${e.message}`); });
   if (c.kind === 'director') tellBoth(c, by === 'hr' ? `HR replied on complaint ${c.ref}` : `The Directors replied on complaint ${c.ref}`, 'Open the complaint to read it.');
   else if (by === 'hr' && c.fromId) tell(notifyUser({ recipientUid: c.fromId, type: 'complaint', refId: c.id, link: `/HR/raise-complaint?id=${c.id}`,
     title: `HR replied to your complaint ${c.ref}`, message: 'Open My complaints to read it.' }));
   else if (by === 'sender') tell(notifyRole({ recipientRole: 'hr', type: 'complaint', refId: c.id, link: `/HR/staff-complaints?id=${c.id}`,
     title: `New reply on complaint ${c.ref}`, message: 'The sender replied. Open the complaint to read it.' }));
-  return { id: r.id, text: t, by, byName: me.name || '', createdAt: null, imageIds: imgs.map(x => x.ref.id),
+  return { id: r.id, text: t, by, byName: anon ? '' : me.name || '', createdAt: null, imageIds: imgs.map(x => x.ref.id),
     images: imgs.map(x => ({ id: x.ref.id, data: x.im.data })) };
 }
 

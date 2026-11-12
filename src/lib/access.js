@@ -9,13 +9,14 @@
 
 // Every page that can be ticked. group = heading in the tick table.
 // viewOnly = only a View box (nothing to change on the page). editOnly = everyone views it; only Edit is tickable.
+// editTo = pages that still open with View, but whose sidebar item shows only with Edit (navPerm below).
 // Order and groups follow the sidebar (6 Nov 2026): Portfolio, Leads & Agreements, Accounting, then the rest.
 export const PAGES = [
-  { key: 'portfolio',        label: 'Owners, Properties & Bookings', group: 'Portfolio',   to: ['/Portfolio/owners', '/Portfolio/properties', '/Portfolio/bookings'] },
+  { key: 'portfolio',        label: 'Owners, Properties & Bookings', group: 'Portfolio',   to: ['/Portfolio/owners', '/Portfolio/properties', '/Portfolio/bookings', '/Portfolio/fees-rates'], editTo: ['/Portfolio/fees-rates'] },
   { key: 'bookingForms',     label: 'Booking Forms',                 group: 'Portfolio',   to: ['/Operations/booking-forms'], viewOnly: true },
   { key: 'offlinePayments',  label: 'Offline Payments',              group: 'Portfolio',   to: ['/Finance/offline-payments'] },
   { key: 'bulkUpload',       label: 'Bulk Upload',                   group: 'Portfolio',   to: ['/Portfolio/bulk-upload'] },
-  { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/new-owner-listings'] },
+  { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/owner-leads', '/Procurement/listing-flow'], editTo: ['/Procurement/listing-flow'] },
   { key: 'offlineInquiries', label: 'Tenant Leads',                  group: 'Leads & Agreements', to: ['/Operations/offline-inquiries'] },
   { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Leads & Agreements', to: ['/Agreements/setup'], viewOnly: true },
   { key: 'ezeeUpload',       label: 'Upload eZee Report',            group: 'Accounting',     to: ['/Finance/upload'] },
@@ -91,6 +92,13 @@ export function can(me, perm) {
 export function pageKeyFor(path) {
   const page = PAGES.find(p => p.to.includes(path));
   return page ? page.key : null;
+}
+
+// The tick a sidebar item needs: '<key>.edit' for a page in its editTo list, else '<key>.view'. null = not tickable.
+// e.g. Listing Flow opens with Owner Leads View (a notification link for Operations) but shows in the sidebar only with Edit.
+export function navPerm(path) {
+  const page = PAGES.find(p => p.to.includes(path));
+  return page ? page.key + ((page.editTo || []).includes(path) ? '.edit' : '.view') : null;
 }
 
 // Can this person open a route? Tickable pages need their View tick; every other page follows the role list.

@@ -130,6 +130,7 @@ import { markDirty } from '@/lib/summary-data.js';
 import { can } from '@/lib/access.js';
 import { amt, dmy, monthName, monthOffset, dayOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { withState } from '@/lib/states.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
@@ -186,7 +187,8 @@ export default {
     // One batch: the quote change plus its audit log entry (and, for the invoice, the expense line).
     async write(b, fields, text, action, changes = [], reason = '') {
       const h = this.hist(text);
-      b.set(this.qRef, { ...fields, history: arrayUnion(h), updatedAt: serverTimestamp(), updatedBy: this.me.user.uid }, { merge: true });
+      // The quote carries the ticket's property's state (none for a ticket with no property)
+      b.set(this.qRef, await withState(this.ticket.propertyId, { ...fields, history: arrayUnion(h), updatedAt: serverTimestamp(), updatedBy: this.me.user.uid }), { merge: true });
       audit(b, this.me, { action, entity: `issueQuotes/${this.ticket.id}`, propertyId: this.ticket.propertyId || null, changes, reason });
       await b.commit();
       this.q = { ...this.q, ...fields, history: [...(this.q?.history || []), h] };
@@ -271,9 +273,9 @@ export default {
         if ((await completedUnitIds(t.propertyId, v.month)).has(t.unitId)) { this.busy = false; return v.error = `${t.unit} is completed or sent to the Director for ${monthName(v.month)}. Pick another month.`; }
         const b = writeBatch(db), eRef = doc(collection(db, 'expenses'));
         const files = v.files.map(f => ({ name: f.name || 'Invoice', link: f.link, addedBy: this.me.name, addedAt: dayOffset(0) }));
-        b.set(eRef, { propertyId: t.propertyId, unitId: t.unitId, date: v.date, month: v.month, kind: 'expense', type: 'maintenance',
+        b.set(eRef, await withState(t.propertyId, { propertyId: t.propertyId, unitId: t.unitId, date: v.date, month: v.month, kind: 'expense', type: 'maintenance',
           description: v.desc.trim(), amount, cost: amount, marginType: 'pct', marginValue: 0, issueId: t.id,
-          auto: false, sourceStatementId: null, files, deleted: false, createdBy: this.me.user.uid, createdByName: this.me.name, createdAt: serverTimestamp() });
+          auto: false, sourceStatementId: null, files, deleted: false, createdBy: this.me.user.uid, createdByName: this.me.name, createdAt: serverTimestamp() }));
         audit(b, this.me, { action: 'expense.create', entity: `expenses/${eRef.id}`, propertyId: t.propertyId, month: v.month, changes: [{ field: 'amount', old: null, new: amount }], reason: `From ticket ${t.id}` });
         markDirty(b, t.propertyId, v.month, [t.unitId]);
         await this.write(b, { status: 'invoiced', invoiceNo: v.no.trim(), invoiceDate: v.date, invoiceAmount: amount, invoiceFiles: v.files, expenseId: eRef.id, expenseMonth: v.month },

@@ -8,9 +8,10 @@ import { collection, getDocs, query, where, orderBy, limit, getCountFromServer }
   from 'firebase/firestore';
 import { propertyMonth, canWriteSummaries } from './summary-data.js';
 import { combine } from './summaries.js';
+import { scoped, getScoped, countScoped, myProperties } from './property-scope.js';
 
 export async function loadProperties() {
-  const snap = await getDocs(collection(db, 'properties'));
+  const snap = await getScoped(scoped(collection(db, 'properties'), '__id'));   // only my properties (lib/property-scope.js)
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
     .filter(p => p.active !== false)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -24,9 +25,8 @@ export async function loadMonth({ properties, propertyId, month, me }) {
   const canWrite = canWriteSummaries(me);
   const [pms, uploadSnap, lastUploadSnap] = await Promise.all([
     Promise.all(scope.map(p => propertyMonth(p, month, { me, canWrite }))),
-    getDocs(query(collection(db, 'importBatches'), where('months', 'array-contains', month), limit(1))),
-    getDocs(query(collection(db, 'importBatches'), orderBy('uploadedAt', 'desc'), limit(1)))
-  ]);
+    uploadsFor(month)
+  ]).then(([a, b]) => [a, ...b]);
   const sum = combine(pms.map(x => x.summary));
   // The month is completed when every property's month document says so (one property: that one)
   const completed = scope.length > 0 && pms.every(x => x.month?.status === 'completed');
@@ -70,6 +70,19 @@ export async function loadMonth({ properties, propertyId, month, me }) {
   };
 }
 
+// Was this month uploaded, and the newest upload. A Director asks Firestore directly. Staff read their properties'
+// newest uploads (propertyIds array-contains-any; Firestore allows only one array filter, so the month is picked here).
+async function uploadsFor(month) {
+  const col = collection(db, 'importBatches');
+  if (!myProperties()) return Promise.all([
+    getDocs(query(col, where('months', 'array-contains', month), limit(1))),
+    getDocs(query(col, orderBy('uploadedAt', 'desc'), limit(1)))
+  ]);
+  const snap = await getScoped(scoped(query(col, orderBy('uploadedAt', 'desc'), limit(60)), 'propertyIds'), { order: ['uploadedAt', 'desc'], limit: 60 });
+  const ofMonth = snap.docs.filter(d => (d.data().months || []).includes(month));
+  return [{ empty: !ofMonth.length, docs: ofMonth.slice(0, 1) }, { empty: snap.empty, docs: snap.docs.slice(0, 1) }];
+}
+
 // Director only: who signed in lately (users.lastLoginAt, written at sign-in).
 export async function loadTeamActivity() {
   const snap = await getDocs(query(collection(db, 'users'), orderBy('lastLoginAt', 'desc'), limit(5)));
@@ -81,8 +94,7 @@ export async function loadTeamActivity() {
 export const ISSUE_TAGS = ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing'];
 // How many unit statements Finance has sent that are waiting for a Director.
 export async function loadApprovalsWaiting() {
-  const s = await getCountFromServer(query(collection(db, 'approvals'), where('status', '==', 'submitted')));
-  return s.data().count;
+  return countScoped(scoped(query(collection(db, 'approvals'), where('status', '==', 'submitted'))));
 }
 
 export async function loadOpenIssues() {

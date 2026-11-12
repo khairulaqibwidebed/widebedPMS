@@ -1,10 +1,12 @@
 <template>
   <div class="pp">
-    <div class="pp-grid" v-if="previews && modelValue.length">
+    <div class="pp-grid" v-if="previews && (modelValue.length || waiting)">
       <div class="pp-item" v-for="(p, i) in modelValue" :key="i">
         <button type="button" class="pp-open" :aria-label="'Enlarge photo ' + (i + 1)" @click="at = i"><img :src="p.data" alt=""></button>
         <button type="button" class="pp-x" :aria-label="'Remove photo ' + (i + 1)" @click="remove(i)">×</button>
       </div>
+      <!-- photos still being shrunk: grey tiles with a ring that fills as each one is ready -->
+      <div class="pp-item pp-wait" v-for="n in waiting" :key="'w' + n"><ProgressRing :size="28" :value="n === 1 ? stepPct : 0" :spinning="n > 1" /></div>
     </div>
     <!-- compact: a paperclip icon button (chat reply boxes); otherwise a labelled button (the complaint form) -->
     <label class="btn pp-btn" :class="{ off: busy || modelValue.length >= max, clip: compact }" :title="compact ? (busy ? 'Preparing…' : `Attach photos (${modelValue.length}/${max})`) : null"
@@ -24,14 +26,14 @@
 // Pick photos to send with a complaint or a reply. They are shrunk in the browser (lib/image-shrink.js) and kept as
 // data URLs in v-model until the form saves them. Up to `max` photos.
 //   <PhotoPicker v-model="photos" :max="5" />
-import { shrinkImage } from '@/lib/image-shrink.js';
+import { shrinkImage, keepOriginal } from '@/lib/image-shrink.js';
 import PhotoViewer from '@/components/PhotoViewer.vue';
 
 export default {
   props: { modelValue: { type: Array, required: true }, max: { type: Number, default: 5 }, label: { type: String, default: 'Add photos' }, compact: { type: Boolean, default: false }, previews: { type: Boolean, default: true } },
   components: { PhotoViewer },
   emits: ['update:modelValue'],
-  data() { return { busy: false, error: '', at: null }; },
+  data() { return { busy: false, error: '', at: null, waiting: 0, stepPct: 0 }; },
   methods: {
     async pick(e) {
       const files = [...e.target.files]; e.target.value = '';
@@ -39,11 +41,15 @@ export default {
       this.busy = true; this.error = '';
       const room = this.max - this.modelValue.length, out = [...this.modelValue];
       if (files.length > room) this.error = `Only ${this.max} photos per message; the first ${room} were added.`;
-      for (const f of files.slice(0, room)) {
-        try { out.push(await shrinkImage(f)); } catch (err) { this.error = err.message; }
+      const todo = files.slice(0, room);
+      this.waiting = todo.length;
+      for (const f of todo) {
+        this.stepPct = 15; const tick = setInterval(() => { this.stepPct = Math.min(90, this.stepPct + 15); }, 120);
+        try { out.push(keepOriginal(await shrinkImage(f), f)); this.$emit('update:modelValue', [...out]); } catch (err) { this.error = err.message; }
+        clearInterval(tick); this.waiting--;
       }
       this.$emit('update:modelValue', out);
-      this.busy = false;
+      this.busy = false; this.waiting = 0;
     },
     remove(i) { const out = [...this.modelValue]; out.splice(i, 1); this.at = null; this.$emit('update:modelValue', out); }
   }
@@ -58,6 +64,8 @@ export default {
 .pp-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pp-item:hover { border-color: var(--accent); }
 .pp-x { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0, 0, 0, .6); color: #fff; font-size: 15px; line-height: 1; cursor: pointer; }
+.pp-wait { display: flex; align-items: center; justify-content: center; color: var(--accent); }
+.pp-item:not(.pp-wait) { animation: pop var(--med) var(--ease); }
 .pp-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .pp-btn.off { opacity: .55; pointer-events: none; }
 .pp-btn.clip { width: 40px; height: 40px; padding: 0; justify-content: center; position: relative; border-radius: 10px; }

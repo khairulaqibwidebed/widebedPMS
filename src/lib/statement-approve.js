@@ -8,10 +8,12 @@ import { nextMonth, r2 } from './engine.js';
 import { audit, statementId, monthSummary } from './finance-data.js';
 import { markDirty } from './summary-data.js';
 import { monthName } from './format.js';
+import { withState } from './states.js';
 
 // This unit's expense lines for another month (the brought-forward line lives there).
 async function unitExpenses(propertyId, unitId, month) {
-  const snap = await getDocs(query(collection(db, 'expenses'), where('unitId', '==', unitId), where('month', '==', month)));
+  // propertyId in the query too: staff may only list their own properties' records (lib/property-scope.js)
+  const snap = await getDocs(query(collection(db, 'expenses'), where('propertyId', '==', propertyId), where('unitId', '==', unitId), where('month', '==', month)));
   return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.propertyId === propertyId);
 }
 
@@ -44,6 +46,7 @@ export async function completeStatement({ r, propertyId, month, me, unitIds, don
   const nextSent = await getDoc(doc(db, 'approvals', statementId(r.unitId, next)));
   const nextFrozen = nextSent.exists() && nextSent.data().status === 'submitted';
 
+  const tag = await withState(propertyId, {});   // { state } of the property: every record below carries it
   const b = writeBatch(db);
   let nextChanged = r.totals.payout < 0;
   // A Brought Forward line made earlier (from Finance's statement for this month) goes if the PMS payout is no longer negative
@@ -55,22 +58,22 @@ export async function completeStatement({ r, propertyId, month, me, unitIds, don
     }
   b.set(doc(db, 'payoutHistory', id), { propertyId, unitId: r.unitId, unitCode: r.unitCode, month, year: month.slice(0, 4),
     source: 'pms', totalIncome: r.totals.totalReceivable, charges: r2(r.totals.totalReceivable - r.totals.payout), payout: r.totals.payout, fixed: r.fixed, remark: '',
-    fileName: null, importedBy: me.user.uid, importedByName: me.name, importedAt: serverTimestamp() });
+    fileName: null, importedBy: me.user.uid, importedByName: me.name, importedAt: serverTimestamp(), ...tag });
   // The old revision was saved when the unit was reopened (the rules check it exists before allowing the new revision)
   b.set(doc(db, 'statements', id), { ...r, status: 'completed', revision: (prev?.revision || 0) + 1,
     ...(again ? { overrideReason: reason } : {}),
     ...(approval ? { sentBy: approval.submittedBy || null, sentByName: approval.submittedByName || '', sentAt: approval.submittedAt || null } : {}),
     completedBy: me.user.uid, completedByName: me.name, completedAt: serverTimestamp(),
     // Owner payment (Finance > Invoices & Receipts): waits for Finance to pay; nothing to pay when the payout is zero or negative
-    paymentStatus: r.totals.payout > 0.004 ? 'pending' : 'none' });
+    paymentStatus: r.totals.payout > 0.004 ? 'pending' : 'none', ...tag });
   if (r.totals.payout < 0 && nextFrozen) throw new Error(`${r.unitCode} is sent to the Director for ${monthName(next)}, so its negative balance can't carry forward yet. Approve or send back ${monthName(next)} first.`);
   if (r.totals.payout < 0)   // ARR-18: negative balance carried forward automatically
     b.set(doc(db, 'expenses', `bf_${r.unitId}_${next}`), { propertyId, unitId: r.unitId, date: `${next}-01`, month: next,
       kind: 'broughtForward', type: 'broughtForward', description: `Brought forward from ${monthName(month)}`, amount: r2(-r.totals.payout),
       auto: true, sourceStatementId: id, sourceMonth: month, files: [], deleted: false,
-      createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
+      createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp(), ...tag });
   const monthDoc = monthSummaryDoc({ propertyId, month, unitIds, doneIds: new Set([...doneIds, r.unitId]), summary, me });
-  b.set(doc(db, 'months', `${propertyId}_${month}`), monthDoc, { merge: true });
+  b.set(doc(db, 'months', `${propertyId}_${month}`), { ...monthDoc, ...tag }, { merge: true });
   // The unit's summary now comes from the completed statement; the next month's changes with its brought-forward line
   markDirty(b, propertyId, month, [r.unitId]);
   if (nextChanged) markDirty(b, propertyId, next, [r.unitId]);

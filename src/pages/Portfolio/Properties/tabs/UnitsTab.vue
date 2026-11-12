@@ -19,7 +19,7 @@
       <div class="table-wrap">
         <table class="table">
           <thead v-if="acc.viewOnly"><tr><th>Unit</th><th>Owner</th><th>Type</th><th class="num">Bedrooms</th><th class="num">Bathrooms</th><th class="num">Size (sq ft)</th></tr></thead>
-          <thead v-else><tr><th>Unit</th><th>Arrangement</th><th>Fixed rent</th><th class="num">Monthly amount (RM)</th><th>Effective from</th><th>Last changed</th><th></th></tr></thead>
+          <thead v-else><tr><th>Unit</th><th>Arrangement</th><th>Fixed rent</th><th class="num">Monthly amount (RM)</th><th class="num">Purchase price (RM)</th><th>Effective from</th><th>Last changed</th><th></th></tr></thead>
           <tbody>
             <template v-for="row in pageRows" :key="row.id">
               <tr v-if="acc.viewOnly" :class="{ clickable: acc.canEdit }" @click="acc.canEdit && $emit('open', row)">
@@ -33,8 +33,9 @@
               <tr class="clickable" :class="{ future: futureOf(row) }" @click="$emit('open', row)" v-else>
                 <td class="strong">{{ row.unitCode }}</td>
                 <td><span v-show="row.terms">{{ arrLabel(row.terms?.arrangement) }}</span><span class="pill amber" v-show="!row.terms">Not set up</span></td>
-                <td><span class="toggle" :class="{ on: row.terms?.arrangement === 'fixedRent' }" role="img" :aria-label="row.terms?.arrangement === 'fixedRent' ? 'Fixed rent on' : 'Fixed rent off'"></span></td>
-                <td class="num">{{ row.terms?.arrangement === 'fixedRent' ? amt(row.terms.fixedRentAmount) : '—' }}</td>
+                <td><span class="toggle" :class="{ on: isFixedTerms(row.terms) }" role="img" :aria-label="isFixedTerms(row.terms) ? 'Fixed rent on' : 'Fixed rent off'"></span></td>
+                <td class="num">{{ isFixedTerms(row.terms) ? amt(row.terms.fixedRentAmount) : '—' }}</td>
+                <td class="num">{{ row.purchasePrice != null && row.purchasePrice !== '' ? amt(row.purchasePrice) : '—' }}</td>
                 <td>{{ row.terms ? shortName(row.terms.effectiveFrom === '2000-01' ? asOf : row.terms.effectiveFrom) : '—' }}</td>
                 <td>
                   <span>{{ lastChanged(row) }}</span>
@@ -43,12 +44,13 @@
                 <td class="num"><button class="editlink" @click.stop="$emit('open', row)">Edit ›</button></td>
               </tr>
             </template>
-            <tr v-show="!loading && !shown.length"><td :colspan="acc.viewOnly ? 6 : 7" class="muted">No units match.</td></tr>
+            <SkeletonRows v-if="loading && !shown.length" table :cols="acc.viewOnly ? 6 : 8" />
+            <tr v-show="!loading && !shown.length"><td :colspan="acc.viewOnly ? 6 : 8" class="muted">No units match.</td></tr>
           </tbody>
         </table>
       </div>
       </Paged>
-      <div class="card-foot"><span>{{ acc.viewOnly ? `Showing ${shown.length} of ${units.length} units` : `Showing ${shown.length} of ${units.length} units · ${units.filter(x => x.terms?.arrangement === 'fixedRent').length} on fixed rent · RM ${amt(fixedTotal)} a month` }}</span></div>
+      <div class="card-foot"><span>{{ acc.viewOnly ? `Showing ${shown.length} of ${units.length} units` : `Showing ${shown.length} of ${units.length} units · ${units.filter(x => isFixedTerms(x.terms)).length} on fixed rent · RM ${amt(fixedTotal)} a month` }}</span></div>
     </section>
 
     <section class="card" style="margin-top:20px" v-if="!acc.viewOnly">
@@ -78,7 +80,7 @@
 // A property's Units tab: the units table with search and arrangement filters, and the unit settings audit log.
 // Clicking a unit asks the page to open the unit drawer.
 import { amt, monthName, stamp } from '@/lib/format.js';
-import { UNIT_FILTERS, matchArrangement, arrLabel, shortName, dateOnly, prevMonth, msOf, changeList, ownerLabel } from '@/lib/portfolio-data.js';
+import { UNIT_FILTERS, matchArrangement, arrLabel, isFixedTerms, shortName, dateOnly, prevMonth, msOf, changeList, ownerLabel } from '@/lib/portfolio-data.js';
 
 export default {
   props: {
@@ -98,7 +100,7 @@ export default {
   data() { return { UNIT_FILTERS, search: '' }; },
   computed: {
     notSetUp() { return this.units.filter(x => !x.terms).length; },
-    fixedTotal() { return this.units.filter(x => x.terms?.arrangement === 'fixedRent').reduce((s, x) => s + (Number(x.terms.fixedRentAmount) || 0), 0); },
+    fixedTotal() { return this.units.filter(x => isFixedTerms(x.terms)).reduce((s, x) => s + (Number(x.terms.fixedRentAmount) || 0), 0); },
     shown() {
       const q = this.search.trim().toLowerCase();
       return this.units.filter(x => matchArrangement(x, this.filter) && (!q || x.unitCode.toLowerCase().includes(q) || this.labelOf(x.ownerId).toLowerCase().includes(q)));
@@ -106,7 +108,7 @@ export default {
     unitAudits() { return this.audits.filter(x => /^unit/.test(x.action || '')); }
   },
   methods: {
-    amt, monthName, stamp, arrLabel, shortName, changeList, matchArrangement,
+    amt, monthName, stamp, arrLabel, shortName, changeList, matchArrangement, isFixedTerms,
     labelOf(id) { return ownerLabel(this.owners, id, this.acc.viewOnly); },
     unitCodeOf(e) { const id = (e || '').split('/')[1]; return this.units.find(x => x.id === id)?.unitCode || '—'; },
     newest(row) { return [...(row.termHistory || [])].sort((a, b) => msOf(b.createdAt) - msOf(a.createdAt))[0]; },
@@ -116,7 +118,7 @@ export default {
       const f = this.futureOf(row); if (!f) return '';
       const now = row.terms;
       const from = `${arrLabel(f.arrangement)}${f.fixedRentAmount ? ' RM ' + amt(f.fixedRentAmount) : ''} from ${shortName(f.effectiveFrom)}`;
-      return now?.arrangement === 'fixedRent' ? `RM ${amt(now.fixedRentAmount)} until ${shortName(prevMonth(f.effectiveFrom))} · then ${from}` : `Changes to ${from}`;
+      return isFixedTerms(now) ? `RM ${amt(now.fixedRentAmount)} until ${shortName(prevMonth(f.effectiveFrom))} · then ${from}` : `Changes to ${from}`;
     }
   }
 };

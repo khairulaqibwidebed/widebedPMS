@@ -58,7 +58,7 @@
           <h3>Stay</h3>
           <div class="grid-fields">
             <div class="field"><label class="req" for="bProp">Property</label>
-              <OptionPicker class="fld-pick" v-model="bk.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList()" /></div>
+              <PropertyPicker block picker-class="fld-pick" v-model="bk.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="loadUnitList()" /></div>
             <div class="field"><label class="req" for="bUnit">Unit</label>
               <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="[{ value: '', label: bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }, ...units.map(x => ({ value: x.id, label: x.unitCode || x.id }))]" label="Unit" searchable /></div>
             <FormField id="bIn" label="Check-in" req type="date" v-model="bk.arrival" />
@@ -161,7 +161,10 @@
 import { collection, doc, getDoc, getDocs, query, where, runTransaction, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
+import { stateFor } from '@/lib/states.js';
+import { linkTenant } from '@/lib/portfolio-data.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import FormField from '@/components/FormField.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import StepStrip from '@/components/StepStrip.vue';
@@ -195,7 +198,7 @@ const STEP_OF = [[/tenant|phone|email|IC or passport|gender/i, 0], [/property an
   [/amount paid|mode of payment|purpose|receipt/, 3], [/passcode/, 4]];
 
 export default {
-  components: { OptionPicker, DriveFiles, FormField, StepStrip, FormSaved },
+  components: { PropertyPicker, OptionPicker, DriveFiles, FormField, StepStrip, FormSaved },
   props: { leadId: { type: String, default: '' } },
   emits: ['dirty'],
   data() {
@@ -446,12 +449,12 @@ export default {
     async findClash(b) {
       try {
         const hit = x => x.status !== 'cancelled' && (x.arrival || '') < b.departure && (x.departure || '9999') > b.arrival;
-        const offs = await getDocs(query(collection(db, 'offlineBookings'), where('unitId', '==', b.unitId)));
+        const offs = await getDocs(query(collection(db, 'offlineBookings'), where('propertyId', '==', b.propertyId), where('unitId', '==', b.unitId)));
         for (const d of offs.docs) if (hit(d.data())) return { no: d.data().bookingNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
         const months = []; let y = +b.arrival.slice(0, 4), m = +b.arrival.slice(5, 7);
         const endKey = b.departure.slice(0, 7);
         for (let i = 0; i < 29; i++) { const k = `${y}-${String(m).padStart(2, '0')}`; months.push(k); if (k >= endKey) { m++; if (m > 12) { m = 1; y++; } months.push(`${y}-${String(m).padStart(2, '0')}`); break; } m++; if (m > 12) { m = 1; y++; } }
-        const ez = await getDocs(query(collection(db, 'bookings'), where('unitId', '==', b.unitId), where('departureMonth', 'in', months.slice(0, 30))));
+        const ez = await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', b.propertyId), where('unitId', '==', b.unitId), where('departureMonth', 'in', months.slice(0, 30))));
         for (const d of ez.docs) if (hit(d.data())) return { no: d.data().reservationNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
       } catch (e) { console.warn('Could not check for clashing bookings:', e.code || e.message); }
       return null;
@@ -488,6 +491,8 @@ export default {
           icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name),
           dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
         const coIds = await this.saveCoTenants();
+        // The booking and its payment carry the property's state; the tenant collects the states they stayed in
+        const st = await stateFor(b.propertyId), tag = st ? { state: st } : {}, tStates = st ? { states: arrayUnion(st) } : {};
         const known = this.lead.tenantId ? this.tenant : await findTenant(b.phone);
         const bookingId = `offline_${ld.id}`, unitCode = unit?.unitCode || await this.unitCodeOf(b.unitId);
         const lRef = doc(db, 'offlineInquiries', ld.id), bRef = doc(db, 'offlineBookings', bookingId), cRef = doc(db, 'counters', 'tenants');
@@ -505,28 +510,28 @@ export default {
             if ((await tx.get(doc(db, 'tenants', tenantId))).exists()) throw stop(`${tenantId} already exists. Ask a Director to check counters/tenants.`);
           }
           const tRef = doc(db, 'tenants', tenantId);
-          if (known) tx.update(tRef, { status: 'active', lastInquiryId: ld.id, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+          if (known) tx.update(tRef, { status: 'active', lastInquiryId: ld.id, ...tStates, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
           else {
             tx.set(cRef, { next: n + 1 });
-            tx.set(tRef, { status: 'active', firstInquiryId: ld.id, lastInquiryId: ld.id, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+            tx.set(tRef, { status: 'active', firstInquiryId: ld.id, lastInquiryId: ld.id, ...tStates, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           }
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
           tx.set(lcRef, { next: ln + 1 });
           tx.set(bRef, { source: 'offline', inquiryId: ld.id, bookingNo, tenantId,
-            propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
+            propertyId: b.propertyId, ...tag, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
             monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
             ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
-          if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), this.payRecord(prop, unitCode, bookingId, bookingNo));
+          if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), { ...this.payRecord(prop, unitCode, bookingId, bookingNo), ...tag });
           const h = this.entry(`Paid and booked: ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. `
             + `${!known ? `Saved as new tenant ${details.name} (${tenantId}).` : `Added to existing tenant ${details.name} (${tenantId}).`}${b.note.trim() ? ' ' + b.note.trim() : ''}`);
           tx.update(lRef, { status: 'booked', tenantId, bookingId, updatedAt: serverTimestamp(), history: arrayUnion(h) });
           tx.set(doc(lRef, 'private', 'main'), { contactName: details.name, phone: details.phone, phoneKey: details.phoneKey, email: details.email }, { merge: true });
           audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
             changes: [{ field: 'status', old: ld.status, new: 'booked' }, { field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
-          return { isNew: !known, bookingNo };
+          return { isNew: !known, bookingNo, tenantId };
         });
 
         this.okMsg = `${ld.id} booked as ${res.bookingNo}. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`}`;
@@ -549,6 +554,7 @@ export default {
           link: `/Operations/offline-inquiries?id=${ld.id}`
         });
 
+        linkTenant(res.tenantId, b.propertyId);   // tenant.propertyIds (data access by property), best effort
         this.savedLink = { property: b.propertyId, id: bookingId };
         this.saved = true; window.scrollTo(0, 0);
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }
@@ -564,6 +570,8 @@ export default {
           icPassport: b.icPassport.trim(), nationality: b.nationality.trim(), searchWords: searchWords(b.name),
           dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
         const coIds = await this.saveCoTenants();
+        // The booking and its payment carry the property's state; the tenant collects the states they stayed in
+        const st = await stateFor(b.propertyId), tag = st ? { state: st } : {}, tStates = st ? { states: arrayUnion(st) } : {};
         const known = await findTenant(b.phone), unitCode = unit?.unitCode || await this.unitCodeOf(b.unitId);
         const bcRef = doc(db, 'counters', 'offlineBookings'), tcRef = doc(db, 'counters', 'tenants');
         const res = await runTransaction(db, async tx => {
@@ -579,24 +587,24 @@ export default {
           }
           const tRef = doc(db, 'tenants', tenantId);
           tx.set(bcRef, { next: bn + 1 });
-          if (known) tx.update(tRef, { status: 'active', lastBookingId: bookingId, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+          if (known) tx.update(tRef, { status: 'active', lastBookingId: bookingId, ...tStates, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
           else {
             tx.set(tcRef, { next: n + 1 });
-            tx.set(tRef, { status: 'active', firstInquiryId: null, lastBookingId: bookingId, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+            tx.set(tRef, { status: 'active', firstInquiryId: null, lastBookingId: bookingId, ...tStates, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           }
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
           tx.set(lcRef, { next: ln + 1 });
           tx.set(bRef, { source: 'direct', inquiryId: null, bookingNo, tenantId,
-            propertyId: b.propertyId, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
+            propertyId: b.propertyId, ...tag, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
             monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
             ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
-          if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), this.payRecord(prop, unitCode, bookingId, bookingNo));
+          if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), { ...this.payRecord(prop, unitCode, bookingId, bookingNo), ...tag });
           audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,
             changes: [{ field: 'tenantId', old: null, new: tenantId }, { field: 'unitId', old: null, new: b.unitId }] });
-          return { isNew: !known, bookingId, bookingNo };
+          return { isNew: !known, bookingId, bookingNo, tenantId };
         });
 
         const okMsg = `${res.bookingNo} saved. ${res.isNew ? `New tenant ${details.name} saved.` : `Added to tenant ${details.name}.`} Key it into eZee to block the room.`;
@@ -609,6 +617,7 @@ export default {
           link: '/Portfolio/bookings'
         });
 
+        linkTenant(res.tenantId, b.propertyId);   // tenant.propertyIds (data access by property), best effort
         this.savedLink = { property: b.propertyId, id: res.bookingId };
         this.okMsg = okMsg; this.saved = true; window.scrollTo(0, 0);
       } catch (e) { this.formError = errText(e, 'save the booking'); window.scrollTo(0, 0); }

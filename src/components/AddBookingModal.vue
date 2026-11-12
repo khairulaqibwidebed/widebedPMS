@@ -31,6 +31,7 @@ import { markDirty } from '@/lib/summary-data.js';
 import { otaKeyOf, r2 } from '@/lib/engine.js';
 import { monthName } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
+import { withState } from '@/lib/states.js';
 import FormField from '@/components/FormField.vue';
 
 const me = useSession();
@@ -72,7 +73,7 @@ export default {
           status: 'active', propertyId: this.propertyId, unitId: this.unitId, unitCode: this.unitCode, manual: true, edits,
           addedByHand: { at: serverTimestamp(), by: me.user.uid, byName: me.name, reason } };
         const b = writeBatch(db);
-        b.set(doc(db, 'bookings', id), data);
+        b.set(doc(db, 'bookings', id), await withState(this.propertyId, data));   // carries its property's state
         audit(b, me, { action: 'booking.add', entity: `bookings/${id}`, propertyId: this.propertyId, month: this.month,
           changes: [{ field: 'booking', old: null, new: `${source} ${a.arrival} to ${a.departure}, owner share ${r2(a.pto)}` }], reason });
         markDirty(b, this.propertyId, this.month, [this.unitId]);

@@ -9,7 +9,7 @@
       </div>
       <div class="head-tools" v-show="!selOpen">
       <span class="pill" v-show="propertyId" :class="completed ? 'green' : (doneCount() ? 'blue' : 'grey')">{{ completed ? 'Completed' : (doneCount() ? `${doneCount()} of ${rows.length} completed` : 'Open') }}</span>
-      <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+      <PropertyPicker v-model="propertyId" :properties="properties" @change="load()" />
       <MonthPicker :ahead="1" v-model="month" @change="load()" />
       <div class="dl-wrap" v-show="propertyId">
         <button class="btn btn-primary" type="button" @click="dlOpen = !dlOpen" :disabled="!rows.length || busy" aria-haspopup="menu" :aria-expanded="String(dlOpen)">Download
@@ -17,8 +17,8 @@
         <div class="dl-back" v-if="dlOpen" @click="dlOpen = false"></div>
         <div class="dl-menu" v-if="dlOpen" role="menu">
           <button role="menuitem" @click="dlOpen = false; downloadXlsx()">Statements (.xlsx)</button>
-          <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent()">Fixed rent summary (.xlsx)</button>
-          <button role="menuitem" v-if="rows.some(r => r.fixed || r.arrangement === 'fixedRent')" @click="dlOpen = false; downloadFixedRent('pdf')">Fixed rent summary (.pdf)</button>
+          <button role="menuitem" v-if="rows.some(r => r.fixed)" @click="dlOpen = false; downloadFixedRent()">Fixed rent summary (.xlsx)</button>
+          <button role="menuitem" v-if="rows.some(r => r.fixed)" @click="dlOpen = false; downloadFixedRent('pdf')">Fixed rent summary (.pdf)</button>
         </div>
       </div>
       </div>
@@ -40,6 +40,29 @@
       <input class="input" type="search" placeholder="Search unit" v-model="search" aria-label="Search unit">
       <OptionPicker v-model="filter" :options="filterOptions" label="Filter" />
     </div>
+
+    <!-- Pool Sharing check: every pool unit needs a purchase price, and units with no bookings are confirmed by hand -->
+    <section class="card pool-check" v-if="!loading && poolRows().some(r => r.status !== 'completed')">
+      <div class="card-head"><h2>Pool Sharing check</h2><span class="help">{{ poolHead() }}</span></div>
+      <div class="pool-box" v-if="poolMissing().length">
+        <b>{{ `Purchase price missing (${poolMissing().length})` }}</b>
+        <span>{{ `${poolMissing().map(r => r.unitCode).join(', ')}. The pot is split by purchase price, so every pool unit needs one.` }}</span>
+        <RouterLink class="navlink" :to="`/Portfolio/properties?property=${propertyId}&ptab=units`">Open the Units tab →</RouterLink>
+      </div>
+      <div class="pool-zero" v-if="poolZeroRows().length">
+        <p class="help" style="margin:0 0 6px">These pool units have no bookings this month. They still get their share. Tick each one to confirm.</p>
+        <template v-for="r in poolZeroRows()" :key="r.unitId">
+          <label class="pool-tick" :class="{ warn: !poolZero[r.unitId] }"><input type="checkbox" :checked="!!poolZero[r.unitId]" :disabled="busy || r.status === 'completed' || !canEditPool()" @change="confirmZero(r, $event.target.checked)">
+            <b>{{ r.unitCode }}</b> Confirmed 0 bookings<span class="help" v-if="poolZero[r.unitId]">{{ ` · ${poolZero[r.unitId].byName || ''}${poolZero[r.unitId].at?.toDate ? ', ' + dmy(poolZero[r.unitId].at.toDate().toISOString().slice(0, 10)) : ''}` }}</span></label>
+        </template>
+      </div>
+      <div class="pool-total" v-if="poolOneOwner()">
+        <b>One owner: totals for the whole property</b>
+        <span>{{ `Pot RM ${amt(poolInfo()?.pot)} · Net Rental # RM ${amt(poolInfo()?.netRental)} · fees RM ${amt(poolRows().reduce((t, r) => t + r.totals.serviceFee + r.totals.utilityFee + r.totals.sstOnFee, 0))} · payout RM ${amt(poolRows().reduce((t, r) => t + r.totals.payout, 0))}` }}</span>
+      </div>
+      <div class="actions pool-actions"><span class="help">{{ `${poolMissing().length} price${poolMissing().length === 1 ? '' : 's'} missing · ${poolUnconfirmed().length} unit${poolUnconfirmed().length === 1 ? '' : 's'} not confirmed` }}</span>
+        <button class="btn btn-primary" :disabled="busy || !!poolMissing().length || !!poolUnconfirmed().length" @click="makePool()">Make pool statements</button></div>
+    </section>
 
     <section class="card" v-show="rows.length || (!loading && propertyId)">
       <div class="card-head"><h2>{{ `Statements · ${monthName(month)} · ${rows.length} units` }}</h2>
@@ -135,7 +158,8 @@
         </div>
         <div class="page-head" style="margin-bottom:16px">
           <div><h1 style="font-size:24px">{{ `${sel.unitCode} · ${monthName(month)}` }}</h1>
-            <div class="sub">{{ sel.arrangementLabel + (sel.fixed ? ` · RM ${amt(sel.rates.fixedRentAmount)} a month` : ` · service ${pct(sel.rates.serviceFeePct)}, utility ${pct(sel.rates.utilityFeePct)}` + (sel.rates.sstOnFeePct ? `, SST on fee ${pct(sel.rates.sstOnFeePct)}` : '')) }}</div></div>
+            <div class="sub">{{ sel.arrangementLabel + (sel.fixed ? ` · RM ${amt(sel.rates.fixedRentAmount)} a month` : ` · service ${pct(sel.rates.serviceFeePct)}, utility ${pct(sel.rates.utilityFeePct)}` + (sel.rates.sstOnFeePct ? `, SST on fee ${pct(sel.rates.sstOnFeePct)}` : '')) }}</div>
+            <div class="sub" v-if="sel.pool">{{ `Pool: pot RM ${amt(sel.pool.pot)} · Net Rental # RM ${amt(sel.pool.netRental)} (${pct(sel.pool.netRentalPct)}) · this unit ${(sel.pool.unitPct * 100).toFixed(3)}% · share RM ${amt(sel.pool.share)}` }}</div></div>
           <div class="head-tools">
             <span class="pill" :class="STATUS[sel.status][1]">{{ STATUS[sel.status][0] }}</span>
             <button class="btn" v-show="!locked(sel)" @click="openSettings(unitById(sel.unitId))">Unit settings</button>
@@ -148,6 +172,7 @@
         <section class="card" style="min-width:0">
           <div>
             <div class="notice warn" v-show="sel.status === 'notSetUp'">This unit isn't set up, so 20% service fee is assumed. Open Unit settings to set its arrangement.</div>
+            <div class="notice warn" v-show="sel.status === 'poolCheck'">Pool Sharing: a purchase price is missing on this property's pool units, so the shares can't be worked out. Add it on the Units tab.</div>
             <div class="card-head"><h2>{{ (sel.fixed ? 'Bookings (kept by Widebed, shown for audit)' : 'Bookings') + ` · ${sel.lines.length}` }}</h2>
               <span class="mb-wrap" v-show="!editing && !removing && !locked(sel)">
                 <button class="btn" @click="menuOpen = !menuOpen" :disabled="busy" aria-haspopup="menu" :aria-expanded="menuOpen" title="Edit, add or remove bookings">Manage bookings &#9662;</button>
@@ -267,17 +292,20 @@
             <div class="field">
               <label for="sArr">Arrangement</label>
               <select class="input" id="sArr" v-model="set.arrangement">
-                <template v-for="(a, k) in ARRANGEMENTS" :key="k"><option :value="k" :selected="k === set.arrangement">{{ a.label }}</option></template>
+                <option value="" disabled :selected="!set.arrangement">Choose an arrangement</option>
+                <template v-for="o in setOptions()" :key="o.value"><option :value="o.value" :selected="o.value === set.arrangement">{{ o.label }}</option></template>
               </select>
+              <span class="help" v-if="setChosen()">{{ FEE_TYPES[setChosen().type]?.explain || '' }}<FormulaInfo :type="setChosen().type" /></span>
+              <span class="help" v-else>Arrangements are set up on Portfolio > the property > Fees & rates.</span>
             </div>
-            <div class="field" v-show="set.arrangement === 'fixedRent'"><label for="sFix">Fixed rent a month (RM)</label><input class="input" id="sFix" type="number" step="0.01" v-model="set.fixedRentAmount"></div>
-            <template v-if="set.arrangement !== 'fixedRent'">
+            <div class="field" v-show="setChosen()?.type === 'fixed'"><label for="sFix">Fixed rent a month (RM)</label><input class="input" id="sFix" type="number" step="0.01" v-model="set.fixedRentAmount"></div>
+            <template v-if="setChosen()">
               <div>
                 <p class="help" style="margin-top:0">Leave a % blank to use the arrangement's normal rate (shown greyed).</p>
                 <div class="grid-fields">
-                  <div class="field"><label>Service fee %</label><input class="input" type="number" step="0.01" v-model="set.serviceFeePct" :placeholder="ARRANGEMENTS[set.arrangement].serviceFeePct * 100"></div>
-                  <div class="field"><label>Utility fee %</label><input class="input" type="number" step="0.01" v-model="set.utilityFeePct" :placeholder="ARRANGEMENTS[set.arrangement].utilityFeePct * 100"></div>
-                  <div class="field"><label>SST on fee %</label><input class="input" type="number" step="0.01" v-model="set.sstOnFeePct" :placeholder="ARRANGEMENTS[set.arrangement].sstOnFeePct * 100"></div>
+                  <div class="field"><label>Service fee %</label><input class="input" type="number" step="0.01" v-model="set.serviceFeePct" :placeholder="pctOut(setChosen().servicePct || 0)"></div>
+                  <div class="field"><label>Utility fee %</label><input class="input" type="number" step="0.01" v-model="set.utilityFeePct" :placeholder="pctOut(setChosen().utilityPct || 0)"></div>
+                  <div class="field"><label>SST on fee %</label><input class="input" type="number" step="0.01" v-model="set.sstOnFeePct" :placeholder="pctOut(setChosen().sstPct || 0)"></div>
                 </div>
               </div>
             </template>
@@ -292,7 +320,7 @@
             <h3 style="margin:0 0 6px;font-size:14px">History</h3>
             <div class="rows">
               <template v-for="h in set.history" :key="h.id">
-                <div class="row"><span>{{ `From ${monthName(h.effectiveFrom)} · ${ARRANGEMENTS[h.arrangement]?.label || h.arrangement}` + (h.fixedRentAmount ? ` RM ${amt(h.fixedRentAmount)}` : '') }}</span><span class="r help">{{ h.createdByName || '' }}</span></div>
+                <div class="row"><span>{{ `From ${monthName(h.effectiveFrom)} · ${setArrangements()[h.arrangement]?.name || arrangementName(h.arrangement)}` + (h.fixedRentAmount ? ` RM ${amt(h.fixedRentAmount)}` : '') }}</span><span class="r help">{{ h.createdByName || '' }}</span></div>
               </template>
               <div class="empty" v-show="!set.history.length">Not set up yet.</div>
             </div>
@@ -315,20 +343,22 @@ import { clearCache } from '@/lib/cache.js';
 import { toast } from '@/lib/toast.js';
 import { completeStatement } from '@/lib/statement-approve.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
-import { otaKeyOf, ARRANGEMENTS, DM_STARTER, paymentSummary, byUnit, nextMonth, r2 } from '@/lib/engine.js';
-import { loadProperties, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, monthSummary } from '@/lib/finance-data.js';
-import { draftRecord, monthEndFromSummaries, ALL_MONTHS } from '@/lib/summaries.js';
+import { otaKeyOf, DM_STARTER, paymentSummary, byUnit, nextMonth, r2, poolShares } from '@/lib/engine.js';
+import { FEE_TYPES, arrangementsOf, arrangementName } from '@/lib/fee-types.js';
+import { loadProperties, loadSetup, loadBookings, loadExpenses, audit, friendlyError, download, loadXlsxLib, statementId, monthSummary, latestVersion } from '@/lib/finance-data.js';
+import { draftRecord, monthEndFromSummaries, fileLines, ALL_MONTHS } from '@/lib/summaries.js';
 import { propertyMonth, readUnit, markDirty, markFrom, canWriteSummaries } from '@/lib/summary-data.js';
 import { rm, amt, pct, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
+import { stateTag } from '@/lib/states.js';
 import { buildStatementXlsx, buildFixedRentXlsx, loadStatementTemplate, FIXED_RENT_TEMPLATE_URL } from '@/lib/statement-xlsx.js';
 import { buildStatementPdf, buildFixedRentPdf, loadPdfKit } from '@/lib/statement-pdf.js';
 
 const me = useSession();
 
 const STATUS = { draft: ['Draft', 'grey'], fixed: ['Fixed rent', 'blue'], negative: ['Negative', 'red'], estimated: ['Estimated', 'amber'],
-  notSetUp: ['Not set up', 'amber'], completed: ['Completed', 'green'] };
+  notSetUp: ['Not set up', 'amber'], poolCheck: ['Pool check', 'amber'], completed: ['Completed', 'green'] };
 let params = new URLSearchParams(location.search);
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SOURCE = { pms: 'Completed in the PMS', finance: "Accounting's statement (Payment To Owner)", summary: "Accounting's statement (unit sheet summary)" };
@@ -340,19 +370,22 @@ const pctOut = v => (v == null ? '' : +(v * 100).toFixed(4));
 const msOf = t => (t?.toMillis ? t.toMillis() : (t?.seconds != null ? t.seconds * 1000 : null));
 
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import AddBookingModal from '@/components/AddBookingModal.vue';
 import RemoveBookingsModal from '@/components/RemoveBookingsModal.vue';
 import RemovedBookings from '@/components/RemovedBookings.vue';
 import StatementLines from '@/components/StatementLines.vue';
 import ConfirmReason from '@/components/ConfirmReason.vue';
+import FormulaInfo from '@/components/FormulaInfo.vue';
 export default {
-  components: { OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines, ConfirmReason },
+  components: { PropertyPicker, OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines, ConfirmReason, FormulaInfo },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
       starterAsk: false,
-      STATUS, ARRANGEMENTS, SHORT, rm, amt, pct, dmy, monthName, nextMonth,
+      STATUS, FEE_TYPES, SHORT, rm, amt, pct, dmy, monthName, nextMonth, pctOut, arrangementName,
+      poolZero: {},   // Pool Sharing: units with 0 bookings confirmed by hand this month { unitId: { by, byName, at } }
       role: me.role,
       properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
@@ -362,7 +395,7 @@ export default {
       loading: true, busy: false, error: '', okMsg: '',
       search: '', filter: 'all',
       filters: [{ key: 'all', label: 'All' }, { key: 'open', label: 'Open' }, { key: 'sent', label: 'Sent to Director' }, { key: 'done', label: 'Completed' }, { key: 'attention', label: 'Needs attention' }, { key: 'negative', label: 'Negative' },
-        { key: 'fixed', label: 'Fixed rent' }, { key: 'share', label: 'Profit share' }],
+        { key: 'fixed', label: 'Fixed rent' }, { key: 'share', label: 'Sharing' }, { key: 'pool', label: 'Pool Sharing' }],
       toast, sel: null, selOpen: false, ctripInput: {}, ctripKind: {}, ctripEdit: null, editing: false, editAsk: false, draft: {}, draft0: {}, editReason: '',
       settingsOpen: false, set: {}, confirming: false, reopening: false, overrideReason: '',
       dlOpen: false, approvals: {}, pulling: false, pullReason: '',
@@ -402,6 +435,7 @@ export default {
         this.prop = { id: this.propertyId, ...(ps.exists() ? ps.data() : {}) };
         const pm = await propertyMonth(this.prop, this.month, { me, canWrite: canWriteSummaries(me), unitSummaries: true });
         this.ums = pm.units; this.unitFull = {}; this.rateVersions = null; this.payHistory = {};
+        this.poolZero = pm.month?.poolZero || {};
         await this.loadApprovals();
         this.compute();
       } catch (e) { this.error = friendlyError(e, 'load the month'); }
@@ -421,6 +455,10 @@ export default {
       for (const r of drafts.filter(r => r.status === 'notSetUp')) c.push({ unitId: r.unitId, text: `${r.unitCode}: not set up (no arrangement)`, label: 'Set up', action: () => this.openSettings(this.unitById(r.unitId)) });
       for (const r of drafts.filter(r => !r.fixed)) for (const no of r.estimatedLines)
         c.push({ unitId: r.unitId, text: `${r.unitCode}: Ctrip ${no} needs the Trip.com amount`, label: 'Open', action: () => this.open(r) });
+      if (this.poolRows().some(r => r.status !== 'completed')) {
+        if (this.poolMissing().length) c.push({ unitId: '__pool', text: `Pool Sharing: purchase price missing for ${this.poolMissing().map(r => r.unitCode).join(', ')}`, label: 'Units tab', action: () => this.$router.push(`/Portfolio/properties?property=${this.propertyId}&ptab=units`) });
+        for (const r of this.poolUnconfirmed()) c.push({ unitId: '__pool', text: `Pool Sharing: ${r.unitCode} has 0 bookings, not confirmed`, label: 'Confirm', action: () => this.confirmZero(r, true) });
+      }
       this.checklist = c;
       this.summary = paymentSummary(this.rows.map(r => ({ fixed: r.fixed, payout: r.totals.payout, totalReceivable: r.totals.totalReceivable })));
       if (this.sel) { const again = this.rows.find(r => r.unitId === this.sel.unitId) && this.fullRecord(this.sel.unitId); if (again) this.sel = again; else this.selOpen = false; }
@@ -431,7 +469,7 @@ export default {
       const um = this.ums.find(u => u.unitId === unitId);
       const d = await readUnit(this.propertyId, this.month, unitId, this.rateVersions, um?.row?.status === 'completed' ? (ref => this.cachedStatement(ref, um)) : null);
       this.rateVersions = d.rateVersions;
-      const ph = await getDocs(query(collection(db, 'payoutHistory'), where('unitId', '==', unitId), where('year', '==', this.month.slice(0, 4))));
+      const ph = await getDocs(query(collection(db, 'payoutHistory'), where('propertyId', '==', this.propertyId), where('unitId', '==', unitId), where('year', '==', this.month.slice(0, 4))));
       ph.docs.forEach(x => { if (x.data().propertyId === this.propertyId) this.payHistory[x.id] = x.data(); });
       this.unitFull[unitId] = d;
       return d;
@@ -451,7 +489,8 @@ export default {
       const d = this.unitFull[unitId];
       if (!d) return null;
       if (d.statement?.status === 'completed') return { ...d.statement, status: 'completed' };
-      return draftRecord({ propertyId: this.propertyId, month: this.month, unitId, unit: d.unit, propertyRates: d.propertyRates, bookings: d.bookings, expenses: d.expenses });
+      const pool = this.ums.find(u => u.unitId === unitId)?.row?.pool || null;   // Pool Sharing: the share needs every pool unit, so it comes from the summary
+      return draftRecord({ propertyId: this.propertyId, month: this.month, unitId, unit: d.unit, propertyRates: d.propertyRates, bookings: d.bookings, expenses: d.expenses, pool });
     },
     // Every row with its booking and expense lines (Download xlsx): the whole month is read, as before.
     async fullRows() {
@@ -467,8 +506,11 @@ export default {
       const active = bookings.filter(b => b.status !== 'cancelled');
       const missing = [];
       for (const b of active) if (b.unitId && !doneIds.has(b.unitId) && !units.some(u => u.id === b.unitId) && !missing.includes(b.unitId)) missing.push(b.unitId);
+      const byU = new Map(); for (const b of bookings) { if (!byU.has(b.unitId)) byU.set(b.unitId, []); byU.get(b.unitId).push(b); }
+      const pools = poolShares({ propertyRates: setup.rates, units: setup.units, bookingsByUnit: byU });   // once, before the unit statements
       const drafts = [...units.map(u => u.id), ...missing].map(id => draftRecord({ propertyId: this.propertyId, month: this.month, unitId: id,
-        unit: units.find(u => u.id === id) || null, propertyRates: setup.rates, bookings: bookings.filter(b => b.unitId === id), expenses: expenses.filter(e => e.unitId === id) })).filter(Boolean);
+        unit: units.find(u => u.id === id) || null, propertyRates: setup.rates, bookings: bookings.filter(b => b.unitId === id), expenses: expenses.filter(e => e.unitId === id),
+        pool: pools.get(id) || null })).filter(Boolean);
       return [...drafts, ...done.map(s => ({ ...s, status: 'completed' }))].sort((a, b) => byUnit(a.unitCode, b.unitCode));
     },
     // ---- Monthly payout summary (like the strip at the bottom of Finance's unit sheets) ----
@@ -503,7 +545,7 @@ export default {
       try {
         const pdf = kind === 'pdf';
         const [X, tpl, nb] = await Promise.all([pdf ? loadPdfKit() : loadXlsxLib(), pdf ? null : loadStatementTemplate(),
-          getDocs(query(collection(db, 'bookings'), where('unitId', '==', s.unitId), where('departureMonth', '==', nextMonth(this.month)))).catch(() => ({ docs: [] }))]);
+          getDocs(query(collection(db, 'bookings'), where('propertyId', '==', this.propertyId), where('unitId', '==', s.unitId), where('departureMonth', '==', nextMonth(this.month)))).catch(() => ({ docs: [] }))]);
         // Next booking: the unit's first stay that checks out next month (eZee upload for that month needed)
         const next = nb.docs.map(d => d.data()).filter(b => b.propertyId === this.propertyId && b.status !== 'cancelled' && b.arrival)
           .sort((a, b) => a.arrival.localeCompare(b.arrival))[0] || null;
@@ -511,8 +553,7 @@ export default {
         for (const m of this.yearMonths()) { const p = this.payoutFor(s, m); if (p) payouts[m] = p.value; }
         const data = {
           unitCode: s.unitCode, month: this.month, rates: s.rates, payout: s.totals.payout, payouts,
-          lines: s.lines.map(l => ({ source: l.source, arrival: l.arrival, departure: l.departure, nights: l.nights, amount: l.pto })),
-          expenses: s.expenseLines.map(e => ({ description: e.description, amount: e.amount })),
+          ...fileLines(s),   // booking and expense lines (Profit and Pool Sharing add their own line)
           nextBooking: next && { arrival: next.arrival, departure: next.departure }
         };
         const bytes = pdf ? await buildStatementPdf(X.lib, X.fontkit, X.fonts, data) : buildStatementXlsx(X, tpl, data);
@@ -530,13 +571,14 @@ export default {
     bookingCount() { return this.rows.reduce((s, r) => s + r.bookingCount, 0); },
     match(r, key) {
       if (key === 'all') return true;
-      if (key === 'attention') return r.status === 'notSetUp' || r.status === 'estimated';
+      if (key === 'attention') return r.status === 'notSetUp' || r.status === 'estimated' || r.status === 'poolCheck';
+      if (key === 'pool') return r.rates?.type === 'pool';
       if (key === 'negative') return r.totals.payout < 0;
       if (key === 'fixed') return r.fixed;
       if (key === 'open') return r.status !== 'completed';
       if (key === 'sent') return r.status !== 'completed' && this.sentState(r) === 'submitted';
       if (key === 'done') return r.status === 'completed';
-      return !r.fixed;
+      return !r.fixed;   // 'share': every sharing type
     },
     shown() {
       const q = this.search.trim().toLowerCase();
@@ -555,14 +597,47 @@ export default {
     doneCount() { return this.rows.filter(r => r.status === 'completed').length; },
     isDone(unitId) { return this.rows.some(r => r.unitId === unitId && r.status === 'completed'); },
     // What holds back this unit's Approve & complete: its own items, plus month-wide ones (nothing uploaded, unknown rooms)
-    blockers(r) { return r && r.status !== 'completed' ? this.checklist.filter(c => !c.unitId || c.unitId === r.unitId) : []; },
+    blockers(r) { return r && r.status !== 'completed' ? this.checklist.filter(c => !c.unitId || c.unitId === r.unitId || (c.unitId === '__pool' && r.rates?.type === 'pool')) : []; },
+    // ---- Pool Sharing (fee type 'pool'): the check before the pool statements ----
+    poolRows() { return this.rows.filter(r => r.rates?.type === 'pool'); },
+    poolInfo() { return this.poolRows().find(r => r.pool)?.pool || null; },
+    poolMissing() { return this.poolRows().filter(r => r.status !== 'completed' && (!r.pool || r.pool.missingPrice)); },
+    poolZeroRows() { return this.poolRows().filter(r => !r.bookingCount); },
+    poolUnconfirmed() { return this.poolZeroRows().filter(r => r.status !== 'completed' && !this.poolZero[r.unitId]); },
+    poolOneOwner() { const o = new Set(this.poolRows().map(r => r.ownerId || '')); return this.poolRows().length > 1 && o.size === 1 && !o.has(''); },
+    poolHead() { const p = this.poolInfo(); return p ? `${this.poolRows().length} units · pot RM ${amt(p.pot)} · Net Rental # ${pct(p.netRentalPct)}` : `${this.poolRows().length} units`; },
+    canEditPool() { return ['director', 'finance'].includes(me.role); },
+    // Tick or untick "Confirmed 0 bookings" (saved on the month document with who and when, and in the audit log)
+    async confirmZero(r, on) {
+      if (!this.canEditPool()) return;
+      this.busy = true; this.error = '';
+      try {
+        const b = writeBatch(db), ref = doc(db, 'months', `${this.propertyId}_${this.month}`);
+        b.set(ref, { propertyId: this.propertyId, month: this.month, ...stateTag(this.propertyId),
+          poolZero: { [r.unitId]: on ? { by: me.user.uid, byName: me.name, at: serverTimestamp() } : deleteField() } }, { merge: true });
+        audit(b, me, { action: on ? 'pool.confirmZero' : 'pool.unconfirmZero', entity: `months/${this.propertyId}_${this.month}`, propertyId: this.propertyId, month: this.month,
+          changes: [{ field: `${r.unitCode} 0 bookings confirmed`, old: on ? 'No' : 'Yes', new: on ? 'Yes' : 'No' }], reason: 'Pool Sharing check' });
+        await b.commit();
+        const next = { ...this.poolZero };
+        if (on) next[r.unitId] = { by: me.user.uid, byName: me.name, at: null }; else delete next[r.unitId];
+        this.poolZero = next;
+        this.compute();
+      } catch (e) { this.error = friendlyError(e, 'save the confirmation'); }
+      this.busy = false;
+    },
+    // Both checks clear: show the pool units' statements (they are worked out by themselves; each is then sent as usual)
+    makePool() {
+      if (this.poolMissing().length || this.poolUnconfirmed().length) return;
+      this.okMsg = `Pool statements made for ${this.poolRows().length} units. Open each one, then send it to the Director.`;
+      this.kpiGo('pool');
+    },
     // A unit completed before and reopened: completing it again is a new revision (Director Override)
     reopened(r) { return !!r && this.ums.some(u => u.unitId === r.unitId && u.statement?.status === 'reopened'); },
     // A unit's statement for another month is completed (one read)
     async doneIn(unitId, month) { const s = await getDoc(doc(db, 'statements', statementId(unitId, month))); return s.exists() && s.data().status === 'completed'; },
     // This unit's expense lines for another month (the brought-forward line lives there)
     async unitExpenses(unitId, month) {
-      const snap = await getDocs(query(collection(db, 'expenses'), where('unitId', '==', unitId), where('month', '==', month)));
+      const snap = await getDocs(query(collection(db, 'expenses'), where('propertyId', '==', this.propertyId), where('unitId', '==', unitId), where('month', '==', month)));
       return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.propertyId === this.propertyId);
     },
 
@@ -653,7 +728,7 @@ export default {
       const bk = this.unitFull[unitId]?.bookings || [];
       let movedOut = [];
       try {
-        const snap = await getDocs(query(collection(db, 'bookings'), where('movedByHand.fromUnitId', '==', unitId), where('departureMonth', '==', this.month)));
+        const snap = await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', this.propertyId), where('movedByHand.fromUnitId', '==', unitId), where('departureMonth', '==', this.month)));
         movedOut = snap.docs.map(d => ({ reservationNo: d.id, ...d.data() })).filter(b => b.propertyId === this.propertyId && b.status !== 'cancelled' && b.unitId !== unitId)
           .map(b => ({ reservationNo: String(b.reservationNo), to: b.unitCode || null, reason: b.movedByHand?.reason || '' }));
       } catch (e) { console.warn('Moved-out bookings not checked:', e); }
@@ -744,33 +819,42 @@ export default {
     async openSettings(u) {
       if (this.isDone(u.id) || this.sentState({ unitId: u.id }) === 'submitted') return;   // a completed or sent unit's settings for this month are read-only
       if (u.missing) { try { await this.loadUnitFull(u.id); } catch (e) { this.error = friendlyError(e, 'open the unit settings'); return; } u = this.unitById(u.id); }
+      if (!this.rateVersions) { try { await this.loadUnitFull(u.id); } catch (e) { this.error = friendlyError(e, 'open the unit settings'); return; } }
       const t = u.terms || {};
-      this.set = { unitId: u.id, unitCode: u.unitCode, arrangement: t.arrangement || 'profitShare20', fixedRentAmount: t.fixedRentAmount ?? '',
+      this.set = { unitId: u.id, unitCode: u.unitCode, arrangement: t.arrangement || '', fixedRentAmount: t.fixedRentAmount ?? '',
         serviceFeePct: pctOut(t.serviceFeePct), utilityFeePct: pctOut(t.utilityFeePct), sstOnFeePct: pctOut(t.sstOnFeePct),
         effectiveFrom: this.month, reason: '', error: '',
         history: [...(u.termHistory || [])].sort((a, b) => (b.effectiveFrom || '').localeCompare(a.effectiveFrom || '')) };
       this.settingsOpen = true;
     },
+    // The property's arrangements for the month the settings apply from (Fees & rates)
+    setArrangements() { return arrangementsOf(latestVersion(this.rateVersions || [], this.set.effectiveFrom || this.month)); },
+    setOptions() {
+      return Object.entries(this.setArrangements()).sort((a, b) => String(a[1].name).localeCompare(String(b[1].name)))
+        .map(([k, a]) => { const t = FEE_TYPES[a.type]?.label || a.type; return { value: k, label: a.name === t ? a.name : `${a.name} · ${t}` }; });
+    },
+    setChosen() { return this.set.arrangement ? this.setArrangements()[this.set.arrangement] || null : null; },
     termsDoc(arrangement, extra = {}) {
       return { arrangement, fixedRentAmount: null, serviceFeePct: null, utilityFeePct: null, sstOnFeePct: null, otaOverrides: null,
         createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp(), ...extra };
     },
     async saveSettings() {
       const s = this.set; s.error = '';
-      if (s.arrangement === 'fixedRent' && !(Number(s.fixedRentAmount) > 0)) return s.error = 'Enter the fixed rent amount.';
+      if (!this.setChosen()) return s.error = 'Choose an arrangement.';
+      const fixed = this.setChosen().type === 'fixed';
+      if (fixed && !(Number(s.fixedRentAmount) > 0)) return s.error = 'Enter the fixed rent amount.';
       if (!s.reason.trim()) return s.error = 'Add a short reason. It goes in the audit log.';
-      const fixed = s.arrangement === 'fixedRent';
       const data = this.termsDoc(s.arrangement, {
         effectiveFrom: s.effectiveFrom, reason: s.reason.trim(),
         fixedRentAmount: fixed ? Math.round(Number(s.fixedRentAmount) * 100) / 100 : null,
-        serviceFeePct: fixed ? null : pctIn(s.serviceFeePct), utilityFeePct: fixed ? null : pctIn(s.utilityFeePct), sstOnFeePct: fixed ? null : pctIn(s.sstOnFeePct)
+        serviceFeePct: pctIn(s.serviceFeePct), utilityFeePct: pctIn(s.utilityFeePct), sstOnFeePct: pctIn(s.sstOnFeePct)
       });
       this.busy = true;
       try {
         const b = writeBatch(db);
         // A unit seen only in bookings gets its unit record now
         if (!this.unitFull[s.unitId]?.unit) {
-          b.set(doc(db, 'units', s.unitId), { propertyId: this.propertyId, unitCode: s.unitCode, ezeeRoomMatch: s.unitCode, aliases: [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+          b.set(doc(db, 'units', s.unitId), { propertyId: this.propertyId, ...stateTag(this.propertyId), unitCode: s.unitCode, ezeeRoomMatch: s.unitCode, aliases: [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
           markFrom(b, this.propertyId, ALL_MONTHS, s.unitId);
         }
         b.set(doc(db, 'units', s.unitId, 'terms', `${s.effectiveFrom}_${Date.now()}`), data);
@@ -847,7 +931,7 @@ export default {
     async sendToDirector(r) {
       const id = statementId(r.unitId, this.month), old = this.approvals[r.unitId];
       const b = writeBatch(db);
-      const data = { propertyId: this.propertyId, unitId: r.unitId, unitCode: r.unitCode, month: this.month, status: 'submitted', snapshot: JSON.parse(JSON.stringify(r)), handChanges: await this.handChangesOf(r.unitId),
+      const data = { propertyId: this.propertyId, ...stateTag(this.propertyId), unitId: r.unitId, unitCode: r.unitCode, month: this.month, status: 'submitted', snapshot: JSON.parse(JSON.stringify(r)), handChanges: await this.handChangesOf(r.unitId),
         payout: r.totals.payout, submittedBy: me.user.uid, submittedByName: me.name, submittedAt: serverTimestamp(), again: this.reopened(r),
         returnReason: null, returnedBy: null, returnedByName: '', withdrawReason: null };
       if (old) b.update(doc(db, 'approvals', id), data); else b.set(doc(db, 'approvals', id), data);
@@ -899,7 +983,7 @@ export default {
         markDirty(b, this.propertyId, this.month, [r.unitId]);
         if (bf.length) markDirty(b, this.propertyId, next, [r.unitId]);
         const doneIds = new Set(this.rows.filter(x => x.status === 'completed' && x.unitId !== r.unitId).map(x => x.unitId));
-        b.set(doc(db, 'months', `${this.propertyId}_${this.month}`), { ...this.monthSummaryDoc(doneIds), reopenedBy: me.user.uid, reopenedByName: me.name, reopenedAt: serverTimestamp() }, { merge: true });
+        b.set(doc(db, 'months', `${this.propertyId}_${this.month}`), { ...this.monthSummaryDoc(doneIds), ...stateTag(this.propertyId), reopenedBy: me.user.uid, reopenedByName: me.name, reopenedAt: serverTimestamp() }, { merge: true });
         audit(b, me, { action: 'statement.reopen', entity: `statements/${id}`, propertyId: this.propertyId, month: this.month,
           changes: [{ field: 'status', old: 'completed', new: 'reopened' }], reason });
         await b.commit();
@@ -971,6 +1055,14 @@ export default {
 </script>
 
 <style scoped>
+    .pool-check { margin-bottom: 20px; }
+    .pool-box { display: grid; gap: 4px; padding: 12px 14px; border-radius: 10px; margin-bottom: 12px; font-size: 13px;
+      background: color-mix(in srgb, #f59e0b 12%, var(--surface)); border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--border)); }
+    .pool-zero { display: grid; gap: 6px; margin-bottom: 12px; }
+    .pool-tick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); }
+    .pool-tick.warn { border-color: color-mix(in srgb, #f59e0b 55%, var(--border)); background: color-mix(in srgb, #f59e0b 8%, var(--surface)); }
+    .pool-total { display: grid; gap: 4px; font-size: 13px; padding: 10px 14px; border-radius: 10px; background: var(--hover); margin-bottom: 12px; }
+    .pool-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
     .starter-btn { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
     .starter-btn:hover { background: var(--accent-soft); }
     .starter-strip { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: -4px 0 10px; padding: 8px 10px 8px 12px;

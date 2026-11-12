@@ -14,7 +14,7 @@
 
     <section class="card" style="margin-bottom:20px">
       <div class="card-head"><h2>What to report</h2>
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="changeProperty()" /></div>
+        <PropertyPicker v-model="propertyId" :properties="properties" @change="changeProperty()" /></div>
       <div class="seg" style="max-width:420px" role="tablist" aria-label="Report type">
         <button type="button" :class="{ on: kind === 'property' }" @click="kind = 'property'; run()">Property report</button>
         <button type="button" :class="{ on: kind === 'unit' }" @click="kind = 'unit'; run()">Unit report</button>
@@ -68,7 +68,7 @@
             <template v-for="(row, i) in pageRows" :key="i">
               <tr>
                 <td class="unitcell"><b>{{ kind === 'property' ? row.unitCode : row.label }}</b>
-                  <small>{{ kind === 'property' ? row.arrangements.map(a => ARR[a] || 'Not set up').join(', ') : (ARR[row.arrangement] || 'Not set up') }}</small>
+                  <small>{{ kind === 'property' ? row.arrangements.map(a => ARR(a)).join(', ') : (ARR(row.arrangement)) }}</small>
                   <span class="est" v-show="row.estimated"> · Ctrip estimate</span></td>
                 <td class="num">{{ row.bookings }}</td>
                 <td class="num">{{ amt(row.gross) }}</td>
@@ -91,6 +91,7 @@
               <td class="num">{{ amt(report?.total.sst) }}</td>
               <td class="num">{{ amt(report?.total.nett) }}</td>
             </tr>
+            <SkeletonRows v-if="loading && !report?.rows?.length" table :cols="9" />
             <tr v-show="!loading && report && !report.rows.length"><td colspan="9" class="muted">{{ emptyText() }}</td></tr>
           </tbody>
         </table>
@@ -116,8 +117,11 @@
 <script>
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
-import { ARRANGEMENTS, bookingPTO, effectiveRates, byUnit } from '@/lib/engine.js';
+import { bookingPTO, effectiveRates, byUnit } from '@/lib/engine.js';
+import { arrangementName } from '@/lib/fee-types.js';
 import { loadProperties, loadSetup, loadBookings, loadExpenses, friendlyError, download, toCSV, loadXlsxLib } from '@/lib/finance-data.js';
+import { scoped, getScoped } from '@/lib/property-scope.js';
+import { withShared } from '@/lib/shared-rates.js';
 import { amt, dmy, dayOffset } from '@/lib/format.js';
 import { propertyReport, unitReport, monthsToLoad, monthPieces } from '@/lib/reports.js';
 import { useSession } from '@/stores/session.js';
@@ -125,7 +129,8 @@ import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 
 const me = useSession();
 
-const ARR = Object.fromEntries(Object.entries(ARRANGEMENTS).map(([k, v]) => [k, v.label]));
+// Arrangement names (each property's own list, remembered as reports.js reads its rate versions)
+const ARR = arrangementName;
 const QUICK = [{ key: 'thisMonth', label: 'This month' }, { key: 'lastMonth', label: 'Last month' }, { key: 'last3', label: 'Last 3 months' }, { key: 'thisYear', label: 'This year' }, { key: 'lastYear', label: 'Last year' }];
 const pad = n => String(n).padStart(2, '0');
 const lastDay = (y, m) => new Date(y, m, 0).getDate();
@@ -143,8 +148,9 @@ function quickRange(key) {
 }
 
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 export default {
-  components: { OptionPicker },
+  components: { PropertyPicker, OptionPicker },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -174,7 +180,7 @@ export default {
     async dailyExport() {
       this.exporting = true; this.exportNote = ''; this.error = '';
       try {
-        const snap = await getDocs(query(collection(db, 'bookings'), where('departure', '==', this.exportDate)));
+        const snap = await getScoped(scoped(query(collection(db, 'bookings'), where('departure', '==', this.exportDate))));   // my properties only
         const rows = snap.docs.map(d => d.data()).filter(b => b.status !== 'cancelled' && Number(b.nights) < 30);
         const propName = id => this.properties.find(p => p.id === id)?.name || id;
         rows.sort((a, b) => propName(a.propertyId).localeCompare(propName(b.propertyId)) || byUnit(a.unitCode || '', b.unitCode || ''));
@@ -198,7 +204,7 @@ export default {
       this.loading = true; this.error = ''; this.cache = { bookings: {}, expenses: {} };
       try {
         const [setup, rv] = await Promise.all([loadSetup(this.propertyId, '9999-12'), getDocs(collection(db, 'properties', this.propertyId, 'rateVersions'))]);
-        this.units = setup.units; this.rateVersions = rv.docs.map(d => ({ id: d.id, ...d.data() }));
+        this.units = setup.units; this.rateVersions = await withShared(rv.docs.map(d => ({ id: d.id, ...d.data() })));   // with the shared Fees & Rates
         const want = params.get('unit');
         this.unitId = this.units.some(u => u.id === want) ? want : (this.units.some(u => u.id === this.unitId) ? this.unitId : this.units[0]?.id || '');
       } catch (e) { this.error = friendlyError(e, 'load the units'); }
@@ -242,8 +248,8 @@ export default {
       const head = [this.kind === 'property' ? 'Unit' : 'Period', 'Arrangement', 'Bookings', 'Gross Rental (RM)', 'Service Fees (RM)', 'Utility Fees (RM)', 'Expenses (RM)', 'SST %', 'SST (RM)', 'Nett Total for Owner (RM)'];
       const line = (label, arr, r) => [label, arr, r.bookings, r2(r.gross), r2(r.service), r2(r.utility), r2(-r.expenses), this.rates(r), r2(r.sst), r2(r.nett)];
       const rows = this.report.rows.map(r => this.kind === 'property'
-        ? line(r.unitCode, r.arrangements.map(a => ARR[a] || 'Not set up').join(', '), r)
-        : line(r.label, ARR[r.arrangement] || 'Not set up', r));
+        ? line(r.unitCode, r.arrangements.map(a => ARR(a)).join(', '), r)
+        : line(r.label, ARR(r.arrangement), r));
       return {
         meta: [
           [`Widebed · ${this.kind === 'property' ? 'Property report' : 'Unit report'}`],

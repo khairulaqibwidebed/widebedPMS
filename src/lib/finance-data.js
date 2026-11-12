@@ -3,17 +3,40 @@ import { db } from './firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, serverTimestamp }
   from 'firebase/firestore';
 import { byUnit } from './engine.js';
-import { cached, TTL } from './cache.js';
+import { cached, clearCache, TTL } from './cache.js';
 import { noteQuotaError, resetTime } from './quota.js';
+import { rememberStates, knownState } from './states.js';
+import { scoped, getScoped, myProperties } from './property-scope.js';
+import { withShared } from './shared-rates.js';
 
 // Properties and units are kept for a while (lib/cache.js). Whatever page saves one calls clearCache().
-export function loadProperties() {
-  return cached('properties', TTL.long, async () => {
-    const snap = await getDocs(collection(db, 'properties'));
+// Live properties list (6 Nov 2026): a property added, renamed or switched off elsewhere shows without a refresh.
+// Same rows as loadProperties (active only, by name); drops the saved copy so other pages read fresh. Returns stop().
+// listen comes from lib/use-live.js (imported lazily: use-live imports this file for friendlyError).
+export function watchProperties(onRows, onError) {
+  let stop = null, stopped = false, first = true;
+  import('@/lib/use-live.js').then(({ listen }) => {
+    if (stopped) return;
+    stop = listen(scoped(collection(db, 'properties'), '__id'), rows => {   // only my properties (lib/property-scope.js)
+      if (!first) clearCache('properties'); first = false;
+      rememberStates(rows);   // records saved from now on carry their property's state (lib/states.js)
+      onRows(rows.filter(p => p.active !== false).sort((a, b) => a.name.localeCompare(b.name)));
+    }, { onError });
+  });
+  return () => { stopped = true; stop?.(); };
+}
+// The saved copy is per person: someone with other properties on the same browser never sees this list
+const propertiesKey = () => `properties:${(myProperties() || ['all']).join(',')}`;
+export async function loadProperties() {
+  // Only my properties (users/{uid}.properties, lib/property-scope.js); Directors read them all
+  const list = await cached(propertiesKey(), TTL.long, async () => {
+    const snap = await getScoped(scoped(collection(db, 'properties'), '__id'));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .filter(p => p.active !== false)
       .sort((a, b) => a.name.localeCompare(b.name));
   });
+  rememberStates(list);   // records saved from now on carry their property's state (lib/states.js)
+  return list;
 }
 
 // Latest version whose effectiveFrom is on or before the month. Several versions in the same
@@ -43,7 +66,8 @@ export async function loadSetup(propertyId, month) {
     u.termHistory = termSnaps[i].docs.map(d => ({ id: d.id, ...d.data() }));
     u.terms = latestVersion(u.termHistory, month);
   });
-  const rates = latestVersion(rateSnap.docs.map(d => ({ id: d.id, ...d.data() })), month);
+  // The property's rate versions with the shared Fees & Rates worked in (lib/shared-rates.js, 12 Nov 2026)
+  const rates = latestVersion(await withShared(rateSnap.docs.map(d => ({ id: d.id, ...d.data() }))), month);
   return { units, rates };
 }
 
@@ -86,7 +110,8 @@ export async function loadBookings(propertyId, month) {
 export function audit(batch, me, { action, entity, propertyId = null, month = null, changes = [], reason = '' }) {
   batch.set(doc(collection(db, 'auditLog')), {
     at: serverTimestamp(), uid: me.user.uid, userName: me.name, role: me.role,
-    action, entity, propertyId, month, changes, reason
+    action, entity, propertyId, month, changes, reason,
+    ...(knownState(propertyId) ? { state: knownState(propertyId) } : {})   // staff later see the lines of their own states
   });
 }
 

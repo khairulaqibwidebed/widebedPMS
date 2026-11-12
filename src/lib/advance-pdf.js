@@ -1,105 +1,134 @@
-// Salary Advance Form PDF (5 Nov 2026). A4, drawn with pdf-lib like the owner statements (lib/statement-pdf.js, same fonts).
-// f = advances/{id}/form/main, frozen at approval (pages/HR/advances.js). The staff member signs the printed copy themselves.
+// Salary Advance Form PDF. Since 11 Nov 2026 it is HR's own "Advance Request Form" (Docs/Advance Form.docx, saved once
+// as PDF with Word into public/templates/advance-form.pdf). The PMS writes the details onto its blank lines with pdf-lib,
+// filled the way HR fills it by hand (their example, 15 Oct 2026): plain black text, names in capitals on the lines,
+// and the "For Human Resources use only" part filled too, with HR's "Amount of deduction" text in the box.
+// If HR changes the Word file: save it as PDF over that file, then check the positions in AT below still sit on the lines.
+// f = advances/{id}/form/main, frozen when HR reviews (pages/HR/advances.js).
 import { loadPdfKit } from './statement-pdf.js';
 
-const W = 595.28, H = 841.89, L = 56, R = W - 56;
-const COMPANY = 'Widebed Sdn. Bhd.';
-const ADDRESS = ['Unit 01-01, First Floor, Micasa Shoppes, 368-A, Jalan Tun Razak', '50400 Kuala Lumpur  ·  Tel : 03-2181 3455'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const TEMPLATE_URL = '/templates/advance-form.pdf';
+const FULL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const money = v => 'RM ' + (Math.round((Number(v) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const dateText = iso => (iso ? `${+iso.slice(8, 10)} ${MONTHS[+iso.slice(5, 7) - 1]} ${iso.slice(0, 4)}` : '');
-const tsText = t => { const d = t?.toDate ? t.toDate() : null; return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : ''; };
+const toDate = v => (v?.toDate ? v.toDate() : v instanceof Date ? v : typeof v === 'string' && v ? new Date(`${v.slice(0, 10)}T00:00:00`) : null);
+const longDate = v => { const d = toDate(v); return d ? `${d.getDate()} ${FULL_MONTHS[d.getMonth()]} ${d.getFullYear()}` : ''; };      // 15 October 2026
+const shortDate = v => { const d = toDate(v); return d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : ''; }; // 15/10/2026
+const caps = s => String(s || '').trim().toUpperCase();
 
-// staffSig = advances/{id}/signed/main when the staff member signed on screen (method 'drawn'): printed in their box.
+// Where things go on the template (US Letter, 612 x 792 pt, y from the BOTTOM as in PDF). Measured from the PDF;
+// x0/x1 = the underscores of each line, y = the label's baseline.
+const AT = {
+  valueX: 130,                                   // after the "DATE :" / "NAME :" colons
+  date: 646.8, name: 626.6, dept: 606.6, ic: 586.4,
+  reason: { x: 52, w: 494, lines: [533.4, 513.2, 493.0] },
+  amount: { x: 198, y: 453.6 },
+  submitted: { x0: 121, x1: 237, y: 423.7, dateX: 451 },
+  approved: { x0: 122, x1: 239, y: 403.5, dateX: 451 },
+  received: { x: 130, y: 318.9 },
+  records: { x: 131, w: 185, y: 298.7, dateX: 456 },
+  deduction: { x: 72, w: 466, top: 224, bottom: 136, size: 10 },
+  by: { x: 81, w: 200, y: 121.7, dateX: 467 },
+  ref: { x: 50, y: 38.5 }
+};
+
+let tpl = null;
+async function loadTemplate() {
+  tpl ||= fetch(TEMPLATE_URL).then(async res => {
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // A missing file comes back as the app's page, not a PDF
+    if (!res.ok || String.fromCharCode(...bytes.slice(0, 4)) !== '%PDF') throw new Error('The Advance Request Form template is missing. Restart the app and try again.');
+    return bytes;
+  }).catch(e => { tpl = null; throw e; });
+  return tpl;
+}
+
+// staffSig = advances/{id}/signed/main when the staff member signed on screen (method 'drawn'): printed on "Submitted by".
 export async function buildAdvancePdf(f, staffSig = null) {
-  const { lib, fontkit, fonts: bytes } = await loadPdfKit();
-  const pdf = await lib.PDFDocument.create();
+  const [{ lib, fontkit, fonts: bytes }, tplBytes] = await Promise.all([loadPdfKit(), loadTemplate()]);
+  const pdf = await lib.PDFDocument.load(tplBytes);
   pdf.registerFontkit(fontkit);
-  const reg = await pdf.embedFont(bytes.regular, { subset: true }), bold = await pdf.embedFont(bytes.bold, { subset: true });
-  pdf.setTitle(`Salary Advance Form ${f.ref}`); pdf.setAuthor('Widebed PMS'); pdf.setCreator('Widebed PMS'); pdf.setProducer('Widebed PMS');
-  const page = pdf.addPage([W, H]);
-  const black = lib.rgb(0, 0, 0), grey = lib.rgb(0.4, 0.4, 0.4), line = lib.rgb(0.75, 0.75, 0.75);
-  const width = (s, size, b) => (b ? bold : reg).widthOfTextAtSize(String(s), size);
-  // y from the top of the page, text by its baseline
-  const text = (s, x, y, { size = 10.5, b = false, align = 'left', color = black } = {}) => {
+  const reg = await pdf.embedFont(bytes.regular, { subset: true });
+  pdf.setTitle(`Advance Request Form ${f.ref}`); pdf.setAuthor('Widebed PMS'); pdf.setCreator('Widebed PMS'); pdf.setProducer('Widebed PMS');
+  const page = pdf.getPage(0);
+  const black = lib.rgb(0, 0, 0), grey = lib.rgb(0.45, 0.45, 0.45);
+  const width = (s, size) => reg.widthOfTextAtSize(String(s), size);
+  const text = (s, x, y, { size = 10.5, color = black } = {}) => {
     s = String(s ?? ''); if (!s) return;
-    const w = width(s, size, b), x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
-    page.drawText(s, { x: x0, y: H - y, size, font: b ? bold : reg, color });
+    page.drawText(s, { x, y, size, font: reg, color });
   };
-  const rule = (y, x0 = L, x1 = R, t = 0.6, color = line) => page.drawRectangle({ x: x0, y: H - y - t / 2, width: x1 - x0, height: t, color });
+  // One line that must fit a width: shrinks, never below 7 pt
+  // Returns where the text ends (x), so a signature can start after it
+  const fitText = (s, x, y, w, size = 10.5) => { s = String(s ?? ''); while (size > 7 && width(s, size) > w) size -= 0.5; text(s, x, y, { size }); return x + (s ? width(s, size) : 0); };
   const wrap = (s, w, size) => {
     const out = [];
     for (const para of String(s || '').split(/\n/)) {
-      let cur = '';
+      // Keeps a line's indent, and lines a wrapped list item up under its text ("    1. long text" -> "       more")
+      const ind = para.match(/^[ \t]*/)[0].replace(/\t/g, '    '), num = para.trim().match(/^\d+\.\s+/)?.[0] || '';
+      const hang = ind + ' '.repeat(num.length + 1);
+      let cur = '', first = true;
       for (const word of para.split(/\s+/).filter(Boolean)) {
-        const next = cur ? `${cur} ${word}` : word;
-        if (cur && width(next, size) > w) { out.push(cur); cur = word; } else cur = next;
+        const lead = first ? ind : hang, next = cur ? `${cur} ${word}` : word;
+        if (cur && width(lead + next, size) > w) { out.push(lead + cur); cur = word; first = false; } else cur = next;
       }
-      out.push(cur);
+      out.push(cur ? (first ? ind : hang) + cur : '');
     }
+    while (out.length && !out[out.length - 1]) out.pop();
     return out;
   };
 
-  // Letterhead
-  let y = 64;
-  text(COMPANY, W / 2, y, { size: 16, b: true, align: 'center' });
-  ADDRESS.forEach((a, i) => text(a, W / 2, y + 16 + i * 13, { size: 9.5, align: 'center', color: grey }));
-  y += 50; rule(y, L, R, 1.2, black);
-  y += 30; text('SALARY ADVANCE FORM', W / 2, y, { size: 14, b: true, align: 'center' });
-  y += 22; text(`Ref: ${f.ref}`, L, y, { size: 10 }); text(`Date: ${dateText(f.approvedDate)}`, R, y, { size: 10, align: 'right' });
+  const received = f.requestDate || f.approvedDate;   // HR-made forms have no request date
 
-  // Label / value rows in a section
-  const KX = L + 10, VX = L + 170;
-  const section = (title, rows) => {
-    y += 28; text(title, L, y, { size: 11, b: true }); y += 6; rule(y);
-    for (const [k, v] of rows) {
-      const lines = wrap(v || '—', R - VX, 10.5);
-      y += 18; text(k, KX, y, { color: grey });
-      lines.forEach((ln, i) => text(ln, VX, y + i * 14));
-      y += (lines.length - 1) * 14;
-    }
-  };
-  section('Staff details', [['Name', f.name], ['IC number', f.ic], ['Department', f.position], ['Monthly salary', money(f.salary)]]);
-  section('Advance', f.byHR ? [
-    ['Total', money(f.approvedAmount)],
-    ['Limit (50% of salary)', money(f.limit)],
-    ['Reason', f.reason]
-  ] : [
-    ['Amount requested', money(f.amount)],
-    ['Amount approved', money(f.approvedAmount)],
-    ['Limit (50% of salary)', money(f.limit)],
-    ['Requested on', tsText(f.requestDate)],
-    ['Reason', f.reason]
-  ]);
-  if (f.description) section('Description', [['', f.description]]);
-  if (f.formNote) section('Notes from HR', [['', f.formNote]]);
+  // Details
+  text(longDate(f.approvedDate), AT.valueX, AT.date);
+  fitText(f.name, AT.valueX, AT.name, 400);
+  fitText(f.position, AT.valueX, AT.dept, 400);
+  text(f.ic, AT.valueX, AT.ic);
 
-  // Approval: the Director's saved signature, her name and the approval date under it
-  y += 34; text('Approved by', L, y, { size: 11, b: true });
-  text('Received and agreed by staff', W / 2 + 20, y, { size: 11, b: true });
-  const sigTop = y + 10, sigH = 60;
-  const putSig = async (dataUrl, x) => {
+  // Reason on the three lines; a long reason gets a smaller size until it fits
+  let size = 10, lines = wrap(f.reason, AT.reason.w, size);
+  while (lines.length > 3 && size > 7) { size -= 0.5; lines = wrap(f.reason, AT.reason.w, size); }
+  if (lines.length > 3) lines = [...lines.slice(0, 2), `${lines.slice(2).join(' ').slice(0, 120)}…`];
+  lines.slice(0, 3).forEach((ln, i) => text(ln, AT.reason.x, AT.reason.lines[i] + 2.5, { size }));
+
+  text(money(f.approvedAmount ?? f.amount), AT.amount.x, AT.amount.y);
+
+  // Signatures go to the right of the typed name (they may run past the line; the DATE column starts at ~419 pt),
+  // kept low so they don't run into the row above
+  const SIG_END = 405;
+  const putSig = async (dataUrl, x, y, maxH) => {
     try {
-      const img = await pdf.embedJpg(dataUrl);
-      const k = Math.min(180 / img.width, sigH / img.height);
-      page.drawImage(img, { x, y: H - sigTop - img.height * k, width: img.width * k, height: img.height * k });
+      const img = /^data:image\/png/i.test(dataUrl) ? await pdf.embedPng(dataUrl) : await pdf.embedJpg(dataUrl);
+      const k = Math.min((SIG_END - x) / img.width, maxH / img.height);
+      // Multiply: a signature's white background drops out
+      page.drawImage(img, { x, y: y - 2, width: img.width * k, height: img.height * k, blendMode: lib.BlendMode.Multiply });
     } catch (e) { console.warn('Signature image not added:', e); }
   };
-  if (f.signature) await putSig(f.signature, L);
   const staffDrawn = staffSig?.method === 'drawn' && staffSig.image;
-  if (staffDrawn) await putSig(staffSig.image, W / 2 + 20);
-  y = sigTop + sigH + 8;
-  rule(y, L, L + 200, 0.8, black); rule(y, W / 2 + 20, R, 0.8, black);
-  y += 15; text(f.signerName || '', L, y, { b: true }); text(f.name || '', W / 2 + 20, y, { b: true });
-  y += 14; text('Director', L, y, { color: grey }); text(`IC: ${f.ic || ''}`, W / 2 + 20, y, { color: grey });
-  y += 14; text(`Approved on ${dateText(f.approvedDate)}`, L, y, { color: grey });
-  text(staffDrawn ? `Signed in the PMS on ${tsText(staffSig.at)}` : 'Date:', W / 2 + 20, y, { color: grey });
+  const nameEnd = fitText(caps(f.name), AT.submitted.x0 + 1, AT.submitted.y + 1.5, AT.submitted.x1 - AT.submitted.x0 - 2, 10);
+  if (staffDrawn) await putSig(staffSig.image, nameEnd + 12, AT.submitted.y, 26);
+  text(shortDate(staffDrawn ? staffSig.at : received), AT.submitted.dateX, AT.submitted.y + 1.5, { size: 10 });
+  const signerEnd = fitText(caps(f.signerName), AT.approved.x0 + 1, AT.approved.y + 1.5, AT.approved.x1 - AT.approved.x0 - 2, 10);
+  if (f.signature) await putSig(f.signature, signerEnd + 12, AT.approved.y, 18);
+  text(shortDate(f.approvedDate), AT.approved.dateX, AT.approved.y + 1.5, { size: 10 });
 
-  y += 34;
-  wrap('I agree that this advance will be deducted from my salary as set out in the Advance SOP.', R - L, 9.5)
-    .forEach((ln, i) => text(ln, L, y + i * 12, { size: 9.5, color: grey }));
-  text(`Prepared by HR: ${f.preparedByName || ''}  ·  Made in the Widebed PMS`, L, H - 40, { size: 8.5, color: grey });
+  // For Human Resources use only: received, the HR person who prepared the form, HR's deduction text, "HR Department"
+  text(shortDate(received), AT.received.x, AT.received.y + 1.5, { size: 10 });
+  if (f.preparedByName) fitText(`HR ${caps(f.preparedByName)}`, AT.records.x, AT.records.y + 1.5, AT.records.w, 10);
+  text(shortDate(f.approvedDate), AT.records.dateX, AT.records.y + 1.5, { size: 10 });
+  const note = f.formNote || f.description || '';
+  if (note) {
+    const room = AT.deduction.top - AT.deduction.bottom;
+    let ds = AT.deduction.size, dl = wrap(note, AT.deduction.w, ds);
+    while (dl.length * ds * 1.4 > room && ds > 7) { ds -= 0.5; dl = wrap(note, AT.deduction.w, ds); }
+    const max = Math.floor(room / (ds * 1.4));
+    if (dl.length > max) dl = [...dl.slice(0, max - 1), `${dl.slice(max - 1).join(' ').slice(0, 100)}…`];
+    dl.forEach((ln, i) => text(ln, AT.deduction.x, AT.deduction.top - i * ds * 1.4, { size: ds }));
+  }
+  text('HR DEPARTMENT', AT.by.x, AT.by.y + 1.5, { size: 10 });
+  text(shortDate(f.approvedDate), AT.by.dateX, AT.by.y + 1.5, { size: 10 });
+
+  // Small reference in the footer, so a printed copy can be matched to the PMS record
+  text(`Ref ${f.ref}  ·  Made in the Widebed PMS`, AT.ref.x, AT.ref.y, { size: 7.5, color: grey });
   return pdf.save();
 }
 
-export const advanceFileName = f => `Salary Advance ${f.ref} ${String(f.name || '').replace(/[\\/:*?"<>|]+/g, '').trim()}.pdf`;
+export const advanceFileName = f => `Advance Request Form ${f.ref} ${String(f.name || '').replace(/[\\/:*?"<>|]+/g, '').trim()}.pdf`;

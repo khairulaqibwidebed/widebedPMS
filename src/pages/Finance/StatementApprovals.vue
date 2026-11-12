@@ -8,7 +8,7 @@
         <div class="sub">Unit statements Accounting has sent to you. Approving completes the statement and locks it.</div>
       </div>
       <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="refilter()" />
+        <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="refilter()" />
         <MonthPicker :ahead="1" :model-value="tab === 'waiting' ? waitMonth : month" :all-label="tab === 'waiting' ? 'All months' : ''" @update:model-value="pickMonth" />
       </div>
     </div>
@@ -75,7 +75,7 @@
           </table>
         </div>
         </Paged>
-        <div class="card-foot" v-if="historyBusy && historyLoaded"><span class="help">Loading more…</span></div>
+        <div class="card-foot" v-if="historyBusy && historyLoaded"><span class="help loading-line">Loading more…</span></div>
         <div class="card-foot" v-else-if="historyMore && shownHistory.length <= 10"><button class="btn" @click="loadHistory(true)">Load more</button></div>
       </section>
     </template>
@@ -147,13 +147,17 @@ import { askConfirm } from '@/lib/confirm.js';
 import Paged from '@/components/Paged.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
+import { liveMixin } from '@/lib/use-live.js';
+import { scoped, getScoped, countScoped, myProperties } from '@/lib/property-scope.js';
 
 const me = useSession();
 const msOf = t => (t?.toMillis ? t.toMillis() : 0);
 
 const HISTORY_PAGE = 30;   // the history is an audit log: 30 entries per read, only when the History tab is opened, more on request
 export default {
-  components: { MonthPicker, OptionPicker, Paged },
+  mixins: [liveMixin],
+  components: { PropertyPicker, MonthPicker, OptionPicker, Paged },
   data() {
     return {
       amt, pct, dmy, stamp, monthName,
@@ -197,14 +201,20 @@ export default {
       this.loading = true; this.error = '';
       try {
         this.properties = await loadProperties();
-        const [w, rc] = await Promise.all([
-          getDocs(query(collection(db, 'approvals'), where('status', '==', 'submitted'))),
-          getCountFromServer(query(collection(db, 'approvals'), where('status', '==', 'returned'))).then(r => r.data().count).catch(() => null)
-        ]);
-        this.waiting = w.docs.map(d => ({ id: d.id, ...d.data() }));
-        this.returnedCount = rc;
-      } catch (e) { this.error = friendlyError(e, 'load the approvals'); }
-      this.loading = false;
+      } catch (e) { this.error = friendlyError(e, 'load the approvals'); this.loading = false; return; }
+      // Live (6 Nov 2026): statements sent, approved or returned by someone else show without a refresh.
+      // If the open one is approved or returned elsewhere, its drawer closes with a note.
+      this.live('waiting', scoped(query(collection(db, 'approvals'), where('status', '==', 'submitted'))), rows => {   // my properties only
+        this.waiting = rows; this.loading = false;
+        if (this.sel && !this.busy && this.tab === 'waiting' && !rows.some(r => r.id === this.sel.id)) {
+          this.sel = null; this.okMsg = 'That statement was just approved or returned by someone else.';
+        }
+        this.countReturned();
+      }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the approvals'); this.loading = false; } });
+    },
+    // Returned count for the tab (a count costs one read per 1,000)
+    countReturned() {
+      countScoped(scoped(query(collection(db, 'approvals'), where('status', '==', 'returned')))).then(n => { this.returnedCount = n; }).catch(() => {});
     },
     // Reaching the last loaded page fetches the next 30 (nothing is read ahead of time)
     onHistPage({ page, last }) { if (page >= last && this.historyMore && !this.historyBusy) this.loadHistory(true); },
@@ -213,6 +223,13 @@ export default {
       if (!more) { this.historyLoaded = false; this.history = []; this.historyLast = null; this.historyMore = false; }
       this.historyBusy = true;
       try {
+        // Staff: the whole month for my properties at once (two statuses x 15 properties per query, Firestore's 30 limit)
+        if (myProperties()) {
+          const all = await getScoped(scoped(query(collection(db, 'approvals'), where('month', '==', this.month), where('status', 'in', ['approved', 'returned'])), 'propertyId', { per: 15 }));
+          this.history = all.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.id.localeCompare(b.id));
+          this.historyMore = false; this.historyBusy = false; this.historyLoaded = true;
+          return;
+        }
         const q = query(collection(db, 'approvals'), where('month', '==', this.month), where('status', 'in', ['approved', 'returned']),
           orderBy(documentId()), ...(more && this.historyLast ? [startAfter(this.historyLast)] : []), limit(HISTORY_PAGE));
         const snap = await getDocs(q);

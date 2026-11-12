@@ -26,22 +26,25 @@
           <p class="help fb-tip">Click to add under the selected field, or drag into the list.</p>
           <div class="ag-list">
             <button v-for="t in FIELD_TYPES" :key="t.type" type="button" class="ag-chipbtn" draggable="true" :title="t.hint || ''"
-              @click="addField(t.type)" @dragstart="drag = { type: t.type }" @dragend="drag = null; dropAt = -1">{{ t.label }}</button>
+              @click="addField(t.type)" @dragstart="startDrag($event, { type: t.type })" @dragend="endDrag">{{ t.label }}</button>
           </div>
         </aside>
 
         <!-- The fields, in order -->
         <section class="card fb-mid">
           <template v-if="tab === 'fields'">
-            <ol class="fb-list" @dragover.prevent @drop.prevent="dropOn(fields.length)">
-              <li v-for="(f, i) in fields" :key="f.id" class="fb-item" :class="{ on: f.id === selectedId, section: f.type === 'section', over: dropAt === i }"
-                draggable="true" @dragstart="drag = { id: f.id }" @dragend="drag = null; dropAt = -1"
-                @dragover.prevent.stop="dropAt = i" @drop.prevent.stop="dropOn(i)" @click="selectedId = f.id">
+            <!-- Drag and drop (12 Nov 2026): the line shows where the field will land (top or bottom half of the row you are over),
+                 rows slide into place, and the page scrolls up as well as down while dragging (drag-scroll.js). -->
+            <TransitionGroup tag="ol" name="fb-slide" class="fb-list" :class="{ dragging: !!drag }" @dragover.prevent="overList" @drop.prevent="dropOn()">
+              <li v-for="(f, i) in fields" :key="f.id" class="fb-item"
+                :class="{ on: f.id === selectedId, section: f.type === 'section', before: showLine && dropAt === i, after: showLine && dropAt === fields.length && i === fields.length - 1, ghost: drag && drag.id === f.id }"
+                draggable="true" @dragstart="startDrag($event, { id: f.id })" @dragend="endDrag"
+                @dragover.prevent.stop="overItem($event, i)" @drop.prevent.stop="dropOn()" @click="selectedId = f.id">
                 <span class="fb-grip" aria-hidden="true">⠿</span>
                 <div class="fb-main">
                   <b>{{ f.label }}</b>
                   <small>
-                    {{ TYPE_LABEL[f.type] }}<template v-if="f.required"> · required</template><template v-if="f.onForm === false"> · table only</template>
+                    {{ TYPE_LABEL[f.type] }}<template v-if="hasOptions(f)"> · {{ cleanOptions(f.options).length }} choices</template><template v-if="f.required"> · required</template><template v-if="f.onForm === false"> · table only</template>
                     <template v-if="f.internalOnly"> · staff only</template>
                   <template v-if="f.showIf && f.showIf.fieldId"> · shown only when {{ labelOf(f.showIf.fieldId) }} {{ COND[f.showIf.op || 'equals'] }} {{ f.showIf.op === 'filled' ? '' : condText(f.showIf) }}</template>
                   </small>
@@ -54,9 +57,8 @@
                   <button type="button" class="icon-btn" title="Delete" aria-label="Delete" @click.stop="askDelete(f)">🗑</button>
                 </span>
               </li>
-              <li v-if="!fields.length" class="fb-empty">No fields yet. Pick a field type on the left.</li>
-              <li v-if="drag" class="fb-dropend" :class="{ over: dropAt === fields.length }" @dragover.prevent.stop="dropAt = fields.length" @drop.prevent.stop="dropOn(fields.length)">Drop here to add at the end</li>
-            </ol>
+              <li v-if="!fields.length" key="_empty" class="fb-empty">No fields yet. Pick a field type on the left, or drag one here.</li>
+            </TransitionGroup>
           </template>
           <template v-else>
             <p class="help">Fill this in to test the form. These answers are sample data: they show formula results here and are not saved as a record.</p>
@@ -99,8 +101,8 @@
 
             <!-- Choices -->
             <div class="field" v-if="hasOptions(sel)">
-              <label for="pOpts">Choices (one per line)</label>
-              <textarea id="pOpts" class="input" rows="4" :value="sel.options.join('\n')" @input="sel.options = $event.target.value.split('\n').map(s => s.trim()).filter(Boolean)"></textarea>
+              <label>Choices <small class="help">· {{ cleanOptions(sel.options).length }}</small></label>
+              <ChoicesEditor :key="sel.id" v-model="sel.options" @rename="r => renameChoice(fields, sel, r.from, r.to)" @remove="askRemoveChoice" />
               <label class="ag-check-row"><input type="checkbox" v-model="sel.allowOther"> Allow "Other" with a typed answer</label>
             </div>
 
@@ -111,7 +113,7 @@
               </div>
               <div class="field" v-if="!['signature', 'image', 'file'].includes(sel.type)">
                 <label for="pDef">Default value</label>
-                <select v-if="hasOptions(sel)" id="pDef" class="input select" v-model="sel.default"><option value="">None</option><option v-for="o in sel.options" :key="o" :value="o">{{ o }}</option></select>
+                <select v-if="hasOptions(sel)" id="pDef" class="input select" v-model="sel.default"><option value="">None</option><option v-for="o in cleanOptions(sel.options)" :key="o" :value="o">{{ o }}</option></select>
                 <select v-else-if="sel.type === 'checkbox'" id="pDef" class="input select" v-model="sel.default"><option value="">Not ticked</option><option value="true">Ticked</option></select>
                 <input v-else id="pDef" class="input" v-model="sel.default" :placeholder="sel.type === 'date' ? 'YYYY-MM-DD or TODAY' : ''">
               </div>
@@ -181,7 +183,7 @@
       </div>
     </template>
 
-    <ConfirmDialog v-if="ask" :title="ask.title" :text="ask.text" :items="ask.items" confirm="Delete field" danger @close="ask = null" @ok="ask.run(); ask = null" />
+    <ConfirmDialog v-if="ask" :title="ask.title" :text="ask.text" :items="ask.items" :confirm="ask.confirm || 'Delete field'" danger @close="ask = null" @ok="ask.run(); ask = null" />
   </main>
 </template>
 
@@ -192,8 +194,11 @@ import { useRoute, useRouter } from 'vue-router';
 import FieldInput from '@/components/agreements/FieldInput.vue';
 import FormulaEditor from '@/components/agreements/FormulaEditor.vue';
 import ConfirmDialog from '@/components/agreements/ConfirmDialog.vue';
+import ChoicesEditor from '@/components/agreements/ChoicesEditor.vue';
+import { startDragScroll } from '@/lib/agreements/drag-scroll.js';
 import { getForm, saveForm, listTemplates } from '@/lib/agreements/data.js';
-import { FIELD_TYPES, TYPE_LABEL, RESULT_TYPES, newField, newId, hasOptions, hasValue, labelProblem, sampleValues, isShown } from '@/lib/agreements/fields.js';
+import { FIELD_TYPES, TYPE_LABEL, RESULT_TYPES, newField, newId, hasOptions, hasValue, labelProblem, sampleValues, isShown,
+  cleanOptions, choiceUsers, renameChoice, dropIndex, moveTo } from '@/lib/agreements/fields.js';
 import { computeValues, formulaPlan, toDisplay, refsIn } from '@/lib/agreements/formula.js';
 import { DATE_FORMATS, valueType } from '@/lib/agreements/format.js';
 import { useUndo, useAutosave } from '@/lib/agreements/history.js';
@@ -211,11 +216,13 @@ const labelOf = id => fields.value.find(f => f.id === id)?.label || 'a deleted f
 const valueTypeOf = f => valueType(f);
 const plan = computed(() => formulaPlan(fields.value));
 const sampleOut = computed(() => computeValues(fields.value, sample.value));
-const previewFields = computed(() => fields.value.filter(f => f.type === 'section' || isShown(f, sample.value)));
+// Choices are kept as typed while editing (an empty new row, spaces); saving and "Try the form" use the tidy list.
+const tidy = list => list.map(f => (hasOptions(f) ? { ...f, options: cleanOptions(f.options) } : f));
+const previewFields = computed(() => tidy(fields.value.filter(f => f.type === 'section' || isShown(f, sample.value))));
 
 // ---- Load, auto-save, undo ----
 const undo = useUndo(() => ({ name: name.value, fields: fields.value }), s => { name.value = s.name; fields.value = s.fields; });
-const autosave = useAutosave(() => saveForm(form.value.id, { name: name.value.trim() || 'Untitled form', fields: fields.value }));
+const autosave = useAutosave(() => saveForm(form.value.id, { name: name.value.trim() || 'Untitled form', fields: tidy(fields.value) }));
 onMounted(async () => {
   try {
     form.value = await getForm(route.params.id);
@@ -260,16 +267,38 @@ function addField(type, at) {
   selectedId.value = f.id;
   if (hasValue(f) && f.type !== 'formula') sample.value = { ...sample.value, ...sampleValues([f]) };
 }
-function dropOn(i) {
-  const d = drag.value;
-  drag.value = null; dropAt.value = -1;
+// ---- Drag and drop ----
+let stopScroll = null;
+function startDrag(e, what) {
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', what.id || what.type);   // Firefox only starts a drag that carries data
+  stopScroll = startDragScroll(e.currentTarget);
+  // Mark it a moment later: changing the page inside dragstart can make Chrome cancel the drag.
+  setTimeout(() => { if (stopScroll) drag.value = what; });
+}
+function endDrag() { stopScroll?.(); stopScroll = null; drag.value = null; dropAt.value = -1; }
+function overItem(e, i) {
+  const r = e.currentTarget.getBoundingClientRect();
+  dropAt.value = dropIndex(i, e.clientY, r.top, r.height);
+}
+// Over the list but not on a row (the gaps, or below the last field): keep the line; below everything = the end.
+function overList(e) {
+  const last = e.currentTarget.querySelector('.fb-item:last-of-type');
+  if (!last || e.clientY > last.getBoundingClientRect().bottom) dropAt.value = fields.value.length;
+}
+// No line when dropping would leave the field where it already is.
+const showLine = computed(() => {
+  if (!drag.value || dropAt.value < 0) return false;
+  if (!drag.value.id) return true;
+  const from = fields.value.findIndex(f => f.id === drag.value.id);
+  return dropAt.value !== from && dropAt.value !== from + 1;
+});
+function dropOn() {
+  const d = drag.value, at = dropAt.value < 0 ? fields.value.length : dropAt.value;
+  endDrag();
   if (!d) return;
-  if (d.type) { addField(d.type, i); return; }
-  const list = [...fields.value], from = list.findIndex(f => f.id === d.id);
-  if (from < 0) return;
-  const [f] = list.splice(from, 1);
-  list.splice(from < i ? i - 1 : i, 0, f);
-  fields.value = list;
+  if (d.type) { addField(d.type, at); return; }
+  fields.value = moveTo(fields.value, fields.value.findIndex(f => f.id === d.id), at);
 }
 function move(i, step) {
   const list = [...fields.value];
@@ -296,6 +325,17 @@ function askDelete(f) {
   };
 }
 
+// ---- Choices ----
+function askRemoveChoice(i) {
+  const f = sel.value, choice = f.options[i];
+  const run = () => { if (f.default === String(choice).trim()) f.default = ''; f.options = f.options.filter((_, k) => k !== i); };
+  const lastCopy = cleanOptions(f.options.filter((_, k) => k !== i)).some(o => o.toLowerCase() === String(choice).trim().toLowerCase());
+  const items = lastCopy ? [] : choiceUsers(fields.value, f, choice);
+  if (!items.length) { run(); return; }
+  ask.value = { title: `Remove the choice "${String(choice).trim()}"?`, items, confirm: 'Remove choice', run,
+    text: 'It is still used here. Those fields will stay hidden until you change their "Show only when" rule:' };
+}
+
 // ---- Settings helpers ----
 function changeType(type) {
   const f = sel.value;
@@ -309,7 +349,7 @@ function setCond(fieldId) { sel.value.showIf = fieldId ? { fieldId, op: 'equals'
 const condOptions = computed(() => {
   const target = fields.value.find(f => f.id === sel.value?.showIf?.fieldId);
   if (!target) return [];
-  if (hasOptions(target)) return target.options.map(o => ({ value: o, label: o }));
+  if (hasOptions(target)) return cleanOptions(target.options).map(o => ({ value: o, label: o }));
   if (target.type === 'checkbox') return [{ value: 'true', label: 'Ticked' }, { value: 'false', label: 'Not ticked' }];
   return [];
 });
@@ -327,7 +367,17 @@ const condText = c => (c.value === 'true' ? 'ticked' : c.value === 'false' ? 'no
   transition: border-color var(--fast, .15s), background var(--fast, .15s), box-shadow var(--fast, .15s); }
 .fb-item:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
 .fb-item.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); }
-.fb-item.over, .fb-dropend.over { box-shadow: 0 -3px 0 var(--accent); }
+.fb-list { padding-bottom: 28px; }   /* room to drop after the last field */
+.fb-item.before { box-shadow: 0 -4px 0 -1px var(--accent); }
+.fb-item.after { box-shadow: 0 4px 0 -1px var(--accent); }
+.fb-item.ghost { opacity: .35; }
+.fb-list.dragging .fb-item { transition: none; }
+.fb-list.dragging .fb-item > * { pointer-events: none; }   /* the row itself is the drop target: no flicker over its text and buttons */
+.fb-slide-move { transition: transform .18s ease; }
+.fb-slide-enter-active { transition: opacity .18s ease, transform .18s ease; }
+.fb-slide-enter-from { opacity: 0; transform: translateY(-6px); }
+.fb-slide-leave-active { display: none; }
+@media (prefers-reduced-motion: reduce) { .fb-slide-move, .fb-slide-enter-active { transition: none; } }
 .fb-item.section { background: var(--hover); }
 .fb-item.section b { text-transform: uppercase; letter-spacing: .04em; font-size: 12px; color: var(--accent); }
 .fb-grip { color: var(--muted); cursor: grab; font-size: 16px; }
@@ -340,6 +390,5 @@ const condText = c => (c.value === 'true' ? 'ticked' : c.value === 'false' ? 'no
 .fb-item:hover .fb-acts, .fb-item.on .fb-acts, .fb-acts:focus-within { opacity: 1; }
 .fb-acts .icon-btn { width: 28px; height: 28px; font-size: 14px; }
 .fb-empty { padding: 32px; text-align: center; color: var(--muted); border: 1.5px dashed var(--border); border-radius: 10px; }
-.fb-dropend { padding: 12px; text-align: center; color: var(--muted); font-size: 12px; border: 1.5px dashed var(--border); border-radius: 10px; }
 code { font-size: 11px; background: var(--chip); padding: 1px 5px; border-radius: 4px; }
 </style>

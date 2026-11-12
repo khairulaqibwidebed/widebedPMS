@@ -38,6 +38,7 @@
                 <td><span class="pill" :class="st(a)[2]">{{ staffLabel(a) }}</span><span class="by-hr" v-if="a.byHR">Made by HR</span></td>
                 <td class="num"><button class="editlink" @click.stop="open(a)">{{ a.status === 'reviewed' ? 'Sign' : 'Open' }}</button></td>
               </tr>
+              <SkeletonRows v-if="loading && !list.length" table :cols="6" />
               <tr v-show="!loading && !list.length"><td colspan="6" class="muted">You haven't asked for an advance yet.</td></tr>
             </tbody>
           </table>
@@ -129,7 +130,7 @@
 // Staff: ask for a salary advance (up to 50% of the monthly salary HR has entered), sign the form HR prepares, and follow it
 // under My advances. The salary itself is never read here, only the limit. HR and Directors also get the Requests,
 // Signature and Signature log tabs (Advances.vue). Interns don't get this page. Data shape: ./advances.js.
-import { createAdvance, loadMyAdvances, getMyLimit, withdrawAdvance, signAdvance, loadForm, loadSigned, loadSignedCopy, imageFile,
+import { createAdvance, watchMyAdvances, getMyLimit, withdrawAdvance, signAdvance, loadForm, loadSigned, loadSignedCopy, imageFile,
   STATUS, STEP, SIGN_METHOD, PAY_TYPES, todayIso } from './advances.js';
 import { buildAdvancePdf, advanceFileName } from '@/lib/advance-pdf.js';
 import ImageDrop from '@/components/ImageDrop.vue';
@@ -138,6 +139,7 @@ import { rm, dmy } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import Advances from './Advances.vue';
 import SignaturePad from '@/components/SignaturePad.vue';
+import { liveMixin } from '@/lib/use-live.js';
 
 const me = useSession();
 // HR and Directors open on Requests; My advances is the last tab (5 Nov 2026). A staff link (?id= without a tab) opens My advances.
@@ -145,6 +147,7 @@ const TABS = ['requests', 'signature', 'log', 'mine'];
 
 export default {
   components: { Advances, SignaturePad, ImageDrop },
+  mixins: [liveMixin],
   data() {
     const staffSide = ['hr', 'director'].includes(me.role), isDirector = me.role === 'director';
     const q = this.$route.query.tab;
@@ -166,11 +169,22 @@ export default {
     st(a) { return STATUS[a.status] || STATUS.submitted; },
     staffLabel(a) { return a.byHR && a.status === 'reviewed' ? 'Sign the paper form' : this.st(a)[1]; },
     when(t) { return t?.toDate ? t.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Just now'; },
+    // Live (11 Nov 2026): the list follows HR's changes by itself; the open request updates in place.
+    // Later calls (after sending, withdrawing, signing) only refresh the limit; the list is already live.
     async load() {
-      this.loading = true; this.loadErr = '';
-      try { [this.limit, this.list] = await Promise.all([getMyLimit(me.user.uid), loadMyAdvances(me.user.uid)]); }
-      catch (e) { this.loadErr = friendlyError(e, 'load your advances'); }
-      this.loading = false;
+      this.loadErr = '';
+      const limit = getMyLimit(me.user.uid).then(l => { this.limit = l; }).catch(e => { this.loadErr = friendlyError(e, 'load your advances'); });
+      if (this.liveStops.mine) return limit;
+      this.loading = true;
+      const first = new Promise(resolve => {
+        this.liveUse('mine', watchMyAdvances(me.user.uid, rows => {
+          const old = new Map(this.list.map(a => [a.id, a]));
+          this.list = rows.map(r => { const o = old.get(r.id); return o ? Object.assign(o, r) : r; });
+          if (this.sel && !rows.some(r => r.id === this.sel.id)) this.sel = null;
+          this.loading = false; resolve();
+        }, e => { this.loadErr = e.friendly || friendlyError(e, 'load your advances'); this.loading = false; resolve(); }));
+      });
+      await Promise.all([limit, first]);
     },
     clear() { this.amount = ''; this.reason = ''; this.err = ''; },
     closeNew() { if (this.busy) return; this.newOpen = false; this.clear(); },

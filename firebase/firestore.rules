@@ -1,5 +1,79 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
+// Widebed PMS Firestore rules. Draft 0.64, 12 Nov 2026 (Khairul): merge only. Holds Khairul's 0.62 + 0.63 and Neo's
+// One To One draft (his "0.62", noted below as 0.62-Neo). Nothing new.
+// Draft 0.63, 12 Nov 2026 (Khairul): data access by property, two small gaps. (1) users/{uid}: you may
+// add ONE property to your own `properties` list, only a property you created (so a property you add doesn't vanish for you).
+// (2) owners / tenants / tenants private: the people who already add them may save `propertyIds` (the properties the owner's
+// units or the tenant's bookings are in), nothing else. No read rule changed. This is NOT the Phase 4 lock (not planned now).
+// Draft 0.62, 12 Nov 2026 (Khairul): issueQuotes, Directors may read the whole list (the Director's
+// "Stamp and link records" reads every ticket quote; the ticket check below can't be proved for a list, so it was refused). Nothing else changed.
+// Draft 0.62-Neo, 12 Nov 2026: One To One Session (Performance). config/oneToOne keeps the
+// venues HR has used (venues: up to 50 short texts) and the one picked last (lastVenue); HR and Directors read and write it.
+// Nothing else changes: the join date is users/{uid}.joinDate (the users rules already let HR and Directors save it), and
+// deleting a COH question marks it deleted (an update HR and Directors could already make; questions are still never removed).
+// Draft 0.61, 12 Nov 2026: Staff Attendance, several locations. config/attendance may hold
+// `places` (up to 30: name, address, lat, lng, radiusM, cosLat), the company's properties next to the main office. A clock-in /
+// clock-out inside one is Normal and saves which one (clockInPlaceIdx / clockOutPlaceIdx: -1 = the main office, else the
+// place's position in the list) and its name (clockInPlace / clockOutPlace, 'WIDEBED' for the main office); the server checks
+// the phone really is inside the place it names. Outside all of them it is Off-site (if allowed) and the place text is the
+// address the phone looked up (up to 200 characters). Apps from before this draft still work (main office only). Nothing else changes.
+// Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
+// property (Portfolio > Fees & Rates). Read and add-only create, the same people as a property's rateVersions. Nothing else changed.
+// Draft 0.59, 12 Nov 2026: Staff Attendance, holidays per person. A public holiday
+// (attendanceHolidays/{date}) may leave some staff out (exceptUids: a list of uids, HR unticks them in the PMS). For them that
+// date is a normal working day: clocking in is not an Off day and late counts. Holidays now accept only name, exceptUids
+// (up to 300), addedBy/addedAt and updatedBy/updatedAt. Nothing else changes.
+// Draft 0.58, 12 Nov 2026 (Khairul): Operations read owners/{id}/private/main, so Portfolio
+// shows them owner names (Marketing already could). The page shows only the name; nothing else changed.
+// Draft 0.57, 12 Nov 2026 (Khairul, state security Phase 2): records carry their property's
+// `state` (owners, tenants and eZee uploads a `states` list). The lists of allowed keys take state/states, a Director
+// may change only state/states on any property-linked record (Stamp states tool, stampOnly()), and Operations may refresh
+// an owner's `states`. Nothing is locked by state yet (that is Phase 4); no other check changed.
+// Draft 0.56, 12 Nov 2026 (Khairul, state security Phase 1): a new property may carry a
+// top-level `state` (Operations' add-property check listed every allowed key and refused it). Nothing else changed;
+// the state lock itself comes in a later draft.
+// Draft 0.55, 11 Nov 2026 (Khairul): republish only. Neo's Draft 0.54 (attendance off-site) with
+// Khairul's Draft 0.53 (Owner Leads statuses) kept, so neither drops the other. No rule changes.
+// Draft 0.54, 11 Nov 2026: Staff Attendance off-site. Staff may clock in and out away from the office;
+// each clock-in / clock-out is saved with InArea true (Normal) or false (Off-site), and the server checks that flag against its own
+// distance sum, so it can't be faked as Normal. HR / Directors can turn off-site off in config/attendance (allowOffsite: false):
+// then, as before, only inside the office area. Fake-GPS is still refused. Nothing else changes.
+// Draft 0.53, 11 Nov 2026 (Khairul): Owner Leads statuses. newOwnerListings status may be
+// inProgress (older), progress, signed, live or cancelled (Not proceeding). Status and its fields (prevStatus, signedAt,
+// liveAt, cancelledAt/By/ByUid, cancelReason) change only by Directors and Procurement (also from the TMS, which writes as
+// the signed-in person); Marketing may only take a listing to Live (with liveAt). Only Directors reopen a cancelled one.
+// The owner's phone and email (newOwnerListings/{id}/private/main) now only Directors and Procurement read and write.
+// Draft 0.52, 11 Nov 2026: Staff Attendance, several clock-ins a day. After clocking out, staff can clock in
+// again (out to a client and back): session 2, 3… up to 10 (attendance/{uid}_{day}_s2 …), only once the one before is clocked out,
+// still inside the office area with the server's time; late is decided only by the day's first clock-in. HR / Director
+// corrections may also fix a later session. Nothing else changes.
+// Draft 0.51, 11 Nov 2026: Staff Attendance corrections. On the PMS Attendance page (HR > Attendance) HR and
+// Directors can add a missing day or fix a clock-in / clock-out for anyone except themselves, with a note (editNote) and their
+// uid and the server time (editedBy, editedAt). The record's person and date never change. Still nobody deletes. Nothing else changes.
+// Draft 0.50, 11 Nov 2026 (Khairul): anonymous senders can reply in their staff complaint's
+// conversation (and add photos or documents) while it isn't Closed; nothing naming them is saved (no byUid, no byName).
+// Documents on Director complaints too (HR's Drive; the Directors and the HR sender). docs may carry threadId (a chat photo).
+// Draft 0.49 (Neo), 11 Nov 2026: Staff Attendance (Flutter app on this same Firebase project, PMS sign-in).
+// attendance/{uid}_{YYYY-MM-DD}: one record per person per Malaysia day. Any active staff member creates only their own,
+// for today, with the server's time, inside the office area (config/attendance: lat, lng, radiusM, cosLat, lateAfterMin,
+// workDays). After lateAfterMin (9:10 AM) on a working day the record must say late with a typed reason; on a weekend or a
+// holiday (attendanceHolidays/{date}) it is offDay. Clock out once, the same day, inside the area, then workedMinutes once
+// (checked against the two server times); nothing else can change.
+// Staff read only their own; HR and Directors read all. Nobody deletes. attendanceHolidays: everyone reads, HR and Directors
+// write. config/attendance: everyone reads (config/{docId} allows only some roles), HR and Directors write. Nothing else changes.
+// Draft 0.48, 11 Nov 2026 (Khairul): documents on staff complaints (complaints/{id}/docs: name and
+// Drive file id; the files sit in HR's own Google Drive). Read by the same people as the conversation. Added by HR, by the
+// named sender while it isn't Closed, or by an anonymous sender only in the first 15 minutes (no uid). Never changed or removed.
+// Draft 0.47, 10 Nov 2026: Issues <-> TMS Maintenance link. Directors and the tagged roles can
+// change a ticket's title, description and property (its card is on that property's board in the TMS), and its tmsStatus (the task system column the ticket's card is in, a map
+// { name, for }), with or without a status change, while it is Open or In progress. The task system (TMS) writes these as
+// the signed-in person, with their own PMS sign-in, so the same people can change the same tickets. Mark completed through
+// this rule also needs doneByUid == the person. Nothing else changes; Completed tickets stay locked.
+// Draft 0.46, 6 Nov 2026 (Khairul): Pool Sharing check on Month-end: Accounting / Directors save
+// "Confirmed 0 bookings" on a month document (poolZero only). Month summaries (unitMonths) may hold
+// 'arrangementType'. Fee arrangements need no change: they are saved on the property's rateVersions, which Accounting /
+// Directors already create.
+// Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
 // (advances byHR: created straight at Reviewed, within 50% of their salary, not interns, never for themselves), with the form
 // and the signature-use line in the same save. The staff member reads it but can't sign it in the PMS (paper only; HR marks it
 // signed outside). Also (6 Nov 2026): the Procurement Forms page is removed, so procurementForms.view leaves the procurement preset.
@@ -215,11 +289,26 @@ service cloud.firestore {
     // New Owner Listings.
     function listingViewer()   { return can('newOwnerListings.view'); }
     function listingEditor()   { return can('newOwnerListings.edit'); }
+    // Draft 0.51: lead statuses
+    function listingMover()    { return isDirector() || role() == 'procurement'; }
+    function listingStatuses() { return ['inProgress', 'progress', 'signed', 'live', 'cancelled']; }
+    function oldListingStatus() { return resource.data.get('status', 'inProgress'); }
+    function listingStatusOk() {
+      return !changed().hasAny(['status', 'prevStatus', 'signedAt', 'liveAt', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancelReason'])
+        || (listingMover() && (isDirector() || oldListingStatus() != 'cancelled' || !changed().hasAny(['status'])))
+        || (role() == 'marketing' && request.resource.data.status == 'live' && oldListingStatus() in ['inProgress', 'progress', 'signed']
+            && !changed().hasAny(['prevStatus', 'signedAt', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancelReason']));
+    }
 
     // ---- Paths and writes ----
     function docPath(col, id)    { return /databases/$(database)/documents/$(col)/$(id); }
     function changed()           { return request.resource.data.diff(resource.data).affectedKeys(); }
     function newKeysOnly(keys)   { return request.resource.data.keys().hasOnly(keys); }
+    // Draft 0.57: a Director stamping states. Only `state` (a string) or `states` (a list) changes.
+    function stampOnly() {
+      return isDirector() && changed().hasOnly(['state', 'states'])
+        && request.resource.data.get('state', '') is string && request.resource.data.get('states', []) is list;
+    }
     function createdNow(col, id) { return !exists(docPath(col, id)) && existsAfter(docPath(col, id)); }
 
     // ---- Month-end: completion is per unit, statements/{unitId}_{month} ----
@@ -237,7 +326,7 @@ service cloud.firestore {
       return /databases/$(database)/documents/approvals/$(unitId + '_' + month);
     }
     function unitMonthKeys() {
-      return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'fixedRentAmount',
+      return ['propertyId', 'state', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'arrangementType', 'fixedRentAmount',
         'firstBookingId', 'row', 'noUnit', 'dash', 'statement', 'stale', 'dirtyRev', 'cleanRev', 'marks', 'computedAt', 'computedBy'];
     }
 
@@ -307,6 +396,14 @@ service cloud.firestore {
         && resource.data.role != 'director' && request.resource.data.role != 'director';
       // Sign-in stamps lastLoginAt on your own record (Team activity).
       allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
+      // Draft 0.63: whoever adds a property gets it on their own list. One id at a time, added at the end, nothing removed,
+      // and it must be a property they created themselves.
+      allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['properties'])
+        && request.resource.data.properties is list
+        && request.resource.data.properties.size() == resource.data.get('properties', []).size() + 1
+        && request.resource.data.properties.hasAll(resource.data.get('properties', []))
+        && get(docPath('properties', request.resource.data.properties[request.resource.data.properties.size() - 1])).data.get('createdBy', null) == request.auth.uid
+        && anyStaff();
       allow delete: if false;
     }
 
@@ -320,6 +417,16 @@ service cloud.firestore {
     match /config/{docId} {
       allow read: if staff();
       allow write: if isDirector();
+    }
+
+    // One To One Session (Draft 0.62): the venues HR picks from on Performance > One To One Session.
+    match /config/oneToOne {
+      allow read: if hrOrDir();
+      allow write: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['venues', 'lastVenue', 'updatedBy', 'updatedAt'])
+        && request.resource.data.venues is list && request.resource.data.venues.size() <= 50
+        && request.resource.data.lastVenue is string && request.resource.data.lastVenue.size() <= 80
+        && request.resource.data.updatedBy == request.auth.uid;
     }
 
     // Unit types added with "+ Add type" on Add unit: anyone who can add or edit units may add to the list.
@@ -453,7 +560,7 @@ service cloud.firestore {
     match /properties/{propertyId} {
       allow read: if staff() || portfolioViewer();
       allow write: if portfolioEditor();
-      allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'info', 'active', 'createdAt', 'createdBy'])
+      allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'state', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.name is string && request.resource.data.code is string
         && (!('info' in request.resource.data) || request.resource.data.info.keys().hasOnly(['address', 'city', 'state', 'ezeeAccount', 'ezeeName']));
@@ -473,12 +580,19 @@ service cloud.firestore {
       }
     }
 
+    // One set of fees and rates for every property (Draft 0.60). Add-only versions, like rateVersions above.
+    match /sharedRates/{v} {
+      allow read: if staff() || portfolioEditor();
+      allow create: if portfolioEditor() && request.resource.data.reason is string;
+      allow update, delete: if false;
+    }
+
     match /units/{unitId} {
       allow read: if staff() || portfolioViewer();
       allow create, update: if portfolioEditor();
       allow delete: if isDirector();   // safe delete: the page only offers it for units with no history
       // Operations: no terms (arrangement, fixed rent, fees).
-      allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
+      allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'state', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
           'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && exists(docPath('properties', request.resource.data.propertyId))
@@ -486,6 +600,8 @@ service cloud.firestore {
       // Marketing edit unit details and eZee names; not the owner link, status or terms.
       allow update: if isMkt() && changed().hasOnly(['aliases', 'info', 'updatedAt', 'updatedBy'])
         && request.resource.data.info.keys().hasOnly(['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb']);
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       match /terms/{v} {
         allow read: if staff() || portfolioEditor();
         allow create: if portfolioEditor() && request.resource.data.reason is string;
@@ -500,13 +616,25 @@ service cloud.firestore {
 
     // The owner parent holds bankLast4 (not shown to portfolio viewers); Operations create it with none.
     match /owners/{ownerId} {
+      // Draft 0.63: Operations and Marketing also save `propertyIds` (the properties of the owner's units; staff of those
+      // properties see the owner), the same way as `states` below. First in the block, cheapest check first: further down, a
+      // request runs out of the 1000 checks the rules allow before it is reached (seen in the emulator, also for `states`).
+      allow update: if changed().hasOnly(['states', 'propertyIds'])
+        && request.resource.data.get('states', []) is list && request.resource.data.get('states', []).size() <= 16
+        && request.resource.data.get('propertyIds', []) is list && request.resource.data.get('propertyIds', []).size() <= 200
+        && (portfolioAdder() || isMkt());
       allow read: if staff() || portfolioViewer();
       allow create, update: if portfolioEditor();
       allow delete: if isDirector();   // safe delete: the page only offers it for owners with no units
-      allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+      allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'states', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.get('bankLast4', null) == null
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if isMkt() && changed().hasOnly(['updatedAt', 'updatedBy']);
+      // Draft 0.57: an owner's `states` (the states of their units) is worked out again after Operations or Marketing save a unit
+      allow update: if (portfolioAdder() || isMkt()) && changed().hasOnly(['states']) && request.resource.data.states is list
+        && request.resource.data.states.size() <= 16;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       // Operations write name and contact details once, in the batch that creates the owner, and never read them back.
       match /private/{docId} {
         // Portfolio Edit: names, contact and bank details.
@@ -517,6 +645,8 @@ service cloud.firestore {
         // Marketing read and edit names and contact details (Khairul 27 Oct). Bank fields share this document: the
         // page hides them and Marketing can't change them.
         allow read: if isMkt() && docId == 'main';
+        // Draft 0.58: Operations read it too, for owner names (the page shows only the name)
+        allow read: if portfolioAdder() && docId == 'main';
         allow update: if isMkt() && docId == 'main' && request.resource.data.updatedBy == request.auth.uid
           && changed().hasOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy']);
       }
@@ -533,7 +663,9 @@ service cloud.firestore {
     match /importBatches/{id} {
       allow read: if staff() || isOps() || opsRole();
       allow create: if finOrDir();
-      allow update, delete: if false;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
+      allow delete: if false;
     }
 
     // Locked months are protected by the app posting changes as adjustments (CSV-13); Edit on a completed month goes
@@ -544,12 +676,16 @@ service cloud.firestore {
       allow create, update: if finOrDir();
       // Draft 0.24 (Khairul): only a booking already removed by hand on Month-end (cancelled + removedByHand), by Finance/Director
       allow delete: if finOrDir() && resource.data.status == 'cancelled' && resource.data.get('removedByHand', null) != null;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
     }
 
     // Each unit's payout per month: completed statements, and Finance's past statements uploaded as reference.
     match /payoutHistory/{id} {
       allow read: if staff();
       allow create, update: if finOrDir();
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if isDirector();
     }
 
@@ -562,15 +698,21 @@ service cloud.firestore {
         && request.resource.data.status in ['open', 'partial', 'completed'];
       // Summary-only writes, on any month.
       allow create: if finOrDir()
-        && newKeysOnly(['propertyId', 'month', 'summary'])
+        && newKeysOnly(['propertyId', 'state', 'month', 'summary'])
         && id == request.resource.data.propertyId + '_' + request.resource.data.month;
+      // Pool Sharing check (Draft 0.46): "Confirmed 0 bookings" per unit, with who and when (poolZero only).
+      allow create: if finOrDir() && newKeysOnly(['propertyId', 'state', 'month', 'poolZero'])
+        && id == request.resource.data.propertyId + '_' + request.resource.data.month;
+      allow update: if finOrDir() && changed().hasOnly(['poolZero', 'state']);
       allow update: if finOrDir()
-        && changed().hasOnly(['propertyId', 'month', 'summary'])
+        && changed().hasOnly(['propertyId', 'state', 'month', 'summary'])
         && request.resource.data.propertyId == resource.data.get('propertyId', request.resource.data.propertyId)
         && request.resource.data.month == resource.data.get('month', request.resource.data.month);
       // Approve & complete on a summary-only month document (no status yet means open).
       allow update: if finOrDir() && resource.data.get('status', 'open') != 'completed'
         && request.resource.data.status in ['open', 'partial', 'completed'];
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -581,6 +723,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(unitMonthKeys())
         && request.resource.data.propertyId is string && request.resource.data.month is string && request.resource.data.unitId is string
         && id == request.resource.data.unitId + '_' + request.resource.data.month;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -594,6 +738,8 @@ service cloud.firestore {
         && !unitCompleted(resource.data.unitId, resource.data.month)
         && !unitCompleted(request.resource.data.unitId, request.resource.data.month)
         && request.resource.data.month == resource.data.month;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;   // "Remove" sets deleted = true
     }
 
@@ -619,6 +765,8 @@ service cloud.firestore {
         && request.resource.data.revision == resource.data.revision
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paidDate', 'paidAmount', 'paidRef', 'paidBy', 'paidByName', 'paidAt', 'payUndoReason', 'payUndoBy', 'payUndoByName', 'payUndoAt'])
         && (request.resource.data.paymentStatus == 'paid' || (isDirector() && request.resource.data.paymentStatus == 'pending'));
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       match /revisions/{rev} {
         allow read: if staff();
@@ -646,6 +794,8 @@ service cloud.firestore {
       allow update: if isDirector() && resource.data.status == 'submitted'
         && (request.resource.data.status == 'approved'
           || (request.resource.data.status == 'returned' && request.resource.data.returnReason is string && request.resource.data.returnReason.size() > 0));
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -677,6 +827,8 @@ service cloud.firestore {
         && request.resource.data.status in ['new', 'interested', 'considering', 'uninterested', 'booked']
         && (bookingMadeNow(id)
             || (!changed().hasAny(['tenantId', 'bookingId']) && (request.resource.data.status != 'booked' || resource.data.status == 'booked')));
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       // Contact details: Finance/Directors through the catch-all; the assignee here.
       match /private/{docId} {
@@ -690,15 +842,24 @@ service cloud.firestore {
     // Written by Finance/Directors, and by Operations only inside Create booking (opsBooking, lastInquiryId)
     // or a direct booking (directBookingMadeNow, lastBookingId).
     match /tenants/{tenantId} {
+      // Draft 0.63: after a booking is saved, the booking's property is added to the tenant's `propertyIds` (only that changes).
+      // First in the block, cheapest check first (see owners).
+      allow update: if changed().hasOnly(['propertyIds']) && request.resource.data.propertyIds is list
+        && request.resource.data.propertyIds.size() <= 200 && isOps();
       allow read: if finOrDir() || isOps();
       allow create, update: if finOrDir();
       allow create, update: if opsBooking(request.resource.data.get('lastInquiryId', null), tenantId)
-        && (resource == null || changed().hasOnly(['status', 'lastInquiryId', 'updatedAt', 'updatedBy']));
+        && (resource == null || changed().hasOnly(['status', 'states', 'lastInquiryId', 'updatedAt', 'updatedBy']));
       allow create, update: if isOps() && directBookingMadeNow(request.resource.data.get('lastBookingId', null), tenantId)
-        && (resource == null || changed().hasOnly(['status', 'lastBookingId', 'updatedAt', 'updatedBy']));
+        && (resource == null || changed().hasOnly(['status', 'states', 'lastBookingId', 'updatedAt', 'updatedBy']));
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       match /private/{docId} {
         allow read: if isOps();
+        // Draft 0.63: the same list on private/main (the tenant search reads it)
+        allow update: if docId == 'main' && changed().hasOnly(['propertyIds'])
+          && request.resource.data.propertyIds is list && request.resource.data.propertyIds.size() <= 200 && (isOps() || finOrDir());
         allow create, update: if opsBooking(getAfter(docPath('tenants', tenantId)).data.get('lastInquiryId', null), tenantId);
         allow create, update: if isOps()
           && directBookingMadeNow(getAfter(docPath('tenants', tenantId)).data.get('lastBookingId', null), tenantId);
@@ -719,6 +880,8 @@ service cloud.firestore {
       // Operations fill in a payment that has no receipt (status Unknown): saving it makes it Edited, and Finance is told.
       allow update: if role() == 'operations' && can('offlinePayments.view') && resource.data.status == 'Unknown' && request.resource.data.status == 'Edited'
         && !changed().hasAny(['createdBy', 'createdAt', 'submittedByName', 'verifiedByName', 'verifiedDate', 'remarks']);
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
     // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
@@ -730,6 +893,8 @@ service cloud.firestore {
       allow update: if finOrDir() || can('bookingForms.view');
       // Draft 0.36: removed with its booking, only while the booking is cancelled.
       allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
     }
 
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
@@ -759,6 +924,8 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid;
       // Draft 0.36: delete for good, only a cancelled booking (the page also checks no payment is recorded).
       allow delete: if (finOrDir() || isOps()) && resource.data.get('status', '') == 'cancelled';
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       // Door passcodes for the booking (Booking Form).
       match /private/{doc} {
         allow read: if finOrDir() || isOps();
@@ -786,11 +953,25 @@ service cloud.firestore {
         && (!('type' in request.resource.data) || request.resource.data.type in ['customer', 'inhouse'])
         && request.resource.data.status in ['open', 'progress', 'done']
         && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+      // Draft 0.47: title, description, property and the task system column (tmsStatus), from the Issues page or the task system (TMS),
+      // with or without a status change: Directors and the tagged roles, while the ticket is Open or In progress.
+      allow update: if anyStaff() && resource.data.status in ['open', 'progress']
+        && (isDirector() || myIssueTag() in resource.data.tags)
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'state', 'tmsStatus', 'audit', 'updatedAt'])
+        && request.resource.data.status in ['open', 'progress', 'done']
+        && (request.resource.data.status != 'done' || request.resource.data.get('doneByUid', '') == request.auth.uid)
+        && request.resource.data.get('title', '') is string
+        && request.resource.data.get('title', '').size() > 0 && request.resource.data.get('title', '').size() <= 200
+        && request.resource.data.get('body', '') is string && request.resource.data.get('body', '').size() <= 5000
+        && request.resource.data.get('property', '') is string && request.resource.data.get('property', '').size() <= 80
+        && (!('tmsStatus' in request.resource.data) || request.resource.data.tmsStatus is map);
       // Delete ticket: Directors only, any status. Marked deleted with a reason, never removed; nothing changes it after.
       allow update: if isDirector() && resource.data.status != 'deleted'
         && changed().hasOnly(['status', 'deletedAt', 'deletedBy', 'deletedByUid', 'deleteReason', 'audit', 'updatedAt'])
         && request.resource.data.status == 'deleted'
         && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       match /replies/{replyId} {
         allow read: if canSeeIssue(get(docPath('issues', id)).data);
@@ -812,7 +993,7 @@ service cloud.firestore {
           && canSeeIssue(get(docPath('issues', id)).data);
       }
       function quoteKeys() {
-        return ['issueId', 'propertyId', 'unitId', 'unitCode', 'chargeTo', 'vendor', 'items', 'total', 'notes', 'status', 'rejectReason',
+        return ['issueId', 'propertyId', 'state', 'unitId', 'unitCode', 'chargeTo', 'vendor', 'items', 'total', 'notes', 'status', 'rejectReason',
           'createdAt', 'createdBy', 'createdByName', 'history', 'updatedAt', 'updatedBy'];
       }
       function quoteOk() {
@@ -830,6 +1011,8 @@ service cloud.firestore {
       allow create, update: if priceAccess() && ticketOk() && quoteOk()
         && request.resource.data.status in ['quoted', 'approved', 'invoiced', 'paid', 'rejected']
         && (resource == null || resource.data.status != 'paid');
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -970,10 +1153,14 @@ service cloud.firestore {
           && (request.resource.data.text.size() > 0
             || (request.resource.data.get('imageIds', []) is list && request.resource.data.get('imageIds', []).size() > 0))
           && request.resource.data.get('imageIds', []).size() <= 5
-          && request.resource.data.byUid == request.auth.uid
-          && ((isHR() && request.resource.data.by == 'hr')
-            || (request.resource.data.by == 'sender' && complaintNow(id).get('fromId', null) == request.auth.uid
-                && complaintNow(id).status != 'closed' && !('closing' in request.resource.data)));
+          && ((request.resource.data.get('byUid', '') == request.auth.uid
+              && ((isHR() && request.resource.data.by == 'hr')
+                || (request.resource.data.by == 'sender' && complaintNow(id).get('fromId', null) == request.auth.uid
+                    && complaintNow(id).status != 'closed' && !('closing' in request.resource.data))))
+            // Draft 0.49: the anonymous sender (no uid or name saved)
+            || (anyStaff() && request.resource.data.by == 'sender' && complaintNow(id).get('anonymous', false) == true
+                && complaintNow(id).status != 'closed' && !('byUid' in request.resource.data) && !('byName' in request.resource.data)
+                && !('closing' in request.resource.data)));
         // Draft 0.29: a Director complaint's conversation is between HR and the Directors
         allow read: if dirSide(id);
         // Draft 0.30: a closing note (closing) comes only from the Directors; HR can't write once it is Closed.
@@ -1003,8 +1190,10 @@ service cloud.firestore {
                   || (anyStaff() && complaintNow(id).get('anonymous', false) == true && !('byUid' in request.resource.data)
                       && request.time < complaintNow(id).createdAt + duration.value(15, 'm'))))
             || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string
-                && request.resource.data.get('byUid', '') == request.auth.uid
-                && (isHR() || (complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed'))));
+                && ((request.resource.data.get('byUid', '') == request.auth.uid
+                    && (isHR() || (complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed')))
+                  || (anyStaff() && complaintNow(id).get('anonymous', false) == true && complaintNow(id).status != 'closed'
+                    && !('byUid' in request.resource.data)))));
         // Draft 0.29: Director complaints: HR and Directors read and add photos (with the complaint or a reply)
         allow read: if dirSide(id);
         allow create: if dirSide(id)
@@ -1012,6 +1201,32 @@ service cloud.firestore {
           && request.resource.data.data is string && request.resource.data.data.size() <= 700000
           && request.resource.data.get('byUid', '') == request.auth.uid
           && (request.resource.data.scope == 'complaint' || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string));
+        allow update, delete: if false;
+      }
+      // Draft 0.48 (Khairul): documents on a staff complaint. The file is in HR's Google Drive; this is its name and id.
+      match /docs/{did} {
+        allow read: if (isHR() && complaintNow(id).kind == 'staff')
+          || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
+          || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
+        allow create: if complaintNow(id).kind == 'staff'
+          && newKeysOnly(['name', 'fileId', 'mimeType', 'by', 'byUid', 'threadId', 'createdAt'])
+          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
+          && request.resource.data.fileId is string && request.resource.data.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
+          && ((isHR() && request.resource.data.by == 'hr' && request.resource.data.get('byUid', '') == request.auth.uid)
+            || (request.resource.data.by == 'sender' && request.resource.data.get('byUid', '') == request.auth.uid
+                && complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed')
+            // Draft 0.49: an anonymous sender any time while it isn't Closed (was the first 15 minutes only)
+            || (request.resource.data.by == 'anon' && anyStaff() && complaintNow(id).get('anonymous', false) == true
+                && !('byUid' in request.resource.data) && complaintNow(id).status != 'closed'));
+        // Draft 0.49: Director complaints (HR's Drive). The Directors any time; the HR sender while it isn't Closed.
+        allow read: if dirSide(id);
+        allow create: if dirSide(id)
+          && newKeysOnly(['name', 'fileId', 'mimeType', 'by', 'byUid', 'threadId', 'createdAt'])
+          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
+          && request.resource.data.fileId is string && request.resource.data.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
+          && request.resource.data.get('byUid', '') == request.auth.uid
+          && ((isDirector() && request.resource.data.by == 'director')
+            || (isHR() && request.resource.data.by == 'hr' && complaintNow(id).get('status', '') != 'closed'));
         allow update, delete: if false;
       }
       // Draft 0.28 (Khairul): HR's own notes on a staff complaint; nobody else reads them.
@@ -1049,14 +1264,17 @@ service cloud.firestore {
       allow read: if listingViewer() || listingEditor();
       allow create: if listingEditor() && id.matches('NL-[0-9]{4,}')
         && request.resource.data.createdByUid == request.auth.uid
-        && request.resource.data.status in ['inProgress', 'live'];
+        && request.resource.data.status in ['inProgress', 'progress'];
       allow update: if listingEditor()
         && !changed().hasAny(['createdByUid', 'createdByName', 'createdAt'])
-        && request.resource.data.status in ['inProgress', 'live'];
+        && request.resource.data.get('status', 'inProgress') in listingStatuses()
+        && listingStatusOk();
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       match /private/{docId} {
-        allow read: if (listingEditor() || (opsRole() && listingViewer())) && docId == 'main';
-        allow write: if listingEditor() && docId == 'main';
+        allow read: if listingMover() && listingViewer() && docId == 'main';
+        allow write: if listingMover() && listingEditor() && docId == 'main';
       }
     }
 
@@ -1516,6 +1734,164 @@ service cloud.firestore {
         && ((!exists(advPath(id)) && getAfter(advPath(id)).data.byHR == true) || get(advPath(id)).data.status == 'submitted')
         && getAfter(advPath(id)).data.status == 'reviewed';
       allow update, delete: if false;
+    }
+
+    // ---------------- Staff Attendance (Draft 0.49) ----------------
+    function attCfgPath() { return /databases/$(database)/documents/config/attendance; }
+    // Office settings. Until HR or a Director saves them, the defaults agreed on 11 Nov 2026 (Micasa Shoppes, 250 m, late after 9:10).
+    function attCfg() {
+      return exists(attCfgPath()) ? get(attCfgPath()).data
+        : {'lat': 3.156812, 'lng': 101.722188, 'radiusM': 250, 'cosLat': 0.998483, 'lateAfterMin': 550, 'workDays': [1, 2, 3, 4, 5],
+           'allowOffsite': true};
+    }
+    // Draft 0.54: clocking in / out away from the office is allowed (saved as Off-site, InArea false) unless HR turns it off.
+    // Draft 0.61: Normal (InArea true) means inside the main office (i == -1) or inside places[i]; the server does the
+    // distance sum for the place the phone names, so nobody can mark themselves Normal or name a place they aren't at.
+    // name: 'WIDEBED' or the place's name when Normal, the looked-up address when Off-site (null = an older app).
+    function attPlaces() { return attCfg().get('places', []); }
+    function attSpot(i) { return i == -1 ? attCfg() : attPlaces()[i]; }
+    function attPlaceOk(lat, lng, inArea, i, name) {
+      return lat is number && lng is number && inArea is bool
+        && (inArea
+            ? (i is int && i >= -1 && i < attPlaces().size() && attNear(lat, lng, attSpot(i))
+                && (name == null || name == (i == -1 ? 'WIDEBED' : attSpot(i).name)))
+            : (attCfg().get('allowOffsite', true) == true && (name == null || (name is string && name.size() <= 200))));
+    }
+    function attPad(n) { return n < 10 ? '0' + string(n) : string(n); }
+    // The server's time in Malaysia (UTC+8, no daylight saving).
+    function myNow() { return request.time + duration.value(8, 'h'); }
+    function attToday() { let t = myNow(); return string(t.year()) + '-' + attPad(t.month()) + '-' + attPad(t.day()); }
+    // Inside a place's circle (the main office or one of places), from the phone's reported position
+    // (metres, flat-earth sum: exact enough at these sizes).
+    function attNear(lat, lng, p) {
+      let dy = (lat - p.lat) * 111320;
+      let dx = (lng - p.lng) * 111320 * p.cosLat;
+      return dy * dy + dx * dx <= p.radiusM * p.radiusM;
+    }
+    // Draft 0.59: a holiday counts for you unless HR left you out of it (exceptUids).
+    function attHolidayForMe(date) {
+      let p = /databases/$(database)/documents/attendanceHolidays/$(date);
+      return exists(p) && !(request.auth.uid in get(p).data.get('exceptUids', []));
+    }
+    function attWorkDay(date) {
+      return myNow().dayOfWeek() in attCfg().workDays && !attHolidayForMe(date);
+    }
+    function attLate(date) {
+      let t = myNow();
+      return attWorkDay(date) && t.hours() * 60 + t.minutes() > attCfg().lateAfterMin;
+    }
+    // Draft 0.52: the session before n (today, this person) exists and is clocked out.
+    function attPrevId(n) {
+      return n == 2 ? request.auth.uid + '_' + attToday() : request.auth.uid + '_' + attToday() + '_s' + string(n - 1);
+    }
+    function attPrevClosed(n) {
+      let p = /databases/$(database)/documents/attendance/$(attPrevId(n));
+      return exists(p) && ('clockOut' in get(p).data);
+    }
+
+    match /attendance/{id} {
+      // Your own records (a list query must filter uid == you). resource == null: "has today's record been made yet?"
+      allow read: if hrOrDir() || (anyStaff() && (resource == null || resource.data.uid == request.auth.uid));
+      // Clock in (Draft 0.52: several per day). Session 1 is {uid}_{day} and decides late / off day; going out and coming back
+      // makes session 2, 3… ({uid}_{day}_s2 …, at most 10), allowed only once the one before is clocked out. Never late.
+      allow create: if anyStaff()
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'role', 'date', 'session', 'clockIn', 'clockInLat',
+             'clockInLng', 'clockInAccuracy', 'clockInDistance', 'clockInInArea', 'clockInMocked', 'late', 'lateReason', 'offDay',
+             'status', 'platform', 'createdAt', 'updatedAt', 'clockInPlace', 'clockInPlaceIdx'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.date == attToday()
+        && request.resource.data.clockIn == request.time
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.clockInMocked == false
+        && attPlaceOk(request.resource.data.clockInLat, request.resource.data.clockInLng, request.resource.data.clockInInArea,
+             request.resource.data.get('clockInPlaceIdx', -1), request.resource.data.get('clockInPlace', null))
+        && request.resource.data.offDay == !attWorkDay(attToday())
+        && request.resource.data.late is bool
+        && ((
+              !('session' in request.resource.data)
+              && id == request.auth.uid + '_' + attToday()
+              && (!attLate(attToday()) || request.resource.data.late == true)
+              && (request.resource.data.late == false
+                  || (request.resource.data.lateReason is string && request.resource.data.lateReason.size() >= 3
+                      && request.resource.data.lateReason.size() <= 300))
+              && request.resource.data.status == (request.resource.data.offDay ? 'offDay' : (request.resource.data.late ? 'late' : 'present'))
+            ) || (
+              request.resource.data.session is int
+              && request.resource.data.session >= 2 && request.resource.data.session <= 10
+              && id == request.auth.uid + '_' + attToday() + '_s' + string(request.resource.data.session)
+              && attPrevClosed(request.resource.data.session)
+              && request.resource.data.late == false
+              && !('lateReason' in request.resource.data)
+              && request.resource.data.status == (request.resource.data.offDay ? 'offDay' : 'present')
+            ));
+      // Clock out: once, the same Malaysia day, with the server's time (in the area, or Off-site if allowed: Draft 0.54).
+      // Then (second save) workedMinutes, which must equal clockOut - clockIn from the two server times (rounded down, 1 min slack).
+      allow update: if anyStaff()
+        && resource.data.uid == request.auth.uid
+        && ((
+              resource.data.date == attToday()
+              && !('clockOut' in resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockOut', 'clockOutLat', 'clockOutLng',
+                   'clockOutAccuracy', 'clockOutDistance', 'clockOutInArea', 'clockOutMocked', 'updatedAt', 'clockOutPlace', 'clockOutPlaceIdx'])
+              && request.resource.data.clockOut == request.time
+              && request.resource.data.updatedAt == request.time
+              && request.resource.data.clockOutMocked == false
+              && attPlaceOk(request.resource.data.clockOutLat, request.resource.data.clockOutLng, request.resource.data.clockOutInArea,
+                   request.resource.data.get('clockOutPlaceIdx', -1), request.resource.data.get('clockOutPlace', null))
+            ) || (
+              'clockOut' in resource.data
+              && !('workedMinutes' in resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['workedMinutes'])
+              && request.resource.data.workedMinutes is int
+              && request.resource.data.workedMinutes >= (resource.data.clockOut.toMillis() - resource.data.clockIn.toMillis()) / 60000 - 1
+              && request.resource.data.workedMinutes <= (resource.data.clockOut.toMillis() - resource.data.clockIn.toMillis()) / 60000 + 1
+            ));
+      // Draft 0.51: HR / Director corrections (PMS Attendance page). Never their own record; the person and the date stay.
+      allow create, update: if hrOrDir()
+        && request.resource.data.uid is string && request.resource.data.uid != request.auth.uid
+        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (id == request.resource.data.uid + '_' + request.resource.data.date
+            || id == request.resource.data.uid + '_' + request.resource.data.date + '_s' + string(request.resource.data.get('session', 0)))
+        && (resource == null || (resource.data.uid == request.resource.data.uid && resource.data.date == request.resource.data.date))
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'role', 'date', 'session', 'clockIn', 'clockInLat', 'clockInLng',
+             'clockInAccuracy', 'clockInDistance', 'clockInInArea', 'clockInMocked', 'late', 'lateReason', 'offDay', 'status',
+             'platform', 'createdAt', 'updatedAt', 'clockOut', 'clockOutLat', 'clockOutLng', 'clockOutAccuracy', 'clockOutDistance',
+             'clockOutInArea', 'clockOutMocked', 'workedMinutes', 'editedBy', 'editedByName', 'editedAt', 'editNote',
+             'clockInPlace', 'clockInPlaceIdx', 'clockOutPlace', 'clockOutPlaceIdx'])
+        && request.resource.data.clockIn is timestamp
+        && (!('clockOut' in request.resource.data)
+            || (request.resource.data.clockOut is timestamp && request.resource.data.clockOut > request.resource.data.clockIn))
+        && (!('workedMinutes' in request.resource.data) || request.resource.data.workedMinutes is int)
+        && request.resource.data.status in ['present', 'late', 'offDay']
+        && request.resource.data.editedBy == request.auth.uid
+        && request.resource.data.editedAt == request.time
+        && request.resource.data.editNote is string && request.resource.data.editNote.size() >= 3 && request.resource.data.editNote.size() <= 300;
+      allow delete: if false;
+    }
+
+    // Public holidays, kept by HR on the PMS Attendance page. id = YYYY-MM-DD.
+    match /attendanceHolidays/{date} {
+      allow read: if anyStaff();
+      // Draft 0.59: exceptUids = staff left out of this holiday (empty or missing = everyone).
+      allow create, update: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['name', 'exceptUids', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && request.resource.data.get('exceptUids', []) is list && request.resource.data.get('exceptUids', []).size() <= 300;
+      allow delete: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // Office location, radius and late time for attendance. Draft 0.61: places = the other locations (properties), up to 30.
+    match /config/attendance {
+      allow read: if anyStaff();
+      allow write: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['officeName', 'address', 'lat', 'lng', 'radiusM', 'cosLat', 'workStartMin',
+             'workEndMin', 'lateAfterMin', 'workDays', 'allowOffsite', 'places', 'updatedBy', 'updatedAt'])
+        && request.resource.data.get('places', []) is list && request.resource.data.get('places', []).size() <= 30
+        && request.resource.data.get('allowOffsite', true) is bool
+        && request.resource.data.lat is number && request.resource.data.lng is number
+        && request.resource.data.radiusM is number && request.resource.data.radiusM >= 50 && request.resource.data.radiusM <= 2000
+        && request.resource.data.cosLat is number && request.resource.data.lateAfterMin is int && request.resource.data.workDays is list;
     }
 
   }

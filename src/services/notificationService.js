@@ -1,9 +1,10 @@
 import {
-  addDoc, arrayRemove, arrayUnion, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch,
+  addDoc, arrayRemove, arrayUnion, collection, deleteDoc, doc, limit, orderBy, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch,
 } from "firebase/firestore"
 import { onAuthStateChanged } from "firebase/auth"
 import { auth, db } from "@/lib/firebase"
 import { sendPush } from "@/lib/push.js"
+import { listen as liveListen } from "@/lib/use-live.js"
 
 const notificationsRef = collection(db, "notifications")
 
@@ -49,14 +50,15 @@ export function subscribeToNotifications(role, callback, onError = console.error
       }
 
       const since = Timestamp.fromMillis(Date.now() - KEEP_DAYS * 24 * 60 * 60 * 1000)
+      // On lib/use-live.js since 6 Nov 2026 (same queries, also stops on sign-out)
       const listen = (key, field, value) =>
-        onSnapshot(
+        liveListen(
           query(notificationsRef, where(field, "==", value), where("createdAt", ">=", since), orderBy("createdAt", "desc"), limit(30)),
-          (snapshot) => {
-            buckets[key] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+          (rows) => {
+            buckets[key] = rows
             publish()
           },
-          onError
+          { onError }
         )
 
       stops.push(listen("uid", "recipientUid", user.uid))

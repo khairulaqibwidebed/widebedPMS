@@ -54,11 +54,12 @@
                   <td><div class="tag-wrap"><template v-for="g in t.tags" :key="g"><span class="tag">{{ tagLabel(g) }}</span></template></div></td>
                   <td><span class="who"><Avatar :uid="t.raisedByUid" :name="t.raisedBy" :role="t.raisedRole" :size="20" />{{ t.raisedBy }}<span class="tag role-tint" :style="roleTint(t.raisedRole)" v-if="showRole(t.raisedBy, t.raisedRole)">{{ tagLabel(t.raisedRole) }}</span></span></td>
                   <td class="nw">{{ day(t.raisedAt) }}</td>
-                  <td class="nw ct-badge"><span class="pill" :class="STATUS[t.status].cls">{{ STATUS[t.status].label }}</span></td>
+                  <td class="nw ct-badge"><span class="pill" :class="STATUS[t.status].cls" :title="statusHint(t)">{{ statusLabel(t) }}</span></td>
                   <!-- Last update (6 Nov 2026, replaced the comment and link counts): when anything last changed, and who posted last -->
                   <td class="nw ct-hide last-up" :title="stamp(t.updatedIso || t.raisedAt)"><span>{{ ago(t.updatedIso || t.raisedAt) }}</span><small v-if="t.lastBy">{{ t.lastBy }}</small></td>
                 </tr>
               </template>
+              <SkeletonRows v-if="loading && !shown().length" table :cols="9" />
               <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">No tickets match.</td></tr>
             </tbody>
           </table>
@@ -121,7 +122,7 @@
           <div class="stack" style="gap:16px">
             <div class="card">
               <div class="card-head"><h2>Details</h2></div>
-              <div class="kv"><span>Status</span><span><span class="pill" :class="STATUS[ticket.status].cls">{{ STATUS[ticket.status].label }}</span></span></div>
+              <div class="kv"><span>Status</span><span><span class="pill" :class="STATUS[ticket.status].cls" :title="statusHint(ticket)">{{ statusLabel(ticket) }}</span></span></div>
               <div class="kv"><span>Type</span><span><span class="type-badge" :class="typeOf(ticket)"><svg viewBox="0 0 24 24" aria-hidden="true" v-html="TYPE_ICON[typeOf(ticket)]"></svg>{{ TYPE_LABEL[typeOf(ticket)] }}</span></span></div>
               <div class="kv"><span>Property</span><span>{{ ticket.property || '—' }}</span></div>
               <div class="kv"><span>Unit</span><span>{{ ticket.unit || '—' }}</span></div>
@@ -135,6 +136,7 @@
               <div class="acts-back" v-if="menuOpen" @click="menuOpen = false"></div>
               <div class="acts-menu" v-if="menuOpen" role="menu">
                 <button role="menuitem" v-show="ticket.status === 'open' && canUpdate()" @click="menuOpen = false; setProgress()" :disabled="busy">Mark in progress</button>
+                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; openEdit()" :disabled="busy">Edit title &amp; description</button>
                 <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; switchType()" :disabled="busy">{{ typeOf(ticket) === 'customer' ? 'Change to In-house' : 'Change to Customer' }}</button>
                 <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; confirmDone = true; doneError = ''">Mark completed</button>
                 <button role="menuitem" class="danger" v-if="canDelete" @click="menuOpen = false; openDelete()">Delete ticket</button>
@@ -161,6 +163,12 @@
               <button type="button" role="radio" :aria-checked="String(raise.type === 'inhouse')" :class="{ on: raise.type === 'inhouse' }" @click="raise.type = 'inhouse'"><b>In-house</b><small>Office, staff or company matters</small></button>
             </div></div>
           <div class="field"><label class="req" for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
+          <!-- Customer tickets only: the property, and the ticket's card goes to that property's board in the task system
+               (Maintenance). In-house tickets stay in the PMS and have no property. -->
+          <div class="field" v-if="raise.type === 'customer'"><label class="req" for="rProp">Property</label>
+            <OptionPicker v-if="propertyChoices().length" class="full-pick" v-model="raise.property" :options="propertyOptions()" label="Property" searchable @change="raise.unit = ''" />
+            <input v-else class="input" id="rProp" v-model="raise.property" maxlength="80" placeholder="Type the property name, as on its task system board">
+            <div class="help">The ticket's card goes to this property's board in the task system (Maintenance). A property with no board yet gets one.</div></div>
           <!-- In-house tickets have no unit (6 Nov 2026), so one isn't added by mistake -->
           <!-- Slides shut for In-house and open again for Customer; hidden fields can't be tabbed into -->
           <div class="unit-fold" :class="{ open: raise.type !== 'inhouse' }" :inert="raise.type === 'inhouse' || null">
@@ -209,6 +217,24 @@
       </template>
     </div>
 
+    <!-- Edit title & description (Directors and the tagged roles, rules Draft 0.47). The task system card follows. -->
+    <div class="modal-back" v-show="edit" @click.self="edit = null" v-esc="() => { edit = null }">
+      <template v-if="edit">
+        <form class="modal" role="dialog" aria-label="Edit title and description" @submit.prevent="saveEdit()" style="max-width:520px">
+          <h2>{{ 'Edit ' + ticket.id }}</h2>
+          <p class="help" v-show="typeOf(ticket) === 'customer' && !ticket.property" style="margin-top:0">This Customer ticket has no property yet, so it has no card in the task system. Choose its property.</p>
+          <div class="notice error" v-show="edit.error">{{ edit.error }}</div>
+          <div class="field"><label class="req" for="eTitle">Title</label><input class="input" id="eTitle" ref="eTitle" v-model="edit.title" maxlength="200"></div>
+          <div class="field" v-if="typeOf(ticket) === 'customer'"><label class="req" for="eProp">Property</label>
+            <OptionPicker v-if="propertyChoices().length" class="full-pick" v-model="edit.property" :options="propertyOptions(edit.property)" label="Property" searchable />
+            <input v-else class="input" id="eProp" v-model="edit.property" maxlength="80"></div>
+          <div class="field"><label class="req" for="eBody">What happened</label><textarea class="input" id="eBody" style="height:120px" v-model="edit.body" maxlength="5000"></textarea></div>
+          <div class="help">Saved in the audit log. The ticket's card in the task system changes too.</div>
+          <div class="modal-foot"><button type="button" class="btn" @click="edit = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Save</button></div>
+        </form>
+      </template>
+    </div>
+
     <!-- Delete ticket (Directors only). Nothing is hard-deleted: the ticket is marked deleted with a reason and leaves every list. -->
     <div class="modal-back" v-show="del" @click.self="del = null" v-esc="() => { del = null }">
       <template v-if="del">
@@ -252,7 +278,7 @@
 // Issues in Firestore: issues/{IS-0001} (title, unit, tags, status, Drive links, a short audit trail) and
 // issues/{id}/replies/{autoId} for comments. Files stay in the company Google Drive; tickets keep only links.
 // Completed tickets are locked by the rules too (no updates or replies once status is 'done').
-import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
+import { collection, doc, getDoc, getDocs, updateDoc, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, increment, serverTimestamp } from 'firebase/firestore';
 import { db, ROLE_LABEL, CUSTOM_ROLES, issueTagOf, tagLabel } from '@/lib/firebase.js';
 import FormField from '@/components/FormField.vue';
@@ -261,12 +287,19 @@ import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
+import { stateFor } from '@/lib/states.js';
+import { scoped, getScoped, canSee, isDirectorMe } from '@/lib/property-scope.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
 import TicketQuote from '@/components/TicketQuote.vue';
 import { NAV_ICONS } from '@/components/NavIcons.js';
+
+import { liveMixin } from '@/lib/use-live.js';
+
+import { syncIssue, maintenanceBoards } from '@/lib/tms.js';
+
 
 const me = useSession();
 const myRole = issueTagOf(me.role);          // the word saved on tickets: 'Finance' (shown as Accounting), 'Director'
@@ -299,6 +332,10 @@ const TYPE_KEY = 'wb.issueType';
 const readTypeTab = () => { try { const v = localStorage.getItem(TYPE_KEY) || ''; return TYPE_LABEL[v] ? v : ''; } catch { return ''; } };
 const LIST_LIMIT = 500;
 let unitCache = null;
+let boardCache = null;   // the task system's Maintenance boards (the Property list), 10 minutes
+// Property names match whatever the capitals, extra spaces or kind of apostrophe (D'Majestic / D’Majestic)
+const nameKey = s => String(s ?? '').replace(/[‘’`´]/g, "'").replace(/\s+/g, ' ').trim().toLowerCase();
+const sameName = (a, b) => nameKey(a) === nameKey(b);
 // Links must point at the company Google Drive (Drive, Docs, Sheets, Slides).
 const DRIVE_HOSTS = ['drive.google.com', 'docs.google.com'];
 
@@ -311,11 +348,12 @@ const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [
 
 export default {
   beforeCreate() { TAGS = tagsNow(); },
+  mixins: [liveMixin],
   components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer, TicketQuote },
   data() {
     return {
       TAGS, STATUS, FILTERS, TYPE_LABEL, TYPE_ICON, TYPE_TABS, typeTab: readTypeTab(), myRole, canRaise: canWrite, canDelete: isDirector, del: null,
-      menuOpen: false, auditOpen: false, addPick: '', addPickR: '', tickets: [], ticket: null, replies: [], units: [], search: '',
+      menuOpen: false, auditOpen: false, edit: null, boards: [], pmsProps: [], addPick: '', addPickR: '', tickets: [], ticket: null, replies: [], units: [], search: '',
       // The dashboard links here with ?tag= (one team's tickets) and ?filter= (e.g. active = open or in progress).
       filter: FILTERS.some(f => f.key === this.$route.query.filter) ? this.$route.query.filter : (this.$route.query.tag ? 'active' : 'all'),
       tagFilter: TAGS.includes(this.$route.query.tag) ? this.$route.query.tag : '', okMsg: '', error: '', doneError: '',
@@ -351,18 +389,41 @@ export default {
     },
     // Rules are not filters: Directors read every ticket; everyone else asks for tickets tagged to their role
     // and tickets they raised, and the two lists are merged.
-    async loadList() {
+    // Live (6 Nov 2026): new tickets and changes show without a refresh. Resolves when the list first arrives;
+    // calling it again while it runs does nothing.
+    loadList() {
+      if (this.liveStops.mine || this.liveStops.all) return Promise.resolve();
       const col = collection(db, 'issues');
-      const snaps = isDirector ? [await getDocs(query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT)))]
-        : await Promise.all([getDocs(query(col, where('tags', 'array-contains', myRole), limit(LIST_LIMIT))),
-          getDocs(query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)))]);
-      const seen = new Map();
-      for (const s of snaps) for (const d of s.docs) seen.set(d.id, toTicket(d.id, d.data()));
-      this.tickets = [...seen.values()];
+      const parts = isDirector ? { all: query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT)) }
+        : { tagged: query(col, where('tags', 'array-contains', myRole), limit(LIST_LIMIT)), mine: query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)) };
+      const got = {};
+      return new Promise((resolve, reject) => {
+        for (const [key, q] of Object.entries(parts)) {
+          this.live(key, q, rows => {
+            got[key] = rows;
+            if (Object.keys(got).length < Object.keys(parts).length) return;
+            const seen = new Map();
+            // Customer tickets on a property that is not mine are left out; in-house tickets (no property) keep the tag rules
+            for (const list of Object.values(got)) for (const r of list) if (!r.propertyId || canSee(r.propertyId)) seen.set(r.id, toTicket(r.id, r));
+            this.tickets = [...seen.values()];
+            resolve();
+          }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the tickets'); reject(e); } });
+        }
+      }).catch(() => {});
     },
-    async loadReplies() {
-      const snap = await getDocs(query(collection(db, 'issues', this.ticket.id, 'replies'), orderBy('createdAt')));
-      this.replies = snap.docs.map(d => ({ id: d.id, links: [], ...d.data() }));
+    // The open ticket and its comments, live: someone else's comment or progress change shows at once
+    loadReplies() {
+      const id = this.ticket.id;
+      if (this.liveTicket === id) return Promise.resolve();
+      this.liveTicket = id;
+      this.live('ticket', doc(db, 'issues', id), d => {
+        if (d && this.ticket?.id === id) Object.assign(this.ticket, toTicket(id, d));
+      }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the ticket'); } });
+      return new Promise(resolve => {
+        this.live('replies', query(collection(db, 'issues', id, 'replies'), orderBy('createdAt')), rows => {
+          this.replies = rows.map(r => ({ links: [], ...r })); resolve();
+        }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the comments'); resolve(); } });
+      });
     },
     open(id) { this.$router.push({ query: { id } }); },
     back() { this.$router.push({ query: {}, state: { okMsg: this.okMsg } }); },
@@ -370,10 +431,18 @@ export default {
     // Visibility: tagged to my role, raised by me, or Director (sees all)
     raisedByMe(t) { return t.raisedByUid === me.user.uid; },
     canSee(t) { return isDirector || t.tags.includes(myRole) || this.raisedByMe(t); },
-    unitOptions() { return this.units.map(u => ({ value: u.unitCode, hint: u.propertyName })); },
+    // Units of the chosen property (all units until one is chosen)
+    unitOptions() {
+      const p = this.raise?.property;
+      return this.units.filter(u => !p || sameName(u.propertyName, p)).map(u => ({ value: u.unitCode, hint: u.propertyName }));
+    },
     visible() { return this.tickets.filter(t => t.status !== 'deleted' && this.canSee(t)); },
     canUpdate() { const t = this.ticket; return t && canWrite && t.status !== 'done' && (isDirector || t.tags.includes(myRole)); },
     canComment() { return canWrite; },
+    // The status is always shown in PMS words (Open, In progress, Completed). Tickets tagged Operations or Procurement have a
+    // card in the task system (TMS, Maintenance workspace); its column (e.g. DOING) is shown only when hovering the status.
+    statusLabel(t) { return STATUS[t.status].label; },
+    statusHint(t) { return t.tmsStatus?.name && t.tmsStatus.for === t.status ? `Task system column: ${t.tmsStatus.name}` : null; },
     count(s) { return this.visible().filter(t => t.status === s).length; },
     needReply() { return this.visible().filter(t => t.status === 'open' && (isDirector || t.tags.includes(myRole)) && (t.lastBy || t.raisedBy) !== myLabel).length; },
     completedThisMonth() { const ym = nowIso().slice(0, 7); return this.visible().filter(t => t.status === 'done' && (t.doneAt || '').slice(0, 7) === ym).length; },
@@ -427,35 +496,70 @@ export default {
     async units4raise() {
       if (this.units.length) return;
       // The unit list is a read per unit; keep it for 10 minutes in this tab so reopening Issues doesn't download it again.
-      if (unitCache && Date.now() - unitCache.at < 600000) { this.units = unitCache.units; return; }
+      if (unitCache && unitCache.uid === me.user.uid && Date.now() - unitCache.at < 600000) { this.units = unitCache.units; this.pmsProps = unitCache.props || []; return; }
       // Operations, Finance and Directors can read units; other roles type the unit instead.
       try {
-        const [ps, us] = await Promise.all([getDocs(collection(db, 'properties')), getDocs(collection(db, 'units'))]);
+        // Only my properties and their units (lib/property-scope.js)
+        const [ps, us] = await Promise.all([getScoped(scoped(collection(db, 'properties'), '__id')), getScoped(scoped(collection(db, 'units')))]);
         const names = Object.fromEntries(ps.docs.map(d => [d.id, d.data().name]));
+        this.pmsProps = ps.docs.map(d => ({ id: d.id, name: d.data().name || '' })).filter(p => p.name).sort((a, b) => a.name.localeCompare(b.name));
         this.units = us.docs.map(d => ({ id: d.id, ...d.data(), propertyName: names[d.data().propertyId] || '' }))
           .filter(u => u.active !== false && u.unitCode).sort((a, b) => a.unitCode.localeCompare(b.unitCode));
-        unitCache = { at: Date.now(), units: this.units };
+        unitCache = { at: Date.now(), uid: me.user.uid, units: this.units, props: this.pmsProps };
       } catch { this.units = []; }
     },
 
+    // The Property list (12 Nov 2026): every PMS property, plus any Maintenance board in the task system that is not a PMS
+    // property. A PMS property with no board yet gets one when its first ticket is raised (task system, makeBoard).
+    // `keep`: a value to keep in the list (Edit).
+    // The same list for the searchable drop-down
+    propertyOptions(keep = '') { return [{ value: '', label: 'Choose the property' }, ...this.propertyChoices(keep).map(p => ({ value: p, label: p }))]; },
+    propertyChoices(keep = '') {
+      const names = this.pmsProps.map(p => p.name);
+      // Task-system boards that are not on the PMS list: Directors see them all; staff only a board tied to one of their
+      // own properties (access by property, 12 Nov 2026). Before this, every board showed for everyone.
+      for (const b of this.boards) {
+        if (names.some(n => sameName(n, b.name))) continue;
+        if (isDirectorMe() || (b.pmsPropertyId && canSee(b.pmsPropertyId))) names.push(b.name);
+      }
+      names.sort((a, b) => a.localeCompare(b));
+      return keep && !names.some(n => sameName(n, keep)) ? [keep, ...names] : names;
+    },
+    propertyIdOf(name) {
+      const b = this.boards.find(x => sameName(x.name, name)), p = this.pmsProps.find(x => sameName(x.name, name));
+      return b?.pmsPropertyId || p?.id || null;
+    },
+    async loadBoards() {
+      if (boardCache && Date.now() - boardCache.at < 600000) { this.boards = boardCache.boards; return; }
+      try { this.boards = await maintenanceBoards(); boardCache = { at: Date.now(), boards: this.boards }; }
+      catch (e) { console.error('Task system boards:', e); this.boards = []; }
+    },
     openRaise() {
-      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), type: this.typeTab, title: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
+      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), type: this.typeTab === 'inhouse' ? 'inhouse' : 'customer', title: '', property: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
       this.$nextTick(() => this.$refs.rTitle?.focus());
       this.units4raise();
+      this.loadBoards();
     },
     async saveRaise() {
       const r = this.raise;
       if (!TYPE_LABEL[r.type]) return r.error = 'Choose Customer or In-house.';
       if (!r.title.trim()) return r.error = 'Give the ticket a title.';
+      if (r.type === 'customer' && !r.property.trim()) return r.error = 'Choose the property.';
       if (r.type === 'customer' && !r.unit.trim()) return r.error = 'Choose the unit for a customer ticket.';
       if (!r.body.trim()) return r.error = 'Describe what happened.';
       if (!r.tags.length && !TAGS.includes(myRole)) return r.error = 'Tag at least one role to handle it.';
       if (r.linkUrl.trim()) { this.addLink(r); if (r.error) return; }
       const code = r.type === 'inhouse' ? '' : r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
+      if (unit && !sameName(unit.propertyName, r.property)) return r.error = `${unit.unitCode} is in ${unit.propertyName}, not ${r.property.trim()}.`;
+      // Customer: the chosen property; In-house: none (it stays in the PMS)
+      const propertyName = r.type === 'customer' ? r.property.trim().slice(0, 80) : '';
+      const propertyId = propertyName ? unit?.propertyId || this.propertyIdOf(propertyName) : null;
       const tags = TAGS.filter(g => r.tags.includes(g) || g === myRole);
       const h = this.entry(`raised the ${TYPE_LABEL[r.type]} ticket, tagged ${tags.map(tagLabel).join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
       this.busy = true; r.error = '';
       try {
+        // Customer ticket: the property's state goes on the ticket (state security); In-house tickets have none
+        const state = propertyId ? await stateFor(propertyId) : '';
         // One transaction: the next IS number (counters/issues), the ticket and the audit entry.
         const id = await runTransaction(db, async tx => {
           const cRef = doc(db, 'counters', 'issues');
@@ -466,16 +570,21 @@ export default {
           tx.set(cRef, { next: n + 1 });
 
           tx.set(ref, { type: r.type, title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
-            property: unit?.propertyName || '', propertyId: unit?.propertyId || null, tags, status: 'open',
+            property: propertyName, propertyId, ...(state ? { state } : {}), tags, status: 'open',
             raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
             audit: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-          audit(tx, me, { action: 'issue.create', entity: `issues/${id}`, propertyId: unit?.propertyId || null, changes: [{ field: 'tags', old: null, new: tags.join(', ') }] });
+          audit(tx, me, { action: 'issue.create', entity: `issues/${id}`, propertyId, changes: [{ field: 'tags', old: null, new: tags.join(', ') }] });
           return id;
         });
         this.raise = null; this.okMsg = `${id} raised and tagged ${tags.map(tagLabel).join(', ')}.`;
         this.notify({ id, tags, raisedRole: myRole, raisedByUid: me.user.uid },
           { title: `New issue ${id}`, message: `${myLabel} raised "${r.title.trim()}", tagged ${tags.map(tagLabel).join(', ')}.` });
+
         await this.loadList();
+
+        // Customer tickets go to the task system (Maintenance); In-house ones stay here
+        if (r.type === 'customer') await this.toTms(this.tickets.find(x => x.id === id) || { id, status: 'open', tags });
+
       } catch (e) {
         console.error('Failed to raise issue:', {
           code: e.code,
@@ -524,6 +633,7 @@ export default {
       try {
         await this.change({ status: 'progress' }, [`marked it in progress`], 'issue.progress', [{ field: 'status', old: t.status, new: 'progress' }]);
         t.status = 'progress';
+        this.toTms(t);
         this.notify(t, { title: `${t.id} is in progress`, message: `${myLabel} marked "${t.title}" in progress.` });
       } catch (e) { this.error = friendlyError(e, 'update the ticket'); }
       this.busy = false;
@@ -534,7 +644,10 @@ export default {
       this.busy = true; this.error = '';
       try {
         await this.change({ type: to }, [`changed the type from ${TYPE_LABEL[from]} to ${TYPE_LABEL[to]}`], 'issue.type', [{ field: 'type', old: TYPE_LABEL[from], new: TYPE_LABEL[to] }]);
-        t.type = to; this.okMsg = `${t.id} is now a ${TYPE_LABEL[to]} ticket.`;
+        t.type = to; this.okMsg = `${t.id} is now a ${TYPE_LABEL[to]} ticket.`
+          + (to === 'inhouse' ? ' Its task system card is removed (In-house tickets stay in the PMS).'
+            : t.property ? '' : ' Choose its property (Edit) so it goes to the task system.');
+        this.toTms(t);   // Customer: its card is made; In-house: its card is removed
       } catch (e) { this.error = friendlyError(e, 'change the type'); }
       this.busy = false;
     },
@@ -558,6 +671,7 @@ export default {
         await this.change({ tags }, [...added.map(g => `added tag ${g}${why}`), ...removed.map(g => `removed tag ${g}${why}`)],
           'issue.tags', [{ field: 'tags', old: t.tags.join(', '), new: tags.join(', ') }], e.reason.trim());
         t.tags = tags; this.tagEdit = null;
+        this.toTms(t);
         if (added.length) this.notify(t, { title: `${t.id} tagged to ${added.join(', ')}`, message: `${myLabel} tagged "${t.title}" to ${added.join(', ')}. Reason: ${e.reason.trim()}`, tags: added, includeRaiser: false });
         if (!this.canSee(t)) { this.okMsg = `${t.id} is no longer tagged to ${tagLabel(myRole)}, so it has left your list.`; this.back(); }
       } catch (err) { e.error = friendlyError(err, 'save the tags'); }
@@ -589,6 +703,7 @@ export default {
         })
 
         this.confirmDone = false
+        this.toTms(t)
         this.notify(t, { title: `${t.id} completed`, message: `${myLabel} marked "${t.title}" completed.` })
       } catch (e) {
         this.doneError = friendlyError(e, 'complete the ticket')
@@ -609,9 +724,68 @@ export default {
       try {
         await this.change({ status: 'deleted', deletedAt: serverTimestamp(), deletedBy: myLabel, deletedByUid: me.user.uid, deleteReason: reason },
           [`deleted the ticket · reason: "${reason}"`], 'issue.delete', [{ field: 'status', old: t.status, new: 'deleted' }], reason);
-        this.del = null; this.okMsg = `${t.id} deleted.`;
+        this.del = null;
+        // wait for the task system before leaving the ticket page, so a failure can be shown on the list
+        const tmsError = await this.toTms({ ...t, status: 'deleted' });
+        this.okMsg = `${t.id} deleted.` + (tmsError ? ` Its task system card was not removed (${tmsError}); it is removed when someone opens its board there.` : '');
         this.back();
       } catch (e) { d.error = friendlyError(e, 'delete the ticket'); }
+      this.busy = false;
+    },
+
+    // Task system (TMS) Maintenance link, after every change: the TMS reads the ticket and makes or updates its card
+    // (every ticket has one, on its property's board in the Maintenance workspace).
+    // Best effort: the ticket is saved either way, and its next change tries again. Then the card's column name is kept on
+    // the ticket for the status pill (rules Draft 0.47; only people who can change the ticket, and not once Completed).
+    async toTms(t) {
+      try {
+        const r = await syncIssue(t.id);
+        if (t.status === 'deleted') return '';
+        // a new card: say where it went (In-house tickets have no property, so they go to the "Office" board)
+        if (r.created) this.okMsg = `${this.okMsg ? this.okMsg + ' ' : ''}Task system card added to the board “${r.boardName}” (${r.column}).`;
+        if (!r.taskId || !r.column || r.status !== t.status || !['open', 'progress'].includes(t.status)) return;
+        if (!(isDirector || (t.tags || []).includes(myRole))) return;
+        if (t.tmsStatus?.name === r.column && t.tmsStatus?.for === r.status) return;
+        const tmsStatus = { name: r.column, for: r.status };
+        await updateDoc(doc(db, 'issues', t.id), { tmsStatus });
+        t.tmsStatus = tmsStatus;
+        const row = this.tickets.find(x => x.id === t.id); if (row) row.tmsStatus = tmsStatus;
+      } catch (e) {
+        console.error('Task system sync failed:', e);
+        if (t.status === 'deleted') return e.message;   // remove() shows it on the list
+        this.error = `${t.id} is saved, but the task system was not updated: ${e.message}. It is tried again on the ticket's next change.`;
+      }
+      return '';
+    },
+    openEdit() {
+      this.edit = { title: this.ticket.title, body: this.ticket.body || '', property: this.ticket.property || '', error: '' };
+      this.$nextTick(() => this.$refs.eTitle?.focus());
+      this.units4raise();
+      this.loadBoards();
+    },
+    async saveEdit() {
+      const e = this.edit, t = this.ticket, title = e.title.trim(), body = e.body.trim(), customer = typeOf(t) === 'customer';
+      const property = customer ? e.property.trim().slice(0, 80) : (t.property || '');   // In-house: unchanged
+      if (!title) return e.error = 'Give the ticket a title.';
+      if (customer && !property) return e.error = 'Choose the property.';
+      if (!body) return e.error = 'Describe what happened.';
+      const lines = [], changes = [];
+      if (title !== t.title) { lines.push(`changed the title (was "${t.title.slice(0, 80)}")`); changes.push({ field: 'title', old: t.title, new: title }); }
+      if (body !== (t.body || '')) { lines.push('changed the description'); changes.push({ field: 'body', old: null, new: null }); }
+      const fields = { title, body };
+      if (property !== (t.property || '')) {
+        const propertyId = this.propertyIdOf(property), state = propertyId ? await stateFor(propertyId) : '';
+        Object.assign(fields, { property, propertyId, ...(state ? { state } : {}) });
+        lines.push(`changed the property (was ${t.property || 'none'})`); changes.push({ field: 'property', old: t.property || null, new: property });
+      }
+      if (!lines.length) return this.edit = null;
+      this.busy = true; e.error = '';
+      try {
+        await this.change(fields, lines, 'issue.edit', changes);
+        Object.assign(t, fields);
+        this.edit = null; this.okMsg = `${t.id} saved.`;
+        this.toTms(t);
+      } catch (err) { e.error = friendlyError(err, 'save the ticket'); }
       this.busy = false;
     },
 
