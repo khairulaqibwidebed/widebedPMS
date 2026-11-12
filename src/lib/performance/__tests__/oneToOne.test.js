@@ -55,6 +55,11 @@ describe('the staff list and the form', () => {
     const empty = O.formData({ row: rows[2], questions: questions.slice(0, 1), date: '', venue: '' });
     expect([empty.questions[0].mark, empty.average, empty.joinDate, empty.date]).toEqual(['', '', '', '']);
   });
+  it('details typed over on the page win; an empty box keeps the record', () => {
+    const f = O.formData({ row: rows[0], questions: [], date: '2026-11-12', venue: 'Widebed HQ', edits: { staffName: '  Aina  Sofea binti Ali ', position: '', topic: 'Confirmation' } });
+    expect([f.staffName, f.position, f.topic]).toEqual(['Aina Sofea binti Ali', 'Operations Executive', 'Confirmation']);
+    expect(O.formData({ row: rows[0], questions: [], date: '', venue: '', edits: { topic: '   ' } }).topic).toBe(O.TOPIC);
+  });
   it('tidies the venue list and names the file', () => {
     expect(O.cleanVenues([' 183 Site Office ', '183 site office', '', 'Meeting   Room 2'])).toEqual(['183 Site Office', 'Meeting Room 2']);
     expect(O.fileName('Aina/Sofea', 'Q4 2026')).toBe('One To One - Aina Sofea (Q4 2026).pdf');

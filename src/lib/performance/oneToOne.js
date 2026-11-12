@@ -62,10 +62,13 @@ export function cleanVenues(list) {
 }
 // The downloaded file's name, as HR names them: "One To One - Aina Sofea (Q4 2026).pdf"
 export const fileName = (staffName, quarterName) => `One To One - ${String(staffName || 'Staff').replace(/[\\/:*?"<>|]+/g, ' ').trim()} (${String(quarterName || '').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Quarter'}).pdf`;
-// Everything the PDF needs for one person.
-export function formData({ row, questions, date, venue }) {
+// Everything the PDF needs for one person. Filled in from the records; `edits` ({ staffName, position, topic }) are what
+// HR typed over them on the page for this form (an empty or missing one keeps the record's value; the topic's default is TOPIC).
+export function formData({ row, questions, date, venue, edits = {} }) {
   const coh = cohAverages(questions, row.evaluations);
-  return { company: COMPANY, topic: TOPIC, date: shortDate(date), venue: String(venue || '').trim(), staffName: row.name, joinDate: longDate(row.joinDate), position: row.position,
+  const typed = (v, fallback) => (typeof v === 'string' && v.trim() ? v.trim().replace(/\s+/g, ' ').slice(0, 120) : fallback);
+  return { company: COMPANY, topic: typed(edits.topic, TOPIC), date: shortDate(date), venue: String(venue || '').trim(), staffName: typed(edits.staffName, row.name),
+    joinDate: longDate(row.joinDate), position: typed(edits.position, row.position),
     questions: coh.lines.map(l => ({ title: l.title, mark: l.average == null ? '' : l.average.toFixed(1) })), average: coh.average == null ? '' : coh.average.toFixed(2),
     raters: coh.raters, expected: row.expected };
 }

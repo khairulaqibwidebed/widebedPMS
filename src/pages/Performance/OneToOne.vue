@@ -65,6 +65,18 @@
             </div>
           </div>
         </div>
+        <!-- Filled in from the records, and can be typed over for this form (12 Nov 2026) -->
+        <div class="grid-fields oo-fields">
+          <div class="field"><label for="ooName">Staff name</label><input id="ooName" class="input" v-model="edit.staffName" maxlength="120" :placeholder="sel.name"></div>
+          <div class="field"><label for="ooPos">Position</label><input id="ooPos" class="input" v-model="edit.position" maxlength="120" :placeholder="sel.position || 'Position'"></div>
+        </div>
+        <div class="field oo-fields">
+          <label for="ooTopic">Topic</label><input id="ooTopic" class="input" v-model="topic" maxlength="120" :placeholder="TOPIC">
+        </div>
+        <p class="help oo-edit-note">
+          These are filled in for you. Typing over one changes this form only, not the staff record.
+          <button type="button" class="link" v-if="edited" @click="resetEdits">Put back the saved details</button>
+        </p>
         <div class="oo-join">
           <label for="ooJoin">Join date</label>
           <input id="ooJoin" class="input" type="date" v-model="joinDraft">
@@ -91,7 +103,7 @@
 // Performance › One To One Session (12 Nov 2026). HR and Directors only: only they can read the COH marks.
 // The form is the PDF drawn by lib/performance/oneToOnePdf.js (laid out like HR's Word template); what you see is what prints.
 import { listQuarters } from '@/lib/performance/quarters.js';
-import { loadSession, loadVenues, saveVenues, saveJoinDate, formData, fileName, cleanVenues, DEFAULT_VENUES } from '@/lib/performance/oneToOne.js';
+import { loadSession, loadVenues, saveVenues, saveJoinDate, formData, fileName, cleanVenues, DEFAULT_VENUES, TOPIC } from '@/lib/performance/oneToOne.js';
 import { buildOneToOnePdf } from '@/lib/performance/oneToOnePdf.js';
 import { CJK_FONT_URL } from '@/lib/agreements/pdf.js';
 import { friendlyError } from '@/lib/finance-data.js';
@@ -106,15 +118,17 @@ export default {
     return {
       loading: true, error: '', quarters: [], quarterId: '', questions: [], rows: [], unreadable: 0, search: '', selectedUid: '',
       date: todayKey(), venues: [...DEFAULT_VENUES], venue: DEFAULT_VENUES[0], venueOpen: false, newVenue: '', venueLocal: false,
-      joinDraft: '', savingJoin: false, pdfUrl: '', building: false, fontMissing: false
+      joinDraft: '', savingJoin: false, pdfUrl: '', building: false, fontMissing: false,
+      TOPIC, topic: TOPIC, edit: { staffName: '', position: '' }, editsByUid: {}   // what HR typed over the filled-in details, kept per person while the page is open
     };
   },
   computed: {
     shown() { const q = this.search.trim().toLowerCase(); return q ? this.rows.filter(r => r.name.toLowerCase().includes(q)) : this.rows; },
     sel() { return this.rows.find(r => r.uid === this.selectedUid) || null; },
     quarterName() { return this.quarters.find(q => q.id === this.quarterId)?.name || ''; },
-    form() { return this.sel ? formData({ row: this.sel, questions: this.questions, date: this.date, venue: this.venue }) : null; },
-    downloadName() { return this.sel ? fileName(this.sel.name, this.quarterName) : ''; },
+    form() { return this.sel ? formData({ row: this.sel, questions: this.questions, date: this.date, venue: this.venue, edits: { ...this.edit, topic: this.topic } }) : null; },
+    downloadName() { return this.form ? fileName(this.form.staffName, this.quarterName) : ''; },
+    edited() { return !!this.sel && (this.edit.staffName !== this.sel.name || this.edit.position !== this.sel.position || this.topic !== TOPIC); },
     notes() {
       const f = this.form, out = [];
       if (!f) return out;
@@ -128,7 +142,12 @@ export default {
   },
   watch: {
     quarterId() { this.loadQuarter(); },
-    selectedUid() { this.joinDraft = this.sel?.joinDate || ''; },
+    // Another person: their details are filled in (or what was typed for them earlier on this visit).
+    selectedUid(uid, old) {
+      if (old) this.editsByUid[old] = { ...this.edit };
+      this.joinDraft = this.sel?.joinDate || '';
+      this.edit = this.sel ? { ...(this.editsByUid[uid] || { staffName: this.sel.name, position: this.sel.position }) } : { staffName: '', position: '' };
+    },
     form: { handler() { this.queueBuild(); }, deep: true }
   },
   async created() {
@@ -143,7 +162,7 @@ export default {
   methods: {
     async loadQuarter() {
       const id = this.quarterId;
-      this.loading = true; this.error = ''; this.selectedUid = '';
+      this.loading = true; this.error = ''; this.selectedUid = ''; this.editsByUid = {};
       try {
         const s = await loadSession(id);
         if (id !== this.quarterId) return;   // another quarter was picked meanwhile
@@ -184,6 +203,8 @@ export default {
       this.keepVenues();
     },
     rememberVenue() { if (this.venue) this.keepVenues(); },
+
+    resetEdits() { this.edit = { staffName: this.sel.name, position: this.sel.position }; this.topic = TOPIC; },
 
     // ---- Join date ----
     async saveJoin() {
@@ -255,6 +276,8 @@ export default {
 .oo-venue-add label { font-size: 12px; font-weight: 600; color: var(--text-2); }
 .oo-venue-add div { display: flex; gap: 6px; }
 .oo-venue-add .input { flex: 1; min-width: 0; }
+.oo-edit-note { margin: 0 0 10px; }
+.oo-edit-note .link { margin-left: 6px; font-size: 12px; }
 .oo-join { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .oo-join label { font-size: 13px; font-weight: 600; }
 .oo-join .input { width: 170px; }
