@@ -231,6 +231,53 @@ describe('holidays per person (Draft 0.59)', () => {
   });
 });
 
+describe('locations (Draft 0.61)', () => {
+  it('reads the numbers from what HR pastes', () => {
+    expect(A.parseLatLng('3.156812, 101.722188')).toEqual({ lat: 3.156812, lng: 101.722188 });
+    expect(A.parseLatLng('(3.156812 101.722188)')).toEqual({ lat: 3.156812, lng: 101.722188 });
+    expect(A.parseLatLng('https://www.google.com/maps/place/Micasa/@3.1570,101.7200,17z/data=!3m1!4b1!4m6!3m5!8m2!3d3.156812!4d101.722188')).toEqual({ lat: 3.156812, lng: 101.722188 });
+    expect(A.parseLatLng('https://www.google.com/maps?q=3.1568,101.7222')).toEqual({ lat: 3.1568, lng: 101.7222 });
+    expect(A.parseLatLng('https://www.google.com/maps/@3.157,101.72,17z')).toEqual({ lat: 3.157, lng: 101.72 });
+    expect(A.parseLatLng('https://maps.app.goo.gl/abc123')).toBe(null);
+    expect(A.parseLatLng('200, 500')).toBe(null);
+  });
+  it('checks and tidies the list of locations', () => {
+    const [p] = A.cleanPlaces([{ name: ' Arte Mont Kiara ', address: 'Jalan Sultan Haji Ahmad Shah', lat: 3.1736, lng: 101.6672, radiusM: 150, paste: 'x', pasteOk: true }]);
+    expect(Object.keys(p)).toEqual(['name', 'address', 'lat', 'lng', 'radiusM', 'cosLat']);
+    expect(p.name).toBe('Arte Mont Kiara');
+    expect(Math.abs(p.cosLat - Math.cos(3.1736 * Math.PI / 180)) < 1e-12).toBe(true);
+    expect(() => A.cleanPlaces([{ name: 'widebed', lat: 3, lng: 101, radiusM: 100 }])).toThrow();          // the main office's name
+    expect(() => A.cleanPlaces([{ name: 'A', lat: '', lng: 101, radiusM: 100 }])).toThrow();
+    expect(() => A.cleanPlaces([{ name: 'A', lat: 3, lng: 101, radiusM: 10 }])).toThrow();
+    expect(() => A.cleanPlaces([{ name: 'A', lat: 3, lng: 101, radiusM: 100 }, { name: 'a', lat: 3, lng: 101, radiusM: 100 }])).toThrow();
+  });
+  const t = ts('2026-11-10', '09:00');
+  it('says where a clock-in was made', () => {
+    expect(A.placeText({ clockIn: t, clockInInArea: true, clockInPlace: 'Arte Mont Kiara' }, 'In')).toBe('Arte Mont Kiara');
+    expect(A.placeText({ clockIn: t, clockInInArea: true }, 'In')).toBe('WIDEBED');                           // records from before 0.61
+    expect(A.placeText({ clockIn: t, clockInInArea: false, clockInPlace: 'Jalan Ampang, 50450 Kuala Lumpur' }, 'In')).toBe('Off-site: Jalan Ampang, 50450 Kuala Lumpur');
+    expect(A.placeText({ clockIn: t, clockInInArea: false, clockInLat: 3.14123456, clockInLng: 101.68654321 }, 'In')).toBe('Off-site: 3.14123, 101.68654');
+    expect(A.placeText({ clockIn: t }, 'In')).toBe('');                                                       // added by HR: nothing known
+    expect(A.placeText({ clockIn: t, clockInInArea: true }, 'Out')).toBe('');                                 // not clocked out yet
+  });
+  it('the Excel sheet has a Location column beside each time', () => {
+    const staff = [{ uid: 'a', name: 'Aisyah', role: 'operations' }];
+    const records = [{ uid: 'a', name: 'Aisyah', role: 'operations', date: '2026-11-10', clockIn: t, clockOut: ts('2026-11-10', '18:00'), workedMinutes: 540,
+      clockInInArea: true, clockInPlace: 'WIDEBED', clockOutInArea: false, clockOutPlace: 'Jalan Ampang, Kuala Lumpur', clockOutLat: 3.16, clockOutLng: 101.71, late: false, status: 'present' }];
+    const rep = A.dailyReport({ records, staff, holidays: {}, cfg: A.DEFAULT_CFG, from: '2026-11-10', to: '2026-11-10', today: '2026-11-12', firstDay: '2026-11-01', deptLabel: x => x });
+    const pair = rep.groups[0].people[0].rows[0].pairs[0];
+    expect(pair.inPlace).toBe('WIDEBED');
+    expect(pair.outPlace).toBe('Off-site: Jalan Ampang, Kuala Lumpur');
+    const enc = ({ r, c }) => String.fromCharCode(65 + c) + (r + 1);
+    const ws = A.reportSheet(rep, { utils: { encode_cell: enc, encode_col: c => String.fromCharCode(65 + c), encode_range: x => `${enc(x.s)}:${enc(x.e)}` } }, 'now');
+    expect([ws.E4.v, ws.F4.v, ws.G4.v, ws.H4.v, ws.I4.v, ws.J4.v]).toEqual(['Punch Time:', 'Result', 'Location', 'Punch Time:', 'Result', 'Location']);
+    expect([ws.K3.v, ws.L3.v, ws.M3.v, ws.N3.v]).toEqual(['Work Duration (Minutes)', 'Late for (Minutes)', 'Absent Days', 'Status']);
+    expect([ws.E7.v, ws.G7.v, ws.H7.v, ws.J7.v, ws.K7.v]).toEqual(['09:00', 'WIDEBED', '18:00', 'Off-site: Jalan Ampang, Kuala Lumpur', 540]);
+    expect(ws.J7.l.Target).toBe('https://www.google.com/maps?q=3.16,101.71');
+    expect(ws.G7.l).toBeUndefined();
+  });
+});
+
 describe('Excel', () => {
   it('has one header row and one row per line', () => {
     const r = { date: '2026-11-10', name: 'Aisyah', kind: 'present', rec: { clockIn: ts('2026-11-10', '09:00'), clockOut: ts('2026-11-10', '18:00'), workedMinutes: 540 } };

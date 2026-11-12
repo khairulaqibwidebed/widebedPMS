@@ -108,6 +108,11 @@
                         <span v-if="row.type === 'absent'" class="pill red">Absent</span>
                         <span v-for="(x, k) in (row.pairs || [])" :key="k" class="at-pair">
                           <span class="nowrap">{{ `${x.inTime || '—'} → ${x.outTime || '—'}` }}</span>
+                          <!-- Where (Draft 0.61): WIDEBED / a property, or Off-site with the address; an off-site one opens the spot on the map -->
+                          <small class="at-place" v-if="x.inPlace || x.outPlace">
+                            <a v-if="x.inOff && x.inMap" class="link" :href="x.inMap" target="_blank" rel="noopener" title="Open the spot on Google Maps">{{ x.inPlace }}</a><template v-else>{{ x.inPlace || '—' }}</template>
+                            <template v-if="x.outTime && x.outPlace !== x.inPlace"> → <a v-if="x.outOff && x.outMap" class="link" :href="x.outMap" target="_blank" rel="noopener" title="Open the spot on Google Maps">{{ x.outPlace }}</a><template v-else>{{ x.outPlace || '—' }}</template></template>
+                          </small>
                           <span v-if="x.inKind && x.inKind !== 'normal'" :class="resultPill(x.inKind)">{{ x.inResult }}</span>
                           <span v-if="x.outKind && x.outKind !== 'normal'" :class="resultPill(x.outKind)">{{ x.outResult }}</span>
                           <small class="at-fixed" v-if="x.edited" title="Corrected by HR / a Director">fixed</small>
@@ -208,9 +213,11 @@
 
     <!-- ================= Settings ================= -->
     <template v-if="tab === 'settings'">
-      <section class="card at-settings">
+      <!-- Two columns (12 Nov 2026): office settings on the left, the other locations on the right. One form, so either Save saves both. -->
+      <form class="at-set-grid" @submit.prevent="saveSettings()">
+      <section class="card">
         <div class="card-head"><h2>Office and working hours</h2></div>
-        <form @submit.prevent="saveSettings()">
+          <h3 class="at-sub">Main office <span class="pill green">recorded as {{ MAIN_PLACE }}</span></h3>
           <div class="grid-fields">
             <div class="field"><label for="sName" class="req">Office name</label><input id="sName" class="input" v-model="form.officeName" maxlength="80" required></div>
             <div class="field"><label for="sRad" class="req">Allowed distance (metres)</label><input id="sRad" class="input" type="number" min="50" max="2000" step="10" v-model.number="form.radiusM" required></div>
@@ -222,6 +229,7 @@
           </div>
           <p class="help"><a class="link" :href="`https://www.google.com/maps?q=${form.lat},${form.lng}`" target="_blank" rel="noopener">Check this spot on Google Maps</a>
             · In Google Maps, right-click the office and click the numbers at the top to copy them.</p>
+          <h3 class="at-sub">Working hours</h3>
           <div class="grid-fields at-three">
             <div class="field"><label for="sStart">Work starts</label><input id="sStart" class="input" type="time" v-model="form.start" required></div>
             <div class="field"><label for="sLate">Late after</label><input id="sLate" class="input" type="time" v-model="form.late" required></div>
@@ -234,11 +242,60 @@
             </div>
           </div>
           <label class="check"><input type="checkbox" v-model="form.allowOffsite"><span>Allow off-site clock-in / clock-out
-            <small>Staff away from the office (e.g. at a client) can still clock in and out; it's shown as Off-site. Off: only inside the allowed distance.</small></span></label>
+            <small>Staff away from the office and the other locations (e.g. at a client) can still clock in and out; it's shown as Off-site with the address. Off: only inside a location's allowed distance.</small></span></label>
           <p class="help">The app reads these when staff clock in. Clocking in after "Late after" on a working day needs a reason. Changes apply from the next clock-in.</p>
           <button class="btn btn-primary" type="submit" :disabled="busy || !form.workDays.length">{{ busy ? 'Saving…' : 'Save settings' }}</button>
-        </form>
       </section>
+
+      <!-- Other locations (Draft 0.61): clocking in / out inside one is Normal and recorded with its name.
+           A saved location is one line (name, distance, Edit); Edit opens its full details. -->
+      <section class="card">
+        <div class="card-head"><h2>Locations</h2><span class="muted">{{ form.places.length }} of {{ MAX_PLACES }}</span></div>
+        <p class="help">Our properties. Clocking in or out inside one is Normal and is recorded with its name. Anywhere else is Off-site, recorded with the address.</p>
+        <div class="at-loc">
+          <div class="at-loc-row">
+            <span class="at-loc-name"><b>{{ MAIN_PLACE }}</b> <small class="muted">main office · edit on the left</small></span>
+            <span class="pill green">{{ form.radiusM }} m</span>
+          </div>
+        </div>
+        <div class="at-loc" :class="{ open: placeOpen === i }" v-for="(p, i) in form.places" :key="i">
+          <div class="at-loc-row">
+            <span class="at-loc-name"><b>{{ p.name || 'New location' }}</b></span>
+            <span class="pill">{{ p.radiusM || '—' }} m</span>
+            <button type="button" class="btn btn-sm" v-if="placeOpen !== i" :disabled="busy" @click="editPlace(i)">Edit</button>
+          </div>
+          <div class="at-loc-edit" v-if="placeOpen === i">
+            <div class="grid-fields">
+              <div class="field"><label :for="'pn' + i" class="req">Name</label><input :id="'pn' + i" class="input" v-model="p.name" maxlength="60" placeholder="Property name" required></div>
+              <div class="field"><label :for="'pr' + i" class="req">Allowed distance (metres)</label><input :id="'pr' + i" class="input" type="number" min="50" max="2000" step="10" v-model.number="p.radiusM" required></div>
+            </div>
+            <div class="field"><label :for="'pa' + i">Address</label><input :id="'pa' + i" class="input" v-model="p.address" maxlength="200"></div>
+            <div class="field">
+              <label :for="'pp' + i">Paste the spot <span class="muted">(numbers copied from Google Maps, or a Google Maps link)</span></label>
+              <input :id="'pp' + i" class="input" v-model="p.paste" placeholder="3.156812, 101.722188" @input="pasteSpot(p)">
+              <span class="at-err" v-if="p.paste && !p.pasteOk">No numbers found in this. Short links (maps.app.goo.gl) don't have them: open the link, then copy the numbers.</span>
+            </div>
+            <div class="grid-fields">
+              <div class="field"><label :for="'pla' + i" class="req">Latitude</label><input :id="'pla' + i" class="input" type="number" step="0.000001" min="-90" max="90" v-model.number="p.lat" required></div>
+              <div class="field"><label :for="'pln' + i" class="req">Longitude</label><input :id="'pln' + i" class="input" type="number" step="0.000001" min="-180" max="180" v-model.number="p.lng" required></div>
+            </div>
+            <p class="help" v-if="p.lat !== '' && p.lng !== ''"><a class="link" :href="`https://www.google.com/maps?q=${p.lat},${p.lng}`" target="_blank" rel="noopener">Check this spot on Google Maps</a></p>
+            <div class="at-loc-acts">
+              <button class="btn btn-sm btn-primary" type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Save location' }}</button>
+              <button class="btn btn-sm" type="button" :disabled="busy" @click="cancelPlace()">Cancel</button>
+              <span class="grow"></span>
+              <template v-if="placeRemoving === i">
+                <span class="muted">Remove it?</span>
+                <button class="btn btn-sm btn-danger" type="button" :disabled="busy" @click="removePlace(i)">Yes, remove</button>
+                <button class="btn btn-sm" type="button" @click="placeRemoving = -1">No</button>
+              </template>
+              <button v-else class="btn btn-sm" type="button" :disabled="busy" @click="placeRemoving = i">Remove</button>
+            </div>
+          </div>
+        </div>
+        <p><button type="button" class="btn btn-sm" :disabled="busy || placeOpen >= 0 || form.places.length >= MAX_PLACES" @click="addPlace()">+ Add location</button></p>
+      </section>
+      </form>
     </template>
 
     <!-- ================= Fix / Add ================= -->
@@ -277,7 +334,7 @@ import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import Paged from '@/components/Paged.vue';
 import {
-  DEFAULT_CFG, DAY_NAMES, KIND, loadConfig, saveConfig, loadRecords, loadFirstDay, loadStaff, loadHolidays,
+  DEFAULT_CFG, MAIN_PLACE, MAX_PLACES, parseLatLng, DAY_NAMES, KIND, loadConfig, saveConfig, loadRecords, loadFirstDay, loadStaff, loadHolidays,
   minutesOf, clock, hhmm, hm, duration, dayKey, monthRange, weekday, saveCorrection, addHoliday, addHolidays, removeHoliday,
   parseHolidayLines, pad, sessionTimes, dailyReport, reportTotals, reportSheet, generatedStamp, requiredMinutes
 } from './attendance.js';
@@ -285,7 +342,8 @@ import {
 const toTime = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const toMin = t => { const [h, m] = String(t || '0:0').split(':').map(Number); return h * 60 + m; };
 const formOf = c => ({ officeName: c.officeName, address: c.address || '', lat: c.lat, lng: c.lng, radiusM: c.radiusM,
-  start: toTime(c.workStartMin), late: toTime(c.lateAfterMin), end: toTime(c.workEndMin), workDays: [...(c.workDays || [])], allowOffsite: c.allowOffsite !== false });
+  start: toTime(c.workStartMin), late: toTime(c.lateAfterMin), end: toTime(c.workEndMin), workDays: [...(c.workDays || [])], allowOffsite: c.allowOffsite !== false,
+  places: (c.places || []).map(p => ({ name: p.name, address: p.address || '', lat: p.lat, lng: p.lng, radiusM: p.radiusM, paste: '', pasteOk: true })) });
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default {
@@ -293,11 +351,12 @@ export default {
   data() {
     const m = monthRange(0);
     return {
-      KIND, DAY_NAMES, tab: 'records', loading: true, busy: false, exporting: false, error: '', okMsg: '',
+      KIND, DAY_NAMES, MAIN_PLACE, MAX_PLACES, tab: 'records', loading: true, busy: false, exporting: false, error: '', okMsg: '',
       cfg: { ...DEFAULT_CFG }, staff: [], records: [], holidays: {}, allHolidays: {}, firstDay: null,
       from: m.from, to: m.to, quick: 'month', nameFilter: [], deptFilter: '', full: false, opened: [], hideRest: true,
       fix: null, hDate: '', hName: '', hBulk: '', hYear: new Date().getFullYear(), removing: '',
       hExcept: [], hEditing: '', hSearch: '',   // holiday form: uids left out, the date being edited, name search
+      placeOpen: -1, placeRemoving: -1,   // Locations card: the one being edited (-1 = none), the one asked to remove
       form: formOf(DEFAULT_CFG)
     };
   },
@@ -491,6 +550,22 @@ export default {
     },
 
     // ---- Settings ----
+    // Locations card. One location is open at a time; Cancel puts the list back to what is saved.
+    savedPlaces() { return formOf(this.cfg).places; },
+    editPlace(i) { if (this.placeOpen >= 0) this.form.places = this.savedPlaces(); this.placeOpen = i; this.placeRemoving = -1; },
+    addPlace() { this.form.places.push({ name: '', address: '', lat: '', lng: '', radiusM: 150, paste: '', pasteOk: true }); this.placeOpen = this.form.places.length - 1; this.placeRemoving = -1; },
+    cancelPlace() { this.form.places = this.savedPlaces(); this.placeOpen = -1; this.placeRemoving = -1; this.error = ''; },
+    async removePlace(i) {
+      const saved = i < this.savedPlaces().length;   // a new one that was never saved is only dropped
+      this.form.places.splice(i, 1); this.placeOpen = -1; this.placeRemoving = -1;
+      if (saved) await this.saveSettings();
+    },
+    // A location's "Paste the spot" box: numbers or a Google Maps link -> latitude and longitude.
+    pasteSpot(p) {
+      const at = parseLatLng(p.paste);
+      p.pasteOk = !!at || !p.paste.trim();
+      if (at) { p.lat = at.lat; p.lng = at.lng; }
+    },
     async saveSettings() {
       const f = this.form;
       if (!(f.radiusM >= 50 && f.radiusM <= 2000)) { this.error = 'Allowed distance must be between 50 and 2000 metres.'; return; }
@@ -499,9 +574,9 @@ export default {
       try {
         const cfg = { ...f, workStartMin: toMin(f.start), lateAfterMin: toMin(f.late), workEndMin: toMin(f.end) };
         await saveConfig(cfg, useSession());
-        this.cfg = await loadConfig();
+        this.cfg = await loadConfig(); this.form = formOf(this.cfg); this.placeOpen = -1; this.placeRemoving = -1;
         this.flash('Settings saved. The app uses them from the next clock-in.');
-      } catch (e) { this.error = friendlyError(e, 'save the settings'); }
+      } catch (e) { this.error = e.code ? friendlyError(e, 'save the settings') : e.message; }
       this.busy = false;
     },
 
@@ -556,6 +631,20 @@ export default {
 .at-pairs { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .at-pair { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .at-pair .pill { font-size: 11px; }
+.at-place { flex-basis: 100%; color: var(--muted); font-size: 11px; line-height: 1.3; }
+.at-place .link { font-size: 11px; }
+.at-sub { font-size: 14px; margin: 18px 0 8px; display: flex; align-items: center; gap: 8px; }
+.at-sub:first-of-type { margin-top: 0; }
+.at-set-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .at-set-grid { grid-template-columns: minmax(0, 1fr); } }
+.at-loc { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+.at-loc.open { border-color: var(--accent); }
+.at-loc-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; min-height: 46px; box-sizing: border-box; }
+.at-loc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-loc-edit { border-top: 1px solid var(--border); padding: 12px 12px 10px; }
+.at-loc-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.at-loc-acts .grow { flex: 1; }
+.at-err { color: var(--red); font-size: 12px; }
 /* Holiday form: who gets it */
 .at-who-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
 .at-who-head label { margin: 0; }
