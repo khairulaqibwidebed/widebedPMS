@@ -1,5 +1,7 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
+// Widebed PMS Firestore rules. Draft 0.61, 12 Nov 2026 (Khairul): issueQuotes, Directors may read the whole list (the Director's
+// "Stamp and link records" reads every ticket quote; the ticket check below can't be proved for a list, so it was refused). Nothing else changed.
+// Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
 // property (Portfolio > Fees & Rates). Read and add-only create, the same people as a property's rateVersions. Nothing else changed.
 // Draft 0.59, 12 Nov 2026: Staff Attendance, holidays per person. A public holiday
 // (attendanceHolidays/{date}) may leave some staff out (exceptUids: a list of uids, HR unticks them in the PMS). For them that
@@ -950,6 +952,7 @@ service cloud.firestore {
         return request.resource.data.issueId == id && request.resource.data.chargeTo == 'owner'
           && request.resource.data.items is list && request.resource.data.items.size() > 0 && request.resource.data.items.size() <= 20;
       }
+      allow read: if isDirector();   // Draft 0.61: list for Stamp and link records
       allow read: if anyStaff() && ticketOk();
       // Any staff member: add a quote, or edit one that is Quoted or Rejected. It is saved as Quoted.
       allow create: if anyStaff() && ticketOk() && quoteOk()

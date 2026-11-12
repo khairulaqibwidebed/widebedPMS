@@ -50,7 +50,9 @@ async function readAll(coll, onPage) {
   let last = null;
   for (;;) {
     const q = last ? query(collection(db, coll), orderBy(documentId()), startAfter(last), limit(PAGE)) : query(collection(db, coll), orderBy(documentId()), limit(PAGE));
-    const snap = await getDocs(q);
+    let snap;
+    try { snap = await getDocs(q); }
+    catch (e) { console.error(`[stamp] Firestore refused reading "${coll}"`, e); throw e; }   // names the collection in the console
     snap.docs.forEach(d => out.push({ id: d.id, ...d.data() }));
     if (onPage) onPage(out.length);
     if (snap.size < PAGE) return out;
