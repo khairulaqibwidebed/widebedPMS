@@ -42,13 +42,15 @@ export const mine = (rows, field = 'propertyId', me = session()) => {
 
 // Someone (not a Director) who adds a property gets it on their own list straight away (Khairul 12 Nov 2026), so it
 // doesn't vanish after saving. This session sees it at once; the staff record is updated too, which the rules allow
-// from Draft 0.59 (until then the save is refused quietly and a Director adds it on Settings > Staff).
+// from Draft 0.63 (until then the save is refused quietly and a Director adds it on Settings > Staff). One write per
+// property: the rules check each one is a property this person created.
 export async function giveMeProperties(ids, me = session()) {
-  const add = [...new Set((ids || []).filter(Boolean))];
+  const had = new Set(me?.properties || []);
+  const add = [...new Set((ids || []).filter(Boolean))].filter(id => !had.has(id));
   if (!me || me.role === 'director' || !add.length) return;
-  me.properties = [...new Set([...(me.properties || []), ...add])];
-  try { await updateDoc(doc(db, 'users', me.user.uid), { properties: arrayUnion(...add) }); }
-  catch (e) { console.warn('Could not add the new property to your staff record (rules Draft 0.59 needed):', e.code || e.message); }
+  me.properties = [...had, ...add];
+  try { for (const id of add) await updateDoc(doc(db, 'users', me.user.uid), { properties: arrayUnion(id) }); }
+  catch (e) { console.warn('Could not add the new property to your staff record (rules Draft 0.63 needed):', e.code || e.message); }
 }
 
 const chunks = (list, n) => { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; };
