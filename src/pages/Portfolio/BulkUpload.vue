@@ -33,7 +33,7 @@
     <section class="card prop-card" v-show="kind === 'properties'">
       <div class="tpl-row" style="margin-top:0">
         <a class="btn tpl-btn" :href="base + 'templates/Widebed_Property_List_Template.xlsx'" download="Widebed_Property_List_Template.xlsx"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download template</a>
-        <span class="help">Fill in the Properties sheet under the green header, one property per row. Property Name and Short Code are needed. Then drop the file here.</span>
+        <span class="help">Fill in the Properties sheet under the green header, one property per row. Property Name, Short Code and State are needed (e.g. Johor, Selangor, Kuala Lumpur, Pulau Pinang). A code only has to be unique inside its state. Then drop the file here.</span>
       </div>
     </section>
 
@@ -42,11 +42,12 @@
       <div class="prop-row">
         <div class="field">
           <label for="buProp">Save units under</label>
-          <OptionPicker v-model="propertyId" :options="propertyChoices(true)" label="Save units under" :disabled="saving" @change="recheck()" />
+          <PropertyPicker v-model="propertyId" :properties="properties" label="Save units under" :before="[{ value: '', label: 'Choose a property' }, { value: '__all', label: 'All properties (one sheet or file each)' }]" :after="[{ value: '__new', label: 'New property…' }]" :disabled="saving" @change="recheck()" />
         </div>
         <template v-if="propertyId === '__new'">
           <div class="field"><label for="buName">Property name</label><input class="input" id="buName" v-model="newProp.name" :disabled="saving" placeholder="e.g. D'Majestic Place"></div>
           <div class="field code"><label for="buCode">Short code</label><input class="input" id="buCode" v-model="newProp.code" :disabled="saving" placeholder="e.g. DM" @change="recheck()"></div>
+          <div class="field"><label class="req">State</label><select class="input" v-model="newProp.state" :disabled="saving" aria-label="State of the new property"><option value="">Choose the state</option><option v-for="s in myStateChoices" :key="s" :value="s">{{ s }}</option></select></div>
         </template>
         <div class="field" v-show="sheets.length > 1 && !allMode">
           <label for="buSheet">Sheet</label>
@@ -66,7 +67,7 @@
       <!-- All properties: which property each sheet (or CSV file) goes to -->
       <div class="table-wrap sheet-map" v-show="allMode && sheets.length">
         <table class="table">
-          <thead><tr><th>File or sheet</th><th>Save under</th><th>New property name</th><th>Code</th></tr></thead>
+          <thead><tr><th>File or sheet</th><th>Save under</th><th>New property name</th><th>Code</th><th>State</th></tr></thead>
           <tbody>
             <template v-for="n in sheets" :key="n">
               <tr v-if="sheetMap[n]">
@@ -76,6 +77,8 @@
                 </td>
                 <td><input class="input" v-show="sheetMap[n].pid === '__new'" v-model="sheetMap[n].name" :disabled="saving" :aria-label="`New property name for ${n}`"></td>
                 <td><input class="input code-in" v-show="sheetMap[n].pid === '__new'" v-model="sheetMap[n].code" :disabled="saving" :aria-label="`Code for ${n}`"></td>
+                <td><select class="input" v-show="sheetMap[n].pid === '__new'" v-model="sheetMap[n].state" :disabled="saving" :aria-label="`State for ${n}`">
+                  <option value="">Choose</option><option v-for="s in myStateChoices" :key="s" :value="s">{{ s }}</option></select></td>
               </tr>
             </template>
           </tbody>
@@ -111,6 +114,8 @@
         <div class="bu-stat bad"><b>{{ count('error') }}</b><span>With problems</span></div>
       </div>
       <p class="bu-note" v-show="kind === 'owners' && rows.length"><b v-if="!allMode && propLabel()">{{ `Saving under ${propLabel()}. ` }}</b>{{ `This will add ${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'}, ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'} and set up ${newFees} ${newFees === 1 ? 'fee' : 'fees'}.` }}</p>
+
+      <p class="bu-note" v-show="kind === 'owners' && bankLeftOut">Bank details left out (Accounting or Directors only).</p>
 
       <p class="help sheets" v-show="sheetsNote">{{ sheetsNote }}</p>
 
@@ -176,6 +181,7 @@
 <script>
 import { markRaw } from 'vue';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { idPrefix } from '@/lib/lodgment.js';
 import { db } from '@/lib/firebase.js';
@@ -186,6 +192,10 @@ import { markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
+import { normState, stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, shortState, stateTag } from '@/lib/states.js';
+import { refreshOwnerStates, freshOwnerNumber, loadOwners, BANK } from '@/lib/portfolio-data.js';
+import { portfolioAccess } from '@/lib/portfolio-access.js';
+import { scoped, getScoped, giveMeProperties } from '@/lib/property-scope.js';
 
 const me = useSession();
 
@@ -261,7 +271,7 @@ function mapPropertyRow(row) {
     code:    col(row, 'Short Code', 'Code', 'Property Code'),         // TODO: real header for the short code (e.g. DM)
     address: col(row, 'Address', 'Full Address'),                     // TODO
     city:    col(row, 'City', 'Town'),                                // TODO
-    state:   col(row, 'State'),                                       // TODO
+    state:   col(row, 'State'),                                       // required from 12 Nov 2026 (state security)
     // Optional. Portfolio's property form has these too; leave as they are if the file doesn't have them.
     ezeeAccount: col(row, 'eZee Account No', 'eZee Account'),         // TODO
     ezeeName:    col(row, 'Name in eZee Report', 'eZee Name')         // TODO
@@ -281,6 +291,11 @@ function mapOwnerRow(row) {
     email:    firstEmail(ownerCell(col(row, 'Email Address 1'))),
     phone:    ownerCell(col(row, 'Contact No 1')),
     ic:       ownerCell(col(row, 'IC / Passport No', 'BRN')),         // BRN = company registration no. (183 Ampang sheet)
+    // Bank details (12 Nov 2026), same field names as owners/{id}/private/main (BANK in lib/portfolio-data.js).
+    // Saved only when the uploader is Accounting or a Director. Older Owner Lists without these columns read as empty.
+    bankName:      ownerCell(col(row, 'Bank Name', 'Bank')),
+    accountHolder: ownerCell(col(row, 'Account Holder Name', 'Account Holder', 'Name of Account Holder')),
+    bankAccount:   ownerCell(col(row, 'Bank Account No', 'Bank Account Number', 'Account No', 'Account Number')).replace(/\s+/g, ''),   // text: dashes and leading zeros kept
     // Fee columns, read by feeTerms below. Saved only for units that have no fee set up yet.
     feeText:  col(row, 'Service Fees%', 'Percentage %'),              // "40", "20%", "25%"; "45%/20%/10%" = tiered, left out
     utilText: col(row, 'Utilities %', 'Utilities Sharing'),           // "20%" or "25" = utility fee; "1WSS"/"Owner" = no %
@@ -336,6 +351,17 @@ function unitCodeFromList(v) {
   return m ? `${m[1].toUpperCase()} ${m[2]}${m[3].toUpperCase()}${m[4] || ''}` : t;
 }
 const firstEmail = v => (String(v).match(/[^\s\/,;]+@[^\s\/,;]+\.[^\s\/,;]+/) || [''])[0];
+// Bank details: last 4 digits for the preview and audit (…1234); same account = same digits (spaces and dashes ignored)
+const last4 = v => String(v || '').replace(/\D/g, '').slice(-4);
+const sameBank = (k, a, b) => (k === 'bankAccount' ? String(a).replace(/\D/g, '') === String(b).replace(/\D/g, '') : norm(a) === norm(b));
+const BANK_LABEL = { bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account' };
+const bankShow = (k, v) => (k === 'bankAccount' ? `…${last4(v)}` : v);
+// Who may save bank details: Accounting and Directors, the same people who see them on Portfolio (a view-only role with
+// Portfolio Edit ticked counts as Accounting there). The rules allow private/main bank fields only for them (portfolioEditor).
+function bankAllowed() {
+  if (me.role === 'director' || me.role === 'finance') return true;
+  return ['operations', 'procurement', 'marketing'].includes(me.role) && !portfolioAccess(me.role, me).viewOnly;
+}
 
 // ---- helpers (no need to change) ----
 const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -349,23 +375,27 @@ const ROWS_PER_BATCH = 50;   // up to 8 writes per unit-owner row (owner, privat
 
 const COLS = {
   properties: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }],
-  owners: [{ key: 'unit', label: 'Unit' }, { key: 'fullName', label: 'Full name' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'feeLabel', label: 'Fee' }],
+  owners: [{ key: 'unit', label: 'Unit' }, { key: 'fullName', label: 'Full name' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'bankLabel', label: 'Bank' }, { key: 'feeLabel', label: 'Fee' }],
   bookings: [{ key: 'name', label: 'Name' }, { key: 'propertyName', label: 'Property' }, { key: 'unitNumber', label: 'Unit' }, { key: 'checkIn', label: 'Check in' }, { key: 'checkOut', label: 'Check out' }, { key: 'rentalAmount', label: 'Rental' }]
 };
 
 export default {
-  components: { OptionPicker },
+  components: { PropertyPicker, OptionPicker },
   data() {
     return { base: import.meta.env.BASE_URL, kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
-      properties: [], propertyId: '', newProp: { name: '', code: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null };
+      properties: [], propertyId: '', newProp: { name: '', code: '', state: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null };
   },
   computed: {
     previewCols() { return COLS[this.kind]; },
+    // States a new property can get: every state for a Director, else my own
+    myStateChoices() { return stateChoices(me); },
     // Unit owners for every property at once: each sheet (or CSV file) goes to its own property
     allMode() { return this.kind === 'owners' && this.propertyId === '__all'; },
     newOwners() { return this.rows.filter(r => r.status === 'ok' && r.newOwner).length; },
     newUnits() { return this.rows.filter(r => r.status === 'ok' && r.newUnit).length; },
     newFees() { return this.rows.filter(r => r.status === 'ok' && r.terms).length; },
+    // The file has bank details but the uploader may not save them
+    bankLeftOut() { return this.kind === 'owners' && this.rows.some(r => r.bankLeftOut); },
     // Why saving is not possible yet (unit owners need a property)
     blocker() {
       if (this.kind !== 'owners' || !this.rows.length) return '';
@@ -375,17 +405,20 @@ export default {
         if (!used.length) return 'Every file is left out. Choose a property for at least one.';
         const fresh = used.filter(([, m]) => m.pid === '__new');
         for (const [n, m] of fresh) {
-          if (!m.name.trim() || !m.code.trim()) return `Enter a name and short code for the new property from ${n}.`;
-          if (this.properties.some(p => p.id === slug(m.name.trim()) || (p.code || '').toUpperCase() === m.code.trim().toUpperCase())) return `A property named or coded like ${m.name.trim()} already exists. Choose it from the list for ${n}.`;
+          if (!m.name.trim() || !m.code.trim() || !m.state) return `Enter a name, short code and state for the new property from ${n}.`;
+          const clash = clashIn(this.properties, { name: m.name.trim(), code: m.code.trim(), state: m.state });
+          if (clash) return `${n}: ${clash}`;
         }
-        const keys = fresh.flatMap(([, m]) => [slug(m.name.trim()), 'code:' + m.code.trim().toUpperCase()]);
-        if (new Set(keys).size < keys.length) return 'Two new properties have the same name or code.';
+        // Same name or code twice in one state among the new ones
+        const keys = fresh.flatMap(([, m]) => [slug(m.name.trim()) + '|' + m.state, 'code:' + m.code.trim().toUpperCase() + '|' + m.state]);
+        if (new Set(keys).size < keys.length) return 'Two new properties in the same state have the same name or code.';
         return '';
       }
       if (this.propertyId === '__new') {
         const name = this.newProp.name.trim(), code = this.newProp.code.trim().toUpperCase();
-        if (!name || !code) return 'Enter the new property\'s name and short code.';
-        if (this.properties.some(p => p.id === slug(name) || (p.code || '').toUpperCase() === code)) return 'A property with this name or code already exists. Choose it from the list instead.';
+        if (!name || !code || !this.newProp.state) return 'Enter the new property\'s name, short code and state.';
+        const clash = clashIn(this.properties, { name, code, state: this.newProp.state });
+        if (clash) return clash;
       }
       return '';
     }
@@ -396,7 +429,7 @@ export default {
   methods: {
     // Choices for the property picker. `top` = the main picker (with "All properties"); otherwise the per-sheet one ("Leave out").
     propertyChoices(top) {
-      const list = this.properties.map(p => ({ value: p.id, label: `${p.name} (${p.code || p.id})` }));
+      const list = this.properties.map(p => ({ value: p.id, label: propertyLabel(p, this.properties) }));
       return top
         ? [{ value: '', label: 'Choose a property' }, { value: '__all', label: 'All properties (one sheet or file each)' }, ...list, { value: '__new', label: 'New property…' }]
         : [{ value: '__skip', label: 'Leave out' }, { value: '__new', label: 'New property…' }, ...list];
@@ -481,27 +514,42 @@ export default {
       this.loading = false;
     },
 
+    // State (12 Nov 2026): required. A name or code is only a clash inside the same state (or with a property that has
+    // no state yet). New ids: the name, else name-state, then -2, -3 (lib/states.js); existing ids never change.
     async checkProperties(lines) {
-      const snap = await getDocs(collection(db, 'properties'));
-      const ids = new Set(snap.docs.map(d => d.id)), codes = new Set(snap.docs.map(d => String(d.data().code || '').toUpperCase()));
-      const seenIds = new Set(), seenCodes = new Set();
-      return lines.map(({ r, line }) => ({ line, data: mapPropertyRow(r) })).filter(x => x.data).map(({ data, line }) => {
+      // My properties only (lib/property-scope.js); a new id that belongs to a property I can't see counts as taken
+      const snap = await getScoped(scoped(collection(db, 'properties'), '__id'));
+      const existing = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const mine = stateChoices(me), seen = new Set(), taken = new Set();
+      const rows = lines.map(({ r, line }) => ({ line, data: mapPropertyRow(r) })).filter(x => x.data);
+      const out = [];
+      for (const { data, line } of rows) {
         data.code = data.code.toUpperCase();
-        const id = data.name ? slug(data.name) : '';
-        let status = 'ok', note = '';
+        const typed = data.state; data.state = normState(typed);
+        let status = 'ok', note = '', id = '';
+        const k = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         if (!data.name || !data.code) [status, note] = ['error', 'Needs a property name and a short code.'];
-        else if (!id) [status, note] = ['error', 'The name has no letters or numbers.'];
-        else if (ids.has(id) || codes.has(data.code)) [status, note] = ['skip', 'A property with this name or code is already in the PMS.'];
-        else if (seenIds.has(id) || seenCodes.has(data.code)) [status, note] = ['skip', 'Same name or code as an earlier row in this file.'];
-        if (status === 'ok') { seenIds.add(id); seenCodes.add(data.code); }
-        return { line, data, id: status === 'ok' ? id : '', status, note };
-      });
+        else if (!slug(data.name)) [status, note] = ['error', 'The name has no letters or numbers.'];
+        else if (!data.state) [status, note] = ['error', typed ? `"${typed}" is not a state. Write it like Johor, Selangor, Kuala Lumpur, Labuan or Putrajaya.` : 'Needs a state.'];
+        else if (!mine.includes(data.state)) [status, note] = ['error', `You can only add properties in ${mine.join(', ') || 'your states (none set yet)'}.`];
+        else {
+          const clash = clashIn(existing, { name: data.name, code: data.code, state: data.state });
+          if (clash) [status, note] = ['skip', clash];
+          else if (seen.has('n' + k(data.name) + data.state) || seen.has('c' + k(data.code) + data.state)) [status, note] = ['skip', 'Same name or code in the same state as an earlier row in this file.'];
+        }
+        if (status === 'ok') {
+          seen.add('n' + k(data.name) + data.state); seen.add('c' + k(data.code) + data.state);
+          id = await newPropertyId(data.name, data.state, taken); taken.add(id);
+        }
+        out.push({ line, data, id, status, note });
+      }
+      return out;
     },
 
     // Booking details (Willow) are saved as Offline bookings: guest details in the private part, utility amounts as a utility bill.
     // An ID already in the PMS is skipped; a row with no ID gets the next one for its property (DM-012 ...), shared with the lodgment form.
     async checkBookings(lines) {
-      const [snap, cSnap] = await Promise.all([getDocs(collection(db, 'offlineBookings')), getDocs(collection(db, 'lodgmentCounters'))]);
+      const [snap, cSnap] = await Promise.all([getScoped(scoped(collection(db, 'offlineBookings'))), getDocs(collection(db, 'lodgmentCounters'))]);
       const have = new Set(snap.docs.map(d => String(d.data().bookingNo || d.id.replace(/^offline_/, '')).toUpperCase()));
       const next = {}; cSnap.docs.forEach(d => { next[d.id] = d.data().next || 1; });
       const rows = lines.map(({ r, line }) => ({ line, data: mapBookingRow(r) })).filter(x => x.data)
@@ -579,17 +627,26 @@ export default {
     },
 
     // The property written in the file (B4 of the owner template) -> the property in the PMS with that code or name, else null
+    // Same code in two states (12 Nov 2026): no guess; the page asks to choose (both show with their state in the list).
     propByHint(hint) {
       const k = norm(hint); if (!k) return null;
       const byCode = this.properties.filter(p => norm(p.code) === k), byName = this.properties.filter(p => norm(p.name) === k);
       return byCode.length === 1 ? byCode[0] : byName.length === 1 ? byName[0] : null;
+    },
+    // "DM (Johor), DM (Selangor)" when a file's property matches several, else ''
+    hintTwins(hint) {
+      const k = norm(hint); if (!k) return '';
+      const byCode = this.properties.filter(p => norm(p.code) === k), list = byCode.length > 1 ? byCode : this.properties.filter(p => norm(p.name) === k);
+      return list.length > 1 ? list.map(p => `${p.name} (${p.code || p.id}, ${shortState(stateOf(p)) || 'no state'})`).join(', ') : '';
     },
     // Single property: the file's property is chosen for you when nothing is chosen yet; a different choice on the page is kept but flagged.
     propFromFile() {
       const hint = this.propHints[this.sheet]; if (!hint) return;
       const p = this.propByHint(hint);
       let note;
-      if (!p) note = `The file says the property is "${hint}", which is not in the PMS. Choose the property above, or New property.`;
+      const twins = p ? '' : this.hintTwins(hint);
+      if (!p && twins) note = `The file says the property is "${hint}", which matches more than one property: ${twins}. Choose the right one above.`;
+      else if (!p) note = `The file says the property is "${hint}", which is not in the PMS. Choose the property above, or New property.`;
       else if (!this.propertyId) { this.propertyId = p.id; note = `Property taken from the file: ${p.name} (${p.code || p.id}).`; }
       else if (this.propertyId !== p.id) note = `The file says ${p.name} (${p.code || p.id}), but ${this.propLabel()} is chosen above. Check which one is right before saving.`;
       if (note) this.sheetsNote = [this.sheetsNote, note].filter(Boolean).join(' ');
@@ -623,7 +680,11 @@ export default {
           inName = this.properties.filter(p => k.length >= 3 && norm(p.name).includes(k));
         const hit = byCode.length === 1 ? byCode[0] : byName.length === 1 ? byName[0] : inName.length === 1 ? inName[0] : null;
         const label = (this.propHints[n] || n).trim();
-        map[n] = hit ? { pid: hit.id, name: '', code: '' } : { pid: '__new', name: label, code: label.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) };
+        // Several properties with this code (different states): left for you to choose, never a new property
+        const twins = !hit && byCode.length > 1;
+        map[n] = hit ? { pid: hit.id, name: '', code: '', state: '' } : twins ? { pid: '__skip', name: '', code: '', state: '' }
+          : { pid: '__new', name: label, code: label.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12), state: this.myStateChoices.length === 1 ? this.myStateChoices[0] : '' };
+        if (twins) this.sheetsNote = [this.sheetsNote, `${n} matches more than one property (${this.hintTwins(this.propHints[n] || n)}); it is left out until you choose one.`].filter(Boolean).join(' ');
       }
       this.sheetMap = map;
     },
@@ -639,16 +700,21 @@ export default {
     },
 
     async checkOwners(groups) {
-      const snap = await getDocs(collection(db, 'owners'));
-      // New owner codes continue from the highest existing OWN-nnn
-      let n = Math.max(0, ...snap.docs.map(d => Number(String(d.data().code || d.id).replace(/\D/g, '')) || 0));
+      // My properties' owners (lib/property-scope.js). New owner codes continue from the first free OWN-nnn, also
+      // counting owners outside my properties (freshOwnerNumber checks by id).
+      const all = await loadOwners(false, true);
+      const snap = { docs: all.map(o => ({ id: o.id, data: () => o })) };
+      let n = (await freshOwnerNumber(all)) - 1;
       // An owner is the same person when the IC matches, else the email, else (no IC or email in the row) the full name.
       // Read from each owner's private part.
-      const privs = await Promise.all(snap.docs.map(d => getDoc(doc(db, 'owners', d.id, 'private', 'main')).catch(() => null)));
+      const privs = all.map(o => ({ data: () => o.private || {} }));
       const ics = new Map(), emails = new Map(), names = new Map();   // key -> { id, where }
       const nameOf = {};   // owner id -> name, for the notes (owner codes are never shown)
+      // Bank details each owner already has (or gets from an earlier row of this file): only empty ones are filled
+      const canBank = bankAllowed(), bankOf = {}, bankFrom = {};
       privs.forEach((p, i) => { const v = p?.data?.() || {}, o = { id: snap.docs[i].id, where: 'in the PMS' }; nameOf[o.id] = v.fullName || '';
-        if (v.ic) ics.set(icKey(v.ic), o); if (v.email) emails.set(v.email.toLowerCase(), o); if (v.fullName) names.set(norm(v.fullName), o); });
+        if (v.ic) ics.set(icKey(v.ic), o); if (v.email) emails.set(v.email.toLowerCase(), o); if (v.fullName) names.set(norm(v.fullName), o);
+        bankOf[o.id] = Object.fromEntries(BANK.map(k => [k, String(v[k] || '').trim()])); bankFrom[o.id] = 'PMS'; });
       // Units already under each property (a new property has none)
       const unitsOf = {};
       for (const pid of new Set(groups.map(g => g.pid).filter(Boolean))) {
@@ -666,9 +732,11 @@ export default {
       return lines.map(({ r, line }) => ({ line: groups.length > 1 ? `${sheet} ${line}` : line, data: mapOwnerRow(r) })).filter(x => x.data).map(({ data, line }) => {
         data.email = data.email.toLowerCase();
         const ic = icKey(data.ic);
-        const row = { line, sheet, data, status: 'ok', note: '', ownerId: '', newOwner: false, unitId: '', newUnit: false, linkOwner: true, terms: null };
+        const row = { line, sheet, data, status: 'ok', note: '', ownerId: '', newOwner: false, unitId: '', newUnit: false, linkOwner: true, terms: null, bankFill: null, bankOnly: false, bankLeftOut: false };
         const fee = feeTerms(data);
         data.feeLabel = fee.label;
+        const hasBank = BANK.some(k => data[k]);
+        data.bankLabel = hasBank ? (canBank ? [data.bankName, data.bankAccount ? `…${last4(data.bankAccount)}` : ''].filter(Boolean).join(' ') || '(holder only)' : 'Left out') : '';
         const fail = note => Object.assign(row, { status: 'error', note });
         if (!data.unit) return fail('No unit in this row.');
         if (!data.fullName) return fail('Needs the owner\'s full name.');
@@ -683,6 +751,21 @@ export default {
           row.ownerId = `OWN-${String(++n).padStart(3, '0')}`; row.newOwner = true; nameOf[row.ownerId] = data.fullName;
           const o = { id: row.ownerId, where: line }; if (ic) ics.set(ic, o); if (data.email) emails.set(data.email, o); names.set(norm(data.fullName), o);
         }
+        // Bank details (Accounting and Directors only): fill the owner's EMPTY fields; a different value is shown, never saved over
+        const bankNotes = [];
+        if (hasBank && !canBank) row.bankLeftOut = true;
+        else if (hasBank && /e\+?\d/i.test(data.bankAccount)) bankNotes.push(`Bank details left out: the account no. reads "${data.bankAccount}" (format the column as Text and type it again).`);
+        else if (hasBank) {
+          const cur = bankOf[row.ownerId] ||= { bankName: '', accountHolder: '', bankAccount: '' };
+          const from = bankFrom[row.ownerId] ||= `row ${line}`, fill = {};
+          for (const k of BANK) {
+            if (!data[k]) continue;
+            if (!cur[k]) { fill[k] = data[k]; cur[k] = data[k]; }
+            else if (!sameBank(k, cur[k], data[k])) bankNotes.push(`${BANK_LABEL[k]} differs: file ${bankShow(k, data[k])} / ${from} ${bankShow(k, cur[k])} (left as it is).`);
+          }
+          if (Object.keys(fill).length) row.bankFill = fill;
+          if (row.bankFill && !row.newOwner) bankNotes.push(`Bank details added (${Object.keys(fill).map(k => BANK_LABEL[k].toLowerCase()).join(', ')}).`);
+        }
         // Unit: existing one under this property, or a new unit
         const u = units.get(norm(data.unit));
         if (u) {
@@ -690,11 +773,13 @@ export default {
           row.terms = u.hasTerms ? null : fee.terms;
           if (u.hasTerms && fee.terms) data.feeLabel = 'Already set up';
           if (u.ownerId === row.ownerId) {
-            if (!row.terms) return Object.assign(row, { status: 'skip', note: `${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.` });
+            // Nothing to change on the unit: skipped, unless the owner's empty bank details are filled from this row
+            if (!row.terms && !row.bankFill) return Object.assign(row, { status: 'skip', note: [`${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.`, ...bankNotes].join(' ') });
+            if (!row.terms) return Object.assign(row, { linkOwner: false, bankOnly: true, note: [`${u.unitCode}: already linked to this owner.`, ...bankNotes].join(' ') });
             row.linkOwner = false; notes.length = 0; notes.push(`${u.unitCode}: owner already linked, fee added.`);
           } else notes.push(u.ownerId ? `${u.unitCode}: owner changes from ${nameOf[u.ownerId] || 'another owner'}.` : `${u.unitCode}: linked to this owner.`);
         } else { row.newUnit = true; row.terms = fee.terms; notes.push(`New unit ${data.unit}.`); }
-        row.note = notes.join(' ');
+        row.note = [...notes, ...bankNotes].join(' ');
         return row;
       }); });
     },
@@ -711,6 +796,7 @@ export default {
           const b = writeBatch(db);
           for (const r of ready.slice(i, i + ROWS_PER_BATCH)) this.kind === 'properties' ? this.writeProperty(b, r) : this.kind === 'bookings' ? this.writeBooking(b, r) : this.writeUnitOwner(b, r, made);
           await b.commit(); clearCache();
+          if (this.kind === 'properties') await giveMeProperties(ready.slice(i, i + ROWS_PER_BATCH).map(r => r.id));   // whoever adds them can see them
           this.savedSoFar = Math.min(i + ROWS_PER_BATCH, ready.length);
         }
         if (this.kind === 'bookings') {
@@ -738,6 +824,12 @@ export default {
           const p = this.properties.find(x => x.id === this.propertyId);
           this.done = `Saved ${ready.length} ${ready.length === 1 ? 'unit' : 'units'} under ${p?.name || 'the property'} (${this.newUnits} new units, ${this.newOwners} new owners, ${this.newFees} fees). Units the file had no clear fee for still need theirs set on Portfolio.`;
         }
+        if (this.kind === 'owners') {
+          const banks = new Set(ready.filter(r => r.bankFill).map(r => r.ownerId)).size;
+          if (banks) this.done += ` Bank details saved for ${banks} ${banks === 1 ? 'owner' : 'owners'}.`;
+        }
+        // Owners linked to units here: their list of states follows their units' states
+        if (this.kind === 'owners') await refreshOwnerStates(ready.map(r => r.ownerId));
         this.clear();
       } catch (e) {
         // Batches before the failing one are already saved; reading the file again marks those rows as skipped.
@@ -749,7 +841,7 @@ export default {
       const d = r.data, id = `offline_${r.id}`, ref = doc(db, 'offlineBookings', id), c = x => Math.round((Number(x) || 0) * 100) / 100;
       const longTerm = d.nights >= 30;
       b.set(ref, { source: 'import', inquiryId: null, bookingNo: r.id, tenantId: null,
-        propertyId: r.pid, propertyName: r.propertyName, unitId: r.unitId, unitCode: r.unitCode,
+        propertyId: r.pid, propertyName: r.propertyName, unitId: r.unitId, unitCode: r.unitCode, ...stateTag(r.pid),
         arrival: d.checkIn, departure: d.checkOut, nights: d.nights, longTerm,
         amount: longTerm ? 0 : c(d.rentalAmount), monthlyRent: longTerm ? c(d.rentalAmount) : 0, deposit: c(d.depositAmount),
         paymentRef: '', ezeeReservationNo: '', status: 'active',
@@ -765,7 +857,7 @@ export default {
       const d = r.data, id = `offline_${r.id}`, c = x => Math.round((Number(x) || 0) * 100) / 100;
       const dates = [...String(d.billPeriod).matchAll(/\d{4}-\d{2}-\d{2}|\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}/g)].map(m => toIso(m[0])).filter(Boolean);
       const total = c(d.electricity) + c(d.water) + c(d.sewerage);
-      b.set(doc(db, 'utilityBills', id), { bookingId: id, propertyId: r.pid, propertyName: r.propertyName, unitCode: r.unitCode,
+      b.set(doc(db, 'utilityBills', id), { bookingId: id, propertyId: r.pid, propertyName: r.propertyName, unitCode: r.unitCode, ...stateTag(r.pid),
         periodFrom: dates[0] || d.checkIn, periodTo: dates[1] || d.checkOut, electricity: c(d.electricity), water: c(d.water), sewerage: c(d.sewerage), total,
         invoiceLink: /^https?:/i.test(d.invoiceBill) ? d.invoiceBill : '', utilityStatus: 'Ready_to_Send',
         createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
@@ -773,7 +865,7 @@ export default {
     writeProperty(b, r) {
       const d = r.data;
       b.set(doc(db, 'properties', r.id), {
-        name: d.name, code: d.code, info: { address: d.address, city: d.city, state: d.state, ezeeAccount: d.ezeeAccount, ezeeName: d.ezeeName },
+        ...propertyFields({ name: d.name, code: d.code, state: d.state, info: { address: d.address, city: d.city, ezeeAccount: d.ezeeAccount, ezeeName: d.ezeeName } }),
         active: true, createdAt: serverTimestamp(), createdBy: me.user.uid
       });
       // Same starting OTA settings Portfolio gives a new property
@@ -785,44 +877,61 @@ export default {
     async ensureProperty() {
       if (this.allMode) return this.ensureSheetProperties();
       if (this.propertyId !== '__new') return;
-      const name = this.newProp.name.trim(), code = this.newProp.code.trim().toUpperCase(), id = slug(name);
+      const name = this.newProp.name.trim(), code = this.newProp.code.trim().toUpperCase(), state = this.newProp.state, id = await newPropertyId(name, state);
       const b = writeBatch(db);
-      b.set(doc(db, 'properties', id), { name, code, info: { address: '', city: '', state: '', ezeeAccount: '', ezeeName: '' }, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+      b.set(doc(db, 'properties', id), { ...propertyFields({ name, code, state }), active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
       b.set(doc(db, 'properties', id, 'rateVersions', '2000-01_default'), { effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
         reason: 'Default OTA settings', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
       audit(b, me, { action: 'property.create', entity: `properties/${id}`, propertyId: id, reason: `Bulk upload (${this.fileName})` });
       await b.commit(); clearCache();
+      await giveMeProperties([id]);   // whoever adds it can see it
       this.properties = await loadProperties();
-      this.propertyId = id; this.newProp = { name: '', code: '' };
+      this.propertyId = id; this.newProp = { name: '', code: '', state: '' };
     },
     // "All properties": create every new property once, then point its sheet at it
     async ensureSheetProperties() {
       const fresh = this.sheets.filter(n => this.sheetMap[n]?.pid === '__new' && this.rows.some(r => r.sheet === n && r.status === 'ok'));
       if (!fresh.length) return;
-      const b = writeBatch(db), made = {};
+      const b = writeBatch(db), made = {}, taken = new Set();
       for (const n of fresh) {
-        const m = this.sheetMap[n], name = m.name.trim(), code = m.code.trim().toUpperCase(), id = slug(name);
-        b.set(doc(db, 'properties', id), { name, code, info: { address: '', city: '', state: '', ezeeAccount: '', ezeeName: '' }, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+        const m = this.sheetMap[n], name = m.name.trim(), code = m.code.trim().toUpperCase(), id = await newPropertyId(name, m.state, taken);
+        taken.add(id);
+        b.set(doc(db, 'properties', id), { ...propertyFields({ name, code, state: m.state }), active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
         b.set(doc(db, 'properties', id, 'rateVersions', '2000-01_default'), { effectiveFrom: '2000-01', ota: DEFAULT_OTA, earlyCheckInToOwner: true, tourismTaxPerNight: 10,
           reason: 'Default OTA settings', createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
         audit(b, me, { action: 'property.create', entity: `properties/${id}`, propertyId: id, reason: `Bulk upload (${n})` });
         made[n] = id;
       }
       await b.commit(); clearCache();
+      await giveMeProperties(Object.values(made));   // whoever adds them can see them
       this.properties = await loadProperties();
-      for (const [n, id] of Object.entries(made)) this.sheetMap[n] = { pid: id, name: '', code: '' };
+      for (const [n, id] of Object.entries(made)) this.sheetMap[n] = { pid: id, name: '', code: '', state: '' };
+    },
+    // Audit lines for bank details: bank name as written, account holder as "(set)", account no. as its last 4 digits
+    bankChanges(bank) {
+      return BANK.filter(k => bank[k]).map(k => ({ field: k, old: null, new: k === 'bankAccount' ? `…${last4(bank[k])}` : k === 'accountHolder' ? '(set)' : bank[k] }));
     },
     writeUnitOwner(b, r, made) {
       const d = r.data, pid = this.allMode ? this.pidFor(r.sheet) : this.propertyId, why = `Bulk upload (${this.allMode ? r.sheet : this.fileName})`;
       if (r.newOwner && !made.has(r.ownerId)) {
         made.add(r.ownerId);
-        b.set(doc(db, 'owners', r.ownerId), { code: r.ownerId, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
-        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { fullName: d.fullName, email: d.email, phone: d.phone, ic: d.ic, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
-        // Audit names the owner code only, never the personal values
-        audit(b, me, { action: 'owner.create', entity: `owners/${r.ownerId}`, propertyId: pid, reason: why });
+        const st = stateTag(pid).state;
+        // Bank details only for Accounting and Directors (r.bankFill is null for anyone else); bankLast4 as Portfolio saves it
+        const bank = r.bankFill || {}, l4 = last4(bank.bankAccount);
+        b.set(doc(db, 'owners', r.ownerId), { code: r.ownerId, active: true, states: st ? [st] : [], ...(l4 ? { bankLast4: l4 } : {}), createdAt: serverTimestamp(), createdBy: me.user.uid });
+        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { fullName: d.fullName, email: d.email, phone: d.phone, ic: d.ic, ...bank, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+        // Audit names the owner code only, never the personal values (bank: the bank name and the account's last 4 digits)
+        audit(b, me, { action: 'owner.create', entity: `owners/${r.ownerId}`, propertyId: pid, changes: this.bankChanges(bank), reason: why });
+      } else if (r.bankFill) {
+        // Existing owner: fill only the bank fields that were empty (checked in the preview); nothing is overwritten
+        const l4 = last4(r.bankFill.bankAccount);
+        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { ...r.bankFill, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        if (l4) b.set(doc(db, 'owners', r.ownerId), { bankLast4: l4, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        audit(b, me, { action: 'owner.update', entity: `owners/${r.ownerId}`, propertyId: pid, changes: this.bankChanges(r.bankFill), reason: why });
       }
+      if (r.bankOnly) return;   // unit already linked with its fee: only the owner's bank details were saved
       const unitId = r.unitId || unitIdOf(pid, d.unit);
-      if (r.newUnit) b.set(doc(db, 'units', unitId), { propertyId: pid, unitCode: d.unit, ezeeRoomMatch: d.unit, aliases: [], ownerId: r.ownerId, active: true,
+      if (r.newUnit) b.set(doc(db, 'units', unitId), { propertyId: pid, unitCode: d.unit, ezeeRoomMatch: d.unit, aliases: [], ownerId: r.ownerId, active: true, ...stateTag(pid),
         createdAt: serverTimestamp(), createdBy: me.user.uid });
       else if (r.linkOwner) b.set(doc(db, 'units', unitId), { ownerId: r.ownerId, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
       // Fee from the Owner List, for a unit with none yet. 2000-01 = applies to every month until a later version is added on Portfolio.

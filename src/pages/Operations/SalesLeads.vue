@@ -83,6 +83,8 @@
               <h2>Inquiry</h2>
               <div class="grid-fields">
                 <FormField id="lLooking" label="Looking for" req v-model="form.lookingFor" placeholder="e.g. Monthly rental, 2 bedrooms, Ampang" />
+                <div class="field"><label for="lState">State</label>
+                  <OptionPicker class="fld-pick" v-model="form.state" :options="[{ value: '', label: 'Any state (optional)' }, ...stateList.map(x => ({ value: x, label: x }))]" label="State" /></div>
                 <div class="field"><label for="lSource">Source</label>
                   <OptionPicker class="fld-pick" v-model="form.source" :options="SOURCES.map(x => ({ value: x, label: x }))" label="Source" /></div>
                 <FormField id="lBudget" label="Budget" v-model="form.budget" placeholder="e.g. RM 2,200 a month" />
@@ -259,6 +261,8 @@ import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import FormField from '@/components/FormField.vue';
 import { audit, friendlyError } from '@/lib/finance-data.js';
+import { stateChoices, statesOf } from '@/lib/states.js';
+import { scoped, countScoped } from '@/lib/property-scope.js';
 import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf } from '@/lib/offline.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
@@ -309,6 +313,8 @@ export default {
   },
   beforeUnmount() { clearTimeout(this.phoneTimer); },
   computed: {
+    // The states a new lead can be for: every state for a Director, else the user's own
+    stateList() { return stateChoices(me); },
     updDirty() { const l = this.lead, u = this.upd; return !!l && !!u && ((u.assignedToUid || '') !== (l.assignedToUid || '') || u.status !== l.status || !!(u.note || '').trim()); },
     canAssign() { return ASSIGNERS.includes(me.role); },
     canLog() { return LOGGERS.includes(me.role); },
@@ -356,7 +362,7 @@ export default {
           if (!this.canLog) view = 'list';
           else {
             await this.loadStaff();
-            this.form = { lookingFor: '', source: 'Walk-in', contactName: '', phone: '', email: '', budget: '', viewing: '', assignedTo: this.canAssign ? this.staff[0]?.uid || '' : '', status: 'new', note: '' };
+            this.form = { state: statesOf(me).length === 1 ? statesOf(me)[0] : '', lookingFor: '', source: 'Walk-in', contactName: '', phone: '', email: '', budget: '', viewing: '', assignedTo: this.canAssign ? this.staff[0]?.uid || '' : '', status: 'new', note: '' };
           }
           if (view === 'list') await this.loadList();
         }
@@ -401,8 +407,7 @@ export default {
       ]);
       if (t?.exists()) {
         this.tenant = { id: t.id, ...t.data(), ...(see ? await privateOf(doc(db, 'tenants', t.id)).catch(() => ({})) : {}) };
-        this.tenantStays = await getCountFromServer(query(collection(db, 'offlineBookings'), where('tenantId', '==', t.id)))
-          .then(c => c.data().count).catch(() => 0);
+        this.tenantStays = await countScoped(scoped(query(collection(db, 'offlineBookings'), where('tenantId', '==', t.id)))).catch(() => 0);   // stays in my properties
       }
       if (b?.exists()) this.booking = { id: b.id, ...b.data() };
       this.lead = ld;
@@ -448,6 +453,7 @@ export default {
     async saveNew() {
       const f = this.form;
       if (!f.lookingFor.trim()) return this.formError = 'Say what they are looking for, e.g. Monthly rental, 2 bedrooms, Ampang.';
+      // State is optional since 12 Nov 2026 (access is by property; a lead has none until it is booked)
       if (!f.contactName.trim() && !f.phone.trim()) return this.formError = 'Add a name or phone number so Operations can follow up.';
       if (!emailOk(f.email.trim())) return this.formError = 'That email address doesn\'t look right. Check it or leave it empty.';
       this.busy = true; this.formError = '';
@@ -462,7 +468,7 @@ export default {
           const n = c.exists() ? c.data().next || 1 : 1, id = num('LD', n), ref = doc(db, 'offlineInquiries', id);
           if ((await tx.get(ref)).exists()) throw stop(`${id} already exists. Ask a Director to check counters/offlineInquiries.`);
           tx.set(cRef, { next: n + 1 });
-          tx.set(ref, { lookingFor: f.lookingFor.trim(), source: f.source, budget: f.budget.trim(), viewing: f.viewing, status: f.status,
+          tx.set(ref, { ...(f.state ? { state: f.state } : {}), lookingFor: f.lookingFor.trim(), source: f.source, budget: f.budget.trim(), viewing: f.viewing, status: f.status,
             assignedToUid: who?.uid || null, assignedToName: who?.name || null, loggedByUid: me.user.uid, loggedByName: me.name,
             tenantId: known?.id || null, bookingId: null, history: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
           tx.set(doc(ref, 'private', 'main'), { contactName: f.contactName.trim(), phone: f.phone.trim(), phoneKey: phoneKey(f.phone), email: f.email.trim() });

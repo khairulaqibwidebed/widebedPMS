@@ -22,11 +22,12 @@
     <Paged :items="shown()" v-slot="{ pageRows }">
       <div class="table-wrap soft-wrap">
         <table class="table hover-rows">
-          <thead><tr><th>Name</th><th>Role</th><th>IC number</th><th class="num">Monthly salary</th><th>Last changed</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Role</th><th>Properties</th><th>IC number</th><th class="num">Monthly salary</th><th>Last changed</th><th></th></tr></thead>
           <tbody>
             <tr v-for="u in pageRows" :key="u.id">
               <td>{{ u.displayName || u.email }}<span class="you" v-show="u.id === myUid">You</span></td>
               <td>{{ ROLE_LABEL[u.role] || u.role || '—' }}<span class="intern-tag" v-if="u.intern">Intern</span></td>
+              <td :class="{ 'no-state': u.role !== 'director' && !propsOf(u).length }">{{ u.role === 'director' ? 'All (Director)' : propsOf(u).length ? `${propsOf(u).length} ${propsOf(u).length === 1 ? 'property' : 'properties'}` : 'None yet' }}</td>
               <template v-if="u.intern"><td class="na">Not needed</td><td class="num na">Not needed</td></template>
               <template v-else>
               <td>{{ hrOf(u).ic || '—' }}</td>
@@ -38,8 +39,8 @@
                 <span class="muted" v-else title="Your own details are changed by a Director">—</span>
               </td>
             </tr>
-            <SkeletonRows v-if="loading && !shown().length" table :cols="6" />
-            <tr v-show="!loading && !shown().length"><td colspan="6" class="muted">No staff match.</td></tr>
+            <SkeletonRows v-if="loading && !shown().length" table :cols="7" />
+            <tr v-show="!loading && !shown().length"><td colspan="7" class="muted">No staff match.</td></tr>
           </tbody>
         </table>
       </div>
@@ -50,6 +51,8 @@
       <form class="modal" role="dialog" aria-label="HR details" style="max-width:480px;width:calc(100% - 32px)" @submit.prevent="save()">
         <h2>{{ 'HR details: ' + (sel.displayName || sel.email) }}</h2>
         <div class="notice error" v-show="formErr">{{ formErr }}</div>
+        <!-- The properties they may see (12 Nov 2026), same as on Accounts; saved on users/{uid} with an audit line -->
+        <StaffPropertiesField v-if="sel.role !== 'director'" v-model="form.properties" :properties="allProperties" />
         <label class="check" v-if="sel.role !== 'director'"><input type="checkbox" v-model="form.intern"><span><b>Intern</b><small>No IC or salary needed, and they can't open Salary Advance.</small></span></label>
         <template v-if="!form.intern">
         <div class="field"><label for="hrIc">IC number</label><input class="input" id="hrIc" v-model="form.ic" maxlength="40" placeholder="e.g. 900101-14-5678"></div>
@@ -67,8 +70,11 @@
 <script>
 // Staff accounts > HR details (5 Nov 2026): IC and monthly salary in staffHR/{uid} (position = their role name, filled in on save), apart from users/{uid} (PDPA).
 // Saving also writes advanceLimits/{uid} (50% of salary), the only part the staff member reads. Data: pages/HR/advances.js.
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, doc, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db, ROLE_LABEL } from '@/lib/firebase.js';
+import { STATES, statesOf, statesText } from '@/lib/states.js';
+import StaffPropertiesField from '@/components/StaffPropertiesField.vue';
+import OptionPicker from '@/components/OptionPicker.vue';
 import { friendlyError } from '@/lib/finance-data.js';
 import { rm } from '@/lib/format.js';
 import { toast } from '@/lib/toast.js';
@@ -78,12 +84,14 @@ import { loadStaffHR, saveStaffHR } from '@/pages/HR/advances.js';
 const me = useSession();
 
 export default {
+  components: { OptionPicker, StaffPropertiesField },
   data() {
-    return { ROLE_LABEL, myUid: me.user.uid, users: [], hr: {}, loading: true, error: '', q: '', sel: null, form: {}, formErr: '', busy: false };
+    return { ROLE_LABEL, STATES, statesOf, statesText, allProperties: [], myUid: me.user.uid, users: [], hr: {}, loading: true, error: '', q: '', sel: null, form: {}, formErr: '', busy: false };
   },
   async mounted() {
     try {
-      const [snap, hr] = await Promise.all([getDocs(collection(db, 'users')), loadStaffHR()]);
+      const [snap, hr, ps] = await Promise.all([getDocs(collection(db, 'users')), loadStaffHR(), getDocs(collection(db, 'properties')).catch(() => ({ docs: [] }))]);
+      this.allProperties = ps.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.active !== false).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       this.users = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.active !== false)
         .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
       this.hr = hr;
@@ -93,19 +101,33 @@ export default {
   methods: {
     rm,
     hrOf(u) { return this.hr[u.id] || {}; },
+    propsOf(u) { return Array.isArray(u?.properties) ? u.properties.filter(Boolean) : []; },
     day(t) { return t?.toDate ? t.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; },
     canEdit(u) { return me.role === 'director' || u.id !== this.myUid; },
     shown() {
       const q = this.q.trim().toLowerCase();
       return this.users.filter(u => !q || [u.displayName, u.email, ROLE_LABEL[u.role]].some(v => String(v || '').toLowerCase().includes(q)));
     },
-    edit(u) { const h = this.hrOf(u); this.sel = u; this.formErr = ''; this.form = { ic: h.ic || '', salary: h.intern || u.intern ? '' : h.salary ?? '', intern: u.intern === true }; },
+    edit(u) { const h = this.hrOf(u); this.sel = u; this.formErr = ''; this.form = { ic: h.ic || '', salary: h.intern || u.intern ? '' : h.salary ?? '', intern: u.intern === true, properties: this.propsOf(u) }; },
     async save() {
       if (!this.form.intern && (this.form.salary === '' || this.form.salary == null)) return this.formErr = 'Enter the monthly salary.';
+      const u = this.sel, properties = [...new Set(this.form.properties || [])].sort(), old = [...this.propsOf(u)].sort();
+      const statesChanged = u.role !== 'director' && properties.join('|') !== old.join('|');
+      if (statesChanged && !properties.length) return this.formErr = 'Choose at least one property.';
       this.busy = true; this.formErr = '';
       try {
-        const saved = await saveStaffHR(me, this.sel, this.hr[this.sel.id], this.form);
-        this.hr = { ...this.hr, [this.sel.id]: { ...saved, updatedAt: { toDate: () => new Date() }, updatedByName: me.name } };
+        if (statesChanged) {
+          const b = writeBatch(db);
+          b.update(doc(db, 'users', u.id), { properties, updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name });
+          b.set(doc(collection(db, 'auditLog')), { at: serverTimestamp(), uid: me.user.uid, userName: me.name, role: me.role, action: 'staff.update',
+            entity: `users/${u.id}`, changes: [{ field: 'properties', old, new: properties }], reason: 'Properties set on Staff accounts > HR details' });
+          await b.commit();
+          u.properties = properties;
+        }
+        // Only the states changed: the HR details themselves are left as they are
+        const saved = await saveStaffHR(me, this.sel, this.hr[this.sel.id], this.form)
+          .catch(e => { if (statesChanged && e.message === 'Nothing changed.') return null; throw e; });
+        if (saved) this.hr = { ...this.hr, [this.sel.id]: { ...saved, updatedAt: { toDate: () => new Date() }, updatedByName: me.name } };
         this.sel.intern = !!this.form.intern;
         toast('HR details saved.'); this.sel = null;
       } catch (e) { this.formErr = e.code ? friendlyError(e, 'save the HR details') : e.message; }
@@ -125,5 +147,9 @@ export default {
 .check small { display: block; color: var(--muted); font-size: 12px; }
 .intern-tag { margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--chip); padding: 1px 8px; border-radius: 999px; }
 .na { color: var(--muted); font-size: 12px; }
+.no-state { color: var(--danger, #c0392b); font-weight: 600; }
+.fit-picker :deep(.op) { display: block; width: 100%; }
+.fit-picker :deep(.op-btn) { width: 100%; text-align: left; }
+.fit-picker :deep(.op-pop) { width: 100%; max-width: none; }
 .you { margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--text-2); background: var(--chip); padding: 1px 8px; border-radius: 999px; }
 </style>

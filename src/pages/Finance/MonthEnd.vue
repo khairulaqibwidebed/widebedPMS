@@ -9,7 +9,7 @@
       </div>
       <div class="head-tools" v-show="!selOpen">
       <span class="pill" v-show="propertyId" :class="completed ? 'green' : (doneCount() ? 'blue' : 'grey')">{{ completed ? 'Completed' : (doneCount() ? `${doneCount()} of ${rows.length} completed` : 'Open') }}</span>
-      <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+      <PropertyPicker v-model="propertyId" :properties="properties" @change="load()" />
       <MonthPicker :ahead="1" v-model="month" @change="load()" />
       <div class="dl-wrap" v-show="propertyId">
         <button class="btn btn-primary" type="button" @click="dlOpen = !dlOpen" :disabled="!rows.length || busy" aria-haspopup="menu" :aria-expanded="String(dlOpen)">Download
@@ -351,6 +351,7 @@ import { propertyMonth, readUnit, markDirty, markFrom, canWriteSummaries } from 
 import { rm, amt, pct, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { lastProperty, rememberProperty } from '@/lib/last-property.js';
+import { stateTag } from '@/lib/states.js';
 import { buildStatementXlsx, buildFixedRentXlsx, loadStatementTemplate, FIXED_RENT_TEMPLATE_URL } from '@/lib/statement-xlsx.js';
 import { buildStatementPdf, buildFixedRentPdf, loadPdfKit } from '@/lib/statement-pdf.js';
 
@@ -369,6 +370,7 @@ const pctOut = v => (v == null ? '' : +(v * 100).toFixed(4));
 const msOf = t => (t?.toMillis ? t.toMillis() : (t?.seconds != null ? t.seconds * 1000 : null));
 
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import AddBookingModal from '@/components/AddBookingModal.vue';
 import RemoveBookingsModal from '@/components/RemoveBookingsModal.vue';
@@ -377,7 +379,7 @@ import StatementLines from '@/components/StatementLines.vue';
 import ConfirmReason from '@/components/ConfirmReason.vue';
 import FormulaInfo from '@/components/FormulaInfo.vue';
 export default {
-  components: { OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines, ConfirmReason, FormulaInfo },
+  components: { PropertyPicker, OptionPicker, MonthPicker, AddBookingModal, RemoveBookingsModal, RemovedBookings, StatementLines, ConfirmReason, FormulaInfo },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
@@ -467,7 +469,7 @@ export default {
       const um = this.ums.find(u => u.unitId === unitId);
       const d = await readUnit(this.propertyId, this.month, unitId, this.rateVersions, um?.row?.status === 'completed' ? (ref => this.cachedStatement(ref, um)) : null);
       this.rateVersions = d.rateVersions;
-      const ph = await getDocs(query(collection(db, 'payoutHistory'), where('unitId', '==', unitId), where('year', '==', this.month.slice(0, 4))));
+      const ph = await getDocs(query(collection(db, 'payoutHistory'), where('propertyId', '==', this.propertyId), where('unitId', '==', unitId), where('year', '==', this.month.slice(0, 4))));
       ph.docs.forEach(x => { if (x.data().propertyId === this.propertyId) this.payHistory[x.id] = x.data(); });
       this.unitFull[unitId] = d;
       return d;
@@ -543,7 +545,7 @@ export default {
       try {
         const pdf = kind === 'pdf';
         const [X, tpl, nb] = await Promise.all([pdf ? loadPdfKit() : loadXlsxLib(), pdf ? null : loadStatementTemplate(),
-          getDocs(query(collection(db, 'bookings'), where('unitId', '==', s.unitId), where('departureMonth', '==', nextMonth(this.month)))).catch(() => ({ docs: [] }))]);
+          getDocs(query(collection(db, 'bookings'), where('propertyId', '==', this.propertyId), where('unitId', '==', s.unitId), where('departureMonth', '==', nextMonth(this.month)))).catch(() => ({ docs: [] }))]);
         // Next booking: the unit's first stay that checks out next month (eZee upload for that month needed)
         const next = nb.docs.map(d => d.data()).filter(b => b.propertyId === this.propertyId && b.status !== 'cancelled' && b.arrival)
           .sort((a, b) => a.arrival.localeCompare(b.arrival))[0] || null;
@@ -611,7 +613,7 @@ export default {
       this.busy = true; this.error = '';
       try {
         const b = writeBatch(db), ref = doc(db, 'months', `${this.propertyId}_${this.month}`);
-        b.set(ref, { propertyId: this.propertyId, month: this.month,
+        b.set(ref, { propertyId: this.propertyId, month: this.month, ...stateTag(this.propertyId),
           poolZero: { [r.unitId]: on ? { by: me.user.uid, byName: me.name, at: serverTimestamp() } : deleteField() } }, { merge: true });
         audit(b, me, { action: on ? 'pool.confirmZero' : 'pool.unconfirmZero', entity: `months/${this.propertyId}_${this.month}`, propertyId: this.propertyId, month: this.month,
           changes: [{ field: `${r.unitCode} 0 bookings confirmed`, old: on ? 'No' : 'Yes', new: on ? 'Yes' : 'No' }], reason: 'Pool Sharing check' });
@@ -635,7 +637,7 @@ export default {
     async doneIn(unitId, month) { const s = await getDoc(doc(db, 'statements', statementId(unitId, month))); return s.exists() && s.data().status === 'completed'; },
     // This unit's expense lines for another month (the brought-forward line lives there)
     async unitExpenses(unitId, month) {
-      const snap = await getDocs(query(collection(db, 'expenses'), where('unitId', '==', unitId), where('month', '==', month)));
+      const snap = await getDocs(query(collection(db, 'expenses'), where('propertyId', '==', this.propertyId), where('unitId', '==', unitId), where('month', '==', month)));
       return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => e.propertyId === this.propertyId);
     },
 
@@ -726,7 +728,7 @@ export default {
       const bk = this.unitFull[unitId]?.bookings || [];
       let movedOut = [];
       try {
-        const snap = await getDocs(query(collection(db, 'bookings'), where('movedByHand.fromUnitId', '==', unitId), where('departureMonth', '==', this.month)));
+        const snap = await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', this.propertyId), where('movedByHand.fromUnitId', '==', unitId), where('departureMonth', '==', this.month)));
         movedOut = snap.docs.map(d => ({ reservationNo: d.id, ...d.data() })).filter(b => b.propertyId === this.propertyId && b.status !== 'cancelled' && b.unitId !== unitId)
           .map(b => ({ reservationNo: String(b.reservationNo), to: b.unitCode || null, reason: b.movedByHand?.reason || '' }));
       } catch (e) { console.warn('Moved-out bookings not checked:', e); }
@@ -852,7 +854,7 @@ export default {
         const b = writeBatch(db);
         // A unit seen only in bookings gets its unit record now
         if (!this.unitFull[s.unitId]?.unit) {
-          b.set(doc(db, 'units', s.unitId), { propertyId: this.propertyId, unitCode: s.unitCode, ezeeRoomMatch: s.unitCode, aliases: [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
+          b.set(doc(db, 'units', s.unitId), { propertyId: this.propertyId, ...stateTag(this.propertyId), unitCode: s.unitCode, ezeeRoomMatch: s.unitCode, aliases: [], ownerId: null, active: true, createdAt: serverTimestamp(), createdBy: me.user.uid });
           markFrom(b, this.propertyId, ALL_MONTHS, s.unitId);
         }
         b.set(doc(db, 'units', s.unitId, 'terms', `${s.effectiveFrom}_${Date.now()}`), data);
@@ -929,7 +931,7 @@ export default {
     async sendToDirector(r) {
       const id = statementId(r.unitId, this.month), old = this.approvals[r.unitId];
       const b = writeBatch(db);
-      const data = { propertyId: this.propertyId, unitId: r.unitId, unitCode: r.unitCode, month: this.month, status: 'submitted', snapshot: JSON.parse(JSON.stringify(r)), handChanges: await this.handChangesOf(r.unitId),
+      const data = { propertyId: this.propertyId, ...stateTag(this.propertyId), unitId: r.unitId, unitCode: r.unitCode, month: this.month, status: 'submitted', snapshot: JSON.parse(JSON.stringify(r)), handChanges: await this.handChangesOf(r.unitId),
         payout: r.totals.payout, submittedBy: me.user.uid, submittedByName: me.name, submittedAt: serverTimestamp(), again: this.reopened(r),
         returnReason: null, returnedBy: null, returnedByName: '', withdrawReason: null };
       if (old) b.update(doc(db, 'approvals', id), data); else b.set(doc(db, 'approvals', id), data);
@@ -981,7 +983,7 @@ export default {
         markDirty(b, this.propertyId, this.month, [r.unitId]);
         if (bf.length) markDirty(b, this.propertyId, next, [r.unitId]);
         const doneIds = new Set(this.rows.filter(x => x.status === 'completed' && x.unitId !== r.unitId).map(x => x.unitId));
-        b.set(doc(db, 'months', `${this.propertyId}_${this.month}`), { ...this.monthSummaryDoc(doneIds), reopenedBy: me.user.uid, reopenedByName: me.name, reopenedAt: serverTimestamp() }, { merge: true });
+        b.set(doc(db, 'months', `${this.propertyId}_${this.month}`), { ...this.monthSummaryDoc(doneIds), ...stateTag(this.propertyId), reopenedBy: me.user.uid, reopenedByName: me.name, reopenedAt: serverTimestamp() }, { merge: true });
         audit(b, me, { action: 'statement.reopen', entity: `statements/${id}`, propertyId: this.propertyId, month: this.month,
           changes: [{ field: 'status', old: 'completed', new: 'reopened' }], reason });
         await b.commit();

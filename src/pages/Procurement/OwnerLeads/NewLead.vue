@@ -14,6 +14,8 @@
     <section class="card" style="max-width:760px">
       <div class="grid-fields">
         <PropertyField :o="form" :properties="properties" id="nProp" req />
+        <div class="field"><label for="nState" class="req">State</label>
+          <OptionPicker class="full-pick" v-model="form.state" :options="stateOptions" label="State" /></div>
         <FormField id="nUnit" label="Unit" req v-model="form.unit" placeholder="e.g. DM 12-03" />
         <FormField id="nOwner" label="Owner name" req v-model="form.ownerName" placeholder="e.g. Owner A" />
         <FormField id="nDue" label="Due date" type="date" v-model="form.dueDate" />
@@ -35,25 +37,35 @@
 // + New listing (no task in the task system). Emits saved(id, message) once saved, or cancel.
 import { createListing, emailOk, errText, UNIT_TYPES, SOURCES, CONTACT_READERS } from '@/lib/owner-leads.js';
 import { useSession } from '@/stores/session.js';
+import { stateChoices, statesOf, stateOf } from '@/lib/states.js';
 import FormField from '@/components/FormField.vue';
+import OptionPicker from '@/components/OptionPicker.vue';
 import PropertyField from './PropertyField.vue';
 
-const empty = () => ({ property: '', unit: '', ownerName: '', ownerPhone: '', ownerEmail: '', dueDate: '', description: '', unitType: '', sizeSqft: '', source: '', remarks: '' });
+// One state of your own is filled in for you
+const myOnlyState = () => (statesOf(useSession()).length === 1 ? statesOf(useSession())[0] : '');
+const empty = () => ({ state: myOnlyState(), property: '', unit: '', ownerName: '', ownerPhone: '', ownerEmail: '', dueDate: '', description: '', unitType: '', sizeSqft: '', source: '', remarks: '' });
 
 export default {
-  components: { FormField, PropertyField },
+  components: { FormField, OptionPicker, PropertyField },
   props: { properties: { type: Array, default: () => [] } },
   emits: ['cancel', 'saved', 'dirty'],
   data() { return { UNIT_TYPES, SOURCES, canSeeContact: CONTACT_READERS.includes(useSession().role), form: empty(), busy: false, formError: '' }; },
-  watch: { form: { deep: true, handler(f) { this.$emit('dirty', JSON.stringify(f) !== JSON.stringify(empty())); } } },
+  computed: { stateOptions() { return [{ value: '', label: 'Choose the state' }, ...stateChoices(useSession()).map(s => ({ value: s, label: s }))]; } },
+  watch: {
+    form: { deep: true, handler(f) { this.$emit('dirty', JSON.stringify(f) !== JSON.stringify(empty())); } },
+    // A property already in Portfolio: its state is filled in
+    'form.property'(v) { const p = this.properties.find(x => x.name === v), st = stateOf(p); if (st) this.form.state = st; }
+  },
   methods: {
     async save() {
       const f = this.form;
       if (!f.property.trim() && !f.unit.trim()) { this.formError = 'Add the property or the unit.'; return; }
       if (!emailOk(f.ownerEmail.trim())) { this.formError = 'That owner email doesn\'t look right.'; return; }
+      if (!f.state) { this.formError = 'Choose the state the listing is for.'; return; }
       this.busy = true; this.formError = '';
       try {
-        const id = await createListing({ property: f.property.trim(), unit: f.unit.trim(), ownerName: f.ownerName.trim(), title: '', description: f.description.trim(), dueDate: f.dueDate,
+        const id = await createListing({ state: f.state, property: f.property.trim(), unit: f.unit.trim(), ownerName: f.ownerName.trim(), title: '', description: f.description.trim(), dueDate: f.dueDate,
           unitType: f.unitType, sizeSqft: String(f.sizeSqft || '').trim(), source: f.source, remarks: f.remarks.trim() },
           { ownerPhone: f.ownerPhone.trim(), ownerEmail: f.ownerEmail.trim() }, null);
         this.$emit('dirty', false);

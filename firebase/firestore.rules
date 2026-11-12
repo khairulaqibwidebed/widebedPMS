@@ -1,5 +1,20 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.55, 11 Nov 2026 (Khairul): republish only. Neo's Draft 0.54 (attendance off-site) with
+// Widebed PMS Firestore rules. Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
+// property (Portfolio > Fees & Rates). Read and add-only create, the same people as a property's rateVersions. Nothing else changed.
+// Draft 0.59, 12 Nov 2026: Staff Attendance, holidays per person. A public holiday
+// (attendanceHolidays/{date}) may leave some staff out (exceptUids: a list of uids, HR unticks them in the PMS). For them that
+// date is a normal working day: clocking in is not an Off day and late counts. Holidays now accept only name, exceptUids
+// (up to 300), addedBy/addedAt and updatedBy/updatedAt. Nothing else changes.
+// Draft 0.58, 12 Nov 2026 (Khairul): Operations read owners/{id}/private/main, so Portfolio
+// shows them owner names (Marketing already could). The page shows only the name; nothing else changed.
+// Draft 0.57, 12 Nov 2026 (Khairul, state security Phase 2): records carry their property's
+// `state` (owners, tenants and eZee uploads a `states` list). The lists of allowed keys take state/states, a Director
+// may change only state/states on any property-linked record (Stamp states tool, stampOnly()), and Operations may refresh
+// an owner's `states`. Nothing is locked by state yet (that is Phase 4); no other check changed.
+// Draft 0.56, 12 Nov 2026 (Khairul, state security Phase 1): a new property may carry a
+// top-level `state` (Operations' add-property check listed every allowed key and refused it). Nothing else changed;
+// the state lock itself comes in a later draft.
+// Draft 0.55, 11 Nov 2026 (Khairul): republish only. Neo's Draft 0.54 (attendance off-site) with
 // Khairul's Draft 0.53 (Owner Leads statuses) kept, so neither drops the other. No rule changes.
 // Draft 0.54, 11 Nov 2026: Staff Attendance off-site. Staff may clock in and out away from the office;
 // each clock-in / clock-out is saved with InArea true (Normal) or false (Off-site), and the server checks that flag against its own
@@ -271,6 +286,11 @@ service cloud.firestore {
     function docPath(col, id)    { return /databases/$(database)/documents/$(col)/$(id); }
     function changed()           { return request.resource.data.diff(resource.data).affectedKeys(); }
     function newKeysOnly(keys)   { return request.resource.data.keys().hasOnly(keys); }
+    // Draft 0.57: a Director stamping states. Only `state` (a string) or `states` (a list) changes.
+    function stampOnly() {
+      return isDirector() && changed().hasOnly(['state', 'states'])
+        && request.resource.data.get('state', '') is string && request.resource.data.get('states', []) is list;
+    }
     function createdNow(col, id) { return !exists(docPath(col, id)) && existsAfter(docPath(col, id)); }
 
     // ---- Month-end: completion is per unit, statements/{unitId}_{month} ----
@@ -288,7 +308,7 @@ service cloud.firestore {
       return /databases/$(database)/documents/approvals/$(unitId + '_' + month);
     }
     function unitMonthKeys() {
-      return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'arrangementType', 'fixedRentAmount',
+      return ['propertyId', 'state', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'arrangementType', 'fixedRentAmount',
         'firstBookingId', 'row', 'noUnit', 'dash', 'statement', 'stale', 'dirtyRev', 'cleanRev', 'marks', 'computedAt', 'computedBy'];
     }
 
@@ -504,7 +524,7 @@ service cloud.firestore {
     match /properties/{propertyId} {
       allow read: if staff() || portfolioViewer();
       allow write: if portfolioEditor();
-      allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'info', 'active', 'createdAt', 'createdBy'])
+      allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'state', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.name is string && request.resource.data.code is string
         && (!('info' in request.resource.data) || request.resource.data.info.keys().hasOnly(['address', 'city', 'state', 'ezeeAccount', 'ezeeName']));
@@ -524,12 +544,19 @@ service cloud.firestore {
       }
     }
 
+    // One set of fees and rates for every property (Draft 0.60). Add-only versions, like rateVersions above.
+    match /sharedRates/{v} {
+      allow read: if staff() || portfolioEditor();
+      allow create: if portfolioEditor() && request.resource.data.reason is string;
+      allow update, delete: if false;
+    }
+
     match /units/{unitId} {
       allow read: if staff() || portfolioViewer();
       allow create, update: if portfolioEditor();
       allow delete: if isDirector();   // safe delete: the page only offers it for units with no history
       // Operations: no terms (arrangement, fixed rent, fees).
-      allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
+      allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'state', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
           'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && exists(docPath('properties', request.resource.data.propertyId))
@@ -537,6 +564,8 @@ service cloud.firestore {
       // Marketing edit unit details and eZee names; not the owner link, status or terms.
       allow update: if isMkt() && changed().hasOnly(['aliases', 'info', 'updatedAt', 'updatedBy'])
         && request.resource.data.info.keys().hasOnly(['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb']);
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       match /terms/{v} {
         allow read: if staff() || portfolioEditor();
         allow create: if portfolioEditor() && request.resource.data.reason is string;
@@ -554,10 +583,15 @@ service cloud.firestore {
       allow read: if staff() || portfolioViewer();
       allow create, update: if portfolioEditor();
       allow delete: if isDirector();   // safe delete: the page only offers it for owners with no units
-      allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+      allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'states', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.get('bankLast4', null) == null
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if isMkt() && changed().hasOnly(['updatedAt', 'updatedBy']);
+      // Draft 0.57: an owner's `states` (the states of their units) is worked out again after Operations or Marketing save a unit
+      allow update: if (portfolioAdder() || isMkt()) && changed().hasOnly(['states']) && request.resource.data.states is list
+        && request.resource.data.states.size() <= 16;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       // Operations write name and contact details once, in the batch that creates the owner, and never read them back.
       match /private/{docId} {
         // Portfolio Edit: names, contact and bank details.
@@ -568,6 +602,8 @@ service cloud.firestore {
         // Marketing read and edit names and contact details (Khairul 27 Oct). Bank fields share this document: the
         // page hides them and Marketing can't change them.
         allow read: if isMkt() && docId == 'main';
+        // Draft 0.58: Operations read it too, for owner names (the page shows only the name)
+        allow read: if portfolioAdder() && docId == 'main';
         allow update: if isMkt() && docId == 'main' && request.resource.data.updatedBy == request.auth.uid
           && changed().hasOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy']);
       }
@@ -584,7 +620,9 @@ service cloud.firestore {
     match /importBatches/{id} {
       allow read: if staff() || isOps() || opsRole();
       allow create: if finOrDir();
-      allow update, delete: if false;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
+      allow delete: if false;
     }
 
     // Locked months are protected by the app posting changes as adjustments (CSV-13); Edit on a completed month goes
@@ -595,12 +633,16 @@ service cloud.firestore {
       allow create, update: if finOrDir();
       // Draft 0.24 (Khairul): only a booking already removed by hand on Month-end (cancelled + removedByHand), by Finance/Director
       allow delete: if finOrDir() && resource.data.status == 'cancelled' && resource.data.get('removedByHand', null) != null;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
     }
 
     // Each unit's payout per month: completed statements, and Finance's past statements uploaded as reference.
     match /payoutHistory/{id} {
       allow read: if staff();
       allow create, update: if finOrDir();
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if isDirector();
     }
 
@@ -613,19 +655,21 @@ service cloud.firestore {
         && request.resource.data.status in ['open', 'partial', 'completed'];
       // Summary-only writes, on any month.
       allow create: if finOrDir()
-        && newKeysOnly(['propertyId', 'month', 'summary'])
+        && newKeysOnly(['propertyId', 'state', 'month', 'summary'])
         && id == request.resource.data.propertyId + '_' + request.resource.data.month;
       // Pool Sharing check (Draft 0.46): "Confirmed 0 bookings" per unit, with who and when (poolZero only).
-      allow create: if finOrDir() && newKeysOnly(['propertyId', 'month', 'poolZero'])
+      allow create: if finOrDir() && newKeysOnly(['propertyId', 'state', 'month', 'poolZero'])
         && id == request.resource.data.propertyId + '_' + request.resource.data.month;
-      allow update: if finOrDir() && changed().hasOnly(['poolZero']);
+      allow update: if finOrDir() && changed().hasOnly(['poolZero', 'state']);
       allow update: if finOrDir()
-        && changed().hasOnly(['propertyId', 'month', 'summary'])
+        && changed().hasOnly(['propertyId', 'state', 'month', 'summary'])
         && request.resource.data.propertyId == resource.data.get('propertyId', request.resource.data.propertyId)
         && request.resource.data.month == resource.data.get('month', request.resource.data.month);
       // Approve & complete on a summary-only month document (no status yet means open).
       allow update: if finOrDir() && resource.data.get('status', 'open') != 'completed'
         && request.resource.data.status in ['open', 'partial', 'completed'];
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -636,6 +680,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(unitMonthKeys())
         && request.resource.data.propertyId is string && request.resource.data.month is string && request.resource.data.unitId is string
         && id == request.resource.data.unitId + '_' + request.resource.data.month;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -649,6 +695,8 @@ service cloud.firestore {
         && !unitCompleted(resource.data.unitId, resource.data.month)
         && !unitCompleted(request.resource.data.unitId, request.resource.data.month)
         && request.resource.data.month == resource.data.month;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;   // "Remove" sets deleted = true
     }
 
@@ -674,6 +722,8 @@ service cloud.firestore {
         && request.resource.data.revision == resource.data.revision
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paidDate', 'paidAmount', 'paidRef', 'paidBy', 'paidByName', 'paidAt', 'payUndoReason', 'payUndoBy', 'payUndoByName', 'payUndoAt'])
         && (request.resource.data.paymentStatus == 'paid' || (isDirector() && request.resource.data.paymentStatus == 'pending'));
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       match /revisions/{rev} {
         allow read: if staff();
@@ -701,6 +751,8 @@ service cloud.firestore {
       allow update: if isDirector() && resource.data.status == 'submitted'
         && (request.resource.data.status == 'approved'
           || (request.resource.data.status == 'returned' && request.resource.data.returnReason is string && request.resource.data.returnReason.size() > 0));
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -732,6 +784,8 @@ service cloud.firestore {
         && request.resource.data.status in ['new', 'interested', 'considering', 'uninterested', 'booked']
         && (bookingMadeNow(id)
             || (!changed().hasAny(['tenantId', 'bookingId']) && (request.resource.data.status != 'booked' || resource.data.status == 'booked')));
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       // Contact details: Finance/Directors through the catch-all; the assignee here.
       match /private/{docId} {
@@ -748,9 +802,11 @@ service cloud.firestore {
       allow read: if finOrDir() || isOps();
       allow create, update: if finOrDir();
       allow create, update: if opsBooking(request.resource.data.get('lastInquiryId', null), tenantId)
-        && (resource == null || changed().hasOnly(['status', 'lastInquiryId', 'updatedAt', 'updatedBy']));
+        && (resource == null || changed().hasOnly(['status', 'states', 'lastInquiryId', 'updatedAt', 'updatedBy']));
       allow create, update: if isOps() && directBookingMadeNow(request.resource.data.get('lastBookingId', null), tenantId)
-        && (resource == null || changed().hasOnly(['status', 'lastBookingId', 'updatedAt', 'updatedBy']));
+        && (resource == null || changed().hasOnly(['status', 'states', 'lastBookingId', 'updatedAt', 'updatedBy']));
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       match /private/{docId} {
         allow read: if isOps();
@@ -774,6 +830,8 @@ service cloud.firestore {
       // Operations fill in a payment that has no receipt (status Unknown): saving it makes it Edited, and Finance is told.
       allow update: if role() == 'operations' && can('offlinePayments.view') && resource.data.status == 'Unknown' && request.resource.data.status == 'Edited'
         && !changed().hasAny(['createdBy', 'createdAt', 'submittedByName', 'verifiedByName', 'verifiedDate', 'remarks']);
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
     // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
@@ -785,6 +843,8 @@ service cloud.firestore {
       allow update: if finOrDir() || can('bookingForms.view');
       // Draft 0.36: removed with its booking, only while the booking is cancelled.
       allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
     }
 
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
@@ -814,6 +874,8 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid;
       // Draft 0.36: delete for good, only a cancelled booking (the page also checks no payment is recorded).
       allow delete: if (finOrDir() || isOps()) && resource.data.get('status', '') == 'cancelled';
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       // Door passcodes for the booking (Booking Form).
       match /private/{doc} {
         allow read: if finOrDir() || isOps();
@@ -845,7 +907,7 @@ service cloud.firestore {
       // with or without a status change: Directors and the tagged roles, while the ticket is Open or In progress.
       allow update: if anyStaff() && resource.data.status in ['open', 'progress']
         && (isDirector() || myIssueTag() in resource.data.tags)
-        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'tmsStatus', 'audit', 'updatedAt'])
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'state', 'tmsStatus', 'audit', 'updatedAt'])
         && request.resource.data.status in ['open', 'progress', 'done']
         && (request.resource.data.status != 'done' || request.resource.data.get('doneByUid', '') == request.auth.uid)
         && request.resource.data.get('title', '') is string
@@ -858,6 +920,8 @@ service cloud.firestore {
         && changed().hasOnly(['status', 'deletedAt', 'deletedBy', 'deletedByUid', 'deleteReason', 'audit', 'updatedAt'])
         && request.resource.data.status == 'deleted'
         && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0;
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       match /replies/{replyId} {
         allow read: if canSeeIssue(get(docPath('issues', id)).data);
@@ -879,7 +943,7 @@ service cloud.firestore {
           && canSeeIssue(get(docPath('issues', id)).data);
       }
       function quoteKeys() {
-        return ['issueId', 'propertyId', 'unitId', 'unitCode', 'chargeTo', 'vendor', 'items', 'total', 'notes', 'status', 'rejectReason',
+        return ['issueId', 'propertyId', 'state', 'unitId', 'unitCode', 'chargeTo', 'vendor', 'items', 'total', 'notes', 'status', 'rejectReason',
           'createdAt', 'createdBy', 'createdByName', 'history', 'updatedAt', 'updatedBy'];
       }
       function quoteOk() {
@@ -897,6 +961,8 @@ service cloud.firestore {
       allow create, update: if priceAccess() && ticketOk() && quoteOk()
         && request.resource.data.status in ['quoted', 'approved', 'invoiced', 'paid', 'rejected']
         && (resource == null || resource.data.status != 'paid');
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -1153,6 +1219,8 @@ service cloud.firestore {
         && !changed().hasAny(['createdByUid', 'createdByName', 'createdAt'])
         && request.resource.data.get('status', 'inProgress') in listingStatuses()
         && listingStatusOk();
+      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
+      allow update: if stampOnly();
       allow delete: if false;
       match /private/{docId} {
         allow read: if listingMover() && listingViewer() && docId == 'main';
@@ -1643,8 +1711,13 @@ service cloud.firestore {
       let dx = (lng - c.lng) * 111320 * c.cosLat;
       return lat is number && lng is number && dy * dy + dx * dx <= c.radiusM * c.radiusM;
     }
+    // Draft 0.59: a holiday counts for you unless HR left you out of it (exceptUids).
+    function attHolidayForMe(date) {
+      let p = /databases/$(database)/documents/attendanceHolidays/$(date);
+      return exists(p) && !(request.auth.uid in get(p).data.get('exceptUids', []));
+    }
     function attWorkDay(date) {
-      return myNow().dayOfWeek() in attCfg().workDays && !exists(/databases/$(database)/documents/attendanceHolidays/$(date));
+      return myNow().dayOfWeek() in attCfg().workDays && !attHolidayForMe(date);
     }
     function attLate(date) {
       let t = myNow();
@@ -1694,7 +1767,7 @@ service cloud.firestore {
               && !('lateReason' in request.resource.data)
               && request.resource.data.status == (request.resource.data.offDay ? 'offDay' : 'present')
             ));
-      // Clock out: once, the same Malaysia day, inside the area, with the server's time.
+      // Clock out: once, the same Malaysia day, with the server's time (in the area, or Off-site if allowed: Draft 0.54).
       // Then (second save) workedMinutes, which must equal clockOut - clockIn from the two server times (rounded down, 1 min slack).
       allow update: if anyStaff()
         && resource.data.uid == request.auth.uid
@@ -1740,7 +1813,12 @@ service cloud.firestore {
     // Public holidays, kept by HR on the PMS Attendance page. id = YYYY-MM-DD.
     match /attendanceHolidays/{date} {
       allow read: if anyStaff();
-      allow write: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+      // Draft 0.59: exceptUids = staff left out of this holiday (empty or missing = everyone).
+      allow create, update: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['name', 'exceptUids', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && request.resource.data.get('exceptUids', []) is list && request.resource.data.get('exceptUids', []).size() <= 300;
+      allow delete: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
     }
 
     // Office location, radius and late time for attendance.

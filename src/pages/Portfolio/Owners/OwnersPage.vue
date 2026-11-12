@@ -11,7 +11,7 @@
         </div>
       </div>
       <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="reload()" />
+        <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="reload()" />
         <MonthPicker :ahead="1" v-model="asOf" @change="reload()" v-if="!acc.viewOnly" />
         <RefreshButton @refresh="go()" />
       </div>
@@ -40,6 +40,7 @@ import { portfolioAccess } from '@/lib/portfolio-access.js';
 import { loadOwners, watchOwners, loadUnitsOf, loadBroughtForward } from '@/lib/portfolio-data.js';
 import { liveMixin } from '@/lib/use-live.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import RefreshButton from '@/components/RefreshButton.vue';
 import OwnersList from '../shared/OwnersList.vue';
@@ -49,11 +50,11 @@ const me = useSession();
 
 export default {
   mixins: [liveMixin],
-  components: { OptionPicker, MonthPicker, RefreshButton, OwnersList, OwnerDrawer },
+  components: { PropertyPicker, OptionPicker, MonthPicker, RefreshButton, OwnersList, OwnerDrawer },
   data() {
     const q = this.$route.query;
     return {
-      acc: portfolioAccess(me.role),
+      acc: portfolioAccess(me.role, me),
       propertyId: q.property || lastProperty(true) || 'all', asOf: q.month || monthOffset(0),
       properties: [], owners: [], units: [], bfLines: [],
       loading: true, busy: false, error: '', okMsg: '',
@@ -70,7 +71,7 @@ export default {
     this.pickUpHandoff();
     // Live (6 Nov 2026): owners added or changed elsewhere show without a refresh (units and balances stay as loaded)
     let first = true;
-    this.liveUse('owners', watchOwners(this.acc.viewOnly, this.acc.canEdit, rows => {
+    this.liveUse('owners', watchOwners(this.acc.viewOnly, this.acc.ownerNames, rows => {
       if (first) { first = false; return; }   // the first answer is what go() just showed
       this.owners = rows;
     }, e => { this.error = e.friendly || friendlyError(e, 'load the owners'); }, this.owners));
@@ -99,7 +100,7 @@ export default {
         // Each owner's units across every property; the carried forward balances only for Accounting and Directors.
         const view = this.acc.viewOnly;
         const [owners, units, bf] = await Promise.all([
-          loadOwners(view, this.acc.canEdit),
+          loadOwners(view, this.acc.ownerNames),
           loadUnitsOf(this.properties, this.asOf, view),
           view ? [] : loadBroughtForward(this.properties.length === 1 ? this.properties[0].id : null, this.asOf)
         ]);

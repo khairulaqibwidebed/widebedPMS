@@ -166,12 +166,9 @@
           <!-- Customer tickets only: the property, and the ticket's card goes to that property's board in the task system
                (Maintenance). In-house tickets stay in the PMS and have no property. -->
           <div class="field" v-if="raise.type === 'customer'"><label class="req" for="rProp">Property</label>
-            <select v-if="propertyChoices().length" class="input" id="rProp" v-model="raise.property" @change="raise.unit = ''">
-              <option value="">Choose the property</option>
-              <option v-for="p in propertyChoices()" :key="p" :value="p">{{ p }}</option>
-            </select>
+            <OptionPicker v-if="propertyChoices().length" class="full-pick" v-model="raise.property" :options="propertyOptions()" label="Property" searchable @change="raise.unit = ''" />
             <input v-else class="input" id="rProp" v-model="raise.property" maxlength="80" placeholder="Type the property name, as on its task system board">
-            <div class="help">The ticket's card goes to this property's board in the task system (Maintenance).</div></div>
+            <div class="help">The ticket's card goes to this property's board in the task system (Maintenance). A property with no board yet gets one.</div></div>
           <!-- In-house tickets have no unit (6 Nov 2026), so one isn't added by mistake -->
           <!-- Slides shut for In-house and open again for Customer; hidden fields can't be tabbed into -->
           <div class="unit-fold" :class="{ open: raise.type !== 'inhouse' }" :inert="raise.type === 'inhouse' || null">
@@ -229,10 +226,7 @@
           <div class="notice error" v-show="edit.error">{{ edit.error }}</div>
           <div class="field"><label class="req" for="eTitle">Title</label><input class="input" id="eTitle" ref="eTitle" v-model="edit.title" maxlength="200"></div>
           <div class="field" v-if="typeOf(ticket) === 'customer'"><label class="req" for="eProp">Property</label>
-            <select v-if="propertyChoices().length" class="input" id="eProp" v-model="edit.property">
-              <option value="">Choose the property</option>
-              <option v-for="p in propertyChoices(edit.property)" :key="p" :value="p">{{ p }}</option>
-            </select>
+            <OptionPicker v-if="propertyChoices().length" class="full-pick" v-model="edit.property" :options="propertyOptions(edit.property)" label="Property" searchable />
             <input v-else class="input" id="eProp" v-model="edit.property" maxlength="80"></div>
           <div class="field"><label class="req" for="eBody">What happened</label><textarea class="input" id="eBody" style="height:120px" v-model="edit.body" maxlength="5000"></textarea></div>
           <div class="help">Saved in the audit log. The ticket's card in the task system changes too.</div>
@@ -293,6 +287,8 @@ import Avatar from '@/components/Avatar.vue';
 import { roleTint } from '@/lib/avatars.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
+import { stateFor } from '@/lib/states.js';
+import { scoped, getScoped, canSee } from '@/lib/property-scope.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
@@ -407,7 +403,8 @@ export default {
             got[key] = rows;
             if (Object.keys(got).length < Object.keys(parts).length) return;
             const seen = new Map();
-            for (const list of Object.values(got)) for (const r of list) seen.set(r.id, toTicket(r.id, r));
+            // Customer tickets on a property that is not mine are left out; in-house tickets (no property) keep the tag rules
+            for (const list of Object.values(got)) for (const r of list) if (!r.propertyId || canSee(r.propertyId)) seen.set(r.id, toTicket(r.id, r));
             this.tickets = [...seen.values()];
             resolve();
           }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the tickets'); reject(e); } });
@@ -499,22 +496,28 @@ export default {
     async units4raise() {
       if (this.units.length) return;
       // The unit list is a read per unit; keep it for 10 minutes in this tab so reopening Issues doesn't download it again.
-      if (unitCache && Date.now() - unitCache.at < 600000) { this.units = unitCache.units; this.pmsProps = unitCache.props || []; return; }
+      if (unitCache && unitCache.uid === me.user.uid && Date.now() - unitCache.at < 600000) { this.units = unitCache.units; this.pmsProps = unitCache.props || []; return; }
       // Operations, Finance and Directors can read units; other roles type the unit instead.
       try {
-        const [ps, us] = await Promise.all([getDocs(collection(db, 'properties')), getDocs(collection(db, 'units'))]);
+        // Only my properties and their units (lib/property-scope.js)
+        const [ps, us] = await Promise.all([getScoped(scoped(collection(db, 'properties'), '__id')), getScoped(scoped(collection(db, 'units')))]);
         const names = Object.fromEntries(ps.docs.map(d => [d.id, d.data().name]));
         this.pmsProps = ps.docs.map(d => ({ id: d.id, name: d.data().name || '' })).filter(p => p.name).sort((a, b) => a.name.localeCompare(b.name));
         this.units = us.docs.map(d => ({ id: d.id, ...d.data(), propertyName: names[d.data().propertyId] || '' }))
           .filter(u => u.active !== false && u.unitCode).sort((a, b) => a.unitCode.localeCompare(b.unitCode));
-        unitCache = { at: Date.now(), units: this.units, props: this.pmsProps };
+        unitCache = { at: Date.now(), uid: me.user.uid, units: this.units, props: this.pmsProps };
       } catch { this.units = []; }
     },
 
-    // The Property list: the property boards of the task system's Maintenance workspace (so every ticket has a board to go
-    // to), or the PMS properties when the task system can't be reached. `keep`: a value to keep in the list (Edit).
+    // The Property list (12 Nov 2026): every PMS property, plus any Maintenance board in the task system that is not a PMS
+    // property. A PMS property with no board yet gets one when its first ticket is raised (task system, makeBoard).
+    // `keep`: a value to keep in the list (Edit).
+    // The same list for the searchable drop-down
+    propertyOptions(keep = '') { return [{ value: '', label: 'Choose the property' }, ...this.propertyChoices(keep).map(p => ({ value: p, label: p }))]; },
     propertyChoices(keep = '') {
-      const names = this.boards.length ? this.boards.map(b => b.name) : this.pmsProps.map(p => p.name);
+      const names = this.pmsProps.map(p => p.name);
+      for (const b of this.boards) if (!names.some(n => sameName(n, b.name))) names.push(b.name);
+      names.sort((a, b) => a.localeCompare(b));
       return keep && !names.some(n => sameName(n, keep)) ? [keep, ...names] : names;
     },
     propertyIdOf(name) {
@@ -527,7 +530,7 @@ export default {
       catch (e) { console.error('Task system boards:', e); this.boards = []; }
     },
     openRaise() {
-      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), type: this.typeTab, title: '', property: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
+      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), type: this.typeTab === 'inhouse' ? 'inhouse' : 'customer', title: '', property: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
       this.$nextTick(() => this.$refs.rTitle?.focus());
       this.units4raise();
       this.loadBoards();
@@ -550,6 +553,8 @@ export default {
       const h = this.entry(`raised the ${TYPE_LABEL[r.type]} ticket, tagged ${tags.map(tagLabel).join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
       this.busy = true; r.error = '';
       try {
+        // Customer ticket: the property's state goes on the ticket (state security); In-house tickets have none
+        const state = propertyId ? await stateFor(propertyId) : '';
         // One transaction: the next IS number (counters/issues), the ticket and the audit entry.
         const id = await runTransaction(db, async tx => {
           const cRef = doc(db, 'counters', 'issues');
@@ -560,7 +565,7 @@ export default {
           tx.set(cRef, { next: n + 1 });
 
           tx.set(ref, { type: r.type, title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
-            property: propertyName, propertyId, tags, status: 'open',
+            property: propertyName, propertyId, ...(state ? { state } : {}), tags, status: 'open',
             raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
             audit: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
           audit(tx, me, { action: 'issue.create', entity: `issues/${id}`, propertyId, changes: [{ field: 'tags', old: null, new: tags.join(', ') }] });
@@ -764,7 +769,8 @@ export default {
       if (body !== (t.body || '')) { lines.push('changed the description'); changes.push({ field: 'body', old: null, new: null }); }
       const fields = { title, body };
       if (property !== (t.property || '')) {
-        Object.assign(fields, { property, propertyId: this.propertyIdOf(property) });
+        const propertyId = this.propertyIdOf(property), state = propertyId ? await stateFor(propertyId) : '';
+        Object.assign(fields, { property, propertyId, ...(state ? { state } : {}) });
         lines.push(`changed the property (was ${t.property || 'none'})`); changes.push({ field: 'property', old: t.property || null, new: property });
       }
       if (!lines.length) return this.edit = null;

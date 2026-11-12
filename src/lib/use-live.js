@@ -27,6 +27,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { ref, onUnmounted } from 'vue';
 import { auth } from '@/lib/firebase.js';
 import { friendlyError } from '@/lib/finance-data.js';
+import { guard, sortMerged } from '@/lib/property-scope.js';
 
 const DEV = import.meta.env.DEV;
 const shared = [];          // { target, isDoc, unsub, subs: Set, snap }
@@ -64,7 +65,28 @@ function closeEntry(entry) {
   if (DEV) console.debug('[live] closed', labelOf(entry.target), '| open listeners:', shared.length);
 }
 
-export function listen(target, onData, { onError, map, includeMeta = false, onStatus } = {}) {
+// target may also be a LIST of queries (lib/property-scope.js scoped(): one query per 30 properties). Each is listened to
+// and the rows are merged (opts.order = ['createdAt', 'desc'] and opts.limit re-sort and cut after merging).
+export function listen(target, onData, opts = {}) {
+  if (Array.isArray(target)) {
+    if (target.length === 1) return listen(target[0], onData, opts);
+    const { order, limit, includeMeta, onStatus } = opts, parts = target.map(() => null);
+    let worst = 'connecting';
+    const emit = () => {
+      if (parts.some(p => p === null)) return;
+      const seen = new Set(); let rows = [];
+      for (const p of parts) for (const r of p) if (!seen.has(r.id)) { seen.add(r.id); rows.push(r); }
+      rows = sortMerged(rows, order); if (limit) rows = rows.slice(0, limit);
+      includeMeta ? onData(rows, { fromCache: worst !== 'live', hasPendingWrites: false, changes: { added: rows.map(r => r.id), modified: [], removed: [] } }) : onData(rows);
+    };
+    const stops = target.map((t, i) => listen(t, rows => { parts[i] = rows; emit(); },
+      { ...opts, includeMeta: false, onStatus: (s, d) => { worst = s; onStatus?.(s, d); } }));
+    return () => stops.forEach(s => s());
+  }
+  return listenOne(target, onData, opts);
+}
+function listenOne(target, onData, { onError, map, includeMeta = false, onStatus } = {}) {
+  if (!isDocRef(target)) guard(target);
   const sub = { onData, onError, map, includeMeta, onStatus, lastUpdated: null };
   let entry = shared.find(e => sameTarget(e.target, target));
   if (entry) {

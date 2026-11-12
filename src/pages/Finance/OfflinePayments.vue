@@ -82,7 +82,7 @@
               <OptionPicker class="fld-pick" v-model="ed.mode" :options="MODES" label="Payment method" /></div>
             <FormField label="Bank reference" v-model="ed.bankRef" />
             <div class="field"><label class="req">Property</label>
-              <OptionPicker class="fld-pick" v-model="ed.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="editProperty" /></div>
+              <PropertyPicker block picker-class="fld-pick" v-model="ed.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="editProperty" /></div>
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="ed.unitCode" :disabled="!ed.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
             <FormField label="Guest / tenant name" req v-model="ed.guest" />
@@ -122,7 +122,7 @@
             <div class="field"><label>Report</label>
               <OptionPicker class="fld-pick" v-model="rep.type" :options="[{ value: 'monthly', label: 'Monthly' }, { value: 'yearly', label: 'Yearly' }, { value: 'custom', label: 'Custom dates' }]" label="Report type" /></div>
             <div class="field"><label>Property</label>
-              <OptionPicker class="fld-pick" v-model="rep.propertyId" :options="[{ value: '', label: 'All properties' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable /></div>
+              <PropertyPicker block picker-class="fld-pick" v-model="rep.propertyId" :properties="properties" :before="[{ value: '', label: 'All properties' }]" /></div>
             <div class="field" v-if="rep.type === 'monthly'"><label>Month</label><MonthPicker v-model="rep.month" /></div>
             <div class="field" v-if="rep.type === 'yearly'"><label>Year</label>
               <OptionPicker class="fld-pick" v-model="rep.year" :options="yearOptions" label="Year" /></div>
@@ -155,7 +155,7 @@
               <div class="field"><label class="req">Payment method</label>
                 <OptionPicker class="fld-pick" v-model="f.mode" :options="MODES" label="Payment method" /></div>
               <div class="field"><label class="req">Property</label>
-                <OptionPicker class="fld-pick" v-model="f.propertyId" :options="[{ value: '', label: 'Choose property' }, ...properties.map(x => ({ value: x.id, label: x.name }))]" label="Property" searchable @change="loadUnitList" /></div>
+                <PropertyPicker block picker-class="fld-pick" v-model="f.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="loadUnitList" /></div>
               <div class="field"><label class="req">Unit</label>
                 <OptionPicker class="fld-pick" v-model="f.unitCode" :disabled="!f.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
               <FormField label="Guest / tenant name" req v-model="f.guest" />
@@ -179,10 +179,13 @@
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
+import { stateFor } from '@/lib/states.js';
+import { scopedOrBlank, getScoped } from '@/lib/property-scope.js';
 import { can } from '@/lib/access.js';
 import { toast } from '@/lib/toast.js';
 import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import Paged from '@/components/Paged.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import { loadProperties, loadUnits, audit, friendlyError, loadXlsxLib, download, toCSV } from '@/lib/finance-data.js';
@@ -200,7 +203,7 @@ const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', 
 
 export default {
   mixins: [liveMixin],
-  components: { FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus },
+  components: { PropertyPicker, FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus },
   data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: { view(r) { this.loadHistory(r); } },
   computed: {
@@ -237,9 +240,10 @@ export default {
     // Calling it again does nothing while the listener runs.
     load() {
       if (this.liveStops.list) return;
-      this.live('list', query(collection(db, 'offlinePayments'), orderBy('createdAt', 'desc'), limit(500)), rows => {
+      // Only my properties' payments, plus Unknown ones not given a property yet (lib/property-scope.js)
+      this.live('list', scopedOrBlank(query(collection(db, 'offlinePayments'), orderBy('createdAt', 'desc'), limit(500))), rows => {
         this.rows = rows; this.loading = false; this.fillUnits();
-      }, { onError: e => { this.error = e.friendly || friendlyError(e, 'load the offline payments'); this.loading = false; } });
+      }, { order: ['createdAt', 'desc'], limit: 500, onError: e => { this.error = e.friendly || friendlyError(e, 'load the offline payments'); this.loading = false; } });
     },
     // Booking Form payments made before the unit was saved on them: read the unit from the booking
     // What was added or changed on this payment, from the audit log (Finance and Director can read it)
@@ -288,7 +292,8 @@ export default {
       this.busy = true;
       try {
         const prop = this.properties.find(p => p.id === f.propertyId), ref = doc(db, 'offlinePayments', this.newId), batch = writeBatch(db);
-        batch.set(ref, { date: f.date, amount: Math.round(+f.amount * 100) / 100, propertyId: f.propertyId, propertyName: prop?.name || '', unitCode: f.unitCode,
+        const st = await stateFor(f.propertyId);   // the payment carries its property's state
+        batch.set(ref, { ...(st ? { state: st } : {}), date: f.date, amount: Math.round(+f.amount * 100) / 100, propertyId: f.propertyId, propertyName: prop?.name || '', unitCode: f.unitCode,
           guest: f.guest.trim(), purpose: f.purpose.trim(), mode: f.mode, bankRef: f.bankRef.trim(), docsLink: f.docsLink.trim(), remarks: f.remarks.trim(),
           status: f.status, verifiedByName: f.status === 'Pending' ? '' : me.name, verifiedDate: f.status === 'Pending' ? '' : today(), createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name });
         audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${ref.id}`, propertyId: f.propertyId, changes: [['amount', +f.amount], ['date', f.date], ['propertyName', prop?.name || ''], ['unitCode', f.unitCode], ['guest', f.guest.trim()], ['purpose', f.purpose.trim()], ['bankRef', f.bankRef.trim()], ['status', f.status]].filter(([, v]) => v !== '').map(([field, v]) => ({ field, old: null, new: v })) });
@@ -337,7 +342,9 @@ export default {
         const me = useSession(), batch = writeBatch(db);
         // Who edited and when is kept on the payment; an Operations edit of an Unknown payment turns it into Edited
         const meta = { editedByName: me.name, editedByUid: me.user.uid, editedAt: serverTimestamp(), ...(ops ? { status: 'Edited' } : {}) };
-        batch.update(doc(db, 'offlinePayments', r.id), { ...data, ...meta });
+        // Moved to another property: its state follows
+        const st = data.propertyId && data.propertyId !== r.propertyId ? await stateFor(data.propertyId) : '';
+        batch.update(doc(db, 'offlinePayments', r.id), { ...data, ...meta, ...(st ? { state: st } : {}) });
         if (ops) changes.push({ field: 'status', old: 'Unknown', new: 'Edited' });
         audit(batch, me, { action: 'offlinePayment.update', entity: `offlinePayments/${r.id}`, propertyId: data.propertyId || null, changes });
         await batch.commit(); Object.assign(r, data, meta, { editedAt: null }); this.editing = false; toast('Changes saved');
@@ -385,7 +392,7 @@ export default {
       else { from = R.from; to = R.to; label = `${from}_to_${to}`; if (!from || !to) { R.error = 'Choose both dates.'; return; } if (to < from) { R.error = 'The end date is before the start date.'; return; } }
       R.busy = true;
       try {
-        const snap = await getDocs(query(collection(db, 'offlinePayments'), where('date', '>=', from), where('date', '<=', to), orderBy('date')));
+        const snap = await getScoped(scopedOrBlank(query(collection(db, 'offlinePayments'), where('date', '>=', from), where('date', '<=', to), orderBy('date'))), { order: ['date', 'asc'] });
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => !R.propertyId || r.propertyId === R.propertyId)
           .sort((a, b) => String(a.propertyName || '').localeCompare(String(b.propertyName || '')) || String(a.date).localeCompare(String(b.date)));
         if (!list.length) { R.error = 'No offline payments in that period.'; R.busy = false; return; }

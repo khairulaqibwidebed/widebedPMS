@@ -81,6 +81,8 @@ export async function profileOf(user) {
       perms: !active ? [] : Array.isArray(p.perms) ? p.perms : null,
       name: p.displayName || user.email,
       intern: p.intern === true,   // ticked on Staff accounts > HR details (5 Nov 2026): no Salary Advance page
+      states: Array.isArray(p.states) ? p.states : [],   // the states they work in (12 Nov 2026); Directors see every state
+      properties: Array.isArray(p.properties) ? p.properties : [],   // the properties they may see (12 Nov 2026, lib/property-scope.js); Directors see all
       active
     };
   } catch (_) {

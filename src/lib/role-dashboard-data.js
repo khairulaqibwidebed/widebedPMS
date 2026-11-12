@@ -6,6 +6,7 @@
 import { db, auth, ROLE_LABEL, issueTagOf } from './firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, getCountFromServer } from 'firebase/firestore';
 import { dayOffset } from './format.js';
+import { scoped, scopedOrBlank, getScoped, mine } from './property-scope.js';
 import { STAGES, withIds } from '@/pages/Playbook/onboarding-stages.js';
 
 const ms = t => (t?.toMillis ? t.toMillis() : t?.toDate ? t.toDate().getTime() : 0);
@@ -22,13 +23,14 @@ export async function loadMyTickets(role, uid, { tagOnly = false } = {}) {
   ]);
   const seen = new Map();
   for (const s of snaps) if (s) for (const d of s.docs) seen.set(d.id, { id: d.id, ...d.data() });
-  return [...seen.values()].filter(t => t.status === 'open' || t.status === 'progress');
+  // Customer tickets on a property that is not mine are left out; in-house tickets (no property) keep the tag rules
+  return [...seen.values()].filter(t => (t.status === 'open' || t.status === 'progress') && (!t.propertyId || mine([t]).length));
 }
 
 // ---- Properties and units (Portfolio view-only roles read the parents, never terms) ----
 export async function loadPortfolioCounts() {
   // Counted on the server (about 1 read per property) instead of downloading every unit (1 read per unit).
-  const p = await getDocs(collection(db, 'properties'));
+  const p = await getScoped(scoped(collection(db, 'properties'), '__id'));   // only my properties
   const units = collection(db, 'units');
   const count = q => getCountFromServer(q).then(s => s.data().count);
   const properties = await Promise.all(rows(p).filter(x => x.active !== false).map(async x => {
@@ -41,7 +43,8 @@ export async function loadPortfolioCounts() {
 
 // Last eZee upload (any kind, as on the Finance dashboard).
 export async function loadUploads(n = 1) {
-  return rows(await getDocs(query(collection(db, 'importBatches'), orderBy('uploadedAt', 'desc'), limit(n))));
+  return rows(await getScoped(scoped(query(collection(db, 'importBatches'), orderBy('uploadedAt', 'desc'), limit(n)), 'propertyIds'),
+    { order: ['uploadedAt', 'desc'], limit: n }));
 }
 
 // ---- Operations ----
@@ -51,9 +54,9 @@ export async function loadOps(uid) {
   const today = dayOffset(0), in30 = dayOffset(30);
   const bk = collection(db, 'bookings');
   const [arr, dep, offSnap, inqSnap, last] = await Promise.all([
-    getDocs(query(bk, where('arrival', '==', today))),
-    getDocs(query(bk, where('departure', '==', today))),
-    getDocs(query(collection(db, 'offlineBookings'), orderBy('createdAt', 'desc'), limit(300))),
+    getScoped(scoped(query(bk, where('arrival', '==', today)))),
+    getScoped(scoped(query(bk, where('departure', '==', today)))),
+    getScoped(scoped(query(collection(db, 'offlineBookings'), orderBy('createdAt', 'desc'), limit(300))), { order: ['createdAt', 'desc'], limit: 300 }),
     getDocs(query(collection(db, 'offlineInquiries'), where('assignedToUid', '==', uid), limit(LIST_LIMIT))),
     loadUploads(1)
   ]);
@@ -185,7 +188,7 @@ export async function loadIssueCard(role, uid, myLabel) {
 
 // Offline payments marked Unknown (someone has to fill in who paid and for what)
 export async function loadUnknownPayments() {
-  const snap = await getDocs(query(collection(db, 'offlinePayments'), where('status', '==', 'Unknown'), limit(50)));
+  const snap = await getScoped(scopedOrBlank(query(collection(db, 'offlinePayments'), where('status', '==', 'Unknown'), limit(50))));
   const list = rows(snap).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   return { count: list.length, latest: list.slice(0, 3) };
 }

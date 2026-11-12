@@ -8,7 +8,7 @@
         <div class="sub">Completed documents · owner payments are marked Paid here with the pay slip</div>
       </div>
       <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+        <PropertyPicker v-model="propertyId" :properties="properties" @change="load()" />
         <MonthPicker :ahead="1" v-model="month" @change="load()" />
       </div>
     </div>
@@ -174,12 +174,13 @@ const digits = code => String(code || '').replace(/^[A-Z]+\s*/i, '').replace(/[^
 const yymm = ym => ym.slice(2, 4) + ym.slice(5, 7);
 
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import OwnerPaymentModal, { PAY, payStatusOf } from '@/components/OwnerPaymentModal.vue';
 const PAY_FILTERS = [{ value: 'all', label: 'Any payment status' }, { value: 'pending', label: 'Pending Payment' }, { value: 'paid', label: 'Paid' }, { value: 'none', label: 'Nothing to pay' }];
 export default {
   mixins: [liveMixin],
-  components: { OptionPicker, MonthPicker, OwnerPaymentModal },
+  components: { PropertyPicker, OptionPicker, MonthPicker, OwnerPaymentModal },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {

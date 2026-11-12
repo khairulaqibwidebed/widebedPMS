@@ -9,7 +9,7 @@
       </div>
       <div class="head-tools">
         <div class="head-row">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="load()" />
+        <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="load()" />
         <MonthPicker v-model="month" @change="load()" />
         </div>
       </div>
@@ -201,6 +201,7 @@
 import { notBuilt } from '@/lib/toast.js';
 import MonthPicker from '@/components/MonthPicker.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import { loadProperties, loadMonth, loadTeamActivity, loadOpenIssues, loadApprovalsWaiting } from '@/lib/dashboard-data.js';
 import { rm, signed, monthName, shortMonth, ddmm, monthOffset, when, stamp } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
@@ -211,7 +212,7 @@ import { noteQuotaError } from '@/lib/quota.js';
 const me = useSession();
 
 export default {
-  components: { MonthPicker, OptionPicker },
+  components: { PropertyPicker, MonthPicker, OptionPicker },
   data() {
     return {
       role: me.role,

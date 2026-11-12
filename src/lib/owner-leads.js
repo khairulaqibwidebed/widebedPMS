@@ -500,6 +500,8 @@ async function sendRemarks(taskId, remarks) {
 // A new listing (NL number from the counter, in one transaction). task = the TMS task it starts from, or null.
 export async function createListing(fields, contact, task) {
   const me = useSession();
+  // State security (12 Nov 2026): every new listing is for one state; only staff in that state see it
+  if (!fields.state) throw stop('Choose the state the listing is for.');
   const h = entry(task ? `Started from the task system task "${task.title}".` : 'Started the listing.');
   return runTransaction(db, async tx => {
     const cRef = doc(db, 'counters', 'newOwnerListings');

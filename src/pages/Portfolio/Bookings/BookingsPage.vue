@@ -11,7 +11,7 @@
         </div>
       </div>
       <div class="head-tools">
-        <OptionPicker v-model="propertyId" :options="propertyOptions" label="Property" @change="reload()" />
+        <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="reload()" />
         <MonthPicker :ahead="1" multiple all-label="All months" v-model="monthsModel" v-if="!acc.viewOnly" />
         <RefreshButton v-if="propertyId === 'all'" @refresh="go()" />
         <LiveStatus v-else :status="liveStatus.bookings?.status || 'live'" />
@@ -88,6 +88,7 @@ import { MONTH_PAY, shortName, loadOfflineBookings, watchOfflineBookings, loadGu
 import { liveMixin } from '@/lib/use-live.js';
 import LiveStatus from '@/components/LiveStatus.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import RefreshButton from '@/components/RefreshButton.vue';
 import BookingDrawer from './BookingDrawer.vue';
@@ -96,11 +97,11 @@ const me = useSession();
 
 export default {
   mixins: [liveMixin],
-  components: { OptionPicker, MonthPicker, RefreshButton, BookingDrawer, LiveStatus },
+  components: { PropertyPicker, OptionPicker, MonthPicker, RefreshButton, BookingDrawer, LiveStatus },
   data() {
     const q = this.$route.query;
     return {
-      MONTH_PAY, acc: portfolioAccess(me.role), canForms: can(me, 'bookingForms.view'),
+      MONTH_PAY, acc: portfolioAccess(me.role, me), canForms: can(me, 'bookingForms.view'),
       // ?id=offline_BK-0001 (the link after a Reservation form is saved) opens that booking once the list is loaded
       openId: q.id || '',
       propertyId: q.property || lastProperty(true) || 'all', asOf: q.month || monthOffset(0),
