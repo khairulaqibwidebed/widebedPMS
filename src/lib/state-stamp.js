@@ -16,6 +16,10 @@ import { db } from '@/lib/firebase.js';
 import { audit } from '@/lib/finance-data.js';
 import { stateOf, statesOf, rememberStates, isDirectorRole } from '@/lib/states.js';
 
+// 12 Nov 2026 (Khairul): access is by PROPERTY now, so records no longer need their state stamped. The tool only LINKS
+// owners and tenants to their properties. The state code below is kept (off) in case states are wanted again.
+export const STAMP_STATES = false;
+
 const BATCH = 400;          // writes per batch (Firestore allows 500; the audit line needs room)
 const PAGE = 1000;          // documents read per page
 export const DAILY_CAP = 15000;   // Spark plan: 20,000 writes a day. A run stops here; run it again the next day.
@@ -74,7 +78,7 @@ export async function dryRun(onStep = () => {}) {
   // Staff with no properties on their record (data access by property): they see no property data
   const staffWithout = users.filter(u => u.active !== false && !isDirectorRole(u.role) && !(Array.isArray(u.properties) && u.properties.length)).length;
 
-  const rows = [], jobs = [], unresolved = [];
+  const rows = [], jobs = [], unresolved = [], links = [];
   const want = {};   // coll -> id -> value it will have after the run (for the derived collections)
   const add = (coll, d, value, row) => {
     want[coll][d.id] = value;
@@ -83,6 +87,7 @@ export async function dryRun(onStep = () => {}) {
   };
   const miss = (coll, d, label, why, row) => { row.unresolved++; unresolved.push({ coll, id: d.id, label, why, manual: MANUAL.includes(coll) }); };
 
+  if (STAMP_STATES) {
   for (const coll of BY_PROPERTY) {
     onStep(`Reading ${LABEL[coll]}`);
     const list = await readAll(coll, n => onStep(`Reading ${LABEL[coll]} (${n})`));
@@ -179,14 +184,17 @@ export async function dryRun(onStep = () => {}) {
     rows.push(row);
   }
 
+  }   // end of STAMP_STATES
+
   // ---- Links (data access by property): owners and tenants carry the list of properties they belong to ----
   onStep('Linking owners and tenants to properties');
   {
     const units = await readAll('units'), ob = await readAll('offlineBookings');
     const owners = await readAll('owners'), tenants = await readAll('tenants');
     const ownerProps = {}, tenantProps = {};
-    for (const u of units) if (u.ownerId && u.propertyId) (ownerProps[u.ownerId] ||= []).push(u.propertyId);
-    for (const b of ob) if (b.tenantId && b.propertyId) (tenantProps[b.tenantId] ||= []).push(b.propertyId);
+    const unitsOf = {}, staysOf = {};   // for the list on screen: which units / how many bookings make the link
+    for (const u of units) if (u.ownerId && u.propertyId) { (ownerProps[u.ownerId] ||= []).push(u.propertyId); (unitsOf[u.ownerId] ||= []).push(u.unitCode || u.id); }
+    for (const b of ob) if (b.tenantId && b.propertyId) { (tenantProps[b.tenantId] ||= []).push(b.propertyId); staysOf[b.tenantId] = (staysOf[b.tenantId] || 0) + 1; }
     const link = (key, list, from) => {
       const row = { coll: key, total: list.length, ok: 0, toStamp: 0, unresolved: 0, noLink: 0 };
       for (const d of list) {
@@ -194,6 +202,11 @@ export async function dryRun(onStep = () => {}) {
         if (!ids.length) { row.noLink++; continue; }   // no units / bookings yet: seen by Directors and whoever added them
         if (same(ids, d.propertyIds)) { row.ok++; continue; }
         row.toStamp++;
+        // What is linked to what, for the list in the popup
+        const had = Array.isArray(d.propertyIds) ? d.propertyIds : [];
+        links.push({ kind: key === 'ownerLinks' ? 'Owner' : 'Tenant', id: d.id, label: key === 'ownerLinks' ? (d.code || d.id) : (d.code || d.name || d.id),
+          to: ids.map(id => ({ name: propName[id] || id, isNew: !had.includes(id) })),
+          via: key === 'ownerLinks' ? (unitsOf[d.id] || []).sort().join(', ') : `${staysOf[d.id] || 0} booking${staysOf[d.id] === 1 ? '' : 's'}` });
         jobs.push({ coll: key === 'ownerLinks' ? 'owners' : 'tenants', id: d.id, value: ids, field: 'propertyIds' });
         if (key === 'tenantLinks') jobs.push({ coll: 'tenants', id: d.id, sub: 'private/main', value: ids, field: 'propertyIds' });
       }
@@ -203,7 +216,8 @@ export async function dryRun(onStep = () => {}) {
     link('tenantLinks', tenants, tenantProps);
   }
 
-  return { rows, jobs, unresolved, writes: jobs.length, propertiesWithout: props.filter(p => !stateOf(p)).length, staffWithout };
+  links.sort((a, b) => a.kind.localeCompare(b.kind) || String(a.label).localeCompare(String(b.label), 'en', { numeric: true }));
+  return { rows, jobs, unresolved, links, writes: jobs.length, propertiesWithout: STAMP_STATES ? props.filter(p => !stateOf(p)).length : 0, staffWithout };
 }
 
 // ---------- Stamp ----------
@@ -222,7 +236,7 @@ export async function stamp(me, jobs, onProgress = () => {}, cap = DAILY_CAP, sh
     }
     const counts = {};
     part.forEach(j => { const k = j.field === 'propertyIds' ? (j.coll === 'owners' ? 'ownerLinks' : 'tenantLinks') : j.coll; if (!j.sub) counts[k] = (counts[k] || 0) + 1; });
-    audit(b, me, { action: 'state.stamp', entity: 'stateStamp', reason: `Stamped states: ${Object.entries(counts).map(([c, n]) => `${LABEL[c] || c} ${n}`).join(', ')}` });
+    audit(b, me, { action: 'state.stamp', entity: 'stateStamp', reason: `${STAMP_STATES ? 'Stamped states' : 'Linked to properties'}: ${Object.entries(counts).map(([c, n]) => `${LABEL[c] || c} ${n}`).join(', ')}` });
     await b.commit();
     done += part.length;
     onProgress({ done, total: todo.length });

@@ -13,7 +13,7 @@
       <div class="head-tools">
         <MonthPicker :ahead="1" v-model="asOf" @change="reload()" v-if="!acc.viewOnly" />
         <RefreshButton @refresh="go()" />
-        <button class="btn" type="button" v-if="isDirector" @click="stampOpen = true">Stamp and link records</button>
+        <button class="btn" type="button" v-if="isDirector" @click="stampOpen = true">Link owners and tenants</button>
       </div>
     </div>
 
@@ -78,7 +78,7 @@
     <div class="modal-back" v-if="statesOpen" @click.self="closeStates()" v-esc="() => closeStates()">
       <div class="modal" role="dialog" aria-label="Set property states" style="max-width:620px;width:calc(100% - 32px)">
         <h2>Set property states</h2>
-        <p class="help" style="margin:0 0 12px">Staff only see the properties in their own states once data is locked by state. Pick each property's state and press Save. Each one is saved in the audit log.</p>
+        <p class="help" style="margin:0 0 12px">Staff access goes by property, not by state. The state only groups properties in the drop-downs and on Settings > Staff. Pick each property's state and press Save. Each one is saved in the audit log.</p>
         <div class="notice error" v-show="statesErr">{{ statesErr }}</div>
         <div class="table-wrap st-wrap">
           <table class="table">

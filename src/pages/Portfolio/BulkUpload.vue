@@ -115,7 +115,7 @@
       </div>
       <p class="bu-note" v-show="kind === 'owners' && rows.length"><b v-if="!allMode && propLabel()">{{ `Saving under ${propLabel()}. ` }}</b>{{ `This will add ${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'}, ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'} and set up ${newFees} ${newFees === 1 ? 'fee' : 'fees'}.` }}</p>
 
-      <p class="bu-note" v-show="kind === 'owners' && bankLeftOut">Bank details left out (Accounting or Directors only).</p>
+      <p class="bu-note" v-show="kind === 'owners' && bankLeftOut">Bank details left out (needs the Bulk Upload Edit tick).</p>
 
       <p class="help sheets" v-show="sheetsNote">{{ sheetsNote }}</p>
 
@@ -194,7 +194,7 @@ import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/
 import { useSession } from '@/stores/session.js';
 import { normState, stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, shortState, stateTag } from '@/lib/states.js';
 import { refreshOwnerStates, freshOwnerNumber, loadOwners, BANK } from '@/lib/portfolio-data.js';
-import { portfolioAccess } from '@/lib/portfolio-access.js';
+import { can } from '@/lib/access.js';
 import { scoped, getScoped, giveMeProperties } from '@/lib/property-scope.js';
 
 const me = useSession();
@@ -356,11 +356,11 @@ const last4 = v => String(v || '').replace(/\D/g, '').slice(-4);
 const sameBank = (k, a, b) => (k === 'bankAccount' ? String(a).replace(/\D/g, '') === String(b).replace(/\D/g, '') : norm(a) === norm(b));
 const BANK_LABEL = { bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account' };
 const bankShow = (k, v) => (k === 'bankAccount' ? `…${last4(v)}` : v);
-// Who may save bank details: Accounting and Directors, the same people who see them on Portfolio (a view-only role with
-// Portfolio Edit ticked counts as Accounting there). The rules allow private/main bank fields only for them (portfolioEditor).
+// Who may save bank details: Accounting, Directors, and anyone with the Bulk Upload Edit or Portfolio Edit tick
+// (Operations too, Khairul 12 Nov). The rules allow private/main bank fields for the same people (portfolioEditor()).
 function bankAllowed() {
   if (me.role === 'director' || me.role === 'finance') return true;
-  return ['operations', 'procurement', 'marketing'].includes(me.role) && !portfolioAccess(me.role, me).viewOnly;
+  return can(me, 'bulkUpload.edit') || can(me, 'portfolio.edit');
 }
 
 // ---- helpers (no need to change) ----

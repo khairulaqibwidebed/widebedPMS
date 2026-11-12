@@ -288,7 +288,7 @@ import { roleTint } from '@/lib/avatars.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
 import { stateFor } from '@/lib/states.js';
-import { scoped, getScoped, canSee } from '@/lib/property-scope.js';
+import { scoped, getScoped, canSee, isDirectorMe } from '@/lib/property-scope.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
@@ -516,7 +516,12 @@ export default {
     propertyOptions(keep = '') { return [{ value: '', label: 'Choose the property' }, ...this.propertyChoices(keep).map(p => ({ value: p, label: p }))]; },
     propertyChoices(keep = '') {
       const names = this.pmsProps.map(p => p.name);
-      for (const b of this.boards) if (!names.some(n => sameName(n, b.name))) names.push(b.name);
+      // Task-system boards that are not on the PMS list: Directors see them all; staff only a board tied to one of their
+      // own properties (access by property, 12 Nov 2026). Before this, every board showed for everyone.
+      for (const b of this.boards) {
+        if (names.some(n => sameName(n, b.name))) continue;
+        if (isDirectorMe() || (b.pmsPropertyId && canSee(b.pmsPropertyId))) names.push(b.name);
+      }
       names.sort((a, b) => a.localeCompare(b));
       return keep && !names.some(n => sameName(n, keep)) ? [keep, ...names] : names;
     },

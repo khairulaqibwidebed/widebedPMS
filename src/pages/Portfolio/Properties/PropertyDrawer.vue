@@ -44,7 +44,7 @@ import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { PROP_INFO, noteOnListing, updateProperty, createProperty, forgetProperties, forgetUnits } from '@/lib/portfolio-data.js';
 import { normState, stateOf, stateChoices, clashIn, newPropertyId } from '@/lib/states.js';
-import { stampProperty } from '@/lib/state-stamp.js';
+import { stampProperty, STAMP_STATES } from '@/lib/state-stamp.js';
 
 const me = useSession();
 
@@ -102,7 +102,7 @@ export default {
           await forgetProperties(); await forgetUnits(p.id);
           // A Director moved the property to another state: its records follow (units, bookings, statements ...)
           let moved = '';
-          if (this.isDirector && info.state && info.state !== stateOf(p.original)) {
+          if (STAMP_STATES && this.isDirector && info.state && info.state !== stateOf(p.original)) {   // off: access is by property (12 Nov 2026)
             try {
               const n = await stampProperty(me, p.id, info.state);
               moved = n ? ` ${n} of its records now show ${info.state}.` : '';

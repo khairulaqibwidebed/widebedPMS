@@ -1,11 +1,10 @@
 <template>
   <div class="modal-back" @click.self="close()" v-esc="() => close()">
     <div class="modal" role="dialog" aria-label="Stamp states" style="max-width:820px;width:calc(100% - 32px)">
-      <h2>Stamp and link records</h2>
+      <h2>Link owners and tenants to properties</h2>
       <p class="help" style="margin:0 0 12px">
-        Copies each property's state onto its units, bookings, statements, expenses and the rest, and links owners and tenants to the
-        properties of their units and bookings, so staff see the owners and tenants of their own properties.
-        Check first changes nothing. Running it again is safe: records already stamped are skipped, so a stopped run just carries on.
+        Links owners and tenants to the properties of their units and bookings, so staff see the owners and tenants of their own properties.
+        Check first changes nothing. Running it again is safe: records already linked are skipped, so a stopped run just carries on.
       </p>
       <div class="notice error" v-show="error">{{ error }}</div>
       <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
@@ -20,21 +19,38 @@
         <div class="notice error" v-if="plan.staffWithout">{{ `${plan.staffWithout} active staff ${plan.staffWithout === 1 ? 'has' : 'have'} no properties yet (Settings > Staff). They see no property data until some are given.` }}</div>
         <div class="table-wrap st-wrap">
           <table class="table">
-            <thead><tr><th>Records</th><th class="num">Total</th><th class="num">Already done</th><th class="num">To stamp</th><th class="num">Not resolved</th><th class="num">No property</th></tr></thead>
+            <thead><tr><th>Records</th><th class="num">Total</th><th class="num">Already done</th><th class="num">To link</th><th class="num">No property</th></tr></thead>
             <tbody>
               <tr v-for="r in plan.rows" :key="r.coll">
                 <td class="strong">{{ LABEL[r.coll] }}</td>
                 <td class="num">{{ r.total }}</td>
                 <td class="num">{{ r.ok }}</td>
                 <td class="num" :class="{ strong: r.toStamp }">{{ r.toStamp }}</td>
-                <td class="num" :class="{ bad: r.unresolved }">{{ r.unresolved }}</td>
                 <td class="num">{{ r.noLink || '—' }}</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="help">{{ plan.writes ? `${plan.writes} records to stamp.` : 'Nothing to stamp.' }}{{ plan.writes > DAILY_CAP ? ` The free plan allows about 20,000 writes a day, so this run stops after ${DAILY_CAP}. Run it again tomorrow to finish.` : '' }}
-          "No property" = in-house tickets and uploads with no property: they need no state.</p>
+        <p class="help">{{ plan.writes ? `${plan.writes} records to link.` : 'Nothing to link.' }}{{ plan.writes > DAILY_CAP ? ` The free plan allows about 20,000 writes a day, so this run stops after ${DAILY_CAP}. Run it again tomorrow to finish.` : '' }}
+          "No property" = owners with no units and tenants with no bookings yet: Directors and whoever added them see them.</p>
+
+        <template v-if="plan.links && plan.links.length">
+          <h3 class="st-h">What gets linked ({{ plan.links.length }})</h3>
+          <p class="help" style="margin:0 0 8px">Each owner is linked to the properties of their units, each tenant to the properties of their bookings. After this, staff who have one of those properties can see that owner or tenant.</p>
+          <div class="table-wrap st-wrap">
+            <table class="table">
+              <thead><tr><th>Record</th><th>Linked to (property)</th><th>Because of</th></tr></thead>
+              <tbody>
+                <tr v-for="l in plan.links.slice(0, shown)" :key="l.kind + l.id">
+                  <td class="strong">{{ `${l.kind} ${l.label}` }}</td>
+                  <td>{{ l.to.map(t => t.name).join(', ') }}</td>
+                  <td class="help">{{ l.kind === 'Owner' ? `Units ${l.via}` : l.via }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-sm" type="button" v-if="plan.links.length > shown" @click="shown += 200" style="margin-top:8px">{{ `Show more (${plan.links.length - shown} left)` }}</button>
+        </template>
 
         <template v-if="plan.unresolved.length">
           <h3 class="st-h">Not resolved ({{ plan.unresolved.length }})</h3>
@@ -66,14 +82,15 @@
         <button class="btn" type="button" v-if="busy && stamping" @click="stopAsked = true" :disabled="stopAsked">{{ stopAsked ? 'Stopping…' : 'Stop' }}</button>
         <button class="btn" type="button" @click="close()" :disabled="busy">Close</button>
         <button class="btn" type="button" @click="check()" :disabled="busy">{{ plan ? 'Check again' : 'Check first (changes nothing)' }}</button>
-        <button class="btn btn-primary" type="button" v-if="plan && plan.writes" @click="run()" :disabled="busy">{{ `Stamp ${Math.min(plan.writes, DAILY_CAP)} records` }}</button>
+        <button class="btn btn-primary" type="button" v-if="plan && plan.writes" @click="run()" :disabled="busy">{{ `Link ${Math.min(plan.writes, DAILY_CAP)} records` }}</button>
       </div>
     </div>
   </div>
 </template>
 
 <script>
-// Properties > Stamp states (Directors only, 12 Nov 2026). The work is in lib/state-stamp.js.
+// Properties > Link owners and tenants (Directors only, 12 Nov 2026). The work is in lib/state-stamp.js.
+// It used to stamp each record's state too; that is off (STAMP_STATES) since access went by property.
 import { useSession } from '@/stores/session.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { friendlyError } from '@/lib/finance-data.js';
@@ -98,16 +115,16 @@ export default {
     },
     async run() {
       const n = Math.min(this.plan.writes, DAILY_CAP);
-      if (!(await askConfirm({ title: 'Stamp states', message: `Stamp the state on ${n} records? Only the state field changes. Each batch is saved in the audit log.`, confirmText: 'Stamp' }))) return;
+      if (!(await askConfirm({ title: 'Link records', message: `Link ${n} owner and tenant records to their properties? Only the property list changes. Each batch is saved in the audit log.`, confirmText: 'Link' }))) return;
       this.busy = true; this.stamping = true; this.stopAsked = false; this.error = ''; this.okMsg = '';
-      this.step = 'Stamping'; this.done = 0; this.total = n;
+      this.step = 'Linking'; this.done = 0; this.total = n;
       try {
-        const r = await stamp(me, this.plan.jobs, ({ done, total }) => { this.done = done; this.total = total; this.step = `Stamped ${done} of ${total}`; }, DAILY_CAP, () => this.stopAsked);
+        const r = await stamp(me, this.plan.jobs, ({ done, total }) => { this.done = done; this.total = total; this.step = `Linked ${done} of ${total}`; }, DAILY_CAP, () => this.stopAsked);
         const left = this.plan.writes - r.done;
         await saveStampResult(me, left + this.plan.unresolved.length);
-        this.okMsg = r.stopped ? `Stamped ${r.done}. ${left} left: press Check again, then Stamp, to carry on${this.plan.writes > DAILY_CAP ? ' (tomorrow, for the daily write limit)' : ''}.` : `Stamped ${r.done} records.`;
+        this.okMsg = r.stopped ? `Linked ${r.done}. ${left} left: press Check again, then Link, to carry on${this.plan.writes > DAILY_CAP ? ' (tomorrow, for the daily write limit)' : ''}.` : `Linked ${r.done} records.`;
       } catch (e) {
-        this.error = friendlyError(e, 'stamp the states') + (this.done ? ` ${this.done} were stamped before this. Check again and Stamp to carry on.` : '');
+        this.error = friendlyError(e, 'link the records') + (this.done ? ` ${this.done} were linked before this. Check again and Link to carry on.` : '');
       }
       this.busy = false; this.stamping = false;
       // Fresh numbers after the run

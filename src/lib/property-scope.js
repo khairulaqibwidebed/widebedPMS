@@ -1,7 +1,7 @@
 // lib/property-scope.js (12 Nov 2026, data access Phase 3, by PROPERTY): staff see only the properties on their staff
 // record (users/{uid}.properties, a list of property ids set on Settings > Staff). Directors see everything.
 //
-//   myProperties()             null for a Director (no filter), else the list of ids (['__none__'] when empty, so lists
+//   myProperties()             null for a Director (no filter), else the list of ids (['no-property-assigned'] when empty, so lists
 //                              come back empty instead of failing: Firestore refuses an empty `in`).
 //   scoped(q, field, opts)     the query with "only my properties" added. Returns a LIST of queries: Firestore takes at
 //                              most 30 values in one `in`, so a person with more properties gets one query per 30.
@@ -21,7 +21,8 @@ import { query, where, documentId, getDocs, getCountFromServer, doc, updateDoc, 
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 
-export const NO_PROPERTY = '__none__';
+// Not '__none__': Firestore refuses ids shaped __x__ in a documentId() query ("incomplete key", staff with no properties).
+export const NO_PROPERTY = 'no-property-assigned';
 const LIMIT = 30;
 
 const session = () => { try { return useSession(); } catch (_) { return null; } };
