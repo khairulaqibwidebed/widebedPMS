@@ -1,6 +1,7 @@
 // Staff Attendance (11 Nov 2026). The Widebed Staff Attendance app (Flutter) writes attendance/{uid}_{YYYY-MM-DD};
 // this page lets HR and Directors read everyone's, fix a missed clock-in or clock-out, keep the public holiday list and
-// change the office settings. Firestore rules: Draft 0.49 (the app), 0.51 (corrections here), 0.52 (several clock-ins a day).
+// change the office settings. Firestore rules: Draft 0.49 (the app), 0.51 (corrections here), 0.52 (several clock-ins a day),
+// 0.59 (a holiday can leave some staff out: exceptUids).
 // Times are Malaysia time (UTC+8, no daylight saving) whatever the computer is set to.
 import { db } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, serverTimestamp, Timestamp, deleteDoc, deleteField } from 'firebase/firestore';
@@ -86,9 +87,18 @@ export async function loadStaff() {
     .map(u => ({ uid: u.uid, name: u.displayName || u.email || 'Unknown', email: u.email || '', role: u.role, intern: !!u.intern }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+// { '2026-12-25': { name: 'Christmas Day', exceptUids: ['uid1'] } }. exceptUids = staff left out (Draft 0.59); empty = everyone.
 export async function loadHolidays(from, to) {
   const snap = await getDocs(collection(db, 'attendanceHolidays'));
-  return Object.fromEntries(snap.docs.filter(d => (!from || d.id >= from) && (!to || d.id <= to)).map(d => [d.id, d.data().name || 'Public holiday']));
+  return Object.fromEntries(snap.docs.filter(d => (!from || d.id >= from) && (!to || d.id <= to))
+    .map(d => [d.id, { name: d.data().name || 'Public holiday', exceptUids: Array.isArray(d.data().exceptUids) ? d.data().exceptUids : [] }]));
+}
+// The holiday's name if [date] is a holiday for this person, else ''. (A plain name string also works: older callers and tests.)
+export function holidayFor(holidays, date, uid) {
+  const h = holidays?.[date];
+  if (!h) return '';
+  if (typeof h === 'string') return h;
+  return (h.exceptUids || []).includes(uid) ? '' : (h.name || 'Public holiday');
 }
 
 // ---------- The table: one row per person per day, plus the days nobody clocked in ----------
@@ -128,14 +138,15 @@ export function buildRows({ records, staff, holidays, cfg, from, to, today, firs
   const workDays = new Set(cfg.workDays || DEFAULT_CFG.workDays);
   for (const [key, d] of byKey) {
     const kind = d.open ? (d.date === today ? 'clockedIn' : 'noClockOut') : (d.status || 'present');
-    rows.push({ key, date: d.date, uid: d.uid, name: d.name, role: d.role, rec: d, kind, holiday: holidays[d.date] || '' });
+    rows.push({ key, date: d.date, uid: d.uid, name: d.name, role: d.role, rec: d, kind, holiday: holidayFor(holidays, d.date, d.uid) });
   }
   // A working day before today with no record, for each active staff member, from the first day the app was used.
   if (firstDay) {
     const start = from > firstDay ? from : firstDay, end = to < today ? to : today;
     for (const day of start <= end ? daysBetween(start, end) : []) {
-      if (day >= today || holidays[day] || !workDays.has(weekday(day))) continue;
+      if (day >= today || !workDays.has(weekday(day))) continue;
       for (const s of staff) {
+        if (holidayFor(holidays, day, s.uid)) continue;
         if (!byKey.has(`${s.uid}_${day}`)) rows.push({ key: `${s.uid}_${day}`, date: day, uid: s.uid, name: s.name, role: s.role, rec: null, kind: 'missing', holiday: '' });
       }
     }
@@ -177,7 +188,7 @@ export function correctionFor({ row, session = 1, inTime, outTime, note, cfg, ho
   const outMs = outTime ? atMy(date, outTime) : null;
   if (!Number.isFinite(inMs)) throw new Error('Enter the clock-in time.');
   if (outTime && !(outMs > inMs)) throw new Error('Clock-out must be after clock-in.');
-  const workDay = (cfg.workDays || DEFAULT_CFG.workDays).includes(weekday(date)) && !holidays[date];
+  const workDay = (cfg.workDays || DEFAULT_CFG.workDays).includes(weekday(date)) && !holidayFor(holidays, date, row.uid);
   const d = myDate(inMs), mins = d.getUTCHours() * 60 + d.getUTCMinutes();
   const late = n === 1 && workDay && mins > cfg.lateAfterMin;
   const prev = (row.rec?.sessions || (row.rec ? [row.rec] : [])).find(x => sessionOf(x) === n) || {};
@@ -218,11 +229,21 @@ export async function saveCorrection(args) {
 }
 
 // ---------- Holidays ----------
-export async function addHoliday(date, name, me) {
+const holidayName = name => String(name || '').trim().slice(0, 80) || 'Public holiday';
+// Add a holiday, or change one ([existing] = the holiday as loaded). exceptUids: staff left out of it (Draft 0.59).
+// [names] (uid -> name) only makes the audit line readable.
+export async function addHoliday(date, name, me, { exceptUids = [], existing = null, names = {} } = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Pick a date.');
+  const except = [...new Set(exceptUids)];
+  if (except.length > 300) throw new Error('Too many people left out (300 at most).');
+  const who = except.length ? `everyone except ${except.map(u => names[u] || u).join(', ')}` : 'everyone';
+  const data = { name: holidayName(name), exceptUids: except };
+  if (existing) Object.assign(data, { updatedBy: me.user.uid, updatedAt: serverTimestamp() });
+  else Object.assign(data, { addedBy: me.user.uid, addedAt: serverTimestamp() });
   const b = writeBatch(db);
-  b.set(doc(db, 'attendanceHolidays', date), { name: String(name || '').trim() || 'Public holiday', addedBy: me.user.uid, addedAt: serverTimestamp() });
-  audit(b, me, { action: 'attendance.holiday', entity: `attendanceHolidays/${date}`, changes: [{ field: 'holiday', to: `${date} ${name}` }] });
+  b.set(doc(db, 'attendanceHolidays', date), data, { merge: true });   // merge keeps addedBy / addedAt when changing one
+  audit(b, me, { action: 'attendance.holiday', entity: `attendanceHolidays/${date}`,
+    changes: [{ field: 'holiday', from: existing ? `${existing.name}` : '', to: `${date} ${data.name}` }, { field: 'for', to: who }] });
   await b.commit();
 }
 export async function removeHoliday(date, me) {
@@ -248,7 +269,7 @@ export function parseHolidayLines(text) {
 export async function addHolidays(list, me) {
   for (let i = 0; i < list.length; i += 200) {
     const b = writeBatch(db);
-    for (const h of list.slice(i, i + 200)) b.set(doc(db, 'attendanceHolidays', h.date), { name: h.name, addedBy: me.user.uid, addedAt: serverTimestamp() });
+    for (const h of list.slice(i, i + 200)) b.set(doc(db, 'attendanceHolidays', h.date), { name: holidayName(h.name), exceptUids: [], addedBy: me.user.uid, addedAt: serverTimestamp() });
     audit(b, me, { action: 'attendance.holiday', entity: 'attendanceHolidays', changes: [{ field: 'holidays', to: `${list.slice(i, i + 200).length} added` }] });
     await b.commit();
   }
@@ -307,7 +328,7 @@ export function dailyReport({ records, staff, holidays, cfg, from, to, today, fi
     const dept = deptLabel(p.role) || p.role || '';
     const rows = days.map(key => {
       const d = byDay.get(`${p.uid}_${key}`);
-      const hol = holidays[key] || '';
+      const hol = holidayFor(holidays, key, p.uid);
       const workDay = workDays.has(weekday(key)) && !hol;
       const base = { key, date: reportDate(key), uid: p.uid, name: p.name, role: p.role, holiday: hol, workDay, att: d || null };
       if (!d) {

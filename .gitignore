@@ -4,3 +4,4 @@ dist
 serviceAccount.json
 .env
 claude.md
+.claude/

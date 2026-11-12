@@ -202,6 +202,35 @@ describe('holiday list', () => {
   });
 });
 
+describe('holidays per person (Draft 0.59)', () => {
+  const hols = { '2026-10-09': { name: 'Test Holiday', exceptUids: ['b'] } };
+  it('a holiday counts only for the staff it is for', () => {
+    expect(A.holidayFor(hols, '2026-10-09', 'a')).toBe('Test Holiday');
+    expect(A.holidayFor(hols, '2026-10-09', 'b')).toBe('');
+    expect(A.holidayFor({ '2026-10-09': 'Old style' }, '2026-10-09', 'b')).toBe('Old style');   // a plain name = everyone
+    expect(A.holidayFor(hols, '2026-10-10', 'a')).toBe('');
+  });
+  it('someone left out works as normal: absent if no clock-in, late counts', () => {
+    const staff = [{ uid: 'a', name: 'Aisyah', role: 'operations' }, { uid: 'b', name: 'Ben', role: 'operations' }];
+    const rep = A.dailyReport({ records: [], staff, holidays: hols, cfg: A.DEFAULT_CFG, from: '2026-10-09', to: '2026-10-09',
+      today: '2026-10-12', firstDay: '2026-10-01', deptLabel: x => x });
+    const day = uid => rep.groups[0].people.find(p => p.uid === uid).rows[0];
+    expect(day('a').text).toBe('Public Holiday: Test Holiday');
+    expect(day('b').status).toBe('Absent');
+    const row = { date: '2026-10-09', uid: 'b', name: 'Ben', role: 'operations', rec: null };
+    const fix = A.correctionFor({ row, inTime: '09:30', outTime: '18:00', note: 'x x x', cfg: A.DEFAULT_CFG, holidays: hols, me });
+    expect(fix.offDay).toBe(false);
+    expect(fix.late).toBe(true);
+    const forA = A.correctionFor({ row: { ...row, uid: 'a' }, inTime: '09:30', outTime: '18:00', note: 'x x x', cfg: A.DEFAULT_CFG, holidays: hols, me });
+    expect(forA.offDay).toBe(true);
+  });
+  it('the old table leaves out only the people the holiday is for', () => {
+    const staff = [{ uid: 'a', name: 'Aisyah', role: 'operations' }, { uid: 'b', name: 'Ben', role: 'operations' }];
+    const rows = A.buildRows({ records: [], staff, holidays: hols, cfg: A.DEFAULT_CFG, from: '2026-10-09', to: '2026-10-09', today: '2026-10-12', firstDay: '2026-10-01' });
+    expect(rows.map(r => r.uid)).toEqual(['b']);
+  });
+});
+
 describe('Excel', () => {
   it('has one header row and one row per line', () => {
     const r = { date: '2026-11-10', name: 'Aisyah', kind: 'present', rec: { clockIn: ts('2026-11-10', '09:00'), clockOut: ts('2026-11-10', '18:00'), workedMinutes: 540 } };

@@ -58,6 +58,11 @@
         </div>
         <div class="table-wrap at-wrap">
           <table class="table hover-rows at-table">
+            <!-- Fixed column widths, so opening a person's days doesn't make the columns jump (12 Nov 2026) -->
+            <colgroup>
+              <col class="c-name"><col class="c-pos"><col class="c-date"><col><col class="c-num"><col class="c-num"><col class="c-abs">
+              <col class="c-status"><col class="c-act">
+            </colgroup>
             <thead>
               <tr>
                 <th class="at-name-th">
@@ -97,7 +102,9 @@
                     <td class="nowrap" :class="{ 'at-red-text': row.type === 'span' }">{{ row.date }}</td>
                     <td v-if="row.type === 'span'" colspan="5"><span class="pill grey">{{ row.text }}</span></td>
                     <template v-else>
-                      <td class="at-pairs">
+                      <td>
+                        <!-- flex goes on this div, not the <td>: a flex <td> stops being a table cell (short cell, white gap below) -->
+                        <div class="at-pairs">
                         <span v-if="row.type === 'absent'" class="pill red">Absent</span>
                         <span v-for="(x, k) in (row.pairs || [])" :key="k" class="at-pair">
                           <span class="nowrap">{{ `${x.inTime || '—'} → ${x.outTime || '—'}` }}</span>
@@ -105,6 +112,7 @@
                           <span v-if="x.outKind && x.outKind !== 'normal'" :class="resultPill(x.outKind)">{{ x.outResult }}</span>
                           <small class="at-fixed" v-if="x.edited" title="Corrected by HR / a Director">fixed</small>
                         </span>
+                        </div>
                       </td>
                       <td class="num">{{ row.type === 'work' && row.workMin != null ? row.workMin : '' }}</td>
                       <td class="num">{{ row.lateMin != null ? row.lateMin : '' }}</td>
@@ -124,7 +132,7 @@
         </div>
         <div class="card-foot">
           <span>Status: <b>Normal</b> = {{ requiredMinutes(cfg) }} minutes or more that day (leaving before {{ hm(cfg.workEndMin) }} is fine then); <b>Short</b> = less.
-            Off-site = clocked in or out away from the office. Absent = a working day with no clock-in, counted from {{ firstDay ? dateText(firstDay) : 'the first clock-in' }} (when the app started being used). Rest days and public holidays are never absent.
+            Off-site = clocked in or out away from the office. Absent = a working day with no clock-in, counted from {{ firstDay ? dateText(firstDay) : 'the first clock-in' }} (when the app started being used). Rest days are never absent; public holidays aren't either, for the staff the holiday is for.
             Late for (Minutes) counts from {{ hm(cfg.workStartMin) }} once it is after {{ hm(cfg.lateAfterMin) }}. Hover Fix to see a late reason. You can't fix your own records.</span>
         </div>
       </section>
@@ -134,17 +142,42 @@
     <template v-if="tab === 'holidays'">
       <div class="grid-2">
         <section class="card">
-          <div class="card-head"><h2>Add a holiday</h2></div>
+          <div class="card-head"><h2>{{ hEditing ? `Edit holiday · ${dateText(hEditing)}` : 'Add a holiday' }}</h2></div>
           <form @submit.prevent="addOne()">
             <div class="grid-fields">
-              <div class="field"><label for="hDate" class="req">Date</label><input id="hDate" class="input" type="date" v-model="hDate" required></div>
+              <div class="field"><label for="hDate" class="req">Date</label><input id="hDate" class="input" type="date" v-model="hDate" required :disabled="!!hEditing"></div>
               <div class="field"><label for="hName">Name</label><input id="hName" class="input" type="text" maxlength="80" v-model="hName" placeholder="Deepavali"></div>
             </div>
-            <button class="btn btn-primary" type="submit" :disabled="busy || !hDate">{{ busy ? 'Saving…' : 'Add holiday' }}</button>
+            <!-- Who gets this holiday (Draft 0.59). Everyone ticked by default; the unticked are saved as exceptUids. -->
+            <div class="field">
+              <div class="at-who-head">
+                <label>Who gets this holiday</label>
+                <span>
+                  <button type="button" class="btn btn-sm" @click="hExcept = []">Select all</button>
+                  <button type="button" class="btn btn-sm" @click="hExcept = staff.map(s => s.uid)">Clear</button>
+                </span>
+              </div>
+              <input class="input at-who-search" type="search" v-model="hSearch" placeholder="Search a name" aria-label="Search a name">
+              <div class="at-who-list">
+                <template v-for="g in holidayStaffGroups" :key="g.title">
+                  <div class="at-who-dept">
+                    <span>{{ g.title }}</span>
+                    <button type="button" class="at-link" @click="toggleGroup(g)">{{ g.people.every(p => !hExcept.includes(p.uid)) ? 'Untick all' : 'Tick all' }}</button>
+                  </div>
+                  <label class="check at-who-person" v-for="p in g.people" :key="p.uid">
+                    <input type="checkbox" :checked="!hExcept.includes(p.uid)" @change="toggleOne(p.uid)"><span>{{ p.name }}</span>
+                  </label>
+                </template>
+                <p class="muted" v-if="!holidayStaffGroups.length">No staff match.</p>
+              </div>
+              <p class="help">{{ hTickedText }}</p>
+            </div>
+            <button class="btn btn-primary" type="submit" :disabled="busy || !hDate || hTicked === 0">{{ busy ? 'Saving…' : hEditing ? 'Save changes' : 'Add holiday' }}</button>
+            <button class="btn" type="button" v-if="hEditing" :disabled="busy" @click="cancelEdit()">Cancel</button>
           </form>
           <hr class="at-hr">
           <div class="field">
-            <label for="hBulk">Paste a list <span class="muted">(one per line: 2026-12-25 Christmas Day, or 25/12/2026 Christmas Day)</span></label>
+            <label for="hBulk">Paste a list <span class="muted">(one per line: 2026-12-25 Christmas Day, or 25/12/2026 Christmas Day; for everyone, Edit to leave people out)</span></label>
             <textarea id="hBulk" class="input at-bulk" v-model="hBulk" placeholder="2026-12-25 Christmas Day"></textarea>
           </div>
           <p class="help" v-if="bulk.list.length || bulk.bad.length">{{ `${bulk.list.length} holiday${bulk.list.length === 1 ? '' : 's'} found` }}<span v-if="bulk.bad.length">{{ ` · ${bulk.bad.length} line${bulk.bad.length === 1 ? '' : 's'} not understood: ${bulk.bad.slice(0, 2).join(' / ')}` }}</span></p>
@@ -156,7 +189,9 @@
             <span class="head-r"><select class="select" v-model="hYear" aria-label="Year"><option v-for="y in years" :key="y" :value="y">{{ y }}</option></select></span></div>
           <div class="row" v-for="h in holidayList" :key="h.date">
             <span><b>{{ dateText(h.date) }}</b> <span class="muted">{{ DAY_NAMES[weekday(h.date)] }}</span><br>{{ h.name }}</span>
+            <span class="pill" :class="h.exceptUids.length ? 'amber' : 'green'" :title="exceptNames(h)">{{ h.exceptUids.length ? `Everyone except ${h.exceptUids.length}` : 'Everyone' }}</span>
             <span class="r">
+              <button type="button" class="btn btn-sm" v-if="removing !== h.date" :disabled="busy" @click="editHoliday(h)">Edit</button>
               <template v-if="removing === h.date">
                 <button type="button" class="btn btn-sm btn-danger" :disabled="busy" @click="removeOne(h.date)">Remove</button>
                 <button type="button" class="btn btn-sm" :disabled="busy" @click="removing = ''">Keep</button>
@@ -165,7 +200,8 @@
             </span>
           </div>
           <p class="empty" v-if="!holidayList.length">{{ `No holidays for ${hYear} yet.` }}</p>
-          <p class="help">Staff can still clock in on a holiday; it's saved as Off day work and never counts as missing.</p>
+          <p class="help">Staff can still clock in on a holiday; it's saved as Off day work and never counts as missing. For staff left out
+            of a holiday it's a normal working day: late and absent count.</p>
         </section>
       </div>
     </template>
@@ -261,6 +297,7 @@ export default {
       cfg: { ...DEFAULT_CFG }, staff: [], records: [], holidays: {}, allHolidays: {}, firstDay: null,
       from: m.from, to: m.to, quick: 'month', nameFilter: [], deptFilter: '', full: false, opened: [], hideRest: true,
       fix: null, hDate: '', hName: '', hBulk: '', hYear: new Date().getFullYear(), removing: '',
+      hExcept: [], hEditing: '', hSearch: '',   // holiday form: uids left out, the date being edited, name search
       form: formOf(DEFAULT_CFG)
     };
   },
@@ -295,7 +332,25 @@ export default {
     years() { const y = new Date().getFullYear(); return [y - 1, y, y + 1, y + 2]; },
     holidayList() {
       return Object.entries(this.allHolidays).filter(([d]) => d.startsWith(String(this.hYear)))
-        .map(([date, name]) => ({ date, name })).sort((a, b) => a.date.localeCompare(b.date));
+        .map(([date, h]) => ({ date, name: h.name, exceptUids: h.exceptUids || [] })).sort((a, b) => a.date.localeCompare(b.date));
+    },
+    // The holiday form's staff checklist, by department like the Records table (interns in their own group).
+    holidayStaffGroups() {
+      const q = this.hSearch.trim().toLowerCase();
+      const groups = new Map();
+      for (const s of this.staff) {
+        if (q && !s.name.toLowerCase().includes(q)) continue;
+        const title = s.intern ? 'Interns' : (ROLE_LABEL[s.role] || s.role || 'No department');
+        if (!groups.has(title)) groups.set(title, []);
+        groups.get(title).push(s);
+      }
+      return [...groups].sort((a, b) => (a[0] === 'Interns') - (b[0] === 'Interns') || a[0].localeCompare(b[0]))
+        .map(([title, people]) => ({ title, people }));
+    },
+    hTicked() { return this.staff.filter(s => !this.hExcept.includes(s.uid)).length; },
+    hTickedText() {
+      const n = this.hTicked, all = this.staff.length;
+      return n === all ? `All ${all} staff get this holiday.` : `${n} of ${all} staff get this holiday. The others work as normal that day.`;
     }
   },
   async mounted() {
@@ -384,21 +439,53 @@ export default {
     // ---- Holidays ----
     async reloadHolidays() { this.allHolidays = await loadHolidays(); this.holidays = Object.fromEntries(Object.entries(this.allHolidays).filter(([d]) => d >= this.from && d <= this.to)); },
     async addOne() {
+      const date = this.hEditing || this.hDate;
+      const existing = this.allHolidays[date] || null;
+      if (existing && !this.hEditing) { this.error = `${this.dateText(date)} is already a holiday. Use Edit on the list to change it.`; return; }
+      // Keep any left-out person who isn't on the staff list any more (they don't show in the checklist).
+      const active = new Set(this.staff.map(s => s.uid));
+      const keep = (existing?.exceptUids || []).filter(u => !active.has(u));
+      const names = Object.fromEntries(this.staff.map(s => [s.uid, s.name]));
       this.busy = true; this.error = '';
-      try { await addHoliday(this.hDate, this.hName, useSession()); this.flash(`${this.dateText(this.hDate)} added.`); this.hYear = +this.hDate.slice(0, 4); this.hDate = ''; this.hName = ''; await this.reloadHolidays(); }
-      catch (e) { this.error = e.code ? friendlyError(e, 'add the holiday') : e.message; }
+      try {
+        await addHoliday(date, this.hName, useSession(), { exceptUids: [...this.hExcept, ...keep], existing, names });
+        this.flash(`${this.dateText(date)} ${existing ? 'saved' : 'added'}.`); this.hYear = +date.slice(0, 4);
+        this.cancelEdit(); await this.reloadHolidays();
+      } catch (e) { this.error = e.code ? friendlyError(e, 'save the holiday') : e.message; }
       this.busy = false;
     },
+    editHoliday(h) {
+      const active = new Set(this.staff.map(s => s.uid));
+      this.hEditing = h.date; this.hDate = h.date; this.hName = h.name; this.hSearch = '';
+      this.hExcept = h.exceptUids.filter(u => active.has(u));
+      this.removing = ''; window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    cancelEdit() { this.hEditing = ''; this.hDate = ''; this.hName = ''; this.hExcept = []; this.hSearch = ''; },
+    toggleOne(uid) { this.hExcept = this.hExcept.includes(uid) ? this.hExcept.filter(u => u !== uid) : [...this.hExcept, uid]; },
+    toggleGroup(g) {
+      const uids = g.people.map(p => p.uid);
+      const allOn = uids.every(u => !this.hExcept.includes(u));
+      this.hExcept = allOn ? [...new Set([...this.hExcept, ...uids])] : this.hExcept.filter(u => !uids.includes(u));
+    },
+    exceptNames(h) {
+      if (!h.exceptUids.length) return 'Everyone gets this holiday';
+      const byUid = new Map(this.staff.map(s => [s.uid, s.name]));
+      return `Working as normal: ${h.exceptUids.map(u => byUid.get(u) || 'Former staff').join(', ')}`;
+    },
     async addBulk() {
-      const list = this.bulk.list;
+      // Dates already on the list are skipped, so a paste never wipes who a holiday is for.
+      const list = this.bulk.list.filter(h => !this.allHolidays[h.date]);
+      const skipped = this.bulk.list.length - list.length;
+      const skipText = skipped ? ` ${skipped} already on the list, skipped.` : '';
+      if (!list.length) { this.error = `All of these dates are already on the list.`; return; }
       this.busy = true; this.error = '';
-      try { await addHolidays(list, useSession()); this.flash(`${list.length} holiday${list.length === 1 ? '' : 's'} added.`); this.hBulk = ''; await this.reloadHolidays(); }
+      try { await addHolidays(list, useSession()); this.flash(`${list.length} holiday${list.length === 1 ? '' : 's'} added.${skipText}`); this.hBulk = ''; await this.reloadHolidays(); }
       catch (e) { this.error = friendlyError(e, 'add the holidays'); }
       this.busy = false;
     },
     async removeOne(date) {
       this.busy = true; this.error = '';
-      try { await removeHoliday(date, useSession()); this.removing = ''; this.flash(`${this.dateText(date)} removed.`); await this.reloadHolidays(); }
+      try { await removeHoliday(date, useSession()); this.removing = ''; if (this.hEditing === date) this.cancelEdit(); this.flash(`${this.dateText(date)} removed.`); await this.reloadHolidays(); }
       catch (e) { this.error = friendlyError(e, 'remove the holiday'); }
       this.busy = false;
     },
@@ -439,14 +526,23 @@ export default {
 .at-dist { display: block; color: var(--muted); font-size: 11px; }
 .at-sess { display: block; color: var(--blue); font-size: 11px; font-weight: 600; cursor: help; }
 /* Daily Report table: the usual PMS table (.table), a few extras */
-.at-wrap { max-height: 70vh; overflow: auto; }
+.at-wrap { max-height: 70vh; overflow: auto; scrollbar-gutter: stable; }   /* room for the scrollbar kept, so the table doesn't narrow when it appears */
+/* Fixed layout: columns keep their width whatever rows are open. Clock in → out takes the rest. */
+.at-table { table-layout: fixed; min-width: 1100px; }
+.at-table col.c-name { width: 220px; }
+.at-table col.c-pos { width: 140px; }
+.at-table col.c-date { width: 130px; }
+.at-table col.c-num { width: 95px; }
+.at-table col.c-abs { width: 80px; }
+.at-table col.c-status { width: 170px; }
+.at-table col.c-act { width: 70px; }
+.at-table td { overflow-wrap: anywhere; }
 .at-table thead th { position: sticky; top: 0; z-index: 2; }
 .at-table td, .at-table th { padding: 9px 12px; }
 .at-table .at-group td { background: var(--head); font-weight: 600; font-size: 13px; padding-top: 14px; }
 .at-table .at-today td { background: var(--accent-soft); }
 .at-table .at-act { white-space: nowrap; }
 .at-red-text { color: var(--red); }
-.at-name-th { min-width: 190px; }
 .at-name-th > span { display: block; margin-bottom: 6px; }
 .at-name-filter { font-weight: 400; }
 .at-name-filter .op-btn { height: 30px; font-size: 12px; }
@@ -457,9 +553,17 @@ export default {
 .at-table .at-person td { border-top: 1px solid var(--border); }
 .at-table .at-day td { font-size: 13px; padding-top: 6px; padding-bottom: 6px; }
 .at-caret { border: 0; background: none; cursor: pointer; width: 22px; padding: 0; color: var(--muted); font-size: 12px; }
-.at-pairs { display: flex; flex-direction: column; gap: 4px; }
+.at-pairs { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .at-pair { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .at-pair .pill { font-size: 11px; }
+/* Holiday form: who gets it */
+.at-who-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.at-who-head label { margin: 0; }
+.at-who-search { margin-bottom: 6px; }
+.at-who-list { border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px 10px; max-height: 280px; overflow: auto; }
+.at-who-dept { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); margin: 10px 0 2px; }
+.at-who-person { display: flex; margin: 2px 0; }
+.at-link { border: 0; background: none; padding: 0; color: var(--blue); font-size: 12px; cursor: pointer; }
 /* Full screen: the report card fills the window (Esc or the button to leave) */
 .at-card.at-full { position: fixed; inset: 0; z-index: 60; margin: 0; border-radius: 0; display: flex; flex-direction: column; overflow: hidden; }
 .at-card.at-full .at-wrap { flex: 1; max-height: none; }
