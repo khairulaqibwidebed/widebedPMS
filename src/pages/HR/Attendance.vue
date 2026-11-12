@@ -49,6 +49,13 @@
             <button type="button" class="btn btn-sm" @click="full = !full" :aria-pressed="String(full)">{{ full ? 'Exit full screen' : 'Full screen' }}</button>
           </span>
         </div>
+        <!-- On screen the report is short: one summary line per person; open a person (or "Open all") for their days.
+             Each clock-in/out pair sits in one cell. The Excel export is unchanged (payroll layout, every column). 12 Nov 2026 -->
+        <div class="at-bar">
+          <button type="button" class="btn btn-sm" @click="openAll">Open all</button>
+          <button type="button" class="btn btn-sm" @click="opened = []">Close all</button>
+          <label class="check at-inline"><input type="checkbox" v-model="hideRest"><span>Hide rest days &amp; holidays</span></label>
+        </div>
         <div class="table-wrap at-wrap">
           <table class="table hover-rows at-table">
             <thead>
@@ -58,52 +65,61 @@
                   <OptionPicker class="at-name-filter" multiple searchable :model-value="nameFilter" :options="nameOptions" label="Filter by name"
                     placeholder="All names" @update:model-value="v => (nameFilter = v)" />
                 </th>
-                <th>Position</th><th>Attendance Date</th><th>Attendance Shift</th>
-                <template v-for="k in report.maxSessions" :key="'h' + k">
-                  <th>{{ `Clock In${k}` }}</th><th>Result</th><th>{{ `Clock Out${k}` }}</th><th>Result</th>
-                </template>
-                <th class="num">Work Duration (Minutes)</th><th class="num">Late for (Minutes)</th><th class="num">Absent Days</th><th>Status</th><th></th>
+                <th>Position</th><th>Date</th><th>Clock in → out</th>
+                <th class="num">Work (min)</th><th class="num">Late (min)</th><th class="num">Absent</th><th>Status</th><th></th>
               </tr>
             </thead>
             <tbody v-for="g in report.groups" :key="g.title">
-              <tr class="at-group"><td :colspan="spanAll">{{ g.title }}</td></tr>
+              <tr class="at-group"><td :colspan="9">{{ g.title }}</td></tr>
               <template v-for="p in g.people" :key="p.uid">
-                <tr v-for="(row, i) in p.rows" :key="p.uid + row.key" :class="{ 'at-first': i === 0, 'at-today': row.key === today }">
-                  <td class="at-who" data-label="Name"><b v-if="i === 0">{{ p.name }}</b><span v-else class="muted">{{ p.name }}</span></td>
-                  <td data-label="Position" class="muted">{{ i === 0 ? p.position : '' }}</td>
-                  <td class="nowrap" data-label="Date" :class="{ 'at-red-text': row.type === 'span' }">{{ row.date }}</td>
-                  <template v-if="row.type === 'span'">
-                    <td :colspan="spanShift" data-label="Shift"><span class="pill grey">{{ row.text }}</span></td>
-                  </template>
-                  <template v-else>
-                    <td class="nowrap" data-label="Shift">{{ row.shift }}</td>
-                    <template v-for="k in report.maxSessions" :key="'c' + k">
-                      <td class="nowrap" :data-label="`Clock In${k}`">{{ pair(row, k) ? pair(row, k).inTime : '' }}<small class="at-fixed" v-if="pair(row, k) && pair(row, k).edited" title="Corrected by HR / a Director">fixed</small></td>
-                      <td data-label="Result">
-                        <span v-if="pair(row, k)" :class="resultPill(pair(row, k).inKind)">{{ pair(row, k).inResult }}</span>
-                        <span v-else-if="row.type === 'absent' && k === 1" class="pill red">Absent</span>
-                      </td>
-                      <td class="nowrap" :data-label="`Clock Out${k}`">{{ pair(row, k) ? pair(row, k).outTime : '' }}</td>
-                      <td data-label="Result"><span v-if="pair(row, k) && pair(row, k).outResult" :class="resultPill(pair(row, k).outKind)">{{ pair(row, k).outResult }}</span></td>
-                    </template>
-                    <td class="num" data-label="Work Duration (Minutes)">{{ row.type === 'work' && row.workMin != null ? row.workMin : '' }}</td>
-                    <td class="num" data-label="Late for (Minutes)">{{ row.lateMin != null ? row.lateMin : '' }}</td>
-                    <td class="num" data-label="Absent Days">{{ row.absent || '' }}</td>
-                    <td data-label="Status"><span v-if="row.status" :class="statusPill(row.statusKind)">{{ row.status }}</span></td>
-                  </template>
-                  <td class="at-act" data-label="">
-                    <button type="button" class="btn btn-sm" v-if="canFix(row)" @click="openFix(fixRow(row))"
-                      :title="row.att && row.att.sessions[0].lateReason ? `Late reason: ${row.att.sessions[0].lateReason}` : ''">{{ row.att ? 'Fix' : 'Add' }}</button>
+                <!-- person summary -->
+                <tr class="at-person" @click="toggle(p.uid)">
+                  <td class="at-who"><button type="button" class="at-caret" :aria-expanded="String(isOpen(p.uid))" :aria-label="`Show days for ${p.name}`"
+                    @click.stop="toggle(p.uid)">{{ isOpen(p.uid) ? '▾' : '▸' }}</button><b>{{ p.name }}</b></td>
+                  <td class="muted">{{ p.position }}</td>
+                  <td class="nowrap muted">{{ `${sumOf(p).worked} day${sumOf(p).worked === 1 ? '' : 's'} worked` }}</td>
+                  <td>
+                    <span class="pill amber" v-if="sumOf(p).late">{{ `${sumOf(p).late} late` }}</span>
+                    <span class="pill blue" v-if="sumOf(p).offsite">{{ `${sumOf(p).offsite} off-site` }}</span>
+                    <span class="pill red" v-if="sumOf(p).missing">{{ `${sumOf(p).missing} missing clock-out` }}</span>
                   </td>
+                  <td class="num"><b>{{ p.totals.work }}</b></td><td class="num"><b>{{ p.totals.late }}</b></td><td class="num"><b>{{ p.totals.absent }}</b></td>
+                  <td>
+                    <span class="pill green" v-if="sumOf(p).normal">{{ `${sumOf(p).normal} normal` }}</span>
+                    <span class="pill amber" v-if="sumOf(p).short">{{ `${sumOf(p).short} short` }}</span>
+                  </td>
+                  <td></td>
                 </tr>
-                <tr class="at-total">
-                  <td colspan="2"><b>{{ `${p.name} · total` }}</b></td>
-                  <td :colspan="2 + report.maxSessions * 4"></td>
-                  <td class="num"><b>{{ p.totals.work }}</b></td><td class="num"><b>{{ p.totals.late }}</b></td><td class="num"><b>{{ p.totals.absent }}</b></td><td colspan="2"></td>
-                </tr>
+                <!-- that person's days -->
+                <template v-if="isOpen(p.uid)">
+                  <tr v-for="row in daysOf(p)" :key="p.uid + row.key" class="at-day" :class="{ 'at-today': row.key === today }">
+                    <td></td><td></td>
+                    <td class="nowrap" :class="{ 'at-red-text': row.type === 'span' }">{{ row.date }}</td>
+                    <td v-if="row.type === 'span'" colspan="5"><span class="pill grey">{{ row.text }}</span></td>
+                    <template v-else>
+                      <td class="at-pairs">
+                        <span v-if="row.type === 'absent'" class="pill red">Absent</span>
+                        <span v-for="(x, k) in (row.pairs || [])" :key="k" class="at-pair">
+                          <span class="nowrap">{{ `${x.inTime || '—'} → ${x.outTime || '—'}` }}</span>
+                          <span v-if="x.inKind && x.inKind !== 'normal'" :class="resultPill(x.inKind)">{{ x.inResult }}</span>
+                          <span v-if="x.outKind && x.outKind !== 'normal'" :class="resultPill(x.outKind)">{{ x.outResult }}</span>
+                          <small class="at-fixed" v-if="x.edited" title="Corrected by HR / a Director">fixed</small>
+                        </span>
+                      </td>
+                      <td class="num">{{ row.type === 'work' && row.workMin != null ? row.workMin : '' }}</td>
+                      <td class="num">{{ row.lateMin != null ? row.lateMin : '' }}</td>
+                      <td class="num">{{ row.absent || '' }}</td>
+                      <td><span v-if="row.status" :class="statusPill(row.statusKind)">{{ row.status }}</span></td>
+                    </template>
+                    <td class="at-act">
+                      <button type="button" class="btn btn-sm" v-if="canFix(row)" @click="openFix(fixRow(row))"
+                        :title="row.att && row.att.sessions[0].lateReason ? `Late reason: ${row.att.sessions[0].lateReason}` : ''">{{ row.att ? 'Fix' : 'Add' }}</button>
+                    </td>
+                  </tr>
+                </template>
               </template>
             </tbody>
-            <tbody v-if="!loading && !report.groups.length"><tr><td :colspan="spanAll" class="muted">No staff match these filters.</td></tr></tbody>
+            <tbody v-if="!loading && !report.groups.length"><tr><td colspan="9" class="muted">No staff match these filters.</td></tr></tbody>
           </table>
         </div>
         <div class="card-foot">
@@ -243,7 +259,7 @@ export default {
     return {
       KIND, DAY_NAMES, tab: 'records', loading: true, busy: false, exporting: false, error: '', okMsg: '',
       cfg: { ...DEFAULT_CFG }, staff: [], records: [], holidays: {}, allHolidays: {}, firstDay: null,
-      from: m.from, to: m.to, quick: 'month', nameFilter: [], deptFilter: '', full: false,
+      from: m.from, to: m.to, quick: 'month', nameFilter: [], deptFilter: '', full: false, opened: [], hideRest: true,
       fix: null, hDate: '', hName: '', hBulk: '', hYear: new Date().getFullYear(), removing: '',
       form: formOf(DEFAULT_CFG)
     };
@@ -258,8 +274,6 @@ export default {
     },
     totals() { return reportTotals(this.report); },
     peopleCount() { return this.report.groups.reduce((n, g) => n + g.people.length, 0); },
-    spanShift() { return 1 + this.report.maxSessions * 4 + 4; },       // Shift + clock pairs + the three number columns + Status
-    spanAll() { return 4 + this.report.maxSessions * 4 + 4 + 1; },
     nameOptions() { return this.staffOptions.filter(o => o.value); },
     staffOptions() {
       const seen = new Map(this.staff.map(s => [s.uid, s.name]));
@@ -302,6 +316,19 @@ export default {
     resultPill(kind) { return { late: 'pill amber', offsite: 'pill blue', early: 'pill amber', missing: 'pill red' }[kind] || ''; },
     statusPill(kind) { return { normal: 'pill green', short: 'pill amber', missing: 'pill red', absent: 'pill red', working: 'pill blue', offday: 'pill grey' }[kind] || 'pill grey'; },
     exitFull() { this.full = false; },
+    isOpen(uid) { return this.peopleCount === 1 || this.opened.includes(uid); },   // one person shown: always open
+    toggle(uid) { this.opened = this.opened.includes(uid) ? this.opened.filter(u => u !== uid) : [...this.opened, uid]; },
+    openAll() { this.opened = this.report.groups.flatMap(g => g.people.map(p => p.uid)); },
+    daysOf(p) { return this.hideRest ? p.rows.filter(r => r.type !== 'span' && r.type !== 'blank') : p.rows; },
+    sumOf(p) {
+      const n = k => p.rows.filter(r => r.statusKind === k).length;
+      return {
+        worked: p.rows.filter(r => r.type === 'work').length,
+        late: p.rows.filter(r => r.type === 'work' && r.lateMin > 0).length,
+        offsite: p.rows.filter(r => r.offsite).length,
+        missing: n('missing'), normal: n('normal'), short: n('short')
+      };
+    },
     requiredMinutes,
     // Fix / Add: not your own, not a day still running, not rest days with nothing to fix, not the future
     canFix(row) { return row.uid !== this.myUid && row.key <= this.today && !(row.att && row.att.open && row.key === this.today) && (row.type === 'work' || row.type === 'absent' || (row.type === 'blank' && row.key < this.today)); },
@@ -416,8 +443,6 @@ export default {
 .at-table thead th { position: sticky; top: 0; z-index: 2; }
 .at-table td, .at-table th { padding: 9px 12px; }
 .at-table .at-group td { background: var(--head); font-weight: 600; font-size: 13px; padding-top: 14px; }
-.at-table tr.at-first td { border-top: 1px solid var(--border); }
-.at-table .at-total td { background: var(--hover); font-size: 13px; }
 .at-table .at-today td { background: var(--accent-soft); }
 .at-table .at-act { white-space: nowrap; }
 .at-red-text { color: var(--red); }
@@ -426,6 +451,15 @@ export default {
 .at-name-filter { font-weight: 400; }
 .at-name-filter .op-btn { height: 30px; font-size: 12px; }
 .at-fixed { display: block; font-size: 10px; color: var(--blue); }
+.at-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 0 16px 10px; }
+.at-inline { margin: 0 0 0 6px; }
+.at-table .at-person { cursor: pointer; }
+.at-table .at-person td { border-top: 1px solid var(--border); }
+.at-table .at-day td { font-size: 13px; padding-top: 6px; padding-bottom: 6px; }
+.at-caret { border: 0; background: none; cursor: pointer; width: 22px; padding: 0; color: var(--muted); font-size: 12px; }
+.at-pairs { display: flex; flex-direction: column; gap: 4px; }
+.at-pair { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.at-pair .pill { font-size: 11px; }
 /* Full screen: the report card fills the window (Esc or the button to leave) */
 .at-card.at-full { position: fixed; inset: 0; z-index: 60; margin: 0; border-radius: 0; display: flex; flex-direction: column; overflow: hidden; }
 .at-card.at-full .at-wrap { flex: 1; max-height: none; }
