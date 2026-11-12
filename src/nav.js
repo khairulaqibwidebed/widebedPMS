@@ -15,9 +15,8 @@ const G = (label, icon, items) => ({ label, icon, items });
 
 const TOP = { items: [P('Dashboard', '/Dashboard', 'dashboard'), P('Issues', '/Operations/issues', 'alert')] };
 // Owners, Properties and Bookings follow the Portfolio tick; Booking Forms, Offline Payments and Bulk Upload their own ticks.
-// Fees & Rates (12 Nov 2026): one set for every property; shows with Portfolio Edit (Accounting, Directors, Edit tick).
 const PORTFOLIO = G('Portfolio', 'layers', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'),
-  P('Bookings', '/Portfolio/bookings', 'calendar'), P('Fees & Rates', '/Portfolio/fees-rates', 'percent'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'),
+  P('Bookings', '/Portfolio/bookings', 'calendar'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'),
   P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Bulk Upload', '/Portfolio/bulk-upload', 'table')]);
 // Leads follow their ticks; Agreements and Renewals are for everyone who has this group (not HR or IT).
 // Owner Leads (overview) follows the Owner Leads View tick; Listing Flow (work on a listing) its Edit tick (11 Nov 2026).
@@ -32,7 +31,7 @@ const ACCOUNTING_DIR = G('Accounting', 'calculator', [P('Upload eZee Report', '/
   P('Invoices & Receipts', '/Finance/invoices', 'files'), P('Reports', '/Reports', 'pieChart')]);
 // Everyone evaluates and is evaluated; only Director/HR (performance tick) also get Quarterly Management.
 const PERFORMANCE = G('Performance', 'chart', [P('My Performance', '/Performance/my', 'trendingUp'), P('COH Evaluations', '/Performance/coh', 'userCheck'), P('KPI Management', '/Performance/kpi', 'target'), P('TMS Performance', '/Performance/tms', 'listChecks')]);
-const PERFORMANCE_ADMIN = G('Performance', 'chart', [P('My Performance', '/Performance/my', 'trendingUp'), P('Quarterly Management', '/Performance/quarters', 'calendarRange'), P('COH Evaluations', '/Performance/coh', 'userCheck'), P('KPI Management', '/Performance/kpi', 'target'), P('TMS Performance', '/Performance/tms', 'listChecks'), P('Final Approval', '/Performance/approval', 'badgeCheck')]);
+const PERFORMANCE_ADMIN = G('Performance', 'chart', [P('My Performance', '/Performance/my', 'trendingUp'), P('Quarterly Management', '/Performance/quarters', 'calendarRange'), P('COH Evaluations', '/Performance/coh', 'userCheck'), P('KPI Management', '/Performance/kpi', 'target'), P('TMS Performance', '/Performance/tms', 'listChecks'), P('Final Approval', '/Performance/approval', 'badgeCheck'), P('One To One Session', '/Performance/one-to-one', 'fileText')]);
 const PLAYBOOK = G('Playbook', 'bookOpen', [P('Onboarding', '/Playbook/onboarding', 'book'), P('Business Model', '/Playbook/business-model', 'briefcase')]);
 // HR: things to do first, then SOPs (one page for every SOP, 6 Nov 2026).
 const SOPS = [P('SOPs', '/HR/sops', 'scrollText')];

@@ -26,8 +26,6 @@ const routes = [
   ticked('/Portfolio/owners', () => import('./pages/Portfolio/Owners/OwnersPage.vue'), 'Owners', 'portfolio'),
   ticked('/Portfolio/properties', () => import('./pages/Portfolio/Properties/PropertiesRoute.vue'), 'Properties', 'portfolio'),
   ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'portfolio'),
-  // One set of fees and rates for every property (12 Nov 2026). Sidebar item only with Portfolio Edit (lib/access.js editTo).
-  ticked('/Portfolio/fees-rates', () => import('./pages/Portfolio/FeesRates/FeesRatesPage.vue'), 'Fees & Rates', 'portfolio'),
   ticked('/Portfolio/bulk-upload', () => import('./pages/Portfolio/BulkUpload.vue'), 'Bulk Upload', 'bulkUpload'),
   { path: '/Portfolio', redirect: to => ({ path: `/Portfolio/${['owners', 'bookings'].includes(to.query.tab) ? to.query.tab : 'properties'}`, query: { ...to.query, tab: undefined } }) },
 
@@ -73,6 +71,8 @@ const routes = [
   page('/Performance/tms', () => import('./pages/Performance/TMS.vue'), 'TMS Performance', ALL, { title: 'TMS performance' }),
   page('/Performance/my', () => import('./pages/Performance/MyPerformance.vue'), 'My Performance', ALL, { title: 'My performance' }),
   ticked('/Performance/approval', () => import('./pages/Performance/Approval.vue'), 'Final Approval', 'performance', { title: 'Final performance approval' }),
+  // One To One Session (12 Nov 2026): Directors and HR only (only they can read the COH marks), never tickable.
+  page('/Performance/one-to-one', () => import('./pages/Performance/OneToOne.vue'), 'One To One Session', DH),
 
   // Staff accounts and Audit log: Director and HR (Khairul 21 Oct). Never tickable.
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),

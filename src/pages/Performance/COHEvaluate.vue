@@ -230,13 +230,22 @@
                 <td><input class="input" v-model="q.title" @change="saveEdit(q, { title: q.title })"></td>
                 <td><input class="input" v-model="q.description" @change="saveEdit(q, { description: q.description })"></td>
                 <td><input type="checkbox" :checked="q.active !== false" @change="saveEdit(q, { active: $event.target.checked })"></td>
-                <td></td>
+                <!-- Delete (12 Nov 2026): asks first; the question then leaves every list -->
+                <td class="coh-del">
+                  <template v-if="deleting === q.id">
+                    <span class="muted">Delete it?</span>
+                    <button class="btn btn-sm btn-danger" :disabled="saving" @click="removeQuestion(q)">Yes, delete</button>
+                    <button class="btn btn-sm" :disabled="saving" @click="deleting = ''">No</button>
+                  </template>
+                  <button v-else class="btn btn-sm" :disabled="saving" @click="deleting = q.id">Delete</button>
+                </td>
               </tr>
               <tr v-if="!allQuestions.length"><td colspan="5" class="muted">No questions configured yet.</td></tr>
             </tbody>
           </table>
         </div>
-        <p class="note">Disabling a question (unticking Active) keeps its history intact but stops it appearing in new evaluations.</p>
+        <p class="note">Disabling a question (unticking Active) keeps its history intact but stops it appearing in new evaluations.
+          Delete removes it from this list, from new evaluations and from the One To One form; marks already given for it are kept in the evaluations.</p>
       </div>
     </template>
   </main>
@@ -251,7 +260,7 @@ import { useSession } from '@/stores/session.js';
 import { listQuarters, listParticipants } from '@/lib/performance/quarters.js';
 import { normalizeStatus } from '@/lib/performance/quarterStatus.js';
 import {
-  listQuestions, listAllQuestions, createQuestion, saveQuestion,
+  listQuestions, listAllQuestions, createQuestion, saveQuestion, deleteQuestion,
   listEvaluatees, listGiven, listReceived, listAllForQuarter, getEvaluation, submitEvaluation
 } from '@/lib/performance/coh.js';
 
@@ -272,6 +281,7 @@ const evaluatees = ref([]);
 const givenList = ref([]);
 const received = ref([]);
 const allQuestions = ref([]);
+const deleting = ref('');   // id of the question being asked "Delete it?"
 const newQ = ref({ title: '', description: '' });
 
 // ---- Screen 1: dashboard ----
@@ -483,6 +493,12 @@ async function addQuestion() {
 async function saveEdit(q, patch) {
   try { await saveQuestion(q.id, patch); } catch (e) { error.value = e.message; }
 }
+async function removeQuestion(q) {
+  saving.value = true; error.value = '';
+  try { await deleteQuestion(q.id, q.title); deleting.value = ''; allQuestions.value = await listAllQuestions(); }
+  catch (e) { error.value = e.code === 'permission-denied' ? 'You don\'t have permission to delete this question.' : e.message; }
+  finally { saving.value = false; }
+}
 async function moveQuestion(i, dir) {
   const j = i + dir;
   if (j < 0 || j >= allQuestions.value.length) return;
@@ -496,6 +512,8 @@ async function moveQuestion(i, dir) {
 </script>
 
 <style scoped>
+.coh-del { white-space: nowrap; text-align: right; }
+.coh-del .muted { margin-right: 6px; font-size: 12px; }
 /* Follows the account's selected theme (Settings > Appearance) throughout — var(--bg)/var(--surface)/
    var(--accent) etc. already flip for light/dark mode and brand colour, so nothing here is a fixed palette. */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

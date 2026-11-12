@@ -4,7 +4,8 @@
 // it and to HR/Director — so it lives on a separate private/scores sub-document the evaluatee can't read
 // (firestore.rules enforces this; it isn't just hidden in the UI).
 //
-// cohQuestions/{id}      { title, description, order, active, ratingScale, quarterIds: [string] | null }
+// cohQuestions/{id}      { title, description, order, active, ratingScale, quarterIds: [string] | null,
+//                          deleted?: true, deletedAt, deletedBy }   (deleted = removed from every list, 12 Nov 2026)
 // cohEvaluations/{quarterId}_{evaluatorUid}_{evaluateeUid}
 //                        { quarterId, evaluatorId, evaluatorNameSnapshot, evaluateeId, evaluateeNameSnapshot,
 //                          status: 'submitted'|'approved'|'correctionRequested', submittedAt, reviewedBy, reviewedAt }
@@ -34,11 +35,11 @@ export async function audit(action, entity, details = '') {
 
 // ---- Questions (HR/Director configure; reused across quarters unless scoped) ----
 export async function listQuestions(quarterId) {
-  const all = rows(await getDocs(collection(db, 'cohQuestions'))).filter(q => q.active !== false);
+  const all = rows(await getDocs(collection(db, 'cohQuestions'))).filter(q => q.active !== false && q.deleted !== true);
   return all.filter(q => !q.quarterIds || q.quarterIds.includes(quarterId)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
 export async function listAllQuestions() {
-  return rows(await getDocs(collection(db, 'cohQuestions'))).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return rows(await getDocs(collection(db, 'cohQuestions'))).filter(q => q.deleted !== true).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
 export async function createQuestion({ title, description = '', ratingScale = 5, quarterIds = null, order = 0 }) {
   const s = me(), ref = doc(collection(db, 'cohQuestions'));
@@ -49,6 +50,14 @@ export async function createQuestion({ title, description = '', ratingScale = 5,
 export async function saveQuestion(id, patch) {
   await updateDoc(doc(db, 'cohQuestions', id), patch);
   audit('performance.coh.question.update', `cohQuestions/${id}`, Object.keys(patch).join(', '));
+}
+// Delete a question (12 Nov 2026). It leaves every list (Manage questions, new evaluations, the One To One form). The record
+// itself is kept, marked deleted: marks already given for it stay in the evaluations that hold them, and the rules never
+// remove a question for good.
+export async function deleteQuestion(id, title = '') {
+  const s = me();
+  await updateDoc(doc(db, 'cohQuestions', id), { deleted: true, active: false, deletedAt: serverTimestamp(), deletedBy: s.user.uid, deletedByName: s.name });
+  audit('performance.coh.question.delete', `cohQuestions/${id}`, title);
 }
 
 // ---- Eligibility: active participants in the quarter, minus myself ----
