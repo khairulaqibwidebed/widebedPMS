@@ -1,7 +1,7 @@
 // Staff Attendance (11 Nov 2026). The Widebed Staff Attendance app (Flutter) writes attendance/{uid}_{YYYY-MM-DD};
 // this page lets HR and Directors read everyone's, fix a missed clock-in or clock-out, keep the public holiday list and
 // change the office settings. Firestore rules: Draft 0.49 (the app), 0.51 (corrections here), 0.52 (several clock-ins a day),
-// 0.59 (a holiday can leave some staff out: exceptUids).
+// 0.59 (a holiday can leave some staff out: exceptUids), 0.61 (several locations: config.places, clockInPlace / clockOutPlace).
 // Times are Malaysia time (UTC+8, no daylight saving) whatever the computer is set to.
 import { db } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, serverTimestamp, Timestamp, deleteDoc, deleteField } from 'firebase/firestore';
@@ -14,8 +14,53 @@ export const DEFAULT_CFG = Object.freeze({
   address: 'Unit 01-01, 1st Floor, Micasa Shoppes, 368-A Jalan Tun Razak, 50400 Kuala Lumpur',
   lat: 3.156812, lng: 101.722188, radiusM: 250,
   workStartMin: 540, lateAfterMin: 550, workEndMin: 1080, workDays: [1, 2, 3, 4, 5],
-  allowOffsite: true          // Draft 0.54: clock in / out away from the office is allowed and shown as Off-site
+  allowOffsite: true,         // Draft 0.54: clock in / out away from the office is allowed and shown as Off-site
+  places: []                  // Draft 0.61: the other locations (properties): { name, address, lat, lng, radiusM, cosLat }
 });
+// What a clock-in at the main office is recorded as (the same word in the app and the rules).
+export const MAIN_PLACE = 'WIDEBED';
+export const MAX_PLACES = 30;
+
+// "3.156812, 101.722188", or a Google Maps link that has the numbers in it -> { lat, lng } (null when there are none).
+export function parseLatLng(text) {
+  const t = String(text || '').trim();
+  const m = /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/.exec(t)                 // the pin of a place link
+    || /[?&](?:q|ll|query|destination)=(-?\d+(?:\.\d+)?)(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/i.exec(t)
+    || /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/.exec(t)                          // the middle of the map
+    || /^\(?\s*(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)\s*\)?$/.exec(t);
+  if (!m) return null;
+  const lat = Number(m[1]), lng = Number(m[2]);
+  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+}
+// The locations list, checked and tidied for saving (throws a message HR can read).
+export function cleanPlaces(list) {
+  const out = [], seen = new Set([MAIN_PLACE.toLowerCase()]);
+  for (const p of list || []) {
+    const name = String(p.name || '').trim().slice(0, 60);
+    const lat = Number(p.lat), lng = Number(p.lng), radiusM = Number(p.radiusM);
+    if (!name) throw new Error('Give every location a name.');
+    if (seen.has(name.toLowerCase())) throw new Error(`Two locations are called "${name}". Each needs its own name (${MAIN_PLACE} is the main office).`);
+    if (p.lat === '' || p.lng === '' || p.lat == null || p.lng == null || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new Error(`Check the latitude and longitude of "${name}".`);
+    if (!(radiusM >= 50 && radiusM <= 2000)) throw new Error(`The allowed distance of "${name}" must be between 50 and 2000 metres.`);
+    seen.add(name.toLowerCase());
+    out.push({ name, address: String(p.address || '').trim().slice(0, 200), lat, lng, radiusM, cosLat: Math.cos(lat * Math.PI / 180) });
+  }
+  if (out.length > MAX_PLACES) throw new Error(`${MAX_PLACES} locations at most.`);
+  return out;
+}
+// Where a clock-in ('In') or clock-out ('Out') was made, as HR reads it: WIDEBED, a property's name, or
+// "Off-site: <address the phone looked up, else the coordinates>". '' when nothing is known (a record HR added by hand).
+export function placeText(rec, which) {
+  if (!rec || !rec[`clock${which}`]) return '';
+  const place = String(rec[`clock${which}Place`] || '').trim(), inArea = rec[`clock${which}InArea`];
+  const lat = rec[`clock${which}Lat`], lng = rec[`clock${which}Lng`];
+  if (inArea === false) return `Off-site: ${place || (typeof lat === 'number' && typeof lng === 'number' ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : 'place not recorded')}`;
+  return place || (inArea === true ? MAIN_PLACE : '');
+}
+export function mapLink(rec, which) {
+  const lat = rec?.[`clock${which}Lat`], lng = rec?.[`clock${which}Lng`];
+  return typeof lat === 'number' && typeof lng === 'number' ? `https://www.google.com/maps?q=${lat},${lng}` : '';
+}
 // A full day: work start to work end (9:00 – 18:00 = 540 minutes). A day with at least this much work is Normal,
 // even if they left before 6 PM (owner, 11 Nov 2026).
 export const requiredMinutes = cfg => Math.max(0, (cfg.workEndMin ?? 1080) - (cfg.workStartMin ?? 540));
@@ -35,12 +80,14 @@ export async function saveConfig(cfg, me) {
     workStartMin: Math.round(cfg.workStartMin), lateAfterMin: Math.round(cfg.lateAfterMin), workEndMin: Math.round(cfg.workEndMin),
     workDays: [...cfg.workDays].map(Number).sort(),
     allowOffsite: cfg.allowOffsite !== false,
+    places: cleanPlaces(cfg.places),
     updatedBy: me.user.uid, updatedAt: serverTimestamp()
   };
   const b = writeBatch(db);
   b.set(doc(db, 'config', 'attendance'), data);
   audit(b, me, { action: 'attendance.settings', entity: 'config/attendance',
-    changes: [{ field: 'office', to: `${data.lat}, ${data.lng} · ${data.radiusM} m` }, { field: 'late after', to: hm(data.lateAfterMin) }] });
+    changes: [{ field: 'office', to: `${data.lat}, ${data.lng} · ${data.radiusM} m` }, { field: 'late after', to: hm(data.lateAfterMin) },
+      { field: 'other locations', to: data.places.map(p => `${p.name} (${p.radiusM} m)`).join(', ') || 'none' }] });
   await b.commit();
 }
 
@@ -297,7 +344,7 @@ export function exportRows(rows, deptOf) {
 
 // ======================================================================================================================
 // Daily Report (11 Nov 2026): the layout of HR's payroll sheet (CLOCK_IN_PAYROLL.xlsx). One block per person, one row per
-// day: Name | Position | Attendance Date | Attendance Shift | Clock In1 (Punch Time, Result) | Clock Out1 (Punch Time, Result)
+// day: Name | Position | Attendance Date | Attendance Shift | Clock In1 (Punch Time, Result, Location) | Clock Out1 (Punch Time, Result, Location)
 // | [Clock In2 / Clock Out2 … when anyone clocked in again] | Work Duration (Minutes) | Late for (Minutes) | Absent Days,
 // then a total line. Rest days and public holidays span the clock columns. Grouped by department; interns in their own group.
 // The page table and the Excel export are both drawn from dailyReport().
@@ -359,6 +406,8 @@ export function dailyReport({ records, staff, holidays, cfg, from, to, today, fi
           inTime: hhmm(x.clockIn),
           inResult: isLate ? `Late ${lateMin} Mins${inOff ? ' · Off-site' : ''}` : inOff ? 'Off-site' : 'Normal',
           inFill: isLate ? 'CCFFCC' : inOff ? 'CCFFFF' : '', inKind: isLate ? 'late' : inOff ? 'offsite' : 'normal',
+          // Draft 0.61: where each was made (WIDEBED, a property, or Off-site: the address) and a map link to the exact spot
+          inPlace: placeText(x, 'In'), outPlace: placeText(x, 'Out'), inMap: mapLink(x, 'In'), outMap: mapLink(x, 'Out'),
           outTime: x.clockOut ? hhmm(x.clockOut) : '', outResult, outFill, outKind
         };
       });
@@ -418,9 +467,10 @@ const st = (o = {}) => ({
 
 export function reportSheet(report, XLSX, generatedAt) {
   const S = report.maxSessions;
-  const nCols = 4 + S * 4 + 4;                 // A–D, In/Out pairs, the three number columns, then Status (540-minute rule)
+  const W = 6;                                 // columns per clock-in: In (Punch Time, Result, Location), Out (the same three). Location: 12 Nov 2026
+  const nCols = 4 + S * W + 4;                 // A–D, In/Out pairs, the three number columns, then Status (540-minute rule)
   const last = nCols - 1;
-  const cIdx = { work: 4 + S * 4, late: 5 + S * 4, absent: 6 + S * 4, status: 7 + S * 4 };
+  const cIdx = { work: 4 + S * W, late: 5 + S * W, absent: 6 + S * W, status: 7 + S * W };
   const ws = {}, merges = [], rowsH = [];
   const put = (r, c, v, style, extra = {}) => {
     const cell = typeof v === 'number' ? { t: 'n', v } : { t: 's', v: v == null ? '' : String(v) };
@@ -439,10 +489,11 @@ export function reportSheet(report, XLSX, generatedAt) {
   const H = st({ font: F_HEAD, sz: 10, bold: true, fill: 'FFFFCC' });
   [['Name', 0], ['Position', 1], ['Attendance Date', 2], ['Attendance Shift', 3]].forEach(([t, c]) => { put(2, c, t, H); put(3, c, '', H); merge(2, c, 3, c); });
   for (let k = 0; k < S; k++) {
-    const c = 4 + k * 4;
-    put(2, c, `Clock In${k + 1}`, H); put(2, c + 1, '', H); merge(2, c, 2, c + 1);
-    put(2, c + 2, `Clock Out${k + 1}`, H); put(2, c + 3, '', H); merge(2, c + 2, 2, c + 3);
-    put(3, c, 'Punch Time:', H); put(3, c + 1, 'Result', H); put(3, c + 2, 'Punch Time:', H); put(3, c + 3, 'Result', H);
+    const c = 4 + k * W;
+    put(2, c, `Clock In${k + 1}`, H); put(2, c + 1, '', H); put(2, c + 2, '', H); merge(2, c, 2, c + 2);
+    put(2, c + 3, `Clock Out${k + 1}`, H); put(2, c + 4, '', H); put(2, c + 5, '', H); merge(2, c + 3, 2, c + 5);
+    put(3, c, 'Punch Time:', H); put(3, c + 1, 'Result', H); put(3, c + 2, 'Location', H);
+    put(3, c + 3, 'Punch Time:', H); put(3, c + 4, 'Result', H); put(3, c + 5, 'Location', H);
   }
   [['Work Duration (Minutes)', cIdx.work], ['Late for (Minutes)', cIdx.late], ['Absent Days', cIdx.absent], ['Status', cIdx.status]].forEach(([t, c]) => { put(2, c, t, H); put(3, c, '', H); merge(2, c, 3, c); });
   rowsH[3] = { hpt: 24 };
@@ -465,9 +516,13 @@ export function reportSheet(report, XLSX, generatedAt) {
         } else {
           put(r, 3, row.shift, D);
           for (let k = 0; k < S; k++) {
-            const c = 4 + k * 4, x = row.pairs?.[k];
+            const c = 4 + k * W, x = row.pairs?.[k];
+            // Location: an off-site one is light blue and opens the exact spot on Google Maps
+            const loc = (cc, text, off, url) => put(r, cc, text || '', st({ sz: 10, fill: off ? 'CCFFFF' : '' }), off && url ? { l: { Target: url, Tooltip: 'Open the spot on Google Maps' } } : {});
             put(r, c, x ? x.inTime : '', D); put(r, c + 1, x ? x.inResult : (row.type === 'absent' && k === 0 ? 'Absent' : ''), st({ fill: x ? x.inFill : (row.type === 'absent' && k === 0 ? 'FF8080' : '') }));
-            put(r, c + 2, x ? x.outTime : '', D); put(r, c + 3, x ? x.outResult : '', st({ fill: x ? x.outFill : '' }));
+            loc(c + 2, x?.inPlace, x?.inOff, x?.inMap);
+            put(r, c + 3, x ? x.outTime : '', D); put(r, c + 4, x ? x.outResult : '', st({ fill: x ? x.outFill : '' }));
+            loc(c + 5, x?.outPlace, x?.outOff && !!x?.outTime, x?.outMap);
           }
           put(r, cIdx.work, row.type === 'work' ? row.workMin : '', D);
           put(r, cIdx.late, row.lateMin != null ? row.lateMin : '', D);
@@ -475,7 +530,7 @@ export function reportSheet(report, XLSX, generatedAt) {
           const sFill = { short: 'FFFFCC', missing: 'FF8080', absent: 'FF8080' }[row.statusKind] || '';
           put(r, cIdx.status, row.status || '', st({ fill: sFill }));
         }
-        rowsH[r] = { hpt: row.pairs?.some(x => x.outResult.startsWith('Leave Early')) ? 57 : 28.5 };
+        rowsH[r] = { hpt: row.pairs?.some(x => x.outResult.startsWith('Leave Early') || x.inPlace.length > 34 || x.outPlace.length > 34) ? 57 : 28.5 };
         r++;
       }
       // Name and position span the person's days
@@ -496,7 +551,7 @@ export function reportSheet(report, XLSX, generatedAt) {
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(r - 1, 3), c: last } });
   ws['!merges'] = merges;
   ws['!rows'] = rowsH;
-  ws['!cols'] = [{ wch: 31 }, { wch: 34 }, { wch: 15.4 }, { wch: 16 }, ...Array.from({ length: S * 4 }, (_, i) => ({ wch: i % 2 ? 14 : 10 })), { wch: 13 }, { wch: 11 }, { wch: 9 }, { wch: 18 }];
+  ws['!cols'] = [{ wch: 31 }, { wch: 34 }, { wch: 15.4 }, { wch: 16 }, ...Array.from({ length: S * W }, (_, i) => ({ wch: [10, 14, 34][i % 3] })), { wch: 13 }, { wch: 11 }, { wch: 9 }, { wch: 18 }];
   return ws;
 }
 

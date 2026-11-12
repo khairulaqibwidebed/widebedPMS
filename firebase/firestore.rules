@@ -1,5 +1,13 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.59, 12 Nov 2026: Staff Attendance, holidays per person. A public holiday
+// Widebed PMS Firestore rules. Draft 0.61, 12 Nov 2026: Staff Attendance, several locations. config/attendance may hold
+// `places` (up to 30: name, address, lat, lng, radiusM, cosLat), the company's properties next to the main office. A clock-in /
+// clock-out inside one is Normal and saves which one (clockInPlaceIdx / clockOutPlaceIdx: -1 = the main office, else the
+// place's position in the list) and its name (clockInPlace / clockOutPlace, 'WIDEBED' for the main office); the server checks
+// the phone really is inside the place it names. Outside all of them it is Off-site (if allowed) and the place text is the
+// address the phone looked up (up to 200 characters). Apps from before this draft still work (main office only). Nothing else changes.
+// Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
+// property (Portfolio > Fees & Rates). Read and add-only create, the same people as a property's rateVersions. Nothing else changed.
+// Draft 0.59, 12 Nov 2026: Staff Attendance, holidays per person. A public holiday
 // (attendanceHolidays/{date}) may leave some staff out (exceptUids: a list of uids, HR unticks them in the PMS). For them that
 // date is a normal working day: clocking in is not an Off day and late counts. Holidays now accept only name, exceptUids
 // (up to 300), addedBy/addedAt and updatedBy/updatedAt. Nothing else changes.
@@ -540,6 +548,13 @@ service cloud.firestore {
           && newKeysOnly(['effectiveFrom', 'ota', 'earlyCheckInToOwner', 'tourismTaxPerNight', 'reason', 'createdBy', 'createdByName', 'createdAt']);
         allow update, delete: if false;
       }
+    }
+
+    // One set of fees and rates for every property (Draft 0.60). Add-only versions, like rateVersions above.
+    match /sharedRates/{v} {
+      allow read: if staff() || portfolioEditor();
+      allow create: if portfolioEditor() && request.resource.data.reason is string;
+      allow update, delete: if false;
     }
 
     match /units/{unitId} {
@@ -1686,21 +1701,28 @@ service cloud.firestore {
            'allowOffsite': true};
     }
     // Draft 0.54: clocking in / out away from the office is allowed (saved as Off-site, InArea false) unless HR turns it off.
-    // The InArea flag the phone sends must match the server's own distance check, so nobody can mark themselves Normal.
-    function attPlaceOk(lat, lng, inArea) {
-      return lat is number && lng is number && inArea == attInArea(lat, lng)
-        && (inArea || attCfg().get('allowOffsite', true) == true);
+    // Draft 0.61: Normal (InArea true) means inside the main office (i == -1) or inside places[i]; the server does the
+    // distance sum for the place the phone names, so nobody can mark themselves Normal or name a place they aren't at.
+    // name: 'WIDEBED' or the place's name when Normal, the looked-up address when Off-site (null = an older app).
+    function attPlaces() { return attCfg().get('places', []); }
+    function attSpot(i) { return i == -1 ? attCfg() : attPlaces()[i]; }
+    function attPlaceOk(lat, lng, inArea, i, name) {
+      return lat is number && lng is number && inArea is bool
+        && (inArea
+            ? (i is int && i >= -1 && i < attPlaces().size() && attNear(lat, lng, attSpot(i))
+                && (name == null || name == (i == -1 ? 'WIDEBED' : attSpot(i).name)))
+            : (attCfg().get('allowOffsite', true) == true && (name == null || (name is string && name.size() <= 200))));
     }
     function attPad(n) { return n < 10 ? '0' + string(n) : string(n); }
     // The server's time in Malaysia (UTC+8, no daylight saving).
     function myNow() { return request.time + duration.value(8, 'h'); }
     function attToday() { let t = myNow(); return string(t.year()) + '-' + attPad(t.month()) + '-' + attPad(t.day()); }
-    // Inside the office circle, from the phone's reported position (metres, flat-earth sum: exact enough at 250 m).
-    function attInArea(lat, lng) {
-      let c = attCfg();
-      let dy = (lat - c.lat) * 111320;
-      let dx = (lng - c.lng) * 111320 * c.cosLat;
-      return lat is number && lng is number && dy * dy + dx * dx <= c.radiusM * c.radiusM;
+    // Inside a place's circle (the main office or one of places), from the phone's reported position
+    // (metres, flat-earth sum: exact enough at these sizes).
+    function attNear(lat, lng, p) {
+      let dy = (lat - p.lat) * 111320;
+      let dx = (lng - p.lng) * 111320 * p.cosLat;
+      return dy * dy + dx * dx <= p.radiusM * p.radiusM;
     }
     // Draft 0.59: a holiday counts for you unless HR left you out of it (exceptUids).
     function attHolidayForMe(date) {
@@ -1731,14 +1753,15 @@ service cloud.firestore {
       allow create: if anyStaff()
         && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'role', 'date', 'session', 'clockIn', 'clockInLat',
              'clockInLng', 'clockInAccuracy', 'clockInDistance', 'clockInInArea', 'clockInMocked', 'late', 'lateReason', 'offDay',
-             'status', 'platform', 'createdAt', 'updatedAt'])
+             'status', 'platform', 'createdAt', 'updatedAt', 'clockInPlace', 'clockInPlaceIdx'])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.date == attToday()
         && request.resource.data.clockIn == request.time
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && request.resource.data.clockInMocked == false
-        && attPlaceOk(request.resource.data.clockInLat, request.resource.data.clockInLng, request.resource.data.clockInInArea)
+        && attPlaceOk(request.resource.data.clockInLat, request.resource.data.clockInLng, request.resource.data.clockInInArea,
+             request.resource.data.get('clockInPlaceIdx', -1), request.resource.data.get('clockInPlace', null))
         && request.resource.data.offDay == !attWorkDay(attToday())
         && request.resource.data.late is bool
         && ((
@@ -1766,11 +1789,12 @@ service cloud.firestore {
               resource.data.date == attToday()
               && !('clockOut' in resource.data)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockOut', 'clockOutLat', 'clockOutLng',
-                   'clockOutAccuracy', 'clockOutDistance', 'clockOutInArea', 'clockOutMocked', 'updatedAt'])
+                   'clockOutAccuracy', 'clockOutDistance', 'clockOutInArea', 'clockOutMocked', 'updatedAt', 'clockOutPlace', 'clockOutPlaceIdx'])
               && request.resource.data.clockOut == request.time
               && request.resource.data.updatedAt == request.time
               && request.resource.data.clockOutMocked == false
-              && attPlaceOk(request.resource.data.clockOutLat, request.resource.data.clockOutLng, request.resource.data.clockOutInArea)
+              && attPlaceOk(request.resource.data.clockOutLat, request.resource.data.clockOutLng, request.resource.data.clockOutInArea,
+                   request.resource.data.get('clockOutPlaceIdx', -1), request.resource.data.get('clockOutPlace', null))
             ) || (
               'clockOut' in resource.data
               && !('workedMinutes' in resource.data)
@@ -1789,7 +1813,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'role', 'date', 'session', 'clockIn', 'clockInLat', 'clockInLng',
              'clockInAccuracy', 'clockInDistance', 'clockInInArea', 'clockInMocked', 'late', 'lateReason', 'offDay', 'status',
              'platform', 'createdAt', 'updatedAt', 'clockOut', 'clockOutLat', 'clockOutLng', 'clockOutAccuracy', 'clockOutDistance',
-             'clockOutInArea', 'clockOutMocked', 'workedMinutes', 'editedBy', 'editedByName', 'editedAt', 'editNote'])
+             'clockOutInArea', 'clockOutMocked', 'workedMinutes', 'editedBy', 'editedByName', 'editedAt', 'editNote',
+             'clockInPlace', 'clockInPlaceIdx', 'clockOutPlace', 'clockOutPlaceIdx'])
         && request.resource.data.clockIn is timestamp
         && (!('clockOut' in request.resource.data)
             || (request.resource.data.clockOut is timestamp && request.resource.data.clockOut > request.resource.data.clockIn))
@@ -1812,12 +1837,13 @@ service cloud.firestore {
       allow delete: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
     }
 
-    // Office location, radius and late time for attendance.
+    // Office location, radius and late time for attendance. Draft 0.61: places = the other locations (properties), up to 30.
     match /config/attendance {
       allow read: if anyStaff();
       allow write: if hrOrDir()
         && request.resource.data.keys().hasOnly(['officeName', 'address', 'lat', 'lng', 'radiusM', 'cosLat', 'workStartMin',
-             'workEndMin', 'lateAfterMin', 'workDays', 'allowOffsite', 'updatedBy', 'updatedAt'])
+             'workEndMin', 'lateAfterMin', 'workDays', 'allowOffsite', 'places', 'updatedBy', 'updatedAt'])
+        && request.resource.data.get('places', []) is list && request.resource.data.get('places', []).size() <= 30
         && request.resource.data.get('allowOffsite', true) is bool
         && request.resource.data.lat is number && request.resource.data.lng is number
         && request.resource.data.radiusM is number && request.resource.data.radiusM >= 50 && request.resource.data.radiusM <= 2000
