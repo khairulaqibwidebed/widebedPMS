@@ -17,6 +17,7 @@
           <button role="tab" :class="{ on: tab === 'preview' }" :aria-selected="String(tab === 'preview')" @click="tab = 'preview'">Try the form</button>
         </div>
         <button class="btn btn-sm btn-primary" :disabled="autosave.status.value === 'saving'" @click="saveNow">Save</button>
+        <AgreementGuide page="form" admin small />
       </div>
 
       <div class="ag-three">
@@ -189,6 +190,7 @@
 
 <script setup>
 // Form builder: fields, their order, choices, formulas and "show only when" rules. Saves itself; undo/redo.
+import AgreementGuide from '@/components/agreements/AgreementGuide.vue';
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import FieldInput from '@/components/agreements/FieldInput.vue';

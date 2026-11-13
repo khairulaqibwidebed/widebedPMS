@@ -1,5 +1,7 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.67, 13 Nov 2026 (Khairul): Directors may delete an owner listing
+// Widebed PMS Firestore rules. Draft 0.68, 13 Nov 2026 (Khairul): merge only. Holds Khairul's 0.65 to 0.67 and
+// the changes pulled from origin/testing (Neo's side). Nothing new.
+// Draft 0.67, 13 Nov 2026 (Khairul): Directors may delete an owner listing
 // (newOwnerListings/{id} and its private/main). Nothing else changed.
 // Draft 0.66, 13 Nov 2026 (Khairul): Owner Leads redesign. (1) Operations work owner listings:
 // their usual pages get Owner Leads Edit (presetFor, same as lib/access.js PRESETS), they may change lead statuses and read
@@ -409,14 +411,6 @@ service cloud.firestore {
         && resource.data.role != 'director' && request.resource.data.role != 'director';
       // Sign-in stamps lastLoginAt on your own record (Team activity).
       allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
-      // Draft 0.63: whoever adds a property gets it on their own list. One id at a time, added at the end, nothing removed,
-      // and it must be a property they created themselves.
-      allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['properties'])
-        && request.resource.data.properties is list
-        && request.resource.data.properties.size() == resource.data.get('properties', []).size() + 1
-        && request.resource.data.properties.hasAll(resource.data.get('properties', []))
-        && get(docPath('properties', request.resource.data.properties[request.resource.data.properties.size() - 1])).data.get('createdBy', null) == request.auth.uid
-        && anyStaff();
       allow delete: if false;
     }
 
@@ -572,8 +566,6 @@ service cloud.firestore {
 
     match /properties/{propertyId} {
       allow read: if staff() || portfolioViewer();
-      // Draft 0.65: HR read every property (name, code, state) to set staff property access
-      allow read: if isHR();
       allow write: if portfolioEditor();
       allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'state', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
@@ -632,13 +624,6 @@ service cloud.firestore {
 
     // The owner parent holds bankLast4 (not shown to portfolio viewers); Operations create it with none.
     match /owners/{ownerId} {
-      // Draft 0.63: Operations and Marketing also save `propertyIds` (the properties of the owner's units; staff of those
-      // properties see the owner), the same way as `states` below. First in the block, cheapest check first: further down, a
-      // request runs out of the 1000 checks the rules allow before it is reached (seen in the emulator, also for `states`).
-      allow update: if changed().hasOnly(['states', 'propertyIds'])
-        && request.resource.data.get('states', []) is list && request.resource.data.get('states', []).size() <= 16
-        && request.resource.data.get('propertyIds', []) is list && request.resource.data.get('propertyIds', []).size() <= 200
-        && (portfolioAdder() || isMkt());
       allow read: if staff() || portfolioViewer();
       allow create, update: if portfolioEditor();
       allow delete: if isDirector();   // safe delete: the page only offers it for owners with no units
@@ -858,10 +843,6 @@ service cloud.firestore {
     // Written by Finance/Directors, and by Operations only inside Create booking (opsBooking, lastInquiryId)
     // or a direct booking (directBookingMadeNow, lastBookingId).
     match /tenants/{tenantId} {
-      // Draft 0.63: after a booking is saved, the booking's property is added to the tenant's `propertyIds` (only that changes).
-      // First in the block, cheapest check first (see owners).
-      allow update: if changed().hasOnly(['propertyIds']) && request.resource.data.propertyIds is list
-        && request.resource.data.propertyIds.size() <= 200 && isOps();
       allow read: if finOrDir() || isOps();
       allow create, update: if finOrDir();
       allow create, update: if opsBooking(request.resource.data.get('lastInquiryId', null), tenantId)
@@ -873,9 +854,6 @@ service cloud.firestore {
       allow delete: if false;
       match /private/{docId} {
         allow read: if isOps();
-        // Draft 0.63: the same list on private/main (the tenant search reads it)
-        allow update: if docId == 'main' && changed().hasOnly(['propertyIds'])
-          && request.resource.data.propertyIds is list && request.resource.data.propertyIds.size() <= 200 && (isOps() || finOrDir());
         allow create, update: if opsBooking(getAfter(docPath('tenants', tenantId)).data.get('lastInquiryId', null), tenantId);
         allow create, update: if isOps()
           && directBookingMadeNow(getAfter(docPath('tenants', tenantId)).data.get('lastBookingId', null), tenantId);

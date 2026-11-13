@@ -18,10 +18,13 @@
 
 <script setup>
 // A small "type a name" box (new form, rename, add column…).
-import { ref, onMounted } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 const props = defineProps({ title: String, label: { type: String, default: 'Name' }, value: { type: String, default: '' }, confirm: { type: String, default: 'Save' }, help: String });
 const emit = defineEmits(['close', 'done']);
 const text = ref(props.value), box = ref(null), uid = 'nd-' + Math.random().toString(36).slice(2, 7);
 onMounted(() => { box.value?.focus(); box.value?.select(); });
+// The suggested name can change while the box is open (picking a starter form): follow it unless the person typed their own.
+let suggested = props.value;
+watch(() => props.value, v => { if (text.value === suggested) text.value = v; suggested = v; });
 const done = () => { if (text.value.trim()) emit('done', text.value.trim()); };
 </script>

@@ -67,7 +67,7 @@ describe('the staff list and the form', () => {
 });
 
 describe('the PDF', () => {
-  it('is made with two pages, also with no marks, many questions or a name the fonts can\'t print', async () => {
+  it('is made with two pages at most, also with no marks, many questions or a name the fonts can\'t print', async () => {
     const { PDFDocument } = await import('pdf-lib');
     const base = { company: O.COMPANY, topic: O.TOPIC, date: '10/12/26', venue: '183 Site Office', staffName: 'Aina Sofea', joinDate: '', position: 'Operations Executive', average: '', raters: 0, expected: 14 };
     for (const data of [{ ...base, questions: [] }, { ...base, staffName: '陈美玲', questions: Array.from({ length: 45 }, (_, i) => ({ title: `Question number ${i + 1} with a rather long title`, mark: '4.0' })), average: '4.00', raters: 3 }]) {

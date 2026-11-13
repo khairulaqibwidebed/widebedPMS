@@ -6,7 +6,7 @@
         <h1>Agreement Setup</h1>
         <div class="sub">Build the forms staff fill in, upload agreement templates (PDF) and place the fields on them.</div>
       </div>
-      <div class="head-tools"><RouterLink class="btn" to="/Agreements">Go to Agreements</RouterLink></div>
+      <div class="head-tools"><RouterLink class="btn" to="/Agreements">Go to Agreements</RouterLink><AgreementGuide page="setup" admin /></div>
     </div>
 
     <div class="notice warn" v-if="!driveReady()">Google Drive isn't connected yet, so templates and files can't be uploaded. Follow apps-script/SETUP.md, then add VITE_AGREEMENTS_DRIVE_URL.</div>
@@ -225,6 +225,7 @@
 
 <script setup>
 // Agreement setup: forms and templates. Needs the "Agreement setup" tick (Directors always have it).
+import AgreementGuide from '@/components/agreements/AgreementGuide.vue';
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import NameDialog from '@/components/agreements/NameDialog.vue';
