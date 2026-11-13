@@ -9,7 +9,7 @@
       <div class="kv" v-if="d.live.overrideReason"><span>Before Marketing was done</span><span>{{ d.live.overrideReason }}</span></div>
     </template>
     <template v-else-if="canEdit">
-      <div class="notice warn" v-if="!stageDoneOf(d, 'marketing')">{{ mkReadyOf(d) ? `Finish the marketing checklist first (${d.marketing.items.filter(m => m.on).length} of ${d.marketing.items.length} done, Marketing stage).` : 'The payment (or the deposit) is not confirmed yet (Payment stage), so Marketing has not started.' }}</div>
+      <div class="notice warn" v-if="!stageDoneOf(d, 'marketing')">{{ mkReadyOf(d) ? `Finish the marketing checklist first (${d.marketing.items.filter(m => m.on).length} of ${d.marketing.items.length} done, Marketing stage).` : !paidOf(d) ? 'The payment (or the deposit) is not confirmed yet (Payment stage), so Marketing has not started.' : 'Operations Setup is not done yet, so Marketing has not started.' }}</div>
       <div class="notice warn" v-if="balanceDueOf(d)">{{ `The balance (${rm(balanceOf(d))}) is not received yet (Payment stage).` }}</div>
       <div class="notice warn" v-else-if="mkTask && !mkTask.completed">{{ `The Marketing task is not completed yet (${mkTask.subtasksDone} of ${mkTask.subtasksTotal} done).` }}</div>
       <div><button class="btn btn-primary" @click="$emit('mark-live')" :disabled="busy || !stageDoneOf(d, 'marketing')">Mark as Live</button></div>
@@ -21,20 +21,20 @@
       <li class="lv-step" :class="{ ok: !!fee }">
         <span class="lv-num" aria-hidden="true">{{ fee ? '✓' : '1' }}</span>
         <div class="lv-text">
-          <b>{{ fee ? `Service fee ${fee.pct}%` : 'Service fee not set' }}</b>
-          <small>{{ fee ? `${fee.label} rent, from Types of service. Create ▾ Unit fills it in as the unit's service fee; pick the arrangement there and check it.` : 'No rent type in Types of service, so no service fee is filled in for the unit.' }}</small>
+          <b>{{ fee ? fee.text : 'Arrangement not picked' }}</b>
+          <small>{{ fee ? 'From Types of service. Accounting or a Director puts this arrangement on the unit in Portfolio (Units tab).' : 'No arrangement in Types of service yet.' }}</small>
         </div>
       </li>
-      <li class="lv-step" :class="{ ok: inPortfolio }">
-        <span class="lv-num" aria-hidden="true">{{ inPortfolio ? '✓' : '2' }}</span>
+      <li class="lv-step" :class="{ ok: allIn }">
+        <span class="lv-num" aria-hidden="true">{{ allIn ? '✓' : '2' }}</span>
         <div class="lv-text">
-          <b>Create in Portfolio</b>
-          <small v-if="canAddPortfolio">{{ 'Each option opens the Portfolio add form filled in from this listing. Check it and press Save there.'
-            + (canSeeContact ? '' : ' Owner phone and email are not filled in: only Directors and Procurement see them.') }}</small>
-          <small v-else>Operations creates these from this listing (the property, unit and owner in Portfolio).</small>
-          <small v-if="inPortfolio" class="lv-done">{{ 'In Portfolio: ' + [portfolio.propertyId && `property ${portfolio.propertyId}`, portfolio.unitId && `unit ${portfolio.unitId}`, portfolio.ownerId && 'owner added'].filter(Boolean).join(' · ') }}</small>
+          <b>{{ allIn ? 'In Portfolio' : 'Create in Portfolio' }}</b>
+          <small v-if="allIn">Made when the agreement was marked Signed (Agreement stage).</small>
+          <small v-else-if="canAddPortfolio">{{ 'Made when the agreement is marked Signed. For an older listing, each option opens the Portfolio add form filled in from this listing.' }}</small>
+          <small v-else>Made when the agreement is marked Signed (Agreement stage).</small>
+          <small v-if="inPortfolio" class="lv-done">{{ 'In Portfolio: ' + [portfolio.propertyId && `property ${portfolio.propertyId}`, portfolio.unitId && `unit ${portfolio.unitId}`, portfolio.ownerId && `owner ${portfolio.ownerId}`].filter(Boolean).join(' · ') }}</small>
         </div>
-        <div class="create-wrap" v-if="canAddPortfolio">
+        <div class="create-wrap" v-if="canAddPortfolio && !allIn">
           <button class="btn lv-create" @click="createOpen = !createOpen" :aria-expanded="String(createOpen)">Create ▾</button>
           <template v-if="createOpen">
             <div class="create-back" @click="createOpen = false"></div>
@@ -46,23 +46,16 @@
           </template>
         </div>
       </li>
-      <li class="lv-step" :class="{ ok: d.live.opsGroup }">
-        <span class="lv-num" aria-hidden="true">{{ d.live.opsGroup ? '✓' : '3' }}</span>
-        <label class="lv-text" v-if="canEdit" for="lvOps">
-          <b>Ops WhatsApp group made</b>
-          <small>Tick once the Operations group for this unit exists.</small>
-        </label>
-        <div class="lv-text" v-else><b>Ops WhatsApp group made</b><small>{{ d.live.opsGroup ? 'Yes' : 'Not yet' }}</small></div>
-        <input v-if="canEdit" id="lvOps" class="lv-check" type="checkbox" v-model="d.live.opsGroup">
-      </li>
     </ol>
+    <p class="help">The WhatsApp group is now a row in Operations Setup (Owner's WhatsApp Group).</p>
   </section>
 </template>
 
 <script>
-// Stage: Live (Mark as Live, the handover to Operations as three steps: service fee, Create property / unit / owner in
-// Portfolio, Ops WhatsApp group). Redesigned 11 Nov 2026; what each part does is unchanged.
-import { stamp, stageDoneOf, serviceFeeOf, mkReadyOf, balanceDueOf, balanceOf, rm } from '@/lib/owner-leads.js';
+// Stage: Live (Mark as Live, the handover: the arrangement for the unit, the Portfolio records). 13 Nov 2026: the
+// property, owner and unit are made at Agreement (Signed); Create ▾ stays for older listings; the Ops WhatsApp tick moved
+// to Operations Setup.
+import { stamp, stageDoneOf, serviceFeeOf, mkReadyOf, paidOf, balanceDueOf, balanceOf, rm } from '@/lib/owner-leads.js';
 
 export default {
   props: { d: { type: Object, required: true }, portfolio: { type: Object, default: null }, canEdit: Boolean, busy: Boolean,
@@ -71,9 +64,10 @@ export default {
   data() { return { createOpen: false }; },
   computed: {
     fee() { return serviceFeeOf(this.d); },
-    inPortfolio() { const p = this.portfolio; return !!(p && (p.propertyId || p.unitId || p.ownerId)); }
+    inPortfolio() { const p = this.portfolio; return !!(p && (p.propertyId || p.unitId || p.ownerId)); },
+    allIn() { const p = this.portfolio; return !!(p && p.propertyId && p.unitId && p.ownerId); }
   },
-  methods: { stamp, stageDoneOf, mkReadyOf, balanceDueOf, balanceOf, rm }
+  methods: { stamp, stageDoneOf, mkReadyOf, paidOf, balanceDueOf, balanceOf, rm }
 };
 </script>
 

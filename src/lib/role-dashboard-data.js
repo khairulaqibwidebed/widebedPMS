@@ -167,7 +167,9 @@ export async function loadHR() {
 export async function loadListingCounts() {
   const list = rows(await getDocs(collection(db, 'newOwnerListings')));
   const notLive = list.filter(x => x.status !== 'live' && x.status !== 'cancelled');   // Not proceeding counts as neither
-  return { count: list.length, notLive: notLive.length, forMarketing: notLive.filter(x => x.payment?.confirmed || (x.payment?.type === 'deposit' && x.payment?.deposit?.received)).length,
+  // 13 Nov 2026: Marketing starts after Operations Setup too (every row ticked; listings from before it have no setup)
+  const setupDone = x => !x.setup || !!x.setup.legacy || ((x.setup.items || []).length > 0 && x.setup.items.every(s => s.on));
+  return { count: list.length, notLive: notLive.length, forMarketing: notLive.filter(x => (x.payment?.confirmed || (x.payment?.type === 'deposit' && x.payment?.deposit?.received)) && setupDone(x)).length,
     unsigned: notLive.filter(x => !x.agreement?.signed && x.agreement?.skipped).length };
 }
 

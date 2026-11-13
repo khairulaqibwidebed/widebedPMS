@@ -124,11 +124,32 @@ export async function saveSelection(quarter, employeeUid, { workspaceIds, worksp
   return fields;
 }
 
+// A selection that was removed is kept as an empty record (records here are never deleted): no workspace, no task.
+// Everywhere it counts the same as "nothing chosen yet" (no TMS score).
+export const hasSelection = snap => !!snap && (snap.workspaceIds || []).length > 0;
+
+// Director removes an employee's whole selection for the quarter (12 Nov 2026): no workspace and no task count any more,
+// and any approval is cleared. Not once the quarter's score is finalized.
+export async function clearSelection(quarter, employeeUid) {
+  const s = me();
+  const prior = await getSnapshot(quarter.id, employeeUid);
+  if (!prior) return;
+  if (prior.isFinal) throw new Error('This quarter\'s TMS score is finalized — create a correction instead.');
+  await setDoc(doc(db, 'performanceTmsSnapshots', snapId(quarter.id, employeeUid)), {
+    quarterId: quarter.id, employeeId: employeeUid, workspaceIds: [], workspaceNames: [],
+    ...buildFields(quarter, []),
+    cleared: true, syncedAt: serverTimestamp(), selectedBy: s.user.uid, selectedByName: s.name,
+    approvedBy: null, approvedAt: null, isFinal: false
+  });
+  audit('performance.tms.clear', `performanceTmsSnapshots/${snapId(quarter.id, employeeUid)}`,
+    `Removed ${(prior.tasks || []).length} task(s) in ${(prior.workspaceNames || []).join(', ') || 'no workspace'}`);
+}
+
 // Re-reads the ticked tasks from the TMS to pick up newly completed (or cancelled / removed) ones. Keeps the
 // Director's selection exactly as it was. Clears approval only if the counts actually changed.
 export async function refreshSnapshot(quarter, employeeUid) {
   const prior = await getSnapshot(quarter.id, employeeUid);
-  if (!prior) return null;
+  if (!hasSelection(prior)) return null;
   if (prior.isFinal) throw new Error('This quarter\'s TMS score is finalized — create a correction instead.');
   const fresh = new Map((await fetchEmployeeTasks(employeeUid)).map(t => [t.id, t]));
   const ticked = (prior.tasks || []).map(old => fresh.has(old.id) ? fresh.get(old.id) : { ...old, missing: true });

@@ -26,9 +26,9 @@ const routes = [
   ticked('/Portfolio/owners', () => import('./pages/Portfolio/Owners/OwnersPage.vue'), 'Owners', 'portfolio'),
   ticked('/Portfolio/properties', () => import('./pages/Portfolio/Properties/PropertiesRoute.vue'), 'Properties', 'portfolio'),
   ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'portfolio'),
-  // Fees & Rates (12 Nov 2026): one set for every property. Opens with Portfolio View (the page shows a notice); the sidebar item needs Edit (access.js editTo).
-  ticked('/Portfolio/fees-rates', () => import('./pages/Portfolio/FeesRates/FeesRatesPage.vue'), 'Fees & Rates', 'portfolio'),
   ticked('/Portfolio/bulk-upload', () => import('./pages/Portfolio/BulkUpload.vue'), 'Bulk Upload', 'bulkUpload'),
+  // Converter (13 Nov 2026): any Excel/CSV -> the Bulk Upload template layout. Same tick as Bulk Upload; nothing is saved to the database.
+  ticked('/Portfolio/bulk-upload/converter', () => import('./pages/Portfolio/BulkConverter.vue'), 'Bulk Upload', 'bulkUpload'),
   { path: '/Portfolio', redirect: to => ({ path: `/Portfolio/${['owners', 'bookings'].includes(to.query.tab) ? to.query.tab : 'properties'}`, query: { ...to.query, tab: undefined } }) },
 
   ticked('/Finance/upload', () => import('./pages/Finance/Upload.vue'), 'Upload eZee Report', 'ezeeUpload'),
@@ -44,14 +44,14 @@ const routes = [
   // One address per form (tabs); the old /Operations/booking-forms opens the Reservation tab
   ticked('/Operations/booking-forms/:form(reservation|utility|property)?', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
 
-  // Owner Leads (11 Nov 2026, split from the old NewListings.vue): the overview, and the Listing Flow (one listing, stage by
-  // stage: /Procurement/listing-flow/new, /Procurement/listing-flow/NL-0001, /Procurement/listing-flow/NL-0001/payment).
-  // Both open with the Owner Leads View tick; the Listing Flow sidebar item needs the Edit tick (nav.js).
-  ticked('/Procurement/owner-leads', () => import('./pages/Procurement/OwnerLeads/LeadsOverview.vue'), 'Owner Leads', 'newOwnerListings'),
-  ticked('/Procurement/listing-flow/:id?/:stage(agreement|services|renovation|furniture|payment|marketing|live)?', () => import('./pages/Procurement/OwnerLeads/ListingFlow.vue'), 'Listing Flow', 'newOwnerListings'),
-  // Old addresses (notifications and bookmarks): ?id=NL-0001 opens that listing, ?new the new-listing form, else the overview.
+  // Owner Leads (13 Nov 2026: one page). Nothing open = every owner lead as a table or cards; one listing stage by stage:
+  // /Procurement/listing-flow/new, /Procurement/listing-flow/NL-0001, /Procurement/listing-flow/NL-0001/payment.
+  // Opens with the Owner Leads View tick. The old overview address goes to the same page.
+  ticked('/Procurement/listing-flow/:id?/:stage(agreement|services|renovation|furniture|payment|setup|marketing|live)?', () => import('./pages/Procurement/OwnerLeads/ListingFlow.vue'), 'Owner Leads', 'newOwnerListings'),
+  { path: '/Procurement/owner-leads', redirect: '/Procurement/listing-flow' },
+  // Old addresses (notifications and bookmarks): ?id=NL-0001 opens that listing, ?new the new-listing form, else the list.
   ...['/Procurement/new-owner-listings', '/Procurement/new-listings'].map(path => ({ path, redirect: to =>
-    to.query.id ? { path: `/Procurement/listing-flow/${to.query.id}`, query: {} } : 'new' in to.query ? { path: '/Procurement/listing-flow/new', query: {} } : { path: '/Procurement/owner-leads', query: {} } })),
+    to.query.id ? { path: `/Procurement/listing-flow/${to.query.id}`, query: {} } : 'new' in to.query ? { path: '/Procurement/listing-flow/new', query: {} } : { path: '/Procurement/listing-flow', query: {} } })),
 
   // Agreements: every role fills in forms and sees records. Setup (forms, formulas, templates, designer) needs its tick.
   page('/Agreements', () => import('./pages/Agreements/Records.vue'), 'Agreements', ALL),

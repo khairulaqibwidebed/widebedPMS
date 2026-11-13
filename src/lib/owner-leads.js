@@ -10,26 +10,36 @@
 // Every save sends one message to the linked task (a note of what changed, the checklist as its subtasks, completed when
 // Live). If the TMS can't be reached the save still happens here and the listing shows "Not sent" with Send now.
 //
-// Stages are keyed by name (agreement, services, renovation, furniture, payment, marketing, live). stagesFor(listing)
-// gives the stages a listing shows: Renovation only when "Renovation & interior design" is ticked in Types of service,
-// Furniture only when "Short-term rent amenities" is (never for Yearly rent). The stored `stage` number is the position
-// of the current stage in the full list of seven (nothing reads it but the audit log; screens work it out from the data).
+// Stages are keyed by name (agreement, services, renovation, furniture, payment, setup, marketing, live). stagesFor(listing)
+// gives the stages a listing shows: Renovation only when Renovation is ticked in Types of service, Furniture & Amenities
+// when Renovation or "Purchase Short Term Amenities" is (never for Long-term). The stored `stage` number is the position
+// of the current stage in the full list (nothing reads it but the audit log; screens work it out from the data).
+//
+// 13 Nov 2026 (Khairul): Furniture renamed Furniture & Amenities; Types of service is a table (Service | Amount | Select,
+// RM amounts, a discount line); the rental type is an arrangement from Portfolio > Fees & Rates; new stage Operations Setup
+// (after Payment, before Marketing, done by Operations); the Agreement stage holds the property and owners, and marking it
+// Signed creates the property, owner and unit in Portfolio (createInPortfolio). Operations work listings like Procurement.
 import { doc, getDoc, writeBatch, updateDoc, runTransaction, arrayUnion, serverTimestamp, deleteField, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { audit, friendlyError } from '@/lib/finance-data.js';
-import { link, syncTask, moveOwnerLead, commentOwnerLead } from '@/lib/tms.js';
+import { link, syncTask, moveOwnerLead, commentOwnerLead, deleteOwnerLead } from '@/lib/tms.js';
+import { loadSharedVersions, sharedList } from '@/lib/shared-rates.js';
+import { DEFAULT_ARRANGEMENTS, feeType } from '@/lib/fee-types.js';
+import { createProperty, saveOwner, saveUnit, freshOwnerCode, forgetProperties, forgetUnits } from '@/lib/portfolio-data.js';
+import { newPropertyId, clashIn, stateOf } from '@/lib/states.js';
+import { unitIdOf } from '@/lib/engine.js';
 
 export const LINK_TYPE = 'newOwnerListing';
 export const LIST_LIMIT = 300;
 export const FEE_PCT = 20;   // Procurement fee on renovation item costs
 
-// Who may create properties, units and owners in Portfolio (the rules: Directors and Finance, and Operations create-only).
-// Procurement may not, so it sees a note instead of the Create buttons.
-export const PORTFOLIO_ADDERS = ['director', 'finance', 'operations', 'marketing'];
-// Who sees the owner's phone and email on screen: Directors and Procurement (11 Nov 2026; before, also Marketing and
-// Operations). The rules still let Marketing and Operations read the private part until Phase 3 tightens them.
-export const CONTACT_READERS = ['director', 'procurement'];
+// Who may create properties, units and owners in Portfolio (the rules: Directors and Finance, and Operations, Marketing and,
+// from rules Draft 0.66, Procurement create-only: no terms or bank details).
+export const PORTFOLIO_ADDERS = ['director', 'finance', 'operations', 'marketing', 'procurement'];
+// Who sees and edits the listing's private part (owner phone, email, IC, joint owners, Wifi password): Directors,
+// Procurement and (13 Nov 2026, rules Draft 0.66) Operations.
+export const CONTACT_READERS = ['director', 'procurement', 'operations'];
 
 // ---- Lead status (Phase 3, 11 Nov 2026). The TMS board "Owner Leads" has one column per status, both ways. ----
 // new = a TMS card nobody started in the PMS (no listing yet); the others are on the listing as `status`.
@@ -40,9 +50,10 @@ export const LEAD_STATUS = {
 };
 export const LEAD_KEYS = ['new', 'progress', 'signed', 'live', 'cancelled'];
 export const statusOf = l => (!l.status || l.status === 'inProgress' ? 'progress' : l.status);
-// Who changes a lead's status (Not proceeding, signed, moving the card): Directors and Procurement. Marketing may only
-// take it to Live (Go Live is theirs). Only Directors reopen a Not proceeding one. The rules say the same.
-export const STATUS_MOVERS = ['director', 'procurement'];
+// Who changes a lead's status (Not proceeding, signed, moving the card): Directors, Procurement and (13 Nov 2026)
+// Operations. Marketing may only take it to Live (Go Live is theirs). Only Directors reopen a Not proceeding one.
+// The rules say the same (listingMover, Draft 0.66).
+export const STATUS_MOVERS = ['director', 'procurement', 'operations'];
 // Who reads the Owner Leads board in the TMS (api/pms-task.js there)
 export const LEAD_READERS = ['director', 'procurement', 'marketing', 'operations'];
 export const UNIT_TYPES = ['Studio', '1 bedroom', '2 bedroom', '3 bedroom', '4+ bedroom'];
@@ -53,35 +64,45 @@ export const STAGES = {
   agreement: { label: 'Service Agreement Signed', short: 'Agreement' },
   services: { label: 'Types of service', short: 'Services' },
   renovation: { label: 'Renovation', short: 'Renovation' },
-  furniture: { label: 'Furniture', short: 'Furniture' },
+  furniture: { label: 'Furniture & Amenities', short: 'Furniture & Amenities' },
   payment: { label: 'Final quotation & payment', short: 'Payment' },
+  setup: { label: 'Operations Setup', short: 'Ops Setup' },
   marketing: { label: 'Marketing', short: 'Marketing' },
   live: { label: 'Live', short: 'Live' }
 };
-// The full order (Khairul 6 Nov). The stored stage number is the position here + 1.
-export const STAGE_KEYS = ['agreement', 'services', 'renovation', 'furniture', 'payment', 'marketing', 'live'];
-export const SECTIONS = STAGE_KEYS;
+// The full order (Khairul 6 Nov; Operations Setup added 13 Nov). The stored stage number is the position here + 1.
+export const STAGE_KEYS = ['agreement', 'services', 'renovation', 'furniture', 'payment', 'setup', 'marketing', 'live'];
+// party = the property and owners (Agreement stage), not a stage of its own
+export const SECTIONS = [...STAGE_KEYS, 'party'];
 
-// ---- Types of service (sheet "One Stop Property Rental Solution", Khairul 6 Nov) ----
+// ---- Rental type (13 Nov 2026): the three groups of Portfolio > Fees & Rates. The keys stay daily / monthly / yearly
+// (older listings). An arrangement of that group is picked by name; anyone may type a custom %. ----
 export const RENT_TYPES = [
-  { key: 'daily', label: 'Daily', hint: 'Short-term stays' },
-  { key: 'monthly', label: 'Monthly', hint: 'Month-to-month tenants' },
-  { key: 'yearly', label: 'Yearly', hint: 'Yearly tenancy' }
+  { key: 'daily', label: 'Short-term', unit: 'daily', section: 'short', hint: 'Daily stays' },
+  { key: 'monthly', label: 'Mid-term', unit: 'monthly', section: 'mid', hint: 'Monthly tenants' },
+  { key: 'yearly', label: 'Long-term', unit: 'yearly', section: 'long', hint: 'Yearly tenancy' }
 ];
-export const rentLabel = k => RENT_TYPES.find(r => r.key === k)?.label || 'Not set';
-// Service fee, % of the net receivable rental, by rent type. TODO: confirm with the sheet.
+export const rentLabel = k => { const r = RENT_TYPES.find(x => x.key === k); return r ? `${r.label} (${r.unit})` : 'Not set'; };
+// Before 13 Nov a listing had only a rent type and these fixed fees (kept for older listings with no arrangement).
 export const SERVICE_FEE = { daily: 25, monthly: 20, yearly: 10 };
-// stage = the stage the service adds; notFor = rent types it is not offered for (hidden and unticked).
+// Types of service (Khairul 13 Nov, in this order). Amounts are RM, typed per listing (blank to start).
+// stages = the stages the service adds; notFor = rent types it is not offered for (hidden and unticked);
+// total = the row shows that stage's total instead of an amount box; pkg = the maintenance package row.
 export const SERVICES = [
-  { key: 'marketCheck', label: 'Market check', hint: 'Rental price check for the area' },
-  { key: 'advertising', label: 'Advertising', hint: 'Listing and promoting the unit' },
-  { key: 'contract', label: 'Contract & move-in / move-out', hint: 'Tenancy papers and handover' },
-  { key: 'rentalCollection', label: 'Rental collection', hint: 'Collects the rent every month' },
-  { key: 'billPayment', label: 'Bill payment', hint: 'Pays the unit\'s bills' },
-  { key: 'cleaning', label: 'Cleaning', hint: { daily: 'On every check-out', monthly: 'Once a month; extra cleaning from RM80', yearly: 'On request, from RM80', '': 'Depends on the rent type' } },
-  { key: 'renovation', label: 'Renovation & interior design', hint: 'Adds the Renovation and Furniture stages', stages: ['renovation', 'furniture'] },
-  { key: 'amenities', label: 'Short-term rent amenities', hint: 'Adds the Furniture stage', stages: ['furniture'], notFor: ['yearly'] }
+  { key: 'vacantInspection', label: 'Vacant Position & Defect Inspection' },
+  { key: 'keyManagement', label: 'Key Management' },
+  { key: 'renovation', label: 'Renovation', hint: 'Adds the Renovation and Furniture & Amenities stages', stages: ['renovation', 'furniture'], total: true },
+  { key: 'amenities', label: 'Purchase Short Term Amenities', hint: 'Adds the Furniture & Amenities stage', stages: ['furniture'], notFor: ['yearly'], total: true },
+  { key: 'advertising', label: 'Marketing & Advertising' },
+  { key: 'contract', label: 'Tenant Filtering & Preparing Tenancy Agreement' },
+  { key: 'rentalCollection', label: 'Rental Collection' },
+  { key: 'billPayment', label: 'Bill Payment' },
+  { key: 'cleaning', label: 'Cleaning', hint: { daily: 'On every check-out', monthly: 'Once a month; extra cleaning from RM80', yearly: 'On request, from RM80', '': '' } },
+  { key: 'maintenance', label: 'Maintenance Package', hint: 'Yearly package', pkg: true }
 ];
+// Older listings may have "Market check" ticked: kept in the data, no longer offered.
+const OLD_SERVICES = { marketCheck: 'Market check' };
+export const serviceLabel = k => SERVICES.find(x => x.key === k)?.label || OLD_SERVICES[k] || k;
 // Yearly maintenance package (sheet "Yearly Maintenance Package"). TODO: what each package covers (the sheet and its
 // text differ on air-con servicing and Change Battery).
 export const PACKAGES = [
@@ -96,7 +117,47 @@ const allItems = on => Object.fromEntries(SERVICES.map(x => [x.key, on]));
 export const serviceOn = (l, key) => !!l.services.items[key] && !(SERVICES.find(x => x.key === key)?.notFor || []).includes(l.services.rentType);
 // Is a stage shown (Khairul 11 Nov): Renovation with Renovation & interior design; Furniture with either service
 export const stageOn = (l, stage) => SERVICES.some(x => (x.stages || []).includes(stage) && serviceOn(l, x.key));
-export const STAGE_LABEL = { renovation: 'Renovation', furniture: 'Furniture' };
+export const STAGE_LABEL = { renovation: 'Renovation', furniture: 'Furniture & Amenities' };
+
+// ---- Rental type: the arrangements of Fees & Rates for this month (the shared set; the built-in four until one is
+// built or when the rules refuse the read). [{ id, name, type, section, servicePct, utilityPct, sstPct }] ----
+const thisMonth = () => nowIso().slice(0, 7);
+export async function loadArrangements(month = thisMonth()) {
+  const versions = await loadSharedVersions();
+  // The newest version in force this month (loadSharedVersions is oldest first)
+  const v = versions.filter(x => (x.effectiveFrom || '') <= month).pop() || null;
+  const list = v ? sharedList(v) : DEFAULT_ARRANGEMENTS;
+  return Object.entries(list).map(([id, a]) => ({ id, name: a.name || id, type: a.type || 'revenue', section: a.section || 'short',
+    servicePct: Number(a.servicePct || 0), utilityPct: Number(a.utilityPct || 0), sstPct: Number(a.sstPct || 0) }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
+}
+const pct3 = v => Math.round(v * 100000) / 1000;   // 0.2 -> 20 (3 decimals)
+export const isFixedArr = a => feeType(a?.type).id === 'fixed';
+// "Revenue share 40% · 20% + 20% = 40%", "Long-term tenant · 10% + SST 8%", "Fixed rent · RM a month"
+export function arrangementText(a) {
+  if (!a) return '';
+  if (isFixedArr(a)) return `${a.name} · fixed RM a month`;
+  const s = pct3(a.servicePct), u = pct3(a.utilityPct);
+  return `${a.name} · ${u ? `${s}% + ${u}% = ${pct3(a.servicePct + a.utilityPct)}%` : `${s}%`}${a.sstPct ? ` + SST ${pct3(a.sstPct)}%` : ''}`;
+}
+// The fee the listing quotes: the custom % when typed, else the arrangement's total (service + utility). null = none.
+export function feePctOf(l) {
+  const sv = l.services, c = String(sv.customPct ?? '').trim();
+  if (c !== '' && !isNaN(Number(c))) return Number(c);
+  if (sv.arrangement && !isFixedArr(sv.arrangement)) return pct3(sv.arrangement.servicePct + sv.arrangement.utilityPct);
+  if (sv.older && !sv.arrangementId && sv.rentType) return SERVICE_FEE[sv.rentType];   // older listing
+  return null;
+}
+// One line for the Summary, Live stage and PDF: "Revenue share 40% · 40%", "Custom 35%", "Fixed rent RM 2,000.00 a month"
+export function feeText(l) {
+  const sv = l.services, a = sv.arrangement;
+  if (!sv.rentType) return 'Not set';
+  if (a && isFixedArr(a)) return `${a.name}${money(sv.fixedRent) ? ` ${rm(sv.fixedRent)} a month` : ''}`;
+  const p = feePctOf(l), custom = String(sv.customPct ?? '').trim() !== '';
+  if (a) return `${a.name} · ${p}%${custom ? ' (custom)' : ''}`;
+  if (sv.arrangementId === 'custom') return p != null ? `Custom ${p}%` : 'Custom % not typed';
+  return sv.older && p != null ? `Service fee ${p}% (older listing)` : 'Arrangement not picked';
+}
 // Something typed in the stage a service adds (unticking it then asks first; the items are kept).
 export function stageHasContent(l, key) {
   if (key === 'renovation') { const r = l.renovation; return r.items.some(x => x.custom || x.status !== 'notStarted' || money(x.cost)) || r.links.length > 0 || !!r.internalNotes.trim() || !!r.ownerNotes.trim(); }
@@ -130,8 +191,21 @@ export const PAY_TYPES = [
 export const payTypeLabel = k => PAY_TYPES.find(t => t.key === k)?.label || 'Full payment';
 const PART = () => ({ proofUrl: '', received: false, receivedByUid: null, receivedByName: '', receivedAt: '' });
 const MK_DEFAULT = ['Logo & Branding', 'Website', 'IG', 'FB', 'TikTok', 'Google Business', 'Flyer', 'Social media content'];
+// Operations Setup (13 Nov 2026): Operations tick each row; rows can be added and removed like Marketing. kind 'wifi' keeps
+// the Wifi name in note and the password in the private part (wifiPassword); kind 'link' keeps an https link.
+export const SETUP_DEFAULT = [
+  { key: 'deepCleaning', title: 'Deep Cleaning' },
+  { key: 'wifi', title: 'Wifi', kind: 'wifi' },
+  { key: 'houseRules', title: 'House Rules' },
+  { key: 'drive', title: 'Owner\'s Google Drive', kind: 'link' },
+  { key: 'whatsapp', title: 'Owner\'s WhatsApp Group' }
+];
+const setupRow = x => ({ key: x.key || lineId(), title: x.title, kind: x.kind || '', on: false, note: '', link: '' });
 export const DETAILS = [['property', 'property'], ['unit', 'unit'], ['ownerName', 'owner name'], ['title', 'title'], ['description', 'description'], ['dueDate', 'due date'],
-  ['unitType', 'unit type'], ['sizeSqft', 'size'], ['source', 'source'], ['remarks', 'remarks']];
+  ['unitType', 'unit type'], ['sizeSqft', 'size'], ['source', 'source'], ['remarks', 'remarks'], ['state', 'state']];
+// The listing's private part (newOwnerListings/{id}/private/main): Directors, Procurement and Operations.
+// coOwners = joint owners [{ fullName, ic, phone, email }] (the same fields as Portfolio's joint owners).
+export const blankContact = () => ({ ownerPhone: '', ownerEmail: '', ownerIc: '', coOwners: [], wifiPassword: '' });
 
 // ---- small helpers ----
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -159,15 +233,22 @@ export function blank() {
   return {
     agreement: { signed: false, date: '', skipped: false, skipNote: '', signedDuringStage: null },
     // New listings start with no service ticked (Khairul 11 Nov); tick what the owner takes.
-    services: { rentType: '', items: allItems(false), maintenance: 'none', notes: '', legacy: false },
+    // arrangementId: an arrangement of Fees & Rates ('custom' = only a typed %); arrangement = a copy of it as picked.
+    services: { rentType: '', arrangementId: '', arrangement: null, customPct: '', fixedRent: '', items: allItems(false), amounts: {}, maintenance: 'none',
+      discount: '', discountNote: '', notes: '', legacy: false },
     renovation: { items: RENO_DEFAULT.map(([group, title]) => ({ id: lineId(), group, title, status: 'notStarted', cost: '' })), links: [], internalNotes: '', ownerNotes: '' },
     furniture: { big: [], electrical: [], essential: [] },
     payment: { type: 'full', quotationUrl: '', invoiceUrl: '', proofUrl: '', amount: '', confirmed: false, confirmedByUid: null, confirmedByName: '', confirmedAt: '',
       deposit: { amount: '', ...PART() }, balance: PART() },
+    setup: { items: SETUP_DEFAULT.map(setupRow), legacy: false, doneAt: '', doneByName: '' },
     marketing: { items: MK_DEFAULT.map(title => ({ title, on: false })), taskId: null, sentAt: '', sentByName: '', notifiedAt: '', notifiedByName: '' },
-    live: { live: false, at: '', byName: '', overrideReason: '', opsGroup: false }
+    live: { live: false, at: '', byName: '', overrideReason: '', opsGroup: false },
+    // The property and owners (Agreement stage). propertyId / ownerId = an existing one picked; else new ones are made
+    // from the listing's property name + propertyCode + state, and ownerName + the private part, when it is Signed.
+    party: { propertyId: '', propertyCode: '', ownerId: '' }
   };
 }
+const paidData = d => !!d.payment?.confirmed || (d.payment?.type === 'deposit' && !!d.payment?.deposit?.received);
 // Older or partial documents get every field (missing sections from blank()).
 export function withDefaults(data) {
   const b = blank(), out = { ...data };
@@ -180,8 +261,19 @@ export function withDefaults(data) {
   // Listings made before Types of service: renovation and amenities ticked (both stages show, as before), the rest
   // unticked, rent type Not set. legacy = the stage counts as done so they don't jump back to it.
   out.services = data.services
-    ? { ...b.services, ...data.services, items: { ...allItems(false), ...(data.services.items || {}) } }
+    ? { ...b.services, ...data.services, items: { ...allItems(false), ...(data.services.items || {}) }, amounts: { ...(data.services.amounts || {}) } }
     : { ...b.services, items: { ...allItems(false), renovation: true, amenities: true }, legacy: true };
+  // older = made before the Fees & Rates arrangements (13 Nov 2026): the rent type alone still counts, with its old fee.
+  if (data.services && (data.services.older || !('arrangementId' in data.services))) out.services.older = true;
+  // Before 13 Nov the maintenance package was a drop-down of its own: it becomes the Maintenance Package row.
+  if (data.services && !('maintenance' in (data.services.items || {}))) {
+    const pk = packageOf(out.services.maintenance);
+    out.services.items.maintenance = pk.key !== 'none';
+    if (pk.price && out.services.amounts.maintenance == null) out.services.amounts.maintenance = String(pk.price);
+  }
+  // Listings already paid, in Marketing or Live before Operations Setup existed: the stage counts as done (legacy).
+  if (!data.setup) out.setup = { ...b.setup, legacy: paidData(data) || !!data.marketing?.notifiedAt || !!data.marketing?.taskId || !!data.live?.live };
+  out.setup.items = (out.setup.items || []).map(x => ({ ...setupRow(x), ...x }));
   for (const [k] of DETAILS) out[k] = data[k] == null ? '' : String(data[k]);
   out.remarksLog = remarksLogOf(data);
   return out;
@@ -209,14 +301,18 @@ export const subDoneOf = (l, k) => l.furniture[k].length > 0 && l.furniture[k].e
 export const furnUsed = l => FURN.filter(f => l.furniture[f.key].length > 0);
 // Marketing checklist: every line ticked (Khairul 27 Oct: no Go Live before it is 100%).
 export const mkDoneOf = l => l.marketing.items.length > 0 && l.marketing.items.every(m => m.on);
-// The TMS department that holds the listing's task: Procurement, then Marketing once Marketing can start (mkReadyOf),
-// then Operations once it is Live.
-export const deptOf = l => (l.live.live ? 'operation' : mkReadyOf(l) ? 'marketing' : 'procurement');
+// Operations Setup: every row ticked (or an older listing past it)
+export const setupDoneOf = l => !!l.setup.legacy || (l.setup.items.length > 0 && l.setup.items.every(x => x.on));
+// The TMS department that holds the listing's task: Procurement, then Operations once paid (Operations Setup), then
+// Marketing once Operations Setup is done (mkReadyOf), then Operations again once it is Live.
+export const deptOf = l => (l.live.live ? 'operation' : mkReadyOf(l) ? 'marketing' : paidOf(l) ? 'operation' : 'procurement');
 
 // ---- payment parts ----
 export const isDeposit = l => l.payment.type === 'deposit';
-// Marketing can start: paid in full, or the deposit received on a Deposit + balance listing
-export const mkReadyOf = l => !!l.payment.confirmed || (isDeposit(l) && !!l.payment.deposit.received);
+// The money is in: paid in full, or the deposit received on a Deposit + balance listing. Operations Setup starts.
+export const paidOf = l => !!l.payment.confirmed || (isDeposit(l) && !!l.payment.deposit.received);
+// Marketing can start (13 Nov 2026): paid and Operations Setup done
+export const mkReadyOf = l => paidOf(l) && setupDoneOf(l);
 // Deposit in, balance not yet
 export const balanceDueOf = l => isDeposit(l) && !!l.payment.deposit.received && !l.payment.confirmed;
 export const depositOf = l => money(l.payment.deposit.amount);
@@ -232,14 +328,16 @@ export function stagesFor(l) {
 
 // Each stage counts as done when: agreement signed or skipped for now (with a note); every renovation line Done; every
 // furniture line ticked in each sub-stage that has lines (empty ones are not needed); payment confirmed (or the deposit
-// received on a Deposit + balance listing: the balance is still shown as due); Marketing
+// received on a Deposit + balance listing: the balance is still shown as due); Operations Setup every row ticked; Marketing
 // notified and every checklist line ticked (or an older Marketing task sent); Live.
+// Types of service: the rental type and an arrangement (or a custom %) picked; older listings only needed the rent type.
 export function stageDoneOf(l, key) {
   if (key === 'agreement') return l.agreement.signed || (l.agreement.skipped && !!l.agreement.skipNote.trim());
-  if (key === 'services') return !!l.services.rentType || !!l.services.legacy;
+  if (key === 'services') return !!l.services.legacy || (!!l.services.rentType && (!!l.services.older || !!l.services.arrangementId));
   if (key === 'renovation') return l.renovation.items.length > 0 && l.renovation.items.every(x => x.status === 'done');
   if (key === 'furniture') return furnUsed(l).length > 0 && furnUsed(l).every(f => subDoneOf(l, f.key));
-  if (key === 'payment') return mkReadyOf(l);
+  if (key === 'payment') return paidOf(l);
+  if (key === 'setup') return setupDoneOf(l);
   if (key === 'marketing') return !!l.marketing.taskId || (!!l.marketing.notifiedAt && mkDoneOf(l));
   return l.live.live;
 }
@@ -247,10 +345,11 @@ export function stageDoneOf(l, key) {
 export function stagePartOf(l, key) {
   if (stageDoneOf(l, key)) return false;
   if (key === 'agreement') return l.agreement.skipped;   // skipped, the reason not written yet
-  if (key === 'services') return l.services.maintenance !== 'none' || !!l.services.notes.trim();
+  if (key === 'services') return !!l.services.rentType || SERVICES.some(x => serviceOn(l, x.key)) || !!l.services.notes.trim();
   if (key === 'renovation') return l.renovation.items.some(x => x.status !== 'notStarted');
   if (key === 'furniture') return FURN.some(f => l.furniture[f.key].some(x => x.done));
   if (key === 'payment') return PAY_LINKS.some(([k]) => !!l.payment[k]) || money(l.payment.amount) > 0 || l.payment.deposit.received || !!l.payment.deposit.proofUrl;
+  if (key === 'setup') return l.setup.items.some(x => x.on);
   if (key === 'marketing') return !!l.marketing.notifiedAt || l.marketing.items.some(m => m.on);
   return false;
 }
@@ -263,7 +362,8 @@ export const stageNumberOf = l => STAGE_KEYS.indexOf(currentKeyOf(l)) + 1;
 // The short line under each stage on the stage bar.
 export function stageNote(l, key) {
   if (key === 'agreement') return l.agreement.signed ? 'Signed' : l.agreement.skipped ? 'Skipped for now' : 'Not yet';
-  if (key === 'services') return l.services.rentType ? `${rentLabel(l.services.rentType)} rent` : l.services.legacy ? 'Not set (older)' : 'Not set';
+  if (key === 'services') return l.services.rentType ? rentLabel(l.services.rentType) : l.services.legacy ? 'Not set (older)' : 'Not set';
+  if (key === 'setup') return l.setup.legacy && !l.setup.items.some(x => x.on) ? 'Done before (older)' : `${l.setup.items.filter(x => x.on).length}/${l.setup.items.length} done`;
   if (key === 'renovation') return `${l.renovation.items.filter(x => x.status === 'done').length}/${l.renovation.items.length} done`;
   if (key === 'furniture') return furnUsed(l).length ? `${furnUsed(l).filter(f => subDoneOf(l, f.key)).length}/${furnUsed(l).length} completed` : 'No items yet';
   if (key === 'payment') return l.payment.confirmed ? (isDeposit(l) ? 'Paid in full' : 'Confirmed') : balanceDueOf(l) ? 'Balance due' : 'Waiting';
@@ -276,17 +376,35 @@ export const renoCost = l => money(l.renovation.items.reduce((t, x) => t + money
 export const renoFee = l => money(renoCost(l) * FEE_PCT / 100);
 export const sumLines = lines => money(lines.reduce((t, x) => t + money(x.cost), 0));
 export const furnTotal = l => money(FURN.reduce((t, f) => t + sumLines(l.furniture[f.key]), 0));
-// Final quotation: only the stages in use (renovation with the procurement fee, furniture) plus the maintenance package.
-// Items of a stage that was unticked are kept but left out. [[label, amount]]
+// ---- Types of service money (13 Nov 2026) ----
+// Renovation and Purchase Short Term Amenities rows show their stage's total (not typed, so nothing counts twice):
+// Renovation = the Renovation stage (incl. the procurement fee), plus Furniture & Amenities when Amenities is not ticked;
+// Amenities = the Furniture & Amenities stage.
+export const renoWithFee = l => money(renoCost(l) + renoFee(l));
+export function rowAmount(l, key) {
+  if (key === 'renovation') return stageOn(l, 'renovation') ? money(renoWithFee(l) + (serviceOn(l, 'amenities') ? 0 : furnTotal(l))) : 0;
+  if (key === 'amenities') return serviceOn(l, 'amenities') ? furnTotal(l) : 0;
+  return money(l.services.amounts?.[key]);
+}
+// Typed service rows that are ticked (not the two stage rows)
+export const typedRows = l => SERVICES.filter(x => !x.total && serviceOn(l, x.key));
+export const servicesSubtotal = l => money(typedRows(l).reduce((t, x) => t + rowAmount(l, x.key), 0));
+export const discountOf = l => money(l.services.discount);
+export const servicesTotal = l => money(Math.max(0, servicesSubtotal(l) - discountOf(l)));
+// Renovation & Furniture: only the stages in use (items of a stage that was unticked are kept but left out)
+export const renoFurnTotal = l => money((stageOn(l, 'renovation') ? renoWithFee(l) : 0) + (stageOn(l, 'furniture') ? furnTotal(l) : 0));
+// Grand total = Services (after discount) + Renovation & Furniture (Khairul 13 Nov: shown split)
+export const quoteTotal = l => money(servicesTotal(l) + renoFurnTotal(l));
+// The quotation lines [[label, amount]] (Payment stage and the PDF): each typed service, the discount, renovation, furniture.
 export function quoteParts(l) {
   const pkg = packageOf(l.services.maintenance);
   return [
-    ...(stageOn(l, 'renovation') ? [[`Renovation (incl. ${FEE_PCT}% procurement fee)`, money(renoCost(l) + renoFee(l))]] : []),
-    ...(stageOn(l, 'furniture') ? [['Furniture', furnTotal(l)]] : []),
-    ...(pkg.price ? [[`Maintenance ${pkg.label} (a year)`, pkg.price]] : [])
+    ...typedRows(l).map(x => [x.pkg ? `Maintenance ${pkg.key !== 'none' ? pkg.label : 'Package'} (a year)` : x.label, rowAmount(l, x.key)]),
+    ...(discountOf(l) ? [[`Discount${l.services.discountNote?.trim() ? ` (${l.services.discountNote.trim()})` : ''}`, -discountOf(l)]] : []),
+    ...(stageOn(l, 'renovation') ? [[`Renovation (incl. ${FEE_PCT}% procurement fee)`, renoWithFee(l)]] : []),
+    ...(stageOn(l, 'furniture') ? [['Furniture & Amenities', furnTotal(l)]] : [])
   ];
 }
-export const quoteTotal = l => money(quoteParts(l).reduce((t, [, v]) => t + v, 0));
 export const renoGroupsOf = l => [...RENO_GROUPS, ...new Set(l.renovation.items.map(x => x.group).filter(g => !RENO_GROUPS.includes(g)))];
 
 // ---- lists ----
@@ -298,11 +416,12 @@ export const matches = (x, s) => !s || [x.id, x.property, x.unit, x.ownerName, x
 export function checklistOf(l) {
   return [
     { title: 'Service agreement signed', done: l.agreement.signed },
-    { title: `Types of service${l.services.rentType ? `: ${rentLabel(l.services.rentType)} rent` : ''}`, done: stageDoneOf(l, 'services') },
+    { title: `Types of service${l.services.rentType ? `: ${rentLabel(l.services.rentType)}` : ''}`, done: stageDoneOf(l, 'services') },
     ...(stageOn(l, 'renovation') ? l.renovation.items.filter(x => x.title.trim()).map(x => ({ title: `Renovation: ${x.title.trim()}`, done: x.status === 'done' })) : []),
-    ...(stageOn(l, 'furniture') ? FURN.map(f => ({ title: `Furniture: ${f.label}`, done: subDoneOf(l, f.key) || (!l.furniture[f.key].length && stageDoneOf(l, 'furniture')) })) : []),
+    ...(stageOn(l, 'furniture') ? FURN.map(f => ({ title: `Furniture & Amenities: ${f.label}`, done: subDoneOf(l, f.key) || (!l.furniture[f.key].length && stageDoneOf(l, 'furniture')) })) : []),
     ...(isDeposit(l) ? [{ title: 'Deposit received', done: l.payment.deposit.received }] : []),
     { title: isDeposit(l) ? 'Balance received (paid in full)' : 'Final quotation & payment confirmed', done: l.payment.confirmed },
+    ...(l.setup.legacy && !l.setup.items.some(x => x.on) ? [] : l.setup.items.filter(x => x.title.trim()).map(x => ({ title: `Operations setup: ${x.title.trim()}`, done: !!x.on }))),
     { title: 'Marketing notified', done: !!(l.marketing.taskId || l.marketing.notifiedAt) },
     { title: 'Live', done: l.live.live }
   ];
@@ -318,7 +437,7 @@ export function summarize(a, b, contactChanged) {
   if (det.length) out.push(`Details updated (${det.join(', ')}).`);
   const added = newRemarks(a, b).length;
   if (added) out.push(added > 1 ? `${added} comments added.` : 'Comment added.');
-  if (contactChanged) out.push('Owner contact details updated.');
+  if (contactChanged) out.push('Private details updated (owner contact, IC, joint owners or Wifi password).');
   const g0 = a.agreement, g = b.agreement;
   if (g.signed && !g0.signed) out.push(`Service agreement signed${g.date ? ` on ${g.date}` : ''}${g.signedDuringStage ? ` (signed during ${g.signedDuringStage})` : ''}.`);
   else if (g.signed && g.date !== g0.date) out.push(`Agreement date changed to ${g.date}.`);
@@ -327,12 +446,38 @@ export function summarize(a, b, contactChanged) {
   if (!g.signed && !g.skipped && g0.skipped) out.push('Service agreement no longer skipped.');
 
   const v0 = a.services, v = b.services;
-  if (v0.rentType !== v.rentType) out.push(`Rent type: ${rentLabel(v.rentType)}${v.rentType ? ` (service fee ${SERVICE_FEE[v.rentType]}%)` : ''}.`);
+  if (v0.rentType !== v.rentType) out.push(`Rental type: ${rentLabel(v.rentType)}.`);
+  if ((v0.arrangementId || '') !== (v.arrangementId || '') || String(v0.customPct ?? '') !== String(v.customPct ?? '') || money(v0.fixedRent) !== money(v.fixedRent))
+    out.push(`Arrangement: ${feeText(b)}.`);
   const on = SERVICES.filter(x => serviceOn(b, x.key) && !serviceOn(a, x.key)).map(x => x.label), off = SERVICES.filter(x => !serviceOn(b, x.key) && serviceOn(a, x.key)).map(x => x.label);
   if (on.length) out.push(`Services ticked: ${on.join(', ')}.`);
   if (off.length) out.push(`Services unticked: ${off.join(', ')}.`);
-  if (v0.maintenance !== v.maintenance) out.push(`Maintenance: ${packageOf(v.maintenance).label}${packageOf(v.maintenance).price ? ` (${rm(packageOf(v.maintenance).price)} a year)` : ''}.`);
+  if (v0.maintenance !== v.maintenance) out.push(`Maintenance: ${packageOf(v.maintenance).label}.`);
+  const amt0 = v0.amounts || {}, amt1 = v.amounts || {};
+  const moved = SERVICES.filter(x => !x.total && money(amt0[x.key]) !== money(amt1[x.key])).map(x => `${x.label} ${rm(amt1[x.key])}`);
+  if (moved.length) out.push(`Amounts: ${moved.join(', ')}.`);
+  if (money(v0.discount) !== money(v.discount) || (v0.discountNote || '') !== (v.discountNote || '')) out.push(`Discount ${rm(v.discount)}${(v.discountNote || '').trim() ? ` (${v.discountNote.trim()})` : ''}.`);
   if (v0.notes !== v.notes) out.push('Types of service notes updated.');
+
+  // Operations Setup
+  const st0 = Object.fromEntries((a.setup?.items || []).map(x => [x.key, x])), st1 = b.setup.items;
+  for (const x of st1) {
+    const o = st0[x.key];
+    if (!o) { out.push(`Operations setup: added ${x.title.trim()}${x.on ? ' (ticked)' : ''}.`); continue; }
+    if (o.on !== x.on) out.push(`Operations setup: ${x.title.trim()} ${x.on ? 'ticked' : 'unticked'}.`);
+    if ((o.note || '') !== (x.note || '') && x.kind !== 'wifi') out.push(`Operations setup: ${x.title.trim()} note updated.`);
+    if ((o.note || '') !== (x.note || '') && x.kind === 'wifi') out.push('Operations setup: Wifi name updated.');
+    if ((o.link || '') !== (x.link || '')) out.push(`Operations setup: ${x.title.trim()} link ${x.link ? (o.link ? 'changed' : 'added') : 'removed'}.`);
+  }
+  const keys1 = new Set(st1.map(x => x.key));
+  for (const o of a.setup?.items || []) if (!keys1.has(o.key)) out.push(`Operations setup: removed ${o.title}.`);
+  if (setupDoneOf(b) && !setupDoneOf(a) && !b.setup.legacy) out.push('Operations Setup done.');
+
+  // Property and owners (Agreement)
+  const pa0 = a.party || {}, pa1 = b.party;
+  if ((pa0.propertyId || '') !== (pa1.propertyId || '')) out.push(pa1.propertyId ? `Existing property picked: ${b.property}.` : 'A new property will be made.');
+  if ((pa0.propertyCode || '') !== (pa1.propertyCode || '')) out.push(`Property code: ${pa1.propertyCode || '(none)'}.`);
+  if ((pa0.ownerId || '') !== (pa1.ownerId || '')) out.push(pa1.ownerId ? `Existing owner picked: ${b.ownerName} (${pa1.ownerId}).` : 'A new owner will be made.');
 
   const byId = list => Object.fromEntries(list.map(x => [x.id, x]));
   const r0 = byId(a.renovation.items);
@@ -387,7 +532,6 @@ export function summarize(a, b, contactChanged) {
   if (b.marketing.taskId && !a.marketing.taskId) out.push(`Sent to Marketing as a task (${b.marketing.items.filter(m => m.on).length} items).`);
 
   if (b.live.live && !a.live.live) out.push(`Marked as Live${b.live.overrideReason ? ` before Marketing was done: ${b.live.overrideReason}` : ''}.`);
-  if (b.live.opsGroup !== a.live.opsGroup) out.push(b.live.opsGroup ? 'Ops WhatsApp group made.' : 'Ops WhatsApp group un-ticked.');
 
   const s0 = currentKeyOf(a), s1 = currentKeyOf(b);
   if (s0 !== s1) out.push(`Now at stage ${stagesFor(b).indexOf(s1) + 1}: ${STAGES[s1].label}.`);
@@ -409,15 +553,108 @@ export function validate(d, contact) {
     if (dep && money(d.payment.amount) > 0 && depositOf(d) >= money(d.payment.amount)) return 'The deposit must be less than the final amount.';
   }
   if (!emailOk((contact?.ownerEmail || '').trim())) return 'That owner email doesn\'t look right.';
+  const sv = d.services, isNum = v => !String(v ?? '').trim() || !isNaN(Number(String(v).replace(/,/g, '')));
+  if (SERVICES.some(x => !x.total && !isNum(sv.amounts?.[x.key]))) return 'Service amounts are numbers in RM, e.g. 500.';
+  if (!isNum(sv.discount)) return 'The discount is a number in RM, e.g. 100.';
+  if (discountOf(d) > servicesSubtotal(d)) return 'The discount can\'t be more than the services total.';
+  if (serviceOn(d, 'maintenance') && packageOf(sv.maintenance).key === 'none') return 'Pick the maintenance package, or untick Maintenance Package.';
+  const cp = String(sv.customPct ?? '').trim();
+  if (cp && (isNaN(Number(cp)) || Number(cp) < 0 || Number(cp) > 100)) return 'The custom % is a number from 0 to 100, e.g. 35.';
+  if (sv.arrangementId === 'custom' && !cp) return 'Type the custom %, or pick an arrangement.';
+  if (!isNum(sv.fixedRent)) return 'The fixed rent is a number in RM, e.g. 2000.';
+  if (d.setup.items.some(x => !x.title.trim())) return 'Give each Operations Setup row a name, or remove it.';
+  for (const x of d.setup.items) if (x.link && !httpsOk(x.link)) return `The ${x.title.trim() || 'Operations Setup'} link must start with https://.`;
+  for (const co of contact?.coOwners || []) if (co.email && !emailOk(co.email.trim())) return 'One of the joint owners\' emails doesn\'t look right.';
   return '';
+}
+
+// ---- Property and owners (Agreement stage, 13 Nov 2026) ----
+// What is still missing before the agreement can be marked Signed: [] when ready. Skip for now needs none of it.
+// c = the private part (owner IC, phone, email, joint owners).
+export function partyMissing(d, c) {
+  const out = [], p = d.party;
+  if (!p.propertyId) {
+    if (!d.property.trim()) out.push('the property name (or pick an existing property)');
+    if (!String(p.propertyCode || '').trim()) out.push('the property code');
+  }
+  if (!d.state) out.push('the state');
+  if (!/\d/.test(d.unit)) out.push('the unit code, with its number (e.g. DM 12-03)');
+  if (!p.ownerId) {
+    if (!d.ownerName.trim()) out.push('the owner\'s full name (or pick an existing owner)');
+    if (!String(c?.ownerIc || '').trim()) out.push('the owner\'s IC');
+    if (!String(c?.ownerPhone || '').trim()) out.push('the owner\'s phone');
+    if ((c?.coOwners || []).some(x => !String(x.fullName || '').trim())) out.push('a full name for every joint owner');
+  }
+  return out;
+}
+// The listing's Portfolio records: { propertyId, ownerId, unitId } (some may be missing on older listings)
+export const portfolioOf = l => l.portfolio || {};
+export const inPortfolioOf = l => { const p = portfolioOf(l); return !!(p.propertyId && p.ownerId && p.unitId); };
+const yymm = () => nowIso().slice(0, 7);
+const unitInfo = d => ({ type: d.unitType || '', ...(String(d.sizeSqft || '').trim() && !isNaN(Number(d.sizeSqft)) ? { sizeSqft: Number(d.sizeSqft) } : {}) });
+// Creates what is missing in Portfolio, in order: the property (unless one was picked), the owner (unless one was picked),
+// then the unit linked to the owner. Each id is noted on the listing (portfolio.*) as soon as it is made, so pressing it
+// again after a failure carries on where it stopped. properties / owners = the lists the page has (for clashes and codes).
+// Uses the same Portfolio functions as the Properties and Owners pages (state, propertyIds, audit lines).
+// Resolves the portfolio ids. Needs Portfolio add rights (PORTFOLIO_ADDERS; Procurement from rules Draft 0.66).
+export async function createInPortfolio(l, d, c, { properties = [], owners = [] } = {}) {
+  const me = useSession(), ref = doc(db, 'newOwnerListings', l.id), pf = { ...portfolioOf(l) };
+  const note = async (key, id, text) => {
+    pf[key] = id;
+    await updateDoc(ref, { [`portfolio.${key}`]: id, updatedAt: serverTimestamp(), updatedByUid: me.user.uid, updatedByName: me.name, history: arrayUnion(entry(text)) });
+  };
+  const reason = `New owner listing ${l.id}`;
+  // 1. Property
+  if (!pf.propertyId) {
+    if (d.party.propertyId) await note('propertyId', d.party.propertyId, `Linked to property ${d.party.propertyId} in Portfolio.`);
+    else {
+      const name = d.property.trim(), code = String(d.party.propertyCode || '').trim().toUpperCase();
+      const clash = clashIn(properties, { name, code, state: d.state });
+      if (clash) throw stop(clash);
+      const id = await newPropertyId(name, d.state);
+      await createProperty(me, id, { name, code, info: { state: d.state } });
+      await forgetProperties();
+      await note('propertyId', id, `Created in Portfolio: property ${id}.`);
+    }
+  }
+  // 2. Owner
+  if (!pf.ownerId) {
+    if (d.party.ownerId) await note('ownerId', d.party.ownerId, `Linked to owner ${d.party.ownerId} in Portfolio.`);
+    else {
+      const id = await freshOwnerCode(owners);
+      const co = (c.coOwners || []).map(x => ({ fullName: String(x.fullName || '').trim(), ic: String(x.ic || '').trim(), email: String(x.email || '').trim(), phone: String(x.phone || '').trim() }))
+        .filter(x => x.fullName);
+      const priv = { fullName: d.ownerName.trim(), ic: String(c.ownerIc || '').trim(), phone: String(c.ownerPhone || '').trim(), email: String(c.ownerEmail || '').trim(), ...(co.length ? { coOwners: co } : {}) };
+      await saveOwner(me, { id, isNew: true, active: true, bankLast4: null, priv, changed: Object.keys(priv), reason, propertyId: pf.propertyId });
+      await note('ownerId', id, `Created in Portfolio: owner ${id}.`);
+    }
+  }
+  // 3. Unit (no fee arrangement: Accounting or a Director puts it on the unit)
+  if (!pf.unitId) {
+    const code = d.unit.trim().replace(/\s+/g, ' '), id = unitIdOf(pf.propertyId, code);
+    const there = await getDoc(doc(db, 'units', id)).then(s => s.exists()).catch(() => false);
+    if (there) throw stop(`${code} already exists in this property in Portfolio. Check the unit code (or ask a Director to link it).`);
+    await saveUnit(me, { id, isNew: true, propertyId: pf.propertyId, code, aliases: [], ownerId: pf.ownerId, info: unitInfo(d), active: true,
+      terms: null, termsChanged: false, effectiveFrom: yymm(), reason, changes: [] });
+    await forgetUnits(pf.propertyId);
+    await note('unitId', id, `Created in Portfolio: unit ${code}.`);
+  }
+  l.portfolio = pf;
+  return pf;
 }
 
 // ---- Firestore ----
 // The owner's phone and email (private part). Empty when not allowed or not there.
 export async function loadContact(id) {
   const p = await getDoc(doc(db, 'newOwnerListings', id, 'private', 'main')).catch(() => null);
-  const pd = p?.exists() ? p.data() : {};
-  return { ownerPhone: pd.ownerPhone || '', ownerEmail: pd.ownerEmail || '' };
+  return cleanContact(p?.exists() ? p.data() : {});
+}
+// The private part as saved: trimmed text, joint owners with a name or any detail.
+export function cleanContact(c = {}) {
+  const t = v => String(v ?? '').trim();
+  return { ownerPhone: t(c.ownerPhone), ownerEmail: t(c.ownerEmail), ownerIc: t(c.ownerIc), wifiPassword: String(c.wifiPassword ?? ''),
+    coOwners: (Array.isArray(c.coOwners) ? c.coOwners : []).map(x => ({ fullName: t(x?.fullName), ic: t(x?.ic), phone: t(x?.phone), email: t(x?.email) }))
+      .filter(x => x.fullName || x.ic || x.phone || x.email) };
 }
 
 // Saves the whole listing (one batch: listing, private part if changed, audit entry). The caller then sends it to the
@@ -427,8 +664,9 @@ export async function saveListing({ l, before, d, c, c0, live = false }) {
   const me = useSession();
   d.renovation.items.forEach(x => { x.title = x.title.trim(); delete x.custom; });
   if (d.agreement.signed && !before.agreement.signed) d.agreement.signedDuringStage = before.agreement.skipped ? STAGES[currentKeyOf(before)].label : null;
-  const contact = { ownerPhone: (c?.ownerPhone || '').trim(), ownerEmail: (c?.ownerEmail || '').trim() };
-  const contactChanged = !!c && (contact.ownerPhone !== (c0?.ownerPhone || '') || contact.ownerEmail !== (c0?.ownerEmail || ''));
+  // The private part (phone, email, IC, joint owners, Wifi password): written only when something in it changed
+  const contact = cleanContact(c || c0 || {});
+  const contactChanged = !!c && JSON.stringify(contact) !== JSON.stringify(cleanContact(c0 || {}));
   const lines = summarize(before, d, contactChanged);
   if (!lines.length) throw stop('Nothing changed yet.');
   // Status (Phase 3): never worked out again from the stages (a move in the TMS would be undone). It moves forward
@@ -547,14 +785,47 @@ export async function startFromTask(t, fields = {}) {
 
 export const listingLink = id => `/Procurement/listing-flow/${id}`;
 
+// Director only (13 Nov 2026), for mistakes and tests: deletes a listing for good: its private part (owner contact),
+// then the listing, with an audit line. Property, owner and unit already made in Portfolio stay. Then its task system
+// card is deleted for good too (TMS action deleteOwnerLead, which checks the listing is gone first). If that fails,
+// the TMS lets a Director delete the card by hand, as its listing no longer exists.
+// Resolves { message }.
+export async function deleteListing(l, reason = '') {
+  const me = useSession();
+  if (me.role !== 'director') throw Object.assign(new Error('Only Directors can delete a listing.'), { plain: true });
+  const ref = listingRef(l.id), why = reason.trim();
+  const b = writeBatch(db);
+  b.delete(doc(ref, 'private', 'main'));
+  b.delete(ref);
+  audit(b, me, { action: 'newOwnerListing.delete', entity: `newOwnerListings/${l.id}`, reason: why || `Deleted ${l.id}`,
+    changes: [{ field: 'listing', old: `${l.id} · ${placeOf(l)} · ${LEAD_STATUS[statusOf(l)]?.label || ''}`, new: null }] });
+  await b.commit();
+  if (!l.tmsTaskId) return { message: '' };
+  try {
+    const r = await deleteOwnerLead(l.tmsTaskId);
+    return { message: r.deleted === false ? '' : ' Its card in the task system is deleted too.' };
+  } catch (e) {
+    return { message: ` Its card in the task system was not deleted (${e.message}); a Director can delete it there now.` };
+  }
+}
+
 // Same content, whatever the key order (Firestore can hand back map keys in another order than the screen made them).
 const sorted = v => (Array.isArray(v) ? v.map(sorted) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])])) : v);
 export const sameData = (a, b) => JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
 
 // The stage a listing is at, as "3 · Renovation" (its position among the stages it shows).
 export const stageText = l => { const k = currentKeyOf(l); return `${stagesFor(l).indexOf(k) + 1} · ${STAGES[k].label}`; };
-// At Live: the service fee to offer as the unit's fee in Portfolio (prefill only). null when the rent type isn't set.
-export const serviceFeeOf = l => (l.services.rentType ? { rentType: l.services.rentType, label: rentLabel(l.services.rentType), pct: SERVICE_FEE[l.services.rentType] } : null);
+// The arrangement for the unit in Portfolio (Live stage, and the prefill on Create unit for older listings).
+// pct = the unit's own service fee % to prefill: the custom % when typed, else the arrangement's service part.
+// null when nothing is picked.
+export function serviceFeeOf(l) {
+  const sv = l.services, a = sv.arrangement;
+  if (!sv.rentType) return null;
+  const custom = String(sv.customPct ?? '').trim();
+  const pct = custom !== '' ? Number(custom) : a && !isFixedArr(a) ? pct3(a.servicePct) : feePctOf(l);
+  if (pct == null && !a) return null;
+  return { rentType: sv.rentType, label: a ? a.name : rentLabel(sv.rentType), pct, arrangementId: a ? sv.arrangementId : '', text: feeText(l) };
+}
 
 // ===================== Phase 3: status, the TMS card, aging, migration =====================
 export const msOf = t => (!t ? 0 : t.toMillis ? t.toMillis() : t.seconds ? t.seconds * 1000 : typeof t === 'string' ? Date.parse(t) || 0 : t instanceof Date ? t.getTime() : 0);

@@ -31,14 +31,18 @@
           <div class="field"><label for="uSew">Sewerage bill account</label><input class="input" id="uSew" v-model="u.info.sewerage"></div>
         </div>
         <div class="field"><label for="uJmb">JMB / MC (condo management) phone or email</label><input class="input" id="uJmb" v-model="u.info.jmb"></div>
+        <!-- 13 Nov 2026: one per unit, from Finance's Owner List. Saved by people with an Edit tick (the rules don't allow it for Operations or Marketing yet). -->
+        <div class="field"><label for="uAc">Autocount account no.</label>
+          <input class="input" id="uAc" v-model="u.autocountAcc" :readonly="acc.viewOnly" placeholder="e.g. 300-C013">
+          <span class="help" v-if="acc.viewOnly">Set by Accounting or a Director.</span></div>
         <template v-if="!acc.viewOnly">
           <hr class="divider">
           <div class="field"><label for="uArr">Arrangement</label>
             <OptionPicker class="full-pick" v-model="u.arrangement" :options="arrangementOptions" label="Arrangement" searchable />
             <span class="help" v-if="chosen">{{ `${FEE_TYPES[chosen.type]?.label || chosen.type}: ${FEE_TYPES[chosen.type]?.explain || ''}` }}<FormulaInfo :type="chosen.type" /></span>
-            <span class="help" v-else-if="u.arrangement">This arrangement is not on Fees & Rates for the month. Pick another.</span>
-            <span class="help" v-else>Arrangements are set up on Portfolio > Fees & Rates.</span>
-            <span class="help from-listing" v-if="u.isNew && u.fromListing?.serviceFee">{{ `From ${u.fromListing.listingId}: ${u.fromListing.serviceFee.label} rent, service fee ${u.fromListing.serviceFee.pct}%. It is filled in as this unit's service fee once you pick an arrangement; clear it to use the arrangement's number.` }}</span></div>
+            <span class="help" v-else-if="u.arrangement">This arrangement is not on Fees & Rates or this property's Pool sharing tab for the month. Pick another.</span>
+            <span class="help" v-else>Arrangements are set up on Portfolio > Fees & Rates. Pool Sharing is set up on this property's Pool sharing tab.</span>
+            <span class="help from-listing" v-if="u.isNew && u.fromListing?.serviceFee">{{ `From ${u.fromListing.listingId}: ${u.fromListing.serviceFee.text || `${u.fromListing.serviceFee.label} rent`}, service fee ${u.fromListing.serviceFee.pct}%. It is filled in as this unit's service fee once you pick an arrangement; clear it to use the arrangement's number.` }}</span></div>
           <div class="field" v-show="isFixed"><label for="uFix" class="req">Fixed rent a month (RM)</label><input class="input" id="uFix" type="number" step="0.01" v-model="u.fixedRentAmount"></div>
           <template v-if="chosen">
             <div class="grid-3">
@@ -120,7 +124,7 @@ export default {
         info: { ...Object.fromEntries(UNIT_INFO.map(k => [k, ''])), ...(unit?.info || {}) },
         arrangement: t.arrangement || '', fixedRentAmount: t.fixedRentAmount ?? '',
         serviceFeePct: pctOut(t.serviceFeePct), utilityFeePct: pctOut(t.utilityFeePct), sstOnFeePct: pctOut(t.sstOnFeePct),
-        purchasePrice: unit?.purchasePrice ?? '',
+        purchasePrice: unit?.purchasePrice ?? '', autocountAcc: unit?.autocountAcc || '',
         effectiveFrom: this.asOf, reason: '', error: '',
         history: [...(unit?.termHistory || [])].sort((a, b) => (b.effectiveFrom || '').localeCompare(a.effectiveFrom || '') || msOf(b.createdAt) - msOf(a.createdAt)),
         ...(this.prefill || {})
@@ -199,6 +203,8 @@ export default {
       if ((u.original?.ownerId || null) !== ownerId) unitChanges.push({ field: 'ownerId', old: u.original?.ownerId || null, new: ownerId });
       if ((u.original?.aliases || []).join(',') !== aliases.join(',')) unitChanges.push({ field: 'aliases', old: u.original?.aliases || [], new: aliases });
       if (!this.acc.viewOnly && (u.original?.purchasePrice ?? null) !== price) unitChanges.push({ field: 'Purchase price', old: u.original?.purchasePrice != null ? `RM ${amt(u.original.purchasePrice)}` : null, new: price != null ? `RM ${amt(price)}` : null });
+      const ac = String(u.autocountAcc || '').trim();
+      if (!this.acc.viewOnly && (u.original?.autocountAcc || '') !== ac) unitChanges.push({ field: 'autocountAcc', old: u.original?.autocountAcc || null, new: ac || null });
       if (!u.isNew && (u.original.active !== false) !== u.active) unitChanges.push({ field: 'active', old: u.original.active !== false, new: u.active });
       if (!u.isNew && !termsChanged && !unitChanges.length) { this.$emit('close'); return; }
       if (!u.reason.trim()) return u.error = 'Add a short reason. It goes in the audit log.';
@@ -212,7 +218,7 @@ export default {
       this.setBusy(true);
       try {
         await saveUnit(me, { id, isNew: u.isNew, detailsOnly: this.acc.viewOnly && !u.isNew, propertyId: pid, code, aliases, ownerId, info, active: u.active,
-          ...(this.acc.viewOnly ? {} : { purchasePrice: price }),
+          ...(this.acc.viewOnly ? {} : { purchasePrice: price, autocountAcc: ac }),
           terms, termsChanged, effectiveFrom: u.effectiveFrom, reason: u.reason.trim(), changes: [...unitChanges, ...termChanges] });
         const noted = u.isNew ? await noteOnListing(me, u.fromListing, 'unitId', id, 'unit') : '';
         await forgetUnits(pid);

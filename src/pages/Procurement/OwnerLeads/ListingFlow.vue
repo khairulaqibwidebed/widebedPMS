@@ -5,16 +5,13 @@
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice warn" v-if="syncNotes.length"><template v-for="(n, i) in syncNotes" :key="i"><div>{{ n }}</div></template></div>
 
-    <!-- Listings (with the task inbox) open in a panel; with a listing open these sit in its header instead -->
+    <!-- Back to the Owner Leads list (13 Nov 2026: replaces the Listings panel button); with a listing open it sits in its header instead -->
     <div class="ol-bar" v-if="mode && !(mode === 'listing' && l && d)">
+      <router-link class="ol-back" to="/Procurement/listing-flow">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+        Back to Owner Leads
+      </router-link>
       <span class="ol-bar-fill"></span>
-      <button type="button" class="ol-tbtn" :class="{ has: hasInbox && newLeads.length }" @click="openPanel(hasInbox && newLeads.length ? 'inbox' : 'list')"
-        :aria-label="`Listings: ${leftRows.length} in progress` + (hasInbox ? `, ${newLeads.length} new from the task system` : '')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-        Listings <span class="ol-count">{{ leftRows.length }}</span>
-        <span class="ol-new-leads" v-if="hasInbox && newLeads.length">{{ `${newLeads.length} new` }}</span>
-      </button>
-      <router-link class="btn btn-primary" v-if="canEdit && mode !== 'new'" :to="listingLink('new')">+ New listing</router-link>
     </div>
 
     <NewLead v-if="mode === 'new'" :properties="properties" @cancel="$router.push('/Procurement/listing-flow')" @saved="onNewSaved" @dirty="v => newDirty = v" />
@@ -22,8 +19,17 @@
     <template v-else-if="mode === 'listing' && l && d">
       <div class="ol-head">
         <div class="ol-head-main">
+          <router-link class="ol-back" to="/Procurement/listing-flow">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+            Back to Owner Leads
+          </router-link>
           <div class="ol-kicker"><b>{{ l.id }}</b><span>{{ `Started ${full(l.startedOn)} by ${l.createdByName || '—'}` }}</span></div>
-          <h1>{{ placeOf(l) }}</h1>
+          <!-- Header: the task system card's subject, then the property and unit (same as the Owner Leads cards) -->
+          <h1>{{ subject || placeOf(l) }}</h1>
+          <div class="ol-place" v-if="subject">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" /></svg>
+            <span :class="{ none: !(l.property || l.unit) }">{{ [l.property, l.unit].filter(Boolean).join(' · ') || 'Property not set' }}</span>
+          </div>
           <div class="ol-tms">
             <span class="pill" :class="LEAD_STATUS[leadStatus].pill">{{ LEAD_STATUS[leadStatus].label }}</span>
             <span class="muted" :title="'Aging: days to signed, then from signed to live'">{{ agingOf(l, now).text }}</span>
@@ -35,13 +41,6 @@
           </div>
         </div>
         <div class="head-tools">
-          <button type="button" class="ol-tbtn" :class="{ has: hasInbox && newLeads.length }" @click="openPanel(hasInbox && newLeads.length ? 'inbox' : 'list')"
-            :aria-label="`Listings: ${leftRows.length} in progress` + (hasInbox ? `, ${newLeads.length} new from the task system` : '')">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-            Listings <span class="ol-count">{{ leftRows.length }}</span>
-            <span class="ol-new-leads" v-if="hasInbox && newLeads.length">{{ `${newLeads.length} new` }}</span>
-          </button>
-          <router-link class="btn btn-primary" v-if="canEdit && mode !== 'new'" :to="listingLink('new')">+ New listing</router-link>
           <div class="more-wrap" v-if="moreItems">
             <button type="button" class="btn more-btn" aria-label="More actions" :aria-expanded="String(moreOpen)" @click="moreOpen = !moreOpen">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
@@ -51,6 +50,7 @@
               <div class="more-menu" role="menu">
                 <button type="button" role="menuitem" class="danger-text" v-if="canNotProceed" @click="moreOpen = false; npOpen = true; npReason = ''">Not proceeding</button>
                 <button type="button" role="menuitem" v-if="isDirector && leadStatus === 'cancelled'" @click="moreOpen = false; reopen()" :disabled="busy">Reopen</button>
+                <button type="button" role="menuitem" class="danger-text" v-if="isDirector" @click="moreOpen = false; delOpen = true; delReason = ''; delTyped = ''">Delete listing</button>
               </div>
             </template>
           </div>
@@ -84,11 +84,13 @@
 
       <div class="ol-body">
         <div class="ol-main">
-          <StageAgreement v-if="tab === 'agreement'" :d="d" :saved="saved" :can-edit="editable" :n="numberOf('agreement')" />
+          <StageAgreement v-if="tab === 'agreement'" :d="d" :c="c" :saved="saved" :portfolio="l.portfolio || null" :properties="properties" :owners="owners"
+            :can-edit="editable" :can-see-contact="canSeeContact" :can-add-portfolio="canAddPortfolio" :busy="busy" :dirty="dirty" :n="numberOf('agreement')" @create-portfolio="makeInPortfolio()" />
           <StageServices v-else-if="tab === 'services'" :d="d" :can-edit="editable" :n="numberOf('services')" />
           <StageRenovation v-else-if="tab === 'renovation'" :d="d" :listing-id="l.id" :can-edit="editable" :n="numberOf('renovation')" @copy="copy" />
           <StageFurniture v-else-if="tab === 'furniture'" :d="d" :can-edit="editable" :n="numberOf('furniture')" @copy="copy" />
           <StagePayment v-else-if="tab === 'payment'" :d="d" :listing-id="l.id" :can-edit="editable" :busy="busy" :pdf-busy="pdfBusy" :n="numberOf('payment')" @confirm-payment="confirmPayment" @download-quote="downloadQuote" />
+          <StageSetup v-else-if="tab === 'setup'" :d="d" :c="c" :can-edit="editable" :can-see-contact="canSeeContact" :n="numberOf('setup')" />
           <StageMarketing v-else-if="tab === 'marketing'" :d="d" :can-edit="editable" :busy="busy" :mk-task="mkTask" :tasks-error="tasksError" :tasks-loading="tasksLoading"
             :n="numberOf('marketing')" @go-live="goLive" @refresh-tasks="loadTasks" />
           <StageLive v-else-if="tab === 'live'" :d="d" :portfolio="l.portfolio || null" :can-edit="editable" :busy="busy" :can-add-portfolio="canAddPortfolio"
@@ -121,24 +123,35 @@
 
     <div class="card ol-empty" v-else-if="mode === 'listing' && notFound"><p>{{ `No listing ${$route.params.id}, or you can't open it.` }}</p></div>
     <div class="card ol-empty" v-else-if="mode === 'listing'"><SkeletonRows :rows="4" /></div>
-    <!-- Nothing open: the panel sits in the page -->
-    <!-- Nothing open: the start page, new leads and listings side by side -->
+    <!-- Nothing open: every owner lead, as a table or cards (13 Nov 2026: Owner Leads and Listing Flow are one page) -->
     <template v-else>
       <div class="ol-home-head">
-        <div><h1>Listing Flow</h1><p class="muted">Start new owner leads and follow each listing through to Live.</p></div>
-        <router-link class="btn btn-primary" v-if="canEdit" :to="listingLink('new')">+ New listing</router-link>
+        <div><h1>Owner Leads</h1><p class="muted">View all owner leads from New to Live. Open any lead to update its listing step by step.</p>
+          <div class="ov-live"><LiveStatus :status="liveStatus.list?.status" :last-updated="liveStatus.list?.lastUpdated" />
+            <LiveStatus v-if="readsLeads" :status="liveStatus.leads?.status" :last-updated="liveStatus.leads?.lastUpdated" time /></div></div>
+        <div class="head-tools">
+          <button class="btn" v-if="isDirector && plan.length" @click="migrateOpen = true">{{ `Update older listings (${plan.length})` }}</button>
+          <router-link class="btn btn-primary" v-if="canEdit" :to="listingLink('new')">+ New listing</router-link>
+        </div>
       </div>
-      <ListingsPanel home v-model:whose="whose" :has-inbox="hasInbox" :can-edit="canEdit" :busy="busy"
-        :leads="newLeads" :status="liveStatus.leads" :error="leadsError" :loaded="leadsLoaded" :rows="leftRows" :loading="listLoading" @start="askStart" />
+      <div class="notice warn" v-show="leadsError">{{ leadsError }}</div>
+      <LeadsBoard :rows="boardRows" :listings="listings" :loading="listLoading" :busy="busy" :can-see-contact="canSeeContact" :can-start="canEdit && hasInbox" @start="askStart" />
+      <p class="page-note">New leads are cards on the task system's Owner Leads board (Business Development &amp; Procurement) that nobody has started yet. Owner phone numbers and emails are shown only to Directors, Procurement and Operations.</p>
     </template>
 
-    <!-- The panel over the page (while a listing or New listing is open) -->
-    <div class="ol-drawer-back" v-if="panel" @click.self="panel = false" v-esc="() => { panel = false }">
-      <aside class="ol-drawer" role="dialog" aria-label="Owner listings">
-        <ListingsPanel closable v-model:tab="panelTab" v-model:whose="whose" :has-inbox="hasInbox" :can-edit="canEdit" :busy="busy"
-          :leads="newLeads" :status="liveStatus.leads" :error="leadsError" :loaded="leadsLoaded" :rows="leftRows" :loading="listLoading"
-          :current-id="l ? l.id : ''" @start="t => { panel = false; askStart(t) }" @close="panel = false" />
-      </aside>
+    <!-- Director: older listings get the lead statuses (preview first) -->
+    <div class="modal-back" v-if="migrateOpen" @click.self="migrateOpen = false" v-esc="() => { migrateOpen = false }">
+      <div class="modal" role="dialog" aria-label="Update older listings" style="max-width:720px;width:calc(100% - 32px)">
+        <div class="card-head"><h2>Update older listings</h2></div>
+        <p class="help">These listings were made before the lead statuses. Each gets the status below (agreement signed = Signed, Live = Live, else In progress), and the signed and live dates from its history for the aging counter. Their cards on the Owner Leads board are moved to match.</p>
+        <div class="table-wrap" style="max-height:360px;overflow:auto">
+          <table class="table">
+            <thead><tr><th>Listing</th><th>Property / unit</th><th>Now</th><th>Becomes</th><th>Signed</th><th>Live</th></tr></thead>
+            <tbody><template v-for="p in plan" :key="p.id"><tr><td><b>{{ p.id }}</b></td><td>{{ p.place }}</td><td>{{ p.from }}</td><td>{{ LEAD_STATUS[p.to].label }}</td><td>{{ full(p.signedIso) || '—' }}</td><td>{{ full(p.liveIso) || '—' }}</td></tr></template></tbody>
+          </table>
+        </div>
+        <div class="modal-foot"><button class="btn" @click="migrateOpen = false">Cancel</button><button class="btn btn-primary" @click="migrate()" :disabled="busy">{{ `Update ${plan.length} listings` }}</button></div>
+      </div>
     </div>
 
     <!-- one Save / Discard bar for the whole listing (same as Profile & Appearance) -->
@@ -240,18 +253,32 @@
         <div class="modal-foot"><button class="btn" @click="npOpen = false">Cancel</button><button class="btn btn-primary" @click="notProceeding()" :disabled="busy || !npReason.trim()">Not proceeding</button></div>
       </div>
     </div>
+
+    <!-- Director: delete the listing for good (type its number to confirm) -->
+    <div class="modal-back" v-if="delOpen && l" @click.self="delOpen = false" v-esc="() => { delOpen = false }">
+      <div class="modal" role="dialog" aria-label="Delete listing" style="max-width:520px;width:calc(100% - 32px)">
+        <div class="card-head"><h2>{{ `Delete ${l.id}?` }}</h2></div>
+        <p class="help">All listing data, history, and owner details will be lost forever. Items already saved to the Portfolio will be kept.</p>
+        <div class="del-confirm">
+          <label class="req" for="delT">Type <b>{{ l.id }}</b> to confirm</label>
+          <input class="input" id="delT" v-model="delTyped" autocomplete="off" :placeholder="l.id" autofocus>
+        </div>
+        <div class="field"><label for="delR">Reason (optional)</label><input class="input" id="delR" v-model="delReason" placeholder="e.g. Duplicate of NL-0012"></div>
+        <div class="modal-foot"><button class="btn" @click="delOpen = false">Cancel</button>
+          <button class="btn btn-danger" @click="removeListing()" :disabled="busy || !delOk">Delete for good</button></div>
+      </div>
+    </div>
   </main>
 </template>
 
 <script>
-// Leads & Agreements > Listing Flow: one new owner listing, stage by stage (11 Nov 2026, split from NewListings.vue with
-// no change to what a listing does). Addresses:
-//   /Procurement/listing-flow               the list on the left, nothing open
+// Leads & Agreements > Owner Leads (13 Nov 2026: Owner Leads and Listing Flow are one page). Addresses:
+//   /Procurement/listing-flow               every owner lead, table or cards (LeadsBoard.vue); Director: Update older listings
 //   /Procurement/listing-flow/new           + New listing (no task)
 //   /Procurement/listing-flow/NL-0001       one listing, at its current stage
-//   /Procurement/listing-flow/NL-0001/payment   one listing, one stage (agreement, services, renovation, furniture, payment, marketing, live)
-// Opens with the Owner Leads View tick (so the "Listing is Live" notification works for Operations, read-only); the
-// sidebar item shows only with the Edit tick. Everything about a listing that isn't layout is in lib/owner-leads.js.
+//   /Procurement/listing-flow/NL-0001/payment   one listing, one stage (agreement, services, renovation, furniture, payment, setup, marketing, live)
+// Opens with the Owner Leads View tick. Everything about a listing that isn't layout is in lib/owner-leads.js.
+// LeadsOverview.vue (the old overview page) is no longer used.
 // Live: the listings list (newest 300) and the open listing through use-live.js; "From task system" polls every 60 s.
 // The open listing refreshes by itself when nothing is typed; with unsaved changes it shows a notice instead.
 import { collection, doc, query, orderBy, limit } from 'firebase/firestore';
@@ -270,12 +297,17 @@ import {
   LINK_TYPE, LIST_LIMIT, STAGES, STAGE_KEYS, PORTFOLIO_ADDERS, CONTACT_READERS, toRow, draftOf, clone, money, rm, depositOf, nowIso, sameData,
   stagesFor, stageDoneOf, stagePartOf, currentKeyOf, stageNote, validate, saveListing, pushListing, loadContact,
   startFromTask, remarkEntry, placeOf, tmsState, full, stamp, errText, listingLink, stageText, serviceFeeOf, quoteTotal, payTypeLabel,
-  LEAD_STATUS, UNIT_TYPES, SOURCES, STATUS_MOVERS, LEAD_READERS, statusOf, agingOf, moveCard, setNotProceeding, reopenListing, reconcile
+  LEAD_STATUS, UNIT_TYPES, SOURCES, STATUS_MOVERS, LEAD_READERS, statusOf, agingOf, moveCard, setNotProceeding, reopenListing, reconcile,
+  blankContact, feeText, servicesTotal, renoFurnTotal, setupDoneOf, paidOf, partyMissing, inPortfolioOf, createInPortfolio,
+  leadRows, migrationPlan, runMigration, deleteListing
 } from '@/lib/owner-leads.js';
+import { loadOwners } from '@/lib/portfolio-data.js';
+import LiveStatus from '@/components/LiveStatus.vue';
+import LeadsBoard from './LeadsBoard.vue';
+import StageSetup from './stages/StageSetup.vue';
 import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PropertyField from './PropertyField.vue';
-import ListingsPanel from './ListingsPanel.vue';
 import NewLead from './NewLead.vue';
 import StageAgreement from './stages/StageAgreement.vue';
 import StageServices from './stages/StageServices.vue';
@@ -288,10 +320,9 @@ import StageMarketing from './stages/StageMarketing.vue';
 import StageLive from './stages/StageLive.vue';
 
 const BASE = '/Procurement/listing-flow';
-const blankContact = () => ({ ownerPhone: '', ownerEmail: '' });
 
 export default {
-  components: { FormField, OptionPicker, PropertyField, ListingsPanel, NewLead, StageAgreement, StageServices, StageRenovation, StageFurniture, StagePayment, StageMarketing, StageLive },
+  components: { FormField, OptionPicker, PropertyField, NewLead, StageAgreement, StageServices, StageRenovation, StageFurniture, StagePayment, StageSetup, StageMarketing, StageLive, LiveStatus, LeadsBoard },
   mixins: [liveMixin],
   data() {
     const me = useSession();
@@ -300,12 +331,11 @@ export default {
       newRemark: '',   // the Remarks "new comment" box: added to d.remarksLog on Save
       uid: me.user?.uid || '', isDirector: me.role === 'director', mover: STATUS_MOVERS.includes(me.role), readsLeads: LEAD_READERS.includes(me.role),
       leads: [], leadsError: '', leadsLoaded: false, leadsIn: false, syncing: false, syncNotes: [], now: Date.now(),
-      startLead: null, startForm: {}, startError: '', npOpen: false, npReason: '',
+      startLead: null, startForm: {}, startError: '', npOpen: false, npReason: '', delOpen: false, delReason: '', delTyped: '',
       canEdit: can(me, 'newOwnerListings.edit'), hasInbox: ['director', 'procurement'].includes(me.role),
       canAddPortfolio: PORTFOLIO_ADDERS.includes(me.role), canSeeContact: CONTACT_READERS.includes(me.role),
       whose: me.role === 'director' ? 'everyone' : 'mine',
-      listings: [], listLoading: true, properties: [],
-      panel: false, panelTab: me.role === 'director' || me.role === 'procurement' ? 'inbox' : 'list',   // the listings / task inbox panel
+      listings: [], listLoading: true, properties: [], owners: [], migrateOpen: false,
       moreOpen: false,     // the header's ⋯ menu (Not proceeding, Reopen)
       tmsSending: false,   // a save or Send now is on its way to the task system (progress bar instead of "Not sent")
       mode: '', l: null, saved: null, d: null, c: blankContact(), c0: blankContact(), tab: 'agreement', wantStage: '', notFound: false, remoteChanged: false, newDirty: false,
@@ -317,7 +347,7 @@ export default {
     // States a new listing can be for: every state for a Director, else the user's own
     stateList() { return stateChoices(useSession()); },
     canNotProceed() { return this.mover && this.canEdit && !['live', 'cancelled'].includes(this.leadStatus); },
-    moreItems() { return this.canNotProceed || (this.isDirector && this.leadStatus === 'cancelled'); },
+    moreItems() { return this.canNotProceed || this.isDirector; },
     // The Summary card: the key facts of the open listing
     facts() {
       const d = this.d, fee = serviceFeeOf(d), t = this.mkTask;
@@ -326,12 +356,17 @@ export default {
         ['Unit', [d.unit, d.unitType, d.sizeSqft ? `${d.sizeSqft} sq ft` : ''].filter(Boolean).join(' · ') || '—'],
         ['Source', d.source || '—'],
         ['Due', d.dueDate ? full(d.dueDate) : '—'],
-        ['Rent type', fee ? `${fee.label} · fee ${fee.pct}%` : 'Not set'],
-        ['Quotation total', rm(quoteTotal(d))],
+        ['Arrangement', fee ? feeText(d) : 'Not set'],
+        ['Services', rm(servicesTotal(d))],
+        ['Renovation & Furniture', rm(renoFurnTotal(d))],
+        ['Grand total', rm(quoteTotal(d))],
         ['Payment', `${payTypeLabel(d.payment.type)} · ${stageNote(d, 'payment')}`],
         ...(d.marketing.taskId ? [['Marketing task', t ? `${t.completed ? 'Completed' : t.status || 'Open'} · ${t.subtasksDone} of ${t.subtasksTotal}` : '…']] : [])
       ];
     },
+    // The page's list: every listing plus the TMS cards not started yet
+    boardRows() { return leadRows(this.listings, this.leads, this.now); },
+    plan() { return this.isDirector ? migrationPlan(this.listings) : []; },
     lastRemark() { const log = this.d?.remarksLog || []; return log[log.length - 1] || null; },
     dirty() { return !!this.d && !!this.saved && (!sameData(this.d, this.saved) || !sameData(this.c, this.c0) || !!this.newRemark.trim()); },
     stageKeys() { return this.d ? stagesFor(this.d) : STAGE_KEYS; },
@@ -349,23 +384,33 @@ export default {
         && (this.whose === 'everyone' || x.createdByUid === this.uid || this.myTaskIds.has(x.tmsTaskId))).sort((a, b) => b.id.localeCompare(a.id));
     },
     leadStatus() { return this.l ? statusOf(this.l) : 'progress'; },
+    // Delete listing: the typed number matches (case, spaces and the dash don't matter: NL0016 = NL-0016)
+    delOk() { const n = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return !!this.l && n(this.delTyped) === n(this.l.id); },
+    // The subject of the listing's card (as on the Owner Leads cards); older listings fall back to their own title
+    subject() {
+      const l = this.l; if (!l) return '';
+      const lead = l.tmsTaskId ? this.leads.find(x => x.taskId === l.tmsTaskId) : null;
+      return lead?.title || l.tmsTitle || l.title || '';
+    },
     // Not proceeding listings are read-only (a Director reopens them first)
     editable() { return this.canEdit && this.leadStatus !== 'cancelled'; }
   },
   created() { this.applyRoute(this.$route); },
   mounted() {
     loadProperties().then(list => { this.properties = list; }).catch(e => console.error('Could not load properties:', e));
+    // Owners to pick on the Agreement stage (names from their private part)
+    if (this.canAddPortfolio && this.canEdit) loadOwners(true, true).then(list => { this.owners = list; }).catch(e => console.warn('Could not load owners:', e.code || e.message));
     this.live('list', query(collection(db, 'newOwnerListings'), orderBy('createdAt', 'desc'), limit(LIST_LIMIT)),
       rows => { const first = this.listLoading; this.listings = rows.map(toRow); this.listLoading = false; if (first) this.sync(); },
       { onError: e => { this.error = e.friendly; this.listLoading = false; } });
     // The TMS Owner Leads board, every 60 s (pauses while the tab is hidden)
     if (this.readsLeads) this.livePoll('leads', () => this.pollLeads(), 60000,
-      { onError: e => { this.leadsError = `${e.message} New owner leads can't be shown right now; it tries again by itself.`; this.leadsLoaded = true; } });
+      { onError: e => { this.leadsError = `Task system: ${String(e.message || '').replace(/\.?$/, '.')} New owner leads can't be shown right now; it tries again by itself.`; this.leadsLoaded = true; } });
     window.addEventListener('beforeunload', this.warn);
   },
   unmounted() { window.removeEventListener('beforeunload', this.warn); },
   watch: {
-    $route(to) { this.panel = false; this.moreOpen = false; if (to.path.startsWith(BASE)) this.applyRoute(to); },
+    $route(to) { this.moreOpen = false; if (to.path.startsWith(BASE)) this.applyRoute(to); },
     // A stage hidden in Types of service while it is open: back to Types of service.
     stageKeys(keys) { if (this.d && !keys.includes(this.tab)) this.tab = 'services'; }
   },
@@ -378,7 +423,6 @@ export default {
   },
   async beforeRouteLeave() { return this.unsaved() ? this.askLeave() : true; },
   methods: {
-    openPanel(tab) { this.panelTab = this.hasInbox ? tab : 'list'; this.panel = true; },
     stageDoneOf, stagePartOf, stageNote, stageText, agingOf, placeOf, tmsState, full, stamp, listingLink,
     numberOf(k) { return this.stageKeys.indexOf(k) + 1; },
     unsaved() { return this.mode === 'new' ? this.newDirty : this.editable && this.dirty; },
@@ -422,7 +466,7 @@ export default {
     openListing(id) {
       this.closeListing();
       this.mode = 'listing'; this.loading = true;
-      if (this.canSeeContact) loadContact(id).then(c => { if (this.l?.id === id || (!this.l && this.$route.params.id === id)) { this.c0 = c; this.c = { ...c }; } });
+      if (this.canSeeContact) loadContact(id).then(c => { if (this.l?.id === id || (!this.l && this.$route.params.id === id)) { this.c0 = c; this.c = clone(c); } });
       this.live('one', doc(db, 'newOwnerListings', id), row => this.onRow(id, row),
         { onError: e => { this.loading = false; if (e.code === 'permission-denied') this.notFound = true; else this.error = e.friendly; } });
     },
@@ -445,7 +489,7 @@ export default {
     },
     discard() {
       this.newRemark = '';
-      this.saved = draftOf(this.l); this.d = clone(this.saved); this.c = { ...this.c0 }; this.formError = ''; this.remoteChanged = false;
+      this.saved = draftOf(this.l); this.d = clone(this.saved); this.c = clone(this.c0); this.formError = ''; this.remoteChanged = false;
     },
     // The linked tasks (Procurement and Marketing), read once on open and on Refresh.
     async loadTasks() {
@@ -466,6 +510,17 @@ export default {
       if (!this.editable || this.busy || !this.d) return false;
       const err = validate(this.d, this.c);
       if (err) { this.formError = err; window.scrollTo(0, 0); return false; }
+      // Signed now (13 Nov 2026): the property and owners must be complete; they are made in Portfolio after the save
+      const signing = this.d.agreement.signed && !this.saved.agreement.signed && !inPortfolioOf(this.l);
+      if (signing) {
+        const miss = partyMissing(this.d, this.c);
+        if (miss.length) { this.formError = `Before Signed, add ${miss.join(', ')} (Agreement stage).`; window.scrollTo(0, 0); return false; }
+      }
+      // Marketing is told once: when the money is in and Operations Setup is done (an older Marketing task counts as told)
+      const ready = x => paidOf(x) && setupDoneOf(x);
+      const tellMk = ready(this.d) && !ready(this.saved) && !this.d.marketing.notifiedAt && !this.d.marketing.taskId;
+      const keepMk = clone(this.d.marketing);
+      if (tellMk) Object.assign(this.d.marketing, { notifiedAt: nowIso(), notifiedByName: useSession().name });
       this.busy = true; this.formError = '';
       // A new comment in the Remarks box joins the history (and becomes the latest remarks) with this save
       const note = this.newRemark.trim(), keepRemarks = this.d.remarks;
@@ -473,10 +528,10 @@ export default {
       try {
         let res;
         try { res = await saveListing({ l: this.l, before: this.saved, d: this.d, c: this.c, c0: this.c0, live }); }
-        catch (e) { if (note) { this.d.remarksLog.pop(); this.d.remarks = keepRemarks; } throw e; }
+        catch (e) { if (note) { this.d.remarksLog.pop(); this.d.remarks = keepRemarks; } this.d.marketing = keepMk; throw e; }
         if (note) this.newRemark = '';
         const { contact, statusChanged } = res;
-        this.saved = clone(this.d); this.c0 = { ...contact }; this.c = { ...contact }; this.remoteChanged = false;
+        this.saved = clone(this.d); this.c0 = clone(contact); this.c = clone(contact); this.remoteChanged = false;
         this.okMsg = `${this.l.id} saved.`;
         if (this.l.tmsTaskId) {
           this.tmsSending = true;
@@ -486,11 +541,44 @@ export default {
           if (statusChanged) { try { this.okMsg += (await moveCard(this.l, statusChanged)).message; } catch (e) { console.error(e); } }
           this.tmsSending = false;
         }
+        if (signing) this.okMsg += await this.portfolioStep();
+        if (tellMk) this.okMsg += await this.tellMarketing();
         this.busy = false;
         return true;
       } catch (e) { this.formError = errText(e, 'save the listing'); }
       this.busy = false;
       return false;
+    },
+    // After Signed: make the property, owner and unit in Portfolio (lib/owner-leads.js createInPortfolio). Returns the
+    // text to add to the message; a failure is shown as an error and the Agreement stage offers "Create in Portfolio".
+    async portfolioStep() {
+      try {
+        const pf = await createInPortfolio(this.l, this.d, this.c, { properties: this.properties, owners: this.owners });
+        loadProperties().then(list => { this.properties = list; }).catch(() => {});
+        if (this.owners.length || this.canAddPortfolio) loadOwners(true, true).then(list => { this.owners = list; }).catch(() => {});
+        return ` Made in Portfolio: property ${pf.propertyId}, owner ${pf.ownerId}, unit ${pf.unitId}.`;
+      } catch (e) {
+        this.formError = `Signed and saved, but not all made in Portfolio: ${errText(e, 'make the records in Portfolio')} Fix it, then press Create in Portfolio (Agreement stage).`;
+        return '';
+      }
+    },
+    async makeInPortfolio() {
+      if (this.busy || !this.l) return;
+      const miss = partyMissing(this.d, this.c);
+      if (miss.length) { this.formError = `Add ${miss.join(', ')} first (Agreement stage).`; return; }
+      this.busy = true; this.formError = '';
+      const msg = await this.portfolioStep();
+      if (msg) this.okMsg = `${this.l.id}:${msg}`;
+      this.busy = false;
+    },
+    // The Marketing team's bell: one role notification, opened straight to this listing. Returns text for the message.
+    async tellMarketing() {
+      const l = this.l, d = this.d, items = d.marketing.items.filter(m => m.on).map(m => m.title);
+      try {
+        await notifyRole({ recipientRole: 'marketing', type: 'listing', refId: l.id, link: listingLink(l.id), title: `New listing for Marketing: ${l.id}`,
+          message: `Payment in and Operations Setup done for ${placeOf(d)}.` + (items.length ? ` Marketing: ${items.join(', ')}.` : '') });
+        return ' The Marketing team was notified.';
+      } catch (e) { console.error('Notification failed:', e); return ` The Marketing notification could not be sent: ${e.message}`; }
     },
     async sendNow() {
       if (this.busy) return;
@@ -502,8 +590,9 @@ export default {
       this.busy = false; this.tmsSending = false;
     },
     // kind: 'full' (Payment confirmed), 'deposit' (Deposit received) or 'balance' (Balance received).
-    // Marketing starts once the money is in (Khairul 11 Nov): Full payment confirmed, or the deposit received. Those
-    // notify the Marketing team; Balance received only marks the listing paid in full (payment.confirmed).
+    // Operations Setup starts once the money is in (Full payment confirmed, or the deposit received): those notify
+    // Operations; Marketing is told by save() once Operations Setup is done too (13 Nov 2026). Balance received only
+    // marks the listing paid in full (payment.confirmed).
     async confirmPayment(kind = 'full') {
       const d = this.d, p = d.payment, total = money(p.amount);
       if (!(total > 0)) { this.formError = 'Add the final amount before confirming the payment.'; return; }
@@ -513,31 +602,39 @@ export default {
       }
       if (kind === 'balance' && !p.deposit.received) { this.formError = 'Confirm the deposit first.'; return; }
       const me = useSession();
-      const keep = clone(p), keepMk = clone(d.marketing), at = nowIso();
+      const keep = clone(p), at = nowIso();
       const who = { receivedByUid: me.user.uid, receivedByName: me.name, receivedAt: at };
-      // Marketing is told once: on Payment confirmed or Deposit received (an older Marketing task counts as told)
-      const tell = kind !== 'balance' && !d.marketing.notifiedAt && !d.marketing.taskId;
+      // Operations are told once: when the money first comes in and Operations Setup is not done yet
+      const tellOps = kind !== 'balance' && !paidOf(d) && !setupDoneOf(d);
       if (kind === 'deposit') Object.assign(p.deposit, { received: true, ...who });
       else {
         if (kind === 'balance') Object.assign(p.balance, { received: true, ...who });
         Object.assign(p, { confirmed: true, confirmedByUid: me.user.uid, confirmedByName: me.name, confirmedAt: at });
       }
-      if (tell) Object.assign(d.marketing, { notifiedAt: at, notifiedByName: me.name });
-      if (!(await this.save())) { d.payment = keep; d.marketing = keepMk; return; }
-      const l = this.l;
+      if (!(await this.save())) { d.payment = keep; return; }
+      const l = this.l, saidSoFar = this.okMsg.replace(`${l.id} saved.`, '').trim();
       const done = kind === 'deposit' ? `deposit ${rm(p.deposit.amount)} received` : kind === 'balance' ? 'balance received, paid in full' : 'payment confirmed';
-      if (!tell) { this.okMsg = `${l.id}: ${done}.`; return; }
-      // The Marketing team's bell: one role notification, opened straight to this listing.
-      const items = d.marketing.items.filter(m => m.on).map(m => m.title);
+      this.okMsg = `${l.id}: ${done}.${saidSoFar ? ' ' + saidSoFar : ''}`;
+      if (!tellOps) return;
+      // The Operations team's bell: Operations Setup can start
       try {
-        await notifyRole({ recipientRole: 'marketing', type: 'listing', refId: l.id, link: listingLink(l.id),
-          title: `New listing for Marketing: ${l.id}`,
-          message: `${kind === 'deposit' ? 'Deposit received' : 'Payment confirmed'} for ${placeOf(d)}.` + (items.length ? ` Marketing: ${items.join(', ')}.` : '') });
-        this.okMsg = `${l.id}: ${done} and the Marketing team notified.`;
+        await notifyRole({ recipientRole: 'operations', type: 'listing', refId: l.id, link: `${listingLink(l.id)}/setup`,
+          title: `Operations Setup: ${l.id}`, message: `${kind === 'deposit' ? 'Deposit received' : 'Payment confirmed'} for ${placeOf(d)}. Please do the Operations Setup (deep cleaning, Wifi, house rules, owner's Google Drive and WhatsApp group).` });
+        this.okMsg += ' Operations notified for Operations Setup.';
       } catch (e) {
         console.error('Notification failed:', e);
-        this.okMsg = `${l.id}: ${done}. The Marketing notification could not be sent: ${e.message}`;
+        this.okMsg += ` The Operations notification could not be sent: ${e.message}`;
       }
+    },
+    async migrate() {
+      this.busy = true; this.error = '';
+      try {
+        const n = this.plan.length;
+        const notes = await runMigration(this.plan, new Set(this.leads.map(x => x.taskId)));
+        this.okMsg = `${n} older listings updated.` + (notes.length ? ` ${notes.join(' ')}` : '');
+        this.migrateOpen = false;
+      } catch (e) { this.error = errText(e, 'update the older listings'); }
+      this.busy = false;
     },
     // Quotation PDF of what the Payment stage shows (unsaved changes included). Owner phone and email only for
     // Directors and Procurement.
@@ -609,6 +706,18 @@ export default {
       } catch (e) { this.formError = errText(e, 'mark the listing Not proceeding'); this.npOpen = false; }
       this.busy = false;
     },
+    async removeListing() {
+      const l = this.l;
+      if (this.busy || !l || !this.isDirector) return;
+      this.busy = true; this.formError = '';
+      try {
+        const r = await deleteListing(l, this.delReason);
+        this.delOpen = false; this.discardSilently();
+        this.busy = false;
+        await this.$router.push('/Procurement/listing-flow');
+        this.okMsg = `${l.id} deleted.${r.message}`;
+      } catch (e) { this.formError = errText(e, 'delete the listing'); this.delOpen = false; this.busy = false; }
+    },
     async reopen() {
       if (this.busy) return;
       this.busy = true; this.formError = '';
@@ -644,6 +753,9 @@ export default {
 .ol-flow { display: flex; flex-direction: column; gap: 16px; }
 .ol-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ol-bar-fill { flex: 1 1 40px; }
+.ol-back { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; margin: 0 0 6px -4px; padding: 4px 8px 4px 4px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--muted); text-decoration: none; }
+.ol-back:hover { color: var(--accent); background: var(--accent-soft); }
+.ol-bar .ol-back { margin-bottom: 0; }
 .ol-tbtn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-weight: 600; color: var(--text); cursor: pointer; }
 .ol-tbtn:hover { border-color: var(--accent); }
 .ol-tbtn.has { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); }
@@ -658,6 +770,14 @@ export default {
 .ol-kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; color: var(--muted); }
 .ol-kicker b { color: var(--accent); letter-spacing: .02em; }
 .ol-head h1 { margin: 0; font-size: 24px; line-height: 1.25; overflow-wrap: anywhere; }
+/* Delete listing: the confirmation box stands out, in red */
+.del-confirm { display: grid; gap: 8px; margin: 4px 0 14px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--red) 40%, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--red) 7%, var(--surface)); text-align: center; }
+.del-confirm label { font-size: 15px; font-weight: 600; color: var(--text); }
+.del-confirm label b { color: var(--red); letter-spacing: .03em; }
+.del-confirm .input { height: 48px; font-size: 18px; font-weight: 600; text-align: center; letter-spacing: .06em; text-transform: uppercase; }
+.ol-place { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 16px; font-weight: 600; color: var(--text-2); overflow-wrap: anywhere; }
+.ol-place svg { flex: none; color: var(--accent); }
+.ol-place .none { font-weight: 400; font-style: italic; color: var(--muted); }
 .ol-tms { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
 .ol-sep { color: var(--border); }
 .head-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -706,14 +826,14 @@ export default {
 .ol-sum-btns .btn { width: 100%; justify-content: center; }
 .ol-sum .rm-text { margin: 0; }
 .ol-home-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; }
+/* Title and text take the space left; the buttons stay on the right (they only drop below on a narrow screen) */
+.ol-home-head > div:first-child { flex: 1 1 360px; min-width: 0; }
+.ol-home-head > .head-tools { flex: none; margin-left: auto; }
+.ov-live { display: flex; gap: 14px; margin-top: 4px; }
+.page-note { color: var(--muted); font-size: 12px; margin-top: 14px; }
 .ol-home-head h1 { margin: 0; font-size: 24px; }
 .ol-home-head p { margin: 4px 0 0; font-size: 14px; }
 
-/* The panel over the page, sliding in from the right */
-.ol-drawer-back { position: fixed; inset: 0; z-index: 60; background: rgba(15, 18, 24, .38); display: flex; justify-content: flex-end; }
-.ol-drawer { width: min(440px, 100%); height: 100%; background: var(--surface); box-shadow: -8px 0 32px rgba(0,0,0,.18); animation: drawer-in .25s var(--ease); }
-@keyframes drawer-in { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .ol-drawer { animation: none; } }
 .ol-empty p { margin: 0; color: var(--muted); }
 .tms-sending { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: 13px; color: var(--text-2); }
 .unsent { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }

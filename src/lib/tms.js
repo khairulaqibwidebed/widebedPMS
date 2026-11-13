@@ -84,3 +84,5 @@ export const ownerLeads = async () => (await sendToTasks('ownerLeads')).leads ||
 export const moveOwnerLead = (taskId, status) => sendToTasks('moveOwnerLead', { taskId, data: { status } });
 // A comment on an Owner Leads card, under the signed-in person's name (a listing's Remarks).
 export const commentOwnerLead = (taskId, text) => sendToTasks('commentOwnerLead', { taskId, data: { text } });
+// Director only (13 Nov 2026): deletes an Owner Leads card for good, once its listing is deleted here. Resolves { deleted }.
+export const deleteOwnerLead = taskId => sendToTasks('deleteOwnerLead', { taskId });

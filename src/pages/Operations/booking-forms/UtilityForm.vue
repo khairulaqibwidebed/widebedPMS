@@ -37,19 +37,15 @@
         <!-- 2. Bills -->
         <div v-show="step === 1">
           <h3>Bills</h3>
-          <div class="field month-row"><label class="req">Bill period <span class="muted">(one period for all three bills)</span></label>
-            <div class="period"><input class="input" type="date" v-model="f.from" aria-label="Bill period from"><span>to</span><input class="input" type="date" v-model="f.to" aria-label="Bill period to"></div></div>
           <div class="bills">
-            <div class="bill" v-for="u in shownKinds" :key="u.key" :class="{ has: +f[u.key] > 0 }">
-              <div class="bill-head"><b>{{ u.label }}</b><button type="button" class="editlink" @click="removeBill(u.key)">Remove</button></div>
+            <div class="bill" v-for="u in KINDS" :key="u.key" :class="{ has: +f[u.key] > 0 }">
+              <div class="bill-head"><b>{{ u.label }}</b></div>
               <FormField :id="'u' + u.key" :label="`Amount (RM)`" type="number" min="0" step="0.01" v-model="f[u.key]" placeholder="0.00" />
-              <p class="help bill-period">{{ f.from && f.to ? `Period: ${f.from} to ${f.to}` : 'Period: set below' }}</p>
+              <div class="field"><label :class="{ req: +f[u.key] > 0 }">Bill period</label>
+                <div class="period"><input class="input" type="date" v-model="f[u.key + 'From']" :aria-label="`${u.label} bill period from`"><span>to</span><input class="input" type="date" v-model="f[u.key + 'To']" :aria-label="`${u.label} bill period to`"></div></div>
             </div>
           </div>
-          <div class="add-bills" v-if="hiddenKinds.length">
-            <button type="button" class="btn" v-for="u in hiddenKinds" :key="u.key" @click="addBill(u.key)">{{ `+ Add ${u.label.toLowerCase()} bill` }}</button>
-          </div>
-          <p class="help">Add at least one amount. The bill period and the bill photos below are shared by all the bills on this booking.</p>
+          <p class="help">Add at least one amount. Each bill with an amount needs its own period. A bill left at 0 is saved as 0. The bill photos below are shared by all the bills on this booking.</p>
           <div class="field"><label>Utility bills <span class="muted">(photos or PDFs, saved to Google Drive)</span></label>
             <p class="help" v-if="!bookingId">Choose a booking first (step 1).</p>
             <DriveFiles v-else :key="bookingId" kind="utility-bills" :record-id="bookingId" :label="`${picked?.unitCode || ''} ${bookingId}`" @folder="l => f.invoiceLink = l" /></div>
@@ -73,8 +69,7 @@
           </div>
           <div class="rev">
             <div class="card-head"><h4>2. Bills</h4><button type="button" class="editlink" @click="step = 1">Edit</button></div>
-            <div class="kv"><span>Bill period</span><span>{{ f.from && f.to ? `${f.from} to ${f.to}` : '—' }}</span></div>
-            <div class="kv" v-for="u in shownKinds" :key="u.key"><span>{{ u.label }}</span><span>{{ +f[u.key] > 0 ? rm(f[u.key]) : '—' }}</span></div>
+            <div class="kv" v-for="u in KINDS" :key="u.key"><span>{{ u.label }}</span><span>{{ +f[u.key] > 0 ? `${rm(f[u.key])}, ${periodText(u.key)}` : '—' }}</span></div>
             <div class="kv"><span>Total</span><span>{{ rm(total) }}</span></div>
             <div class="kv"><span>Bill files</span><span>{{ f.invoiceLink ? 'Saved to Google Drive' : 'None' }}</span></div>
           </div>
@@ -96,7 +91,8 @@
 
 <script>
 // Utility Lodgment Form (Operations > Booking forms > Utility). Moved from components/UtilityForm.vue on 4 Nov 2026 and split into steps;
-// what is saved is unchanged: utilityBills/{bookingId} (one bill per booking, updated in place), an audit entry, the files in Google Drive.
+// what is saved: utilityBills/{bookingId} (one bill per booking, updated in place), an audit entry, the files in Google Drive.
+// 13 Nov 2026: all three bill cards always show, each with its own period; the dropdown reads Name | Property | Unit | Date.
 import { reactive } from 'vue';
 import { collection, doc, getDoc, getDocs, limit, query, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
@@ -108,13 +104,15 @@ import FormField from '@/components/FormField.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import StepStrip from '@/components/StepStrip.vue';
 import FormSaved from '@/components/FormSaved.vue';
-import { audit, friendlyError } from '@/lib/finance-data.js';
+import { audit, friendlyError, loadProperties, loadUnits } from '@/lib/finance-data.js';
 import { allDone, stillMissing } from '@/lib/steps.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { toast } from '@/lib/toast.js';
 
 const KINDS = [{ key: 'electricity', label: 'Electricity' }, { key: 'water', label: 'Water' }, { key: 'sewerage', label: 'Sewerage' }];
-const blank = () => ({ from: '', to: '', electricity: '', water: '', sewerage: '', invoiceLink: '' });
+// Each bill has its own period (13 Nov 2026): electricityFrom/electricityTo, waterFrom/waterTo, sewerageFrom/sewerageTo
+const blank = (from = '', to = '') => ({ electricity: '', electricityFrom: from, electricityTo: to, water: '', waterFrom: from, waterTo: to,
+  sewerage: '', sewerageFrom: from, sewerageTo: to, invoiceLink: '' });
 // Tenant names for the list, read once per visit (they sit in each tenant's private record)
 const nameCache = reactive({});
 const cents = v => Math.round((+v || 0) * 100) / 100;
@@ -123,14 +121,15 @@ export default {
   components: { FormField, OptionPicker, DriveFiles, StepStrip, FormSaved },
   emits: ['dirty'],
   data() { return { KINDS, f: blank(), start: JSON.stringify(blank()), bookings: [], bills: {}, names: nameCache, bookingId: '', loading: true, tenant: {}, tenantLoaded: false,
-    step: 0, saved: false, busy: false, error: '', done: '', shown: ['electricity'] }; },
+    step: 0, saved: false, busy: false, error: '', done: '' }; },
   computed: {
-    // Bill cards on the Bills step: one per bill type (electricity, water, sewerage), added and removed by hand
-    shownKinds() { return KINDS.filter(u => this.shown.includes(u.key)); },
-    hiddenKinds() { return KINDS.filter(u => !this.shown.includes(u.key)); },
+    // Name | Property | Unit | Date. Property and unit come from the booking, or are looked up when the booking lacks them (load()).
     bookingOptions() {
-      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => ({ value: b.id, label: `${this.names[b.tenantId || b.id] || b.id} | ${b.unitCode || 'unit'} | ${b.arrival || ''} to ${b.departure || ''}${this.bills[b.id] ? ' · bill saved' : ''}` }))];
+      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => ({ value: b.id,
+        label: `${this.names[b.tenantId || b.id] || b.id} | ${b.propertyName || '—'} | ${b.unitCode || '—'} | ${b.arrival || ''} to ${b.departure || ''}${this.bills[b.id] ? ' · bill saved' : ''}` }))];
     },
+    // The bills that have an amount
+    billed() { return KINDS.filter(u => cents(this.f[u.key]) > 0); },
     existing() { return this.bookingId ? this.bills[this.bookingId] || null : null; },
     picked() { return this.bookings.find(b => b.id === this.bookingId) || null; },
     total() { return cents(this.f.electricity) + cents(this.f.water) + cents(this.f.sewerage); },
@@ -139,10 +138,12 @@ export default {
     // The steps and what each needs, taken from check() (which still runs on Save)
     steps() {
       const f = this.f;
+      const backwards = this.billed.find(u => f[u.key + 'From'] && f[u.key + 'To'] && f[u.key + 'To'] < f[u.key + 'From']);
       return [
         { key: 'booking', label: 'Booking', required: [{ label: 'Booking ID', filled: !!this.bookingId }] },
-        { key: 'bills', label: 'Bills', problem: f.from && f.to && f.to < f.from ? 'The bill period ends before it starts.' : '', required: [
-          { label: 'At least one amount', filled: this.total > 0 }, { label: 'Period from', filled: !!f.from }, { label: 'Period to', filled: !!f.to }] },
+        { key: 'bills', label: 'Bills', problem: backwards ? `The ${backwards.label.toLowerCase()} bill period ends before it starts.` : '', required: [
+          { label: 'At least one amount', filled: this.total > 0 },
+          ...this.billed.flatMap(u => [{ label: `${u.label} period from`, filled: !!f[u.key + 'From'] }, { label: `${u.label} period to`, filled: !!f[u.key + 'To'] }])] },
         { key: 'review', label: 'Review & save', review: true }
       ];
     },
@@ -156,11 +157,17 @@ export default {
       this.tenant = {}; this.tenantLoaded = false; this.error = ''; this.done = '';
       // A saved bill fills the form; a booking with none starts empty
       const old = this.existing;
-      this.f = old ? { from: old.periodFrom || '', to: old.periodTo || '', electricity: old.electricity || '', water: old.water || '', sewerage: old.sewerage || '', invoiceLink: old.invoiceLink || '' } : { ...blank(), from: this.picked?.arrival || '', to: this.picked?.departure || '' };   // a new bill starts with the stay dates
+      if (old) {
+        // A bill saved before 13 Nov 2026 has one shared period (periodFrom/periodTo): each bill starts with that
+        const f = { invoiceLink: old.invoiceLink || '' };
+        for (const u of KINDS) {
+          f[u.key] = old[u.key] || '';
+          f[u.key + 'From'] = old[u.key + 'From'] || old.periodFrom || '';
+          f[u.key + 'To'] = old[u.key + 'To'] || old.periodTo || '';
+        }
+        this.f = f;
+      } else this.f = blank(this.picked?.arrival || '', this.picked?.departure || '');   // a new bill starts with the stay dates
       this.start = JSON.stringify(this.f);
-      // A saved bill shows a card for each amount it has; a new one starts with Electricity
-      const has = KINDS.filter(u => +this.f[u.key] > 0).map(u => u.key);
-      this.shown = has.length ? has : ['electricity'];
       const b = this.picked;
       if (!b) return;
       try {
@@ -175,9 +182,7 @@ export default {
   methods: {
     rm(n) { return `RM ${Number(n || 0).toFixed(2)}`; },
     move(by) { this.step = Math.min(this.steps.length - 1, Math.max(0, this.step + by)); window.scrollTo({ top: 0, behavior: 'smooth' }); },
-    addBill(key) { if (!this.shown.includes(key)) this.shown = [...this.shown, key]; },
-    // Removing a card clears its amount (a removed bill is saved as 0, as an empty amount always was)
-    removeBill(key) { this.shown = this.shown.filter(k => k !== key); this.f[key] = ''; },
+    periodText(key) { const a = this.f[key + 'From'], z = this.f[key + 'To']; return a && z ? `${a} to ${z}` : 'no period'; },
     startAgain() { this.saved = false; this.done = ''; this.error = ''; this.step = 0; this.bookingId = ''; window.scrollTo(0, 0); },
     // Every booking is listed; ones with a saved bill are marked and fill the form when picked
     async load() {
@@ -190,6 +195,7 @@ export default {
           .sort((a, b) => String(b.arrival || '').localeCompare(String(a.arrival || '')));
       } catch (e) { this.error = friendlyError(e, 'load the bookings'); }
       this.loading = false;
+      await this.fillPlaces();
       // Names fill in as they arrive; the list shows the booking ID until then
       const need = [...new Set(this.bookings.map(b => b.tenantId || b.id).filter(t => t && !(t in nameCache)))];
       await Promise.all(need.map(async id => {
@@ -197,12 +203,33 @@ export default {
         try { const sn = await getDoc(tenant ? doc(db, 'tenants', id, 'private', 'main') : doc(db, 'offlineBookings', id, 'private', 'main')); nameCache[id] = sn.exists() ? sn.data().name || '' : ''; } catch { /* keep the ID */ }
       }));
     },
+    // Some bookings were saved without a property name or unit code: look them up (only for those, from the saved lists where possible)
+    async fillPlaces() {
+      const need = this.bookings.filter(b => b.propertyId && (!b.propertyName || (!b.unitCode && b.unitId)));
+      if (!need.length) return;
+      const props = await loadProperties().catch(() => []);
+      const unitsBy = {};
+      await Promise.all([...new Set(need.filter(b => !b.unitCode && b.unitId).map(b => b.propertyId))].map(async pid => { unitsBy[pid] = await loadUnits(pid).catch(() => []); }));
+      // A unit not in the active list (made inactive) is read on its own
+      const lone = {};
+      await Promise.all([...new Set(need.filter(b => !b.unitCode && b.unitId && !(unitsBy[b.propertyId] || []).some(u => u.id === b.unitId)).map(b => b.unitId))].map(async id => {
+        try { const s = await getDoc(doc(db, 'units', id)); lone[id] = s.exists() ? s.data().unitCode || '' : ''; } catch { lone[id] = ''; }
+      }));
+      this.bookings = this.bookings.map(b => {
+        if (!need.includes(b)) return b;
+        const p = props.find(x => x.id === b.propertyId), u = (unitsBy[b.propertyId] || []).find(x => x.id === b.unitId);
+        return { ...b, propertyName: b.propertyName || p?.name || p?.code || '', unitCode: b.unitCode || u?.unitCode || lone[b.unitId] || '' };
+      });
+    },
     check() {
       const f = this.f;
       if (!this.bookingId) return 'Choose the booking this bill belongs to.';
       if (!(this.total > 0)) return 'Add at least one utility amount.';
-      if (!f.from || !f.to) return 'Choose the bill period (from and to).';
-      if (f.to < f.from) return 'The bill period ends before it starts.';
+      for (const u of this.billed) {
+        const a = f[u.key + 'From'], z = f[u.key + 'To'];
+        if (!a || !z) return `Choose the ${u.label.toLowerCase()} bill period (from and to).`;
+        if (z < a) return `The ${u.label.toLowerCase()} bill period ends before it starts.`;
+      }
       if (f.invoiceLink.trim() && !/^https?:\/\//i.test(f.invoiceLink.trim())) return 'The invoice link should start with https://';
       return '';
     },
@@ -210,8 +237,8 @@ export default {
     showStep(msg) { this.step = /^Choose the booking/.test(msg) ? 0 : 1; },
     // A Gmail compose window in a new tab with the message filled in; they check it and press send themselves.
     mailLink(b, f) {
-      const line = (label, key) => cents(f[key]) > 0 ? `- ${label}: ${this.rm(f[key])}\n` : '';
-      const body = `Dear ${this.tenant.name || 'Tenant'},\n\nPlease find your utility bill for ${b.unitCode || 'your unit'}${b.propertyName ? ', ' + b.propertyName : ''} for ${f.from} to ${f.to}:\n\n`
+      const line = (label, key) => cents(f[key]) > 0 ? `- ${label} (${f[key + 'From']} to ${f[key + 'To']}): ${this.rm(f[key])}\n` : '';
+      const body = `Dear ${this.tenant.name || 'Tenant'},\n\nPlease find your utility bill for ${b.unitCode || 'your unit'}${b.propertyName ? ', ' + b.propertyName : ''}:\n\n`
         + line('Electricity', 'electricity') + line('Water', 'water') + line('Sewerage', 'sewerage')
         + `\nTotal: ${this.rm(this.total)}\n` + (f.invoiceLink.trim() ? `\nInvoice: ${f.invoiceLink.trim()}\n` : '') + '\nThank you.\nWidebed';
       return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(this.tenant.email)}&su=${encodeURIComponent(`Utility bill - ${b.unitCode || ''}`.trim())}&body=${encodeURIComponent(body)}`;
@@ -226,7 +253,12 @@ export default {
       this.error = this.check(); this.done = '';
       if (this.error) { this.showStep(this.error); return; }
       const f = this.f, me = useSession(), b = this.picked, old = this.existing;
-      const data = { periodFrom: f.from, periodTo: f.to, electricity: cents(f.electricity), water: cents(f.water), sewerage: cents(f.sewerage), total: this.total, invoiceLink: f.invoiceLink.trim() };
+      // Each bill keeps its own period (empty when it has no amount). periodFrom/periodTo stay as the span of all of them,
+      // earliest start to latest end, for anything that still reads the one shared period.
+      const per = {};
+      for (const u of KINDS) { const on = cents(f[u.key]) > 0; per[u.key] = cents(f[u.key]); per[u.key + 'From'] = on ? f[u.key + 'From'] : ''; per[u.key + 'To'] = on ? f[u.key + 'To'] : ''; }
+      const froms = this.billed.map(u => f[u.key + 'From']).sort(), tos = this.billed.map(u => f[u.key + 'To']).sort();
+      const data = { periodFrom: froms[0] || '', periodTo: tos[tos.length - 1] || '', ...per, total: this.total, invoiceLink: f.invoiceLink.trim() };
       const changes = old ? Object.keys(data).filter(k => (old[k] ?? '') !== data[k]).map(k => ({ field: k, old: old[k] ?? '', new: data[k] })) : [];
       if (old) {
         if (!changes.length) { this.done = 'Nothing has changed.'; return; }
@@ -270,10 +302,8 @@ export default {
 .bill { border: 1px solid var(--border); border-radius: 10px; padding: 12px 12px 0; }
 .bill.has { border-color: var(--accent); }
 .bill-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; }
-.bill-period { margin: -6px 0 12px; }
-.add-bills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-.month-row { margin-bottom: 12px; }
-.period { display: flex; align-items: center; gap: 8px; max-width: 420px; }
+.bill .field { margin-bottom: 12px; }
+.period { display: flex; align-items: center; gap: 6px; }
 .period .input { flex: 1; min-width: 0; }
 .field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
 .kvs { margin-top: 12px; }
@@ -294,5 +324,5 @@ export default {
 .spacer { flex: 1; }
 .bottom-actions { display: flex; gap: 10px; margin-top: 8px; padding: 14px 0 20px; flex-wrap: wrap; }
 .bottom-actions .btn:disabled { opacity: .5; cursor: not-allowed; }
-@media (max-width: 640px) { .bills { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 900px) { .bills { grid-template-columns: minmax(0, 1fr); } }
 </style>

@@ -1,5 +1,15 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.65, 13 Nov 2026 (Khairul): HR may read the properties list, so they can give staff
+// Widebed PMS Firestore rules. Draft 0.68, 13 Nov 2026 (Khairul): merge only. Holds Khairul's 0.65 to 0.67 and
+// the changes pulled from origin/testing (Neo's side). Nothing new.
+// Draft 0.67, 13 Nov 2026 (Khairul): Directors may delete an owner listing
+// (newOwnerListings/{id} and its private/main). Nothing else changed.
+// Draft 0.66, 13 Nov 2026 (Khairul): Owner Leads redesign. (1) Operations work owner listings:
+// their usual pages get Owner Leads Edit (presetFor, same as lib/access.js PRESETS), they may change lead statuses and read
+// and write the listing's private part (listingMover: owner phone, email, IC, joint owners, Wifi password). (2) Procurement
+// may add properties, units and owners like Operations and Marketing (portfolioAdder: no terms, no bank details), because
+// marking a listing's agreement Signed makes them in Portfolio. (3) Owner listing editors and viewers may read sharedRates
+// (Fees & Rates arrangements for the rental type). Nothing else changed.
+// Draft 0.65, 13 Nov 2026 (Khairul): HR may read the properties list, so they can give staff
 // property access on Settings > Staff Accounts (HR already updates users/{uid}.properties; the list showed "not found").
 // Nothing else changed.
 // Draft 0.64, 12 Nov 2026 (Khairul): merge only. Holds Khairul's 0.62 + 0.63 and Neo's
@@ -257,7 +267,7 @@ service cloud.firestore {
         'finance': ['reports.view', 'reports.edit', 'ezeeUpload.view', 'ezeeUpload.edit', 'expenses.view', 'expenses.edit',
           'monthEnd.view', 'monthEnd.edit', 'invoices.view', 'invoices.edit', 'offlinePayments.view', 'offlinePayments.edit',
           'portfolio.view', 'portfolio.edit', 'bulkUpload.view', 'bulkUpload.edit', 'offlineInquiries.view', 'offlineInquiries.edit'],
-        'operations': ['portfolio.view', 'offlineInquiries.view', 'offlineInquiries.edit', 'bookingForms.view', 'newOwnerListings.view', 'offlinePayments.view'],
+        'operations': ['portfolio.view', 'offlineInquiries.view', 'offlineInquiries.edit', 'bookingForms.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'offlinePayments.view'],
         'it': [],
         'hr': ['playbook.edit', 'sops.edit'],
         'procurement': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit'],
@@ -285,15 +295,17 @@ service cloud.firestore {
     // terms and bank details included.
     function portfolioViewer() { return can('portfolio.view'); }
     function portfolioEditor() { return finEdit() || can('portfolio.edit') || can('bulkUpload.edit'); }
-    // Operations and Marketing with Portfolio View may also add properties, units and owners (no terms or bank details).
-    function portfolioAdder()  { return role() in ['operations', 'marketing'] && portfolioViewer(); }
+    // Operations, Marketing and (Draft 0.66) Procurement with Portfolio View may also add properties, units and owners
+    // (no terms or bank details).
+    function portfolioAdder()  { return role() in ['operations', 'marketing', 'procurement'] && portfolioViewer(); }
     // Marketing with Portfolio View also edit names and details (Khairul 27 Oct).
     function isMkt()      { return role() == 'marketing' && portfolioViewer(); }
     // New Owner Listings.
     function listingViewer()   { return can('newOwnerListings.view'); }
     function listingEditor()   { return can('newOwnerListings.edit'); }
     // Draft 0.51: lead statuses
-    function listingMover()    { return isDirector() || role() == 'procurement'; }
+    // Draft 0.66: Operations too
+    function listingMover()    { return isDirector() || role() in ['procurement', 'operations']; }
     function listingStatuses() { return ['inProgress', 'progress', 'signed', 'live', 'cancelled']; }
     function oldListingStatus() { return resource.data.get('status', 'inProgress'); }
     function listingStatusOk() {
@@ -399,14 +411,6 @@ service cloud.firestore {
         && resource.data.role != 'director' && request.resource.data.role != 'director';
       // Sign-in stamps lastLoginAt on your own record (Team activity).
       allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
-      // Draft 0.63: whoever adds a property gets it on their own list. One id at a time, added at the end, nothing removed,
-      // and it must be a property they created themselves.
-      allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['properties'])
-        && request.resource.data.properties is list
-        && request.resource.data.properties.size() == resource.data.get('properties', []).size() + 1
-        && request.resource.data.properties.hasAll(resource.data.get('properties', []))
-        && get(docPath('properties', request.resource.data.properties[request.resource.data.properties.size() - 1])).data.get('createdBy', null) == request.auth.uid
-        && anyStaff();
       allow delete: if false;
     }
 
@@ -562,8 +566,6 @@ service cloud.firestore {
 
     match /properties/{propertyId} {
       allow read: if staff() || portfolioViewer();
-      // Draft 0.65: HR read every property (name, code, state) to set staff property access
-      allow read: if isHR();
       allow write: if portfolioEditor();
       allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'state', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
@@ -587,7 +589,8 @@ service cloud.firestore {
 
     // One set of fees and rates for every property (Draft 0.60). Add-only versions, like rateVersions above.
     match /sharedRates/{v} {
-      allow read: if staff() || portfolioEditor();
+      // Draft 0.66: owner listing viewers too (the rental type picks an arrangement)
+      allow read: if staff() || portfolioEditor() || listingViewer();
       allow create: if portfolioEditor() && request.resource.data.reason is string;
       allow update, delete: if false;
     }
@@ -621,13 +624,6 @@ service cloud.firestore {
 
     // The owner parent holds bankLast4 (not shown to portfolio viewers); Operations create it with none.
     match /owners/{ownerId} {
-      // Draft 0.63: Operations and Marketing also save `propertyIds` (the properties of the owner's units; staff of those
-      // properties see the owner), the same way as `states` below. First in the block, cheapest check first: further down, a
-      // request runs out of the 1000 checks the rules allow before it is reached (seen in the emulator, also for `states`).
-      allow update: if changed().hasOnly(['states', 'propertyIds'])
-        && request.resource.data.get('states', []) is list && request.resource.data.get('states', []).size() <= 16
-        && request.resource.data.get('propertyIds', []) is list && request.resource.data.get('propertyIds', []).size() <= 200
-        && (portfolioAdder() || isMkt());
       allow read: if staff() || portfolioViewer();
       allow create, update: if portfolioEditor();
       allow delete: if isDirector();   // safe delete: the page only offers it for owners with no units
@@ -847,10 +843,6 @@ service cloud.firestore {
     // Written by Finance/Directors, and by Operations only inside Create booking (opsBooking, lastInquiryId)
     // or a direct booking (directBookingMadeNow, lastBookingId).
     match /tenants/{tenantId} {
-      // Draft 0.63: after a booking is saved, the booking's property is added to the tenant's `propertyIds` (only that changes).
-      // First in the block, cheapest check first (see owners).
-      allow update: if changed().hasOnly(['propertyIds']) && request.resource.data.propertyIds is list
-        && request.resource.data.propertyIds.size() <= 200 && isOps();
       allow read: if finOrDir() || isOps();
       allow create, update: if finOrDir();
       allow create, update: if opsBooking(request.resource.data.get('lastInquiryId', null), tenantId)
@@ -862,9 +854,6 @@ service cloud.firestore {
       allow delete: if false;
       match /private/{docId} {
         allow read: if isOps();
-        // Draft 0.63: the same list on private/main (the tenant search reads it)
-        allow update: if docId == 'main' && changed().hasOnly(['propertyIds'])
-          && request.resource.data.propertyIds is list && request.resource.data.propertyIds.size() <= 200 && (isOps() || finOrDir());
         allow create, update: if opsBooking(getAfter(docPath('tenants', tenantId)).data.get('lastInquiryId', null), tenantId);
         allow create, update: if isOps()
           && directBookingMadeNow(getAfter(docPath('tenants', tenantId)).data.get('lastBookingId', null), tenantId);
@@ -1276,10 +1265,11 @@ service cloud.firestore {
         && listingStatusOk();
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
-      allow delete: if false;
+      allow delete: if isDirector();   // Draft 0.67: Directors only (Delete listing)
       match /private/{docId} {
         allow read: if listingMover() && listingViewer() && docId == 'main';
         allow write: if listingMover() && listingEditor() && docId == 'main';
+        allow delete: if isDirector();   // Draft 0.67
       }
     }
 

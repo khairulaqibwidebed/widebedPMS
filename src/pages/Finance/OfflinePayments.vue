@@ -32,9 +32,35 @@
         <div class="field"><label>Status</label>
           <OptionPicker v-model="status" :options="STATUS_OPTS" label="Status" /></div>
       </div>
-      <p class="help">{{ loading ? 'Loading…' : `${shown.length} record${shown.length === 1 ? '' : 's'}` }}</p>
+      <div class="list-head">
+        <p class="help">{{ loading ? 'Loading…' : `${shown.length} record${shown.length === 1 ? '' : 's'}` }}</p>
+        <!-- 13 Nov 2026: table (default) or cards (one full-width card per payment, as a list); remembered on this browser -->
+        <div class="seg layout-seg" role="radiogroup" aria-label="Show payments as">
+          <button type="button" role="radio" :aria-checked="layout === 'table'" :class="{ on: layout === 'table' }" @click="setLayout('table')">Table</button>
+          <button type="button" role="radio" :aria-checked="layout === 'cards'" :class="{ on: layout === 'cards' }" @click="setLayout('cards')">Cards</button>
+        </div>
+      </div>
       <Paged :items="shown" :size="15" v-slot="{ pageRows }">
-        <div class="table-wrap" :style="pageRows.length ? null : { minHeight: '0' }"><table class="table op-table">
+        <div class="pay-list" v-if="layout === 'cards'">
+          <div class="pay-card" v-for="r in pageRows" :key="r.id" role="button" tabindex="0" :aria-label="`View payment ${r.bookingNo || r.guest || ''}`"
+            @click="openRow(r)" @keydown.enter.prevent="openRow(r)" @keydown.space.prevent="openRow(r)">
+            <!-- 13 Nov 2026 hierarchy: who paid, then where, then what for, then the small print; amount and status on the right -->
+            <div class="pc-main">
+              <div class="pc-name">{{ r.guest || '—' }}</div>
+              <div class="pc-place"><span class="pc-no" v-if="r.bookingNo">{{ r.bookingNo }}</span><span>{{ [r.propertyName, r.unitCode].filter(Boolean).join(' · ') || 'No property' }}</span></div>
+              <div class="pc-purpose clamp" :title="r.purpose"><span class="pc-k">Purpose</span>{{ r.purpose || '—' }}</div>
+              <div class="pc-meta">{{ [niceDate(r.date), r.mode, r.submittedByName ? `Submitted by ${r.submittedByName}` : '', r.editedByName ? `Edited by ${r.editedByName}` : ''].filter(Boolean).join(' · ') }}</div>
+            </div>
+            <div class="pc-side">
+              <b class="pc-amt">{{ `RM ${Number(r.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }}</b>
+              <span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span>
+            </div>
+            <button type="button" class="btn pc-view" @click.stop="openRow(r)">View</button>
+          </div>
+          <SkeletonRows v-if="loading && !pageRows.length" :cols="4" />
+          <p class="muted empty" v-if="!loading && !pageRows.length">No offline payments found.</p>
+        </div>
+        <div class="table-wrap" v-else :style="pageRows.length ? null : { minHeight: '0' }"><table class="table op-table">
           <thead><tr><th>Date</th><th>Booking</th><th>Property</th><th>Unit</th><th>Guest</th><th>Purpose</th><th class="num">Amount (RM)</th><th>Status</th><th>Submitted by</th><th></th></tr></thead>
           <tbody>
             <tr v-for="r in pageRows" :key="r.id">
@@ -42,7 +68,7 @@
               <td class="num">{{ Number(r.amount || 0).toFixed(2) }}</td>
               <td><span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span><div class="who" v-if="r.editedByName">{{ `by ${r.editedByName}` }}</div></td>
               <td>{{ r.submittedByName || '—' }}</td>
-              <td class="num"><button type="button" class="btn" @click="view = r; editing = false; pendingLink = ''">View</button></td>
+              <td class="num"><button type="button" class="btn" @click="openRow(r)">View</button></td>
             </tr>
             <SkeletonRows v-if="loading && !pageRows.length" table :cols="10" />
             <tr v-if="!loading && !pageRows.length"><td colspan="10" class="muted empty">No offline payments found.</td></tr>
@@ -199,12 +225,15 @@ const MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque',
 const STATUSES = ['Checked', 'Pending', 'Unknown', 'Edited'];   // Edited is set by saving an Unknown payment, never picked
 const STATUS_OPTS = [{ value: '', label: 'All' }, ...STATUSES.map(s => ({ value: s, label: s }))];
 const today = () => new Date().toISOString().slice(0, 10);
+// Table or cards, remembered on this browser only (table when nothing is saved)
+const LAYOUT_KEY = 'offlinePayments:layout';
+const savedLayout = () => { try { return localStorage.getItem(LAYOUT_KEY) === 'cards' ? 'cards' : 'table'; } catch { return 'table'; } };
 const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '' });
 
 export default {
   mixins: [liveMixin],
   components: { PropertyPicker, FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus },
-  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
+  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: { view(r) { this.loadHistory(r); } },
   computed: {
     // View and Edit are separate ticks on Staff accounts: View reads the page, Edit also creates and changes payments
@@ -218,6 +247,9 @@ export default {
   },
   async mounted() { await this.load(); },
   methods: {
+    niceDate(d) { if (!d) return ''; const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']; return `${+d.slice(8, 10)} ${M[+d.slice(5, 7) - 1] || ''} ${d.slice(0, 4)}`; },
+    openRow(r) { this.view = r; this.editing = false; this.pendingLink = ''; },
+    setLayout(v) { this.layout = v; try { localStorage.setItem(LAYOUT_KEY, v); } catch { /* not remembered */ } },
     count(s) { return this.rows.filter(r => r.status === s).length; },
     // Pickers offer the three statuses people choose; Edited only shows when the payment already has it
     statusOptions(cur) { return [...STATUSES.slice(0, 3), ...(cur === 'Edited' ? ['Edited'] : [])].map(s => ({ value: s, label: s })); },
@@ -484,6 +516,29 @@ export default {
 .fld-pick :deep(.op-btn), .fld-pick :deep(.op-input) { width: 100%; min-height: 44px; font-size: 15px; }
 .fld-pick :deep(.op-pop) { max-width: none; width: 100%; }
 .table-wrap { min-height: 260px; }
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.list-head .help { margin: 0; }
+.layout-seg { margin: 0; width: 180px; }
+.pay-list { display: flex; flex-direction: column; gap: 10px; }
+.pay-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 20px;
+  border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; cursor: pointer; background: var(--surface); transition: border-color var(--fast), box-shadow var(--fast); }
+.pay-card:hover, .pay-card:focus-visible { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0, 0, 0, .06); outline: none; }
+/* Level 1: guest and amount. Level 2: booking and place. Level 3: purpose. Level 4: date, method, who. */
+.pc-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pc-name { font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.3; }
+.pc-place { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; font-weight: 500; color: var(--text-2); }
+.pc-no { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 6px; background: var(--chip); color: var(--text); letter-spacing: .02em; }
+.pc-purpose { font-size: 13px; color: var(--text); margin-top: 2px; }
+.pc-k { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 6px; }
+.pc-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.pc-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pc-amt { font-size: 18px; font-weight: 700; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pc-view { height: 34px; padding: 0 14px; font-size: 13px; }
+.pay-list .empty { text-align: center; padding: 28px 16px; }
+@media (max-width: 640px) {
+  .pay-card { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+  .pc-view { grid-column: 1 / -1; justify-self: start; }
+}
 .modal { max-width: 920px; width: min(920px, 100%); }
 .modal { padding: 18px 24px 0; }
 .modal .modal-foot { padding: 12px 0 18px; margin-top: 8px; }

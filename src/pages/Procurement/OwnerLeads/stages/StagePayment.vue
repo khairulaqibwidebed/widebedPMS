@@ -8,8 +8,10 @@
     </template>
     <div class="totals quote">
       <template v-for="p in quoteParts(d)" :key="p[0]"><div class="kv"><span>{{ p[0] }}</span><span>{{ rm(p[1]) }}</span></div></template>
-      <p class="muted" v-if="!quoteParts(d).length">Nothing to quote: no renovation, furniture or maintenance package chosen in Types of service.</p>
-      <div class="kv total"><span>Quotation total</span><span>{{ rm(quoteTotal(d)) }}</span></div>
+      <p class="muted" v-if="!quoteParts(d).length">Nothing to quote yet: no service amounts, renovation or furniture in Types of service.</p>
+      <div class="kv"><span>Services total</span><span>{{ rm(servicesTotal(d)) }}</span></div>
+      <div class="kv"><span>Renovation &amp; Furniture total</span><span>{{ rm(renoFurnTotal(d)) }}</span></div>
+      <div class="kv total"><span>Grand total</span><span>{{ rm(quoteTotal(d)) }}</span></div>
     </div>
     <div class="quote-dl"><button type="button" class="btn" @click="$emit('download-quote')" :disabled="pdfBusy">{{ pdfBusy ? 'Making the PDF…' : 'Download quotation (PDF)' }}</button></div>
 
@@ -25,14 +27,15 @@
 
     <div class="field" v-if="canEdit && !d.payment.confirmed" style="max-width:320px"><label for="payAmt">Final amount (RM)</label>
       <div class="amt-row"><input class="input" id="payAmt" v-model="d.payment.amount" inputmode="decimal" :placeholder="quoteTotal(d).toFixed(2)">
-        <button type="button" class="editlink" v-show="money(d.payment.amount) !== quoteTotal(d)" @click="d.payment.amount = quoteTotal(d).toFixed(2)">Use total</button></div></div>
+        <button type="button" class="editlink" v-show="money(d.payment.amount) !== quoteTotal(d)" @click="d.payment.amount = quoteTotal(d).toFixed(2)">Use grand total</button></div>
+      <p class="help" style="margin:4px 0 0">Filled in from the grand total; change it if the owner agreed another amount.</p></div>
     <div class="kv" v-else><span>Final amount</span><span>{{ d.payment.amount === '' ? '—' : rm(d.payment.amount) }}</span></div>
 
     <!-- Full payment: as before -->
     <template v-if="!isDeposit(d)">
       <ProofLink :d="d" path="proofUrl" label="Payment proof" :listing-id="listingId" :can-edit="canEdit" @open="openFile" />
       <div class="kv" v-if="d.payment.confirmed"><span>Confirmed</span><span>{{ `${d.payment.confirmedByName}, ${stamp(d.payment.confirmedAt)}` }}</span></div>
-      <p class="help">Payment confirmed saves the listing and sends the Marketing team a notification about it.</p>
+      <p class="help">Payment confirmed saves the listing and notifies Operations to start Operations Setup. Marketing starts after that.</p>
       <div class="actions" v-if="canEdit && !d.payment.confirmed">
         <button class="btn btn-primary" @click="$emit('confirm-payment', 'full')" :disabled="busy">Payment confirmed</button>
       </div>
@@ -60,7 +63,7 @@
           <button class="btn btn-primary" @click="$emit('confirm-payment', 'balance')" :disabled="busy || !d.payment.deposit.received" :title="d.payment.deposit.received ? '' : 'Confirm the deposit first'">Balance received</button>
         </div>
       </div>
-      <p class="help">Marketing starts once the deposit is received: Deposit received saves the listing and sends the Marketing team a notification. Balance received marks the listing paid in full.</p>
+      <p class="help">Operations Setup starts once the deposit is received: Deposit received saves the listing and notifies Operations. Marketing starts after Operations Setup. Balance received marks the listing paid in full.</p>
     </template>
     <FileViewer ref="viewer" />
   </section>
@@ -71,7 +74,7 @@
 // Payment type: Full payment (Payment confirmed) or Deposit + balance (Deposit received, then Balance received; each part
 // has its own proof link; Marketing starts on Deposit received). Edits the draft (d) in place; the confirms and the PDF are done by the page (save + notify).
 import { h } from 'vue';
-import { PAY_LINKS, PAY_TYPES, payTypeLabel, isDeposit, balanceOf, linkAt, money, rm, stamp, quoteParts, quoteTotal } from '@/lib/owner-leads.js';
+import { PAY_LINKS, PAY_TYPES, payTypeLabel, isDeposit, balanceOf, linkAt, money, rm, stamp, quoteParts, quoteTotal, servicesTotal, renoFurnTotal } from '@/lib/owner-leads.js';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
 

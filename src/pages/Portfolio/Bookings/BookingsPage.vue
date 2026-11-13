@@ -28,7 +28,12 @@
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: active.filter(x => !x.ezeeReservationNo).length }">{{ active.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></button>
     </section>
     <section class="card">
-      <div class="card-head"><h2>Offline bookings</h2></div>
+      <div class="card-head"><h2>Offline bookings</h2>
+        <!-- 13 Nov 2026: cards (one full-width card per booking, as a list) or the table; the choice is remembered on this browser -->
+        <div class="seg view-seg" role="radiogroup" aria-label="Show bookings as">
+          <button type="button" role="radio" :aria-checked="view === 'table'" :class="{ on: view === 'table' }" @click="setView('table')">Table</button>
+          <button type="button" role="radio" :aria-checked="view === 'cards'" :class="{ on: view === 'cards' }" @click="setView('cards')">Cards</button>
+        </div></div>
       <p class="card-intro">Stays made outside eZee, such as long-term tenants.</p>
       <div class="toolbar" ref="bookList">
         <input class="input" type="search" placeholder="Search booking no., unit, tenant name or ID" v-model="search" aria-label="Search booking">
@@ -45,7 +50,28 @@
         <RouterLink class="btn btn-primary new-bk" style="margin-left:auto" v-if="canForms" to="/Operations/booking-forms/reservation" title="Opens the Reservation Lodgment Form">+ New booking</RouterLink>
       </div>
       <Paged :items="shown" v-slot="{ pageRows }">
-      <div class="table-wrap">
+      <div class="bk-list" v-if="view === 'cards'">
+        <div class="bk-card" :class="{ cancelled: row.status === 'cancelled' }" v-for="row in pageRows" :key="row.id" role="button" tabindex="0"
+          @click="open = row" @keydown.enter.prevent="open = row" @keydown.space.prevent="open = row" :aria-label="`Open booking ${row.bookingNo || row.id}`">
+          <!-- 13 Nov 2026 hierarchy (same as Offline Payments cards): who, then where, then the stay, then the small print; money and payment status on the right -->
+          <div class="bk-main">
+            <div class="bk-name">{{ guestName(row) }}</div>
+            <div class="bk-place"><span>{{ [row.propertyName, row.unitCode || row.unitId].filter(Boolean).join(' · ') || 'No unit' }}</span>
+              <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span>
+              <span class="pill amber" v-else-if="!row.ezeeReservationNo" title="No eZee reservation no. linked">Not in eZee</span></div>
+            <div class="bk-stay"><span class="bk-k">Stay</span>{{ `${niceDate(row.arrival) || '—'} to ${niceDate(row.departure) || '—'}` }}</div>
+            <div class="bk-meta">{{ [row.longTerm ? 'Long-term lease' : 'Short stay', nights(row) ? `${nights(row)} ${nights(row) === 1 ? 'night' : 'nights'}` : '', row.ezeeReservationNo ? `eZee ${row.ezeeReservationNo}` : ''].filter(Boolean).join(' · ') }}</div>
+          </div>
+          <div class="bk-side" v-if="!acc.viewOnly">
+            <b class="bk-amt">{{ row.longTerm ? `RM ${amt(row.monthlyRent)}` : (paidOf(row) === '—' ? '—' : `RM ${paidOf(row)}`) }}<small>{{ row.longTerm ? ' /month' : ' paid' }}</small></b>
+            <div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template></div>
+          </div>
+          <span v-else></span>
+          <button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button>
+        </div>
+        <p class="muted bk-empty" v-show="!shown.length">{{ emptyMsg }}</p>
+      </div>
+      <div class="table-wrap" v-else>
         <table class="table">
           <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="!acc.viewOnly">Amount (RM)</th><th v-if="!acc.viewOnly" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
           <tbody>
@@ -62,7 +88,7 @@
                 <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
               </tr>
             </template>
-            <tr v-show="!shown.length"><td :colspan="9 - (acc.viewOnly ? 2 : 0)" class="muted">{{ bookingsLoading ? 'Loading offline bookings…' : search.trim() ? 'No bookings match.' : bookings.length ? 'No bookings stay in the months and dates picked. Pick All months, or clear the dates.' : 'No offline bookings yet. They are made from Tenant leads with Create booking, or with + New booking.' }}</td></tr>
+            <tr v-show="!shown.length"><td :colspan="9 - (acc.viewOnly ? 2 : 0)" class="muted">{{ emptyMsg }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -94,6 +120,9 @@ import RefreshButton from '@/components/RefreshButton.vue';
 import BookingDrawer from './BookingDrawer.vue';
 
 const me = useSession();
+// Cards or table, remembered on this browser only (table when nothing is saved)
+const VIEW_KEY = 'bookings:view';
+const savedView = () => { try { return localStorage.getItem(VIEW_KEY) === 'cards' ? 'cards' : 'table'; } catch { return 'table'; } };
 
 export default {
   mixins: [liveMixin],
@@ -108,10 +137,15 @@ export default {
       properties: [], bookings: [], paid: null, pays: null, names: {}, asked: new Set(),
       loading: true, bookingsLoading: false, error: '', okMsg: '',
       search: '', bookingKind: 'all', monthSel: null, bkFrom: '', bkTo: '', drOpen: false,
-      open: null   // the booking open in the drawer
+      open: null,   // the booking open in the drawer
+      view: savedView()   // 'cards' or 'table'
     };
   },
   computed: {
+    emptyMsg() {
+      return this.bookingsLoading ? 'Loading offline bookings…' : this.search.trim() ? 'No bookings match.' : this.bookings.length ? 'No bookings stay in the months and dates picked. Pick All months, or clear the dates.'
+        : 'No offline bookings yet. They are made from Tenant leads with Create booking, or with + New booking.';
+    },
     // Cancelled bookings are kept but left out of the counts and the list (the Cancelled button shows them)
     active() { return this.bookings.filter(x => x.status !== 'cancelled'); },
     cancelledCount() { return this.bookings.length - this.active.length; },
@@ -147,6 +181,9 @@ export default {
   mounted() { this.go(); },
   methods: {
     amt, dmy,
+    setView(v) { this.view = v; try { localStorage.setItem(VIEW_KEY, v); } catch { /* not remembered */ } },
+    niceDate(d) { if (!d) return ''; const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']; return `${+d.slice(8, 10)} ${M[+d.slice(5, 7) - 1] || ''} ${d.slice(0, 4)}`; },
+    nights(r) { if (!r.arrival || !r.departure) return 0; const n = Math.round((new Date(r.departure) - new Date(r.arrival)) / 864e5); return n > 0 ? n : 0; },
     url() {
       const q = new URLSearchParams();
       if (this.propertyId !== 'all') q.set('property', this.propertyId);
@@ -251,3 +288,29 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.view-seg { margin: 0; width: 180px; }
+.bk-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.bk-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 20px;
+  border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; cursor: pointer; background: var(--surface); transition: border-color var(--fast), box-shadow var(--fast); }
+.bk-card:hover, .bk-card:focus-visible { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0, 0, 0, .06); outline: none; }
+.bk-card.cancelled { opacity: .7; }
+/* Level 1: tenant and amount. Level 2: booking no. and place. Level 3: stay dates. Level 4: type, nights, eZee no. */
+.bk-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bk-name { font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-place { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; font-weight: 500; color: var(--text-2); }
+.bk-stay { font-size: 13px; color: var(--text); margin-top: 2px; }
+.bk-k { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 6px; }
+.bk-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.bk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.bk-amt { font-size: 18px; font-weight: 700; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bk-amt small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.bk-side .mp-list { justify-content: flex-end; }
+.bk-empty { padding: 12px 4px; }
+@media (max-width: 640px) {
+  .bk-card { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+  .bk-card .eye-btn { grid-column: 1 / -1; justify-self: start; }
+}
+</style>

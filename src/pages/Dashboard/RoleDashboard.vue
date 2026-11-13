@@ -393,7 +393,7 @@ export default {
         { label: 'Properties', value: this.pf.properties.length, to: '/Portfolio/properties', hint: 'Active in Portfolio' },
         { label: 'Units', value: this.pf.unitCount, to: '/Portfolio/properties', hint: 'Across all properties' }
       ];
-      if (this.view === 'procurement') list.push({ label: 'Owner leads', value: this.listings.notLive, to: '/Procurement/owner-leads',
+      if (this.view === 'procurement') list.push({ label: 'Owner leads', value: this.listings.notLive, to: '/Procurement/listing-flow',
         hint: `Not live yet · ${this.listings.unsigned} agreement not signed · ${this.listings.count - this.listings.notLive} live` });
       if (this.view === 'marketing') list.push({ label: 'Listings for Marketing', value: this.listings.forMarketing, alert: this.listings.forMarketing > 0,
         to: '/Procurement/listing-flow', hint: `Payment confirmed, not live yet · ${this.listings.notLive} of ${this.listings.count} not live` });

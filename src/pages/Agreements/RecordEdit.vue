@@ -12,6 +12,11 @@
         <button class="btn" @click="router.replace('/Agreements/record/' + done.id + '?then=link')">Send to fill in & sign</button>
         <button class="btn" @click="again">Fill in another</button>
         <button class="btn" @click="back">Back to the list</button>
+        <!-- Why "Generate agreement" is greyed out (13 Nov 2026) -->
+        <p class="ty-why" v-if="!templates.length">
+          The agreement PDF can't be made yet: this form has no template.
+          <RouterLink v-if="isAdmin" to="/Agreements/setup">Add one in Agreement Setup</RouterLink><template v-else>Ask a Director to add one in Agreement Setup.</template>
+        </p>
       </ThankYou>
       <FillWizard v-else v-model="values" :fields="form.fields" :title="'New ' + form.name" :busy="busy"
         draft-label="Save draft" submit-label="Save as completed" @draft="saveNew('draft')" @submit="saveNew('completed')" />
@@ -30,17 +35,25 @@
         <div class="head-tools">
           <button class="btn" :disabled="busy" @click="saveNow">Save</button>
           <button class="btn" :disabled="busy" @click="links = true">Send to fill in & sign</button>
-          <button class="btn" :disabled="busy" @click="duplicate">Duplicate</button>
-          <button class="btn" v-if="status === 'archived'" :disabled="busy" @click="changeStatus('draft')">Restore</button>
-          <button class="btn" v-else :disabled="busy" @click="changeStatus('archived')">Archive</button>
-          <button class="btn" v-if="status === 'completed'" :disabled="busy" @click="changeStatus('draft')">Back to draft</button>
-          <button class="btn" v-else :disabled="busy" @click="changeStatus('completed')">{{ status === 'submitted' ? 'Checked: mark completed' : 'Mark completed' }}</button>
+          <!-- Less used: in a menu, so the main steps stand out (13 Nov 2026) -->
+          <span class="rec-more" v-click-outside="() => (moreOpen = false)">
+            <button class="btn" type="button" :aria-expanded="String(moreOpen)" aria-haspopup="menu" @click="moreOpen = !moreOpen">More ▾</button>
+            <span class="rec-more-menu" role="menu" v-if="moreOpen" @click="moreOpen = false">
+              <button role="menuitem" type="button" :disabled="busy" @click="duplicate">Duplicate</button>
+              <button role="menuitem" type="button" v-if="status === 'completed'" :disabled="busy" @click="changeStatus('draft')">Back to draft</button>
+              <button role="menuitem" type="button" v-if="status === 'archived'" :disabled="busy" @click="changeStatus('draft')">Restore</button>
+              <button role="menuitem" type="button" v-else :disabled="busy" @click="changeStatus('archived')">Archive</button>
+            </span>
+          </span>
+          <button class="btn" v-if="status !== 'completed' && status !== 'archived'" :disabled="busy" @click="changeStatus('completed')">{{ status === 'submitted' ? 'Checked: mark completed' : 'Mark completed' }}</button>
           <button class="btn btn-primary" :disabled="busy" @click="openGenerate">Generate agreement</button>
+          <AgreementGuide page="record" :admin="isAdmin" />
         </div>
       </div>
 
       <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
-      <div class="notice warn" v-if="errorCount">{{ errorCount }} field{{ errorCount > 1 ? 's need' : ' needs' }} attention before this can be completed.</div>
+      <div class="notice warn" v-if="errorCount">{{ errorCount }} field{{ errorCount > 1 ? 's need' : ' needs' }} attention before this can be completed.
+        <button type="button" class="link" @click="toFirstError">Show me</button></div>
       <div class="notice info rec-ext" v-if="record.source === 'external'">
         Sent in through the fill-in link <b>/f/{{ record.linkSlug }}</b>{{ record.submittedAt ? ' on ' + when(record.submittedAt) : '' }}.
         {{ status === 'submitted' ? 'Check the answers, then mark it completed.' : '' }}
@@ -100,6 +113,7 @@
 <script setup>
 // One agreement record. New: step-by-step form and a thank-you page. Existing: one page with auto-save,
 // completing, sending a fill-in link, and its PDF history.
+import AgreementGuide from '@/components/agreements/AgreementGuide.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import FieldInput from '@/components/agreements/FieldInput.vue';
@@ -126,6 +140,15 @@ const isAdmin = computed(() => can(session, 'agreementSetup.view'));
 const isNew = computed(() => route.params.id === 'new');
 
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
+const moreOpen = ref(false);
+// "Show me" on the "fields need attention" note: scroll to the first field with a problem and put the cursor in it.
+function toFirstError() {
+  const el = document.querySelector('.rec-layout .ag-error, .rec-layout .input.error, .rec-layout [aria-invalid="true"]');
+  const field = el?.closest('.field') || el;
+  if (!field) return;
+  field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  field.querySelector('input, textarea, select, button')?.focus({ preventScroll: true });
+}
 const form = ref(null), record = ref({}), values = ref({}), status = ref('draft');
 const templates = ref([]), history = ref([]), errors = ref({}), gen = ref(null), links = ref(false), done = ref(null), touched = ref(false);
 
@@ -271,6 +294,12 @@ onBeforeRouteLeave(async () => {
 </script>
 
 <style scoped>
+.rec-more { position: relative; display: inline-block; }
+.rec-more-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 170px; display: grid; padding: 6px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .12); }
+.rec-more-menu button { text-align: left; border: 0; background: none; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 500; color: var(--text); cursor: pointer; }
+.rec-more-menu button:hover { background: var(--accent-soft); color: var(--accent); }
+.ty-why { flex-basis: 100%; margin: 6px 0 0; font-size: 13px; color: var(--text-2); }
 .rec-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
 .rec-side { position: sticky; top: 76px; }
 .rec-side h2 { font-size: 15px; margin: 0 0 10px; }

@@ -16,7 +16,7 @@ export const PAGES = [
   { key: 'bookingForms',     label: 'Booking Forms',                 group: 'Portfolio',   to: ['/Operations/booking-forms'], viewOnly: true },
   { key: 'offlinePayments',  label: 'Offline Payments',              group: 'Portfolio',   to: ['/Finance/offline-payments'] },
   { key: 'bulkUpload',       label: 'Bulk Upload',                   group: 'Portfolio',   to: ['/Portfolio/bulk-upload'] },
-  { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/owner-leads', '/Procurement/listing-flow'], editTo: ['/Procurement/listing-flow'] },
+  { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/listing-flow', '/Procurement/owner-leads'] },
   { key: 'offlineInquiries', label: 'Tenant Leads',                  group: 'Leads & Agreements', to: ['/Operations/offline-inquiries'] },
   { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Leads & Agreements', to: ['/Agreements/setup'], viewOnly: true },
   { key: 'ezeeUpload',       label: 'Upload eZee Report',            group: 'Accounting',     to: ['/Finance/upload'] },
@@ -68,7 +68,8 @@ const both = key => [key + '.view', key + '.edit'];
 export const PRESETS = {
   finance: [...both('reports'), ...both('ezeeUpload'), ...both('expenses'), ...both('monthEnd'), ...both('invoices'),
     ...both('offlinePayments'), ...both('portfolio'), ...both('bulkUpload'), ...both('offlineInquiries')],
-  operations: ['portfolio.view', ...both('offlineInquiries'), 'bookingForms.view', 'newOwnerListings.view', 'offlinePayments.view'],
+  // 13 Nov 2026: Operations work owner listings too (Owner Leads Edit; Operations Setup is theirs)
+  operations: ['portfolio.view', ...both('offlineInquiries'), 'bookingForms.view', ...both('newOwnerListings'), 'offlinePayments.view'],
   it: [],
   hr: ['playbook.edit', 'sops.edit'],
   procurement: ['portfolio.view', ...both('newOwnerListings')],

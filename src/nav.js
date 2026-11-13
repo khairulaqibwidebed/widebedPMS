@@ -16,11 +16,11 @@ const G = (label, icon, items) => ({ label, icon, items });
 const TOP = { items: [P('Dashboard', '/Dashboard', 'dashboard'), P('Issues', '/Operations/issues', 'alert')] };
 // Owners, Properties and Bookings follow the Portfolio tick; Booking Forms, Offline Payments and Bulk Upload their own ticks.
 const PORTFOLIO = G('Portfolio', 'layers', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'),
-  P('Bookings', '/Portfolio/bookings', 'calendar'), P('Fees & Rates', '/Portfolio/fees-rates', 'percent'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'),
+  P('Bookings', '/Portfolio/bookings', 'calendar'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'),
   P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Bulk Upload', '/Portfolio/bulk-upload', 'table')]);
 // Leads follow their ticks; Agreements and Renewals are for everyone who has this group (not HR or IT).
-// Owner Leads (overview) follows the Owner Leads View tick; Listing Flow (work on a listing) its Edit tick (11 Nov 2026).
-const LEADS = G('Leads & Agreements', 'handshake', [P('Owner Leads', '/Procurement/owner-leads', 'home'), P('Listing Flow', '/Procurement/listing-flow', 'filePlus'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'),
+// Owner Leads (13 Nov 2026: Owner Leads and Listing Flow are one page) follows the Owner Leads View tick.
+const LEADS = G('Leads & Agreements', 'handshake', [P('Owner Leads', '/Procurement/listing-flow', 'home'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'),
   P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'refresh')]);
 const LEADS_DIR = G('Leads & Agreements', 'handshake', [...LEADS.items, P('Agreement Setup', '/Agreements/setup', 'filePen')]);
 // Month-end order.

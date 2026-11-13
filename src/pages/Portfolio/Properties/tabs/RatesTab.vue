@@ -2,14 +2,14 @@
   <div>
     <!-- Fees & rates: fee arrangements by stay length (lib/fee-types.js has the types and their maths). Saved per property,
          or (no propertyId) the shared set for every property on Portfolio > Fees & Rates (lib/shared-rates.js). -->
-    <div class="notice" v-if="!isShared">Fee arrangements, OTA commissions and rules are set once for every property on Portfolio › Fees & Rates. Only Pool Sharing's Net Rental # % is set here, for this property.
+    <div class="notice" v-if="!isShared">Fee arrangements, OTA commissions and rules are set once for every property on Portfolio › Fees & Rates. Pool Sharing is set here, for this property only.
       <router-link to="/Portfolio/fees-rates">Open Fees & Rates</router-link></div>
     <div class="notice" v-if="isShared && !rates.hasShared && loaded">There is no shared set yet, so every property still uses the settings it had. A Director builds the shared set once from every property's settings (Build shared set, top right).</div>
     <div class="notice" v-else-if="isShared && rates.sharedStart && asOf < rates.sharedStart">{{ `The shared set starts in ${monthName(rates.sharedStart)}. Before that each property's own settings apply. Pick ${monthName(rates.sharedStart)} or later to see it.` }}</div>
     <template v-if="mode === 'rates'">
       <div class="fees-intro"><p class="card-intro">{{ isShared
-        ? 'One set of fee arrangements for every property, split by stay length. Each unit picks one on its property\'s Units tab, and a unit can still have its own rate there. Pool Sharing\'s Net Rental # % is set on each property. Changes start from the month you pick and are kept in the Audit log.'
-        : 'Pool Sharing arrangements that apply to this property. Press Net Rental % to set how much of the pot goes to this property\'s owners.' }}</p>
+        ? 'One set of fee arrangements for every property, split by stay length. Each unit picks one on its property\'s Units tab, and a unit can still have its own rate there. Pool Sharing is set on each property (its Pool sharing tab). Changes start from the month you pick and are kept in the Audit log.'
+        : 'This property\'s own Pool Sharing arrangements. The pot is only this property\'s Pool units: no other property shares it. Units pick an arrangement on the Units tab.' }}</p>
         <button class="btn info-btn" type="button" @click="howOpen = true" aria-label="How each fee type is worked out" title="How each fee type is worked out"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></button></div>
 
       <!-- How each fee type is worked out: same look as Staff accounts > What each role can do. Text from FEE_TYPES (formula, example). -->
@@ -37,11 +37,10 @@
           <div class="modal-foot"><button class="btn" @click="howOpen = false">Close</button></div>
         </div>
       </div>
-      <div class="fee-empty" v-if="!isShared && loaded && !shownSections.length">No Pool Sharing arrangement applies to this property for this month.</div>
       <template v-for="sec in shownSections" :key="sec.key">
         <section class="card fee-card">
-          <div class="card-head"><div><h2>{{ sec.label }}</h2><div class="help">{{ sec.hint }}</div></div>
-            <button class="btn btn-sm" v-if="canEditHere && isShared" @click="openAdd(sec.key)" :disabled="busy">+ Add</button></div>
+          <div class="card-head"><div><h2>{{ isShared ? sec.label : 'Pool Sharing' }}</h2><div class="help">{{ secHint(sec) }}</div></div>
+            <button class="btn btn-sm" v-if="canEditHere" @click="openAdd(sec.key)" :disabled="busy">+ Add</button></div>
           <div class="table-wrap" v-if="inSection(sec.key).length">
             <table class="table">
               <thead><tr><th>Name</th><th>Type</th><th class="num">Service %</th><th class="num">Utility %</th><th class="num">Total %</th><th class="num">SST</th><th class="num" v-if="!isShared">Net Rental # %</th><th class="num">Units here</th><th></th></tr></thead>
@@ -55,12 +54,12 @@
                     <td class="num">{{ Number(a.sstPct) > 0 ? pctTxt(a.sstPct) : '—' }}</td>
                     <td class="num" v-if="!isShared">{{ pctTxt(a.netRentalPct ?? 0.5625) }}</td>
                     <td class="num">{{ unitsUsing(id) }}</td>
-                    <td class="num"><button class="editlink" v-if="canEditHere" @click="openEdit(id, a)" :disabled="busy">{{ isShared ? 'Edit' : 'Net Rental %' }}</button></td></tr>
+                    <td class="num"><button class="editlink" v-if="canEditHere" @click="openEdit(id, a)" :disabled="busy">{{ isSharedArr(id) ? 'Net Rental %' : 'Edit' }}</button></td></tr>
                 </template>
               </tbody>
             </table>
           </div>
-          <div class="fee-empty" v-else>{{ `No ${sec.label.toLowerCase().replace(' ', '-')} arrangements yet.${canEditHere ? ' Press Add to make one.' : ''}` }}</div>
+          <div class="fee-empty" v-else>{{ `No ${isShared ? sec.label.toLowerCase().replace(' ', '-') : 'Pool Sharing'} arrangements ${isShared ? 'yet' : 'for this property in ' + monthName(asOf)}.${canEditHere ? ' Press Add to make one.' : ''}` }}</div>
         </section>
       </template>
 
@@ -72,7 +71,7 @@
           <div class="fee-modal-body">
             <div class="notice error" v-show="form.error">{{ form.error }}</div>
             <div class="field"><label for="faName" class="req">Name</label><input class="input" id="faName" v-model="form.name" placeholder="e.g. Revenue share 40%" :disabled="form.poolOnly"></div>
-            <div class="field"><label for="faType" class="req">Type</label><FeeTypePicker id="faType" :section="form.section" v-model="form.type" :disabled="form.poolOnly" /></div>
+            <div class="field"><label for="faType" class="req">Type</label><FeeTypePicker id="faType" :section="form.section" v-model="form.type" :disabled="form.poolOnly" :only="isShared ? null : ['pool']" :exclude="isShared ? ['pool'] : []" /></div>
             <div class="grid-3">
               <div class="field"><label for="faSvc">Service %</label><input class="input" id="faSvc" type="number" step="0.01" min="0" max="100" v-model="form.service" :disabled="form.poolOnly"></div>
               <div class="field"><label for="faUtil">Utility %</label><input class="input" id="faUtil" type="number" step="0.01" min="0" max="100" v-model="form.utility" :disabled="form.poolOnly"></div>
@@ -100,6 +99,31 @@
             <button type="submit" class="btn btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save' }}</button></div>
         </form>
       </div>
+
+      <!-- Fees & Rates: Pool Sharing by property, view only (13 Nov 2026). Added and edited on each property's Pool sharing tab. -->
+      <section class="card fee-card" v-if="isShared">
+        <div class="card-head"><div><h2>Pool Sharing</h2><div class="help">View only. Set on each property's Pool sharing tab; each property's pot is only its own Pool units.</div></div></div>
+        <div class="fee-empty" v-if="pool == null">Reading each property's Pool Sharing…</div>
+        <div class="fee-empty" v-else-if="!pool.length">{{ `No property has a Pool Sharing arrangement in ${monthName(asOf)}.` }}</div>
+        <div class="table-wrap" v-else>
+          <table class="table">
+            <thead><tr><th>Name</th><th>Type</th><th class="num">Service %</th><th class="num">Utility %</th><th class="num">Total %</th><th class="num">SST</th><th class="num">Net Rental # %</th><th class="num">Units here</th></tr></thead>
+            <tbody>
+              <template v-for="p in pool" :key="p.id">
+                <tr class="pool-prop"><td colspan="8"><router-link :to="`/Portfolio/properties?property=${encodeURIComponent(p.id)}&ptab=rates`">{{ p.name }}</router-link></td></tr>
+                <tr v-for="[id, a] in p.list" :key="id"><td class="strong pool-name">{{ a.name }}</td>
+                  <td>{{ typeLabel(a.type) }}</td>
+                  <td class="num">{{ pctTxt(a.servicePct) }}</td>
+                  <td class="num">{{ pctTxt(a.utilityPct) }}</td>
+                  <td class="num">{{ pctTxt(Number(a.servicePct || 0) + Number(a.utilityPct || 0)) }}</td>
+                  <td class="num">{{ Number(a.sstPct) > 0 ? pctTxt(a.sstPct) : '—' }}</td>
+                  <td class="num">{{ pctTxt(a.netRentalPct ?? 0.5625) }}</td>
+                  <td class="num">{{ unitsUsing(id) }}</td></tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section class="card" style="margin-top:20px" v-if="isShared">
         <div class="card-head"><h2>Rules for every property</h2><span class="help">{{ rates.current ? `In force for ${monthName(asOf)}: from ${rates.current.effectiveFrom === '2000-01' ? 'the start' : monthName(rates.current.effectiveFrom)}` : '' }}</span></div>
@@ -150,6 +174,9 @@
 </template>
 
 <script>
+// 13 Nov 2026 (Khairul): Pool Sharing is now each property's own. The property's Pool sharing tab adds, edits and deletes
+// Pool arrangements on the property's rate versions (saveArrangement with propertyId); Fees & Rates no longer offers Pool.
+// The pot was already per property (engine.poolShares); only Pool units of that property count.
 // 12 Nov 2026 (later): the property page keeps only a "Pool sharing" tab (mode "rates" with a propertyId): it lists the Pool
 // arrangements that apply and sets only their Net Rental # % for that property. Everything else is on Portfolio > Fees & Rates.
 // Before that: A property's Fees & rates tab (mode "rates") and OTA commissions tab (mode "ota"). Both edit the same rate
@@ -179,6 +206,7 @@ export default {
     mode: { type: String, required: true },        // 'rates' or 'ota'
     propertyId: { type: String, default: null },   // null = the shared set
     units: { type: Array, default: null },
+    pool: { type: Array, default: null },          // Fees & Rates only: [{ id, name, list }] each property's own Pool arrangements (null while they load)
     asOf: { type: String, required: true },
     months: { type: Array, required: true }
   },
@@ -204,8 +232,8 @@ export default {
     },
     dateMin() { return `${[...this.editMonths].sort()[0]}-01`; },
     dateMax() { const m = [...this.editMonths].sort().pop(), [y, mo] = m.split('-').map(Number); return `${m}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`; },
-    // A property shows only the sections that have a Pool Sharing arrangement (12 Nov 2026: the rest moved to Fees & Rates)
-    shownSections() { return this.isShared ? SECTIONS : SECTIONS.filter(sec => this.inSection(sec.key).length); },
+    // A property shows one Pool Sharing card (Pool is short term only). 13 Nov 2026: Pool is added here, per property.
+    shownSections() { return this.isShared ? SECTIONS : SECTIONS.filter(sec => sec.key === 'short'); },
     shownList() { return (this.sharedOn ? this.rates.merged : this.rates.arrangements) || {}; },
     totalPct() { const f = this.form; return f ? +(pctNum(f.service) + pctNum(f.utility)).toFixed(4) : 0; }
   },
@@ -218,6 +246,10 @@ export default {
     dateOk(o) { return /^\d{4}-\d{2}-\d{2}$/.test(o.effectiveDate || '') && o.effectiveDate >= this.dateMin && o.effectiveDate <= this.dateMax; },
     pctTxt(f) { return `${+(Number(f || 0) * 100).toFixed(2)}%`; },
     typeLabel(t) { return FEE_TYPES[t]?.label || t || '—'; },
+    secHint(sec) {
+      if (!this.isShared) return 'Pot = Gross Rental of this property\'s Pool units. Net Rental # % of it goes to owners, split by purchase price.';
+      return sec.key === 'short' ? 'Revenue Sharing or Profit Sharing. Pool Sharing is set on each property.' : sec.hint;
+    },
     sectionLabel(k) { return SECTIONS.find(x => x.key === k)?.label || ''; },
     inSection(key) {
       return Object.entries(this.shownList).filter(([, a]) => (a.section || 'short') === key && (this.isShared || this.isPool(a)))
@@ -234,14 +266,15 @@ export default {
       catch (e) { this.$emit('error', friendlyError(e, 'load the portfolio')); }
     },
     openAdd(section) {
-      const type = Object.values(FEE_TYPES).find(t => t.sections.includes(section))?.id || '';
+      // Fees & Rates never offers Pool (13 Nov 2026); a property adds only Pool
+      const type = this.isShared ? (Object.values(FEE_TYPES).find(t => t.sections.includes(section) && t.id !== 'pool')?.id || '') : 'pool';
       this.form = { isNew: true, id: newArrangementId(), section, name: '', type, service: 0, utility: 0, sst: 0, netRental: toPct(DEFAULT_NET_RENTAL_PCT),
         effectiveFrom: this.fromMonth(), effectiveDate: `${this.fromMonth()}-01`, reason: '', error: '', old: null, poolOnly: false };
     },
     openEdit(id, a) {
       this.form = { isNew: false, id, section: a.section || 'short', name: a.name || '', type: a.type || '', service: toPct(a.servicePct), utility: toPct(a.utilityPct),
         sst: toPct(a.sstPct), netRental: toPct(a.netRentalPct ?? DEFAULT_NET_RENTAL_PCT), effectiveFrom: this.fromMonth(), effectiveDate: `${this.fromMonth()}-01`, reason: '', error: '', old: a,
-        poolOnly: !this.isShared };   // a shared Pool arrangement on a property: only its Net Rental # % is set here
+        poolOnly: this.isSharedArr(id) };   // an old shared Pool arrangement on a property: only its Net Rental # % is set here; the property's own is edited in full
     },
     async saveArr() {
       const f = this.form; f.error = '';
@@ -251,6 +284,7 @@ export default {
       if (!this.dateOk(f)) { f.error = `Pick an Effective from date between ${dmy(this.dateMin)} and ${dmy(this.dateMax)}.`; return; }
       const t = FEE_TYPES[f.type];
       if (!t || !t.sections.includes(f.section)) { f.error = 'Choose a type.'; return; }
+      if (f.isNew && (this.isShared ? t.id === 'pool' : t.id !== 'pool')) { f.error = this.isShared ? 'Pool Sharing is added on each property (its Pool sharing tab).' : 'Only Pool Sharing is added here.'; return; }
       const svc = pctNum(f.service), util = pctNum(f.utility), sst = pctNum(f.sst), net = pctNum(f.netRental);
       for (const [v, lbl] of [[svc, 'Service %'], [util, 'Utility %'], [sst, 'SST on fee %']]) if (!(v >= 0 && v <= 100)) { f.error = `${lbl} must be between 0 and 100.`; return; }
       if (svc + util > 100) { f.error = 'Total % can\'t be more than 100.'; return; }
@@ -352,5 +386,9 @@ export default {
 .fee-pool { background: var(--hover); border-radius: 10px; padding: 12px; }
 .fee-delete { display: grid; gap: 6px; justify-items: start; margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
 .btn-danger-outline { color: var(--red, #c0392b); border-color: currentColor; }
+.pool-prop td { background: var(--hover); font-weight: 700; font-size: 13px; }
+.pool-prop a { color: var(--accent); text-decoration: none; }
+.pool-prop a:hover { text-decoration: underline; }
+.pool-name { padding-left: 28px !important; }
 .shared-tag { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); vertical-align: middle; }
 </style>

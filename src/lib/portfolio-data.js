@@ -72,7 +72,7 @@ export function changeList(a) {
   const v = x => (x == null || x === '' ? '—' : Array.isArray(x) ? (x.join(', ') || '—') : knownArrangement(String(x))?.name || String(x));
   const names = { ownerId: 'Owner', aliases: 'eZee names', active: 'Active', arrangement: 'Arrangement', units: 'Units', status: 'Status',
     fullName: 'Full name', coOwners: 'Co-owners', dob: 'Date of birth', bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account',
-    ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID' };
+    ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID', autocountAcc: 'Autocount account no.' };
   const nice = f => names[f] || f.replace(/([A-Z])/g, ' $1').replace(/^./, m => m.toUpperCase());
   const out = (a.changes || []).map(c => c.new === '(changed)' ? `${nice(c.field)} updated` : `${nice(c.field)}: ${v(c.old)} → ${v(c.new)}`);
   return out.length ? out : ['—'];
@@ -444,13 +444,15 @@ export async function reactivateOwner(me, id, reason) {
 // ---------- writes: units ----------
 // detailsOnly: Marketing editing a unit change its details and eZee names only.
 // purchasePrice (Accounting / Directors): used by Pool Sharing; undefined = left as it is.
-export async function saveUnit(me, { id, isNew, detailsOnly, propertyId, code, aliases, ownerId, info, active, purchasePrice, terms, termsChanged, effectiveFrom, reason, changes }) {
+// autocountAcc (13 Nov 2026): the unit's account no. in Autocount; undefined = left as it is. Only sent by people with an
+// Edit tick: the rules don't let Operations or Marketing save it yet.
+export async function saveUnit(me, { id, isNew, detailsOnly, propertyId, code, aliases, ownerId, info, active, purchasePrice, autocountAcc, terms, termsChanged, effectiveFrom, reason, changes }) {
   // The owner before this save, so both the old and the new owner's states are worked out again after it
   const before = !isNew && !detailsOnly ? await getDoc(doc(db, 'units', id)).then(s => (s.exists() ? s.data().ownerId || null : null)).catch(() => null) : null;
   const st = await stateFor(propertyId);
   const b = writeBatch(db);
   const unitData = { propertyId, ...(st ? { state: st } : {}), unitCode: code, ezeeRoomMatch: code, aliases, ownerId, info, active, updatedAt: serverTimestamp(), updatedBy: me.user.uid,
-    ...(purchasePrice !== undefined ? { purchasePrice } : {}) };
+    ...(purchasePrice !== undefined ? { purchasePrice } : {}), ...(autocountAcc !== undefined ? { autocountAcc } : {}) };
   if (isNew) unitData.createdAt = serverTimestamp(), unitData.createdBy = me.user.uid;
   b.set(doc(db, 'units', id), detailsOnly ? { aliases, info, updatedAt: serverTimestamp(), updatedBy: me.user.uid } : unitData, { merge: true });
   markFrom(b, propertyId, ALL_MONTHS, id);   // this unit's month summaries are worked out again (owner, status, settings)
@@ -592,6 +594,21 @@ export async function saveArrangement(me, propertyId, { id, arr, effectiveFrom, 
   if (propertyId) markFrom(b, propertyId, effectiveFrom);   // every unit's summary from that month on is worked out again
   await b.commit();
   if (!propertyId) await markEveryProperty(effectiveFrom);
+  else await clearCache(`poolRates:${propertyId}:`);
+}
+
+// Pool Sharing per property (13 Nov 2026, Khairul): each property's own Pool arrangements in force for the month, for the
+// view-only Pool Sharing card on Portfolio > Fees & Rates. Cached per property and month (poolRates:<id>:<month>);
+// saveArrangement on that property clears it. Returns [{ id, name, list: [[arrangementId, arrangement], ...] }], only
+// properties that have one, by name.
+export async function loadPoolByProperty(properties, asOf) {
+  const out = await Promise.all(properties.map(async p => {
+    const list = await cached(`poolRates:${p.id}:${asOf}`, TTL.mid, async () =>
+      Object.entries(arrangementsOf(latestVersion(await versionsOf(p.id), asOf))).filter(([, a]) => a && FEE_TYPES[a.type]?.netRental)
+        .sort((x, y) => String(x[1].name).localeCompare(String(y[1].name), 'en', { numeric: true })));
+    return { id: p.id, name: p.name || p.code || p.id, list };
+  }));
+  return out.filter(x => x.list.length).sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { numeric: true }));
 }
 
 // ---------- Build shared set from properties (Directors, one time; Portfolio > Fees & Rates) ----------
