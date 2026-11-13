@@ -12,6 +12,7 @@
         <RouterLink v-if="isAdmin && !form" class="btn" to="/Agreements/setup">Setup</RouterLink>
         <button v-if="form && isAdmin" class="btn" @click="links = form">Fill-in links</button>
         <button v-if="form" class="btn btn-primary" @click="newRecord(form.id)">+ New {{ form.name }}</button>
+        <AgreementGuide :key="form ? 'records' : 'home'" :page="form ? 'records' : 'home'" :admin="isAdmin" :first-visit="!form" />
       </div>
     </div>
 
@@ -65,6 +66,7 @@
 
         <div class="ag-bar rec-bar">
           <span class="note" v-if="selected.length">{{ selected.length }} selected</span>
+          <span class="note" v-else>Tick a row to use these:</span>
           <button class="btn btn-sm btn-primary" :disabled="selected.length !== 1" @click="openGenerate" title="Pick one record">Generate agreement</button>
           <button class="btn btn-sm" :disabled="!selected.length || busy" @click="duplicate">Duplicate</button>
           <button class="btn btn-sm" v-if="status !== 'archived'" :disabled="!selected.length || busy" @click="setStatus('archived')">Archive</button>
@@ -77,7 +79,7 @@
 
         <RecordGrid ref="grid" :fields="form.fields" :rows="rows" v-model:view="view" v-model:selected="selected" :can-edit-columns="isAdmin"
           @edit="onEdit" @open="id => router.push('/Agreements/record/' + id)" @column="onColumn" />
-        <p class="note rec-note">Double-click a cell to edit it (formula columns work themselves out). Drag a column title to move it, drag its edge to resize. Changes save straight away.</p>
+        <p class="note rec-note">Click <b>Open</b> on a row to see the whole agreement. Tick rows to Generate (one), Duplicate or Archive them. Double-click a cell to edit it (formula columns work themselves out). Drag a column title to move it, drag its edge to resize. Changes save straight away.</p>
       </div>
     </template>
 
@@ -117,6 +119,7 @@
 
 <script setup>
 // Agreements: one table per form. Everyone can fill forms and see records; column changes need Agreement setup.
+import AgreementGuide from '@/components/agreements/AgreementGuide.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import RecordGrid from '@/components/agreements/RecordGrid.vue';

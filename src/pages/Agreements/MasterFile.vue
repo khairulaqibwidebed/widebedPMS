@@ -16,6 +16,7 @@
           <button class="btn" :disabled="busy" @click="ask = { kind: 'rename' }">Rename</button>
           <button class="btn" :disabled="busy" @click="downloadWord">Download as Word</button>
           <button class="btn btn-primary" :disabled="busy || !!m.editing" @click="startEdit">Edit in Google Docs</button>
+          <AgreementGuide page="master" admin />
         </div>
       </div>
 
@@ -89,6 +90,7 @@
 <script setup>
 // A master file (Word / Google Doc). Editing happens in a working copy in Google Docs; the master changes only
 // with "Replace the master". Templates are made from it as PDFs.
+import AgreementGuide from '@/components/agreements/AgreementGuide.vue';
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import NameDialog from '@/components/agreements/NameDialog.vue';

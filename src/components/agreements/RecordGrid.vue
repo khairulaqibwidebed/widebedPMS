@@ -17,7 +17,7 @@
 
   <div class="table-wrap grid-wrap">
     <table class="table grid" :style="{ width: totalWidth + 'px' }">
-      <colgroup><col style="width: 84px"><col v-for="c in cols" :key="c.key" :style="{ width: c.width + 'px' }"><col v-if="canEditColumns" style="width: 48px"></colgroup>
+      <colgroup><col style="width: 100px"><col v-for="c in cols" :key="c.key" :style="{ width: c.width + 'px' }"><col v-if="canEditColumns" style="width: 48px"></colgroup>
       <thead>
         <tr>
           <th class="grid-sel">
@@ -135,7 +135,8 @@ const BUILTIN = [{ key: '_status', label: 'Status' }, { key: '_updated', label: 
 const patch = p => emit('update:view', { ...props.view, ...p });
 
 // ---- Columns ----
-const allCols = computed(() => [...props.fields.filter(hasValue).map(f => ({ key: f.id, label: f.label, field: f })), ...BUILTIN]);
+// Status first, so you see at a glance which are drafts; Last updated at the end (13 Nov 2026; a saved view keeps its own order).
+const allCols = computed(() => [BUILTIN[0], ...props.fields.filter(hasValue).map(f => ({ key: f.id, label: f.label, field: f })), BUILTIN[1]]);
 const ordered = computed(() => {
   const byKey = new Map(allCols.value.map(c => [c.key, c]));
   const order = (props.view.order || []).filter(k => byKey.has(k));
@@ -144,7 +145,7 @@ const ordered = computed(() => {
 const isHidden = k => (props.view.hidden || []).includes(k);
 const defaultWidth = c => (c.key === '_updated' ? 170 : c.key === '_status' ? 120 : ['textarea', 'signature'].includes(c.field?.type) ? 220 : ['checkbox'].includes(c.field?.type) ? 90 : 160);
 const cols = computed(() => ordered.value.filter(c => !isHidden(c.key)).map(c => ({ ...c, width: props.view.widths?.[c.key] || defaultWidth(c) })));
-const totalWidth = computed(() => 84 + cols.value.reduce((s, c) => s + c.width, 0) + (props.canEditColumns ? 48 : 0));
+const totalWidth = computed(() => 100 + cols.value.reduce((s, c) => s + c.width, 0) + (props.canEditColumns ? 48 : 0));
 const labelOf = k => allCols.value.find(c => c.key === k)?.label || 'Deleted column';
 function toggleHidden(k) { const h = new Set(props.view.hidden || []); h.has(k) ? h.delete(k) : h.add(k); patch({ hidden: [...h] }); }
 
@@ -318,7 +319,7 @@ defineExpose({ exportRows: () => ({ cols: cols.value, rows: shown.value }) });
 .grid-sel { position: sticky; left: 0; z-index: 1; background: var(--surface); white-space: nowrap; }
 th.grid-sel { z-index: 3; background: var(--head); padding: 0 12px !important; }
 .grid-sel input { vertical-align: middle; margin-right: 8px; }
-.grid-open { font-size: 12px; }
+.grid-open { font-size: 12px; font-weight: 600; }
 .grid-add { text-align: center; }
 .grid-edit { height: 34px; width: 100%; }
 .grid-tick { width: 100%; height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--accent); font-weight: 700; }

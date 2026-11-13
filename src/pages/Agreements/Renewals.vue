@@ -9,6 +9,7 @@
       <div class="head-tools">
         <RouterLink class="btn" to="/Agreements">All agreements</RouterLink>
         <RouterLink v-if="isAdmin" class="btn" to="/Agreements/setup">Reminder settings</RouterLink>
+        <AgreementGuide page="renewals" :admin="isAdmin" />
       </div>
     </div>
 
@@ -106,6 +107,7 @@
 
 <script setup>
 // Agreement renewals: every tracked agreement by end date, with who is in charge and where the renewal stands.
+import AgreementGuide from '@/components/agreements/AgreementGuide.vue';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import NameDialog from '@/components/agreements/NameDialog.vue';

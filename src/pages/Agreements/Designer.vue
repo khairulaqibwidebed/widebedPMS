@@ -37,6 +37,7 @@
         <label class="btn btn-sm" :class="{ disabled: busy }">Replace PDF<input type="file" hidden accept="application/pdf,.pdf" @change="replaceFile"></label>
         <button class="btn btn-sm" :disabled="autosave.status.value === 'saving'" @click="saveNow">Save</button>
         <button class="btn btn-sm btn-primary" @click="openGenerate">{{ previewRecord ? 'Generate agreement' : 'Preview PDF' }}</button>
+        <AgreementGuide page="template" admin small />
       </div>
 
       <div class="ag-three ds-three">
@@ -176,6 +177,7 @@
 <script setup>
 // Designer: drag form fields (and formula answers) onto the pages of an uploaded PDF.
 // Boxes are kept as fractions of the page, so they print in the same place at any zoom.
+import AgreementGuide from '@/components/agreements/AgreementGuide.vue';
 import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PdfPage from '@/components/agreements/PdfPage.vue';

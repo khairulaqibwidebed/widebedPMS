@@ -1,0 +1,15 @@
+/* The list of a plain <select>, drawn like OptionPicker's (lib/select-menu.js). */
+.sm-pop { position: fixed; z-index: 4000; box-sizing: border-box; max-width: min(420px, calc(100vw - 16px)); max-height: 340px; overflow: auto; margin: 0; padding: 6px; list-style: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .12); font-family: inherit; }
+.sm-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--text); cursor: pointer; }
+.sm-item span { min-width: 0; overflow-wrap: anywhere; }
+.sm-item svg { flex: none; }
+.sm-item.hot { background: var(--accent-soft); color: var(--accent); }
+.sm-item.on { color: var(--accent); font-weight: 700; }
+.sm-item.off { color: var(--muted); opacity: .6; cursor: not-allowed; }
+.sm-group { padding: 8px 12px 4px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.sm-item.in-group { padding-left: 20px; }
+.sm-find { position: sticky; top: -6px; margin: -6px -6px 4px; padding: 9px 18px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.sm-find b { color: var(--text); }
+.sm-none { padding: 9px 12px; font-size: 13px; color: var(--muted); }
+select.sm-open { border-color: var(--accent); }
