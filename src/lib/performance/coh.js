@@ -4,7 +4,7 @@
 // it and to HR/Director — so it lives on a separate private/scores sub-document the evaluatee can't read
 // (firestore.rules enforces this; it isn't just hidden in the UI).
 //
-// cohQuestions/{id}      { title, description, order, active, ratingScale, quarterIds: [string] | null,
+// cohQuestions/{id}      { title, description, order, active, ratingScale, quarterIds: [string] | null (null = shared; see cohQuestions.js), copiedFrom?,
 //                          deleted?: true, deletedAt, deletedBy }   (deleted = removed from every list, 12 Nov 2026)
 // cohEvaluations/{quarterId}_{evaluatorUid}_{evaluateeUid}
 //                        { quarterId, evaluatorId, evaluatorNameSnapshot, evaluateeId, evaluateeNameSnapshot,
@@ -15,7 +15,8 @@
 // The deterministic evaluation id (one per evaluator/evaluatee/quarter) makes "no duplicate submission" a
 // property of the document path, not application logic: a second submit overwrites the first rather than
 // creating a second row, and firestore.rules can check "does this id already exist" cheaply.
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, serverTimestamp, addDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, limit, serverTimestamp, addDoc, writeBatch } from 'firebase/firestore';
+import { questionsOf, hasOwnSet, sharedSet, planOwnSet, planCopyFrom } from './cohQuestions.js';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { notifyUser } from '@/services/notificationService.js';
@@ -34,9 +35,56 @@ export async function audit(action, entity, details = '') {
 }
 
 // ---- Questions (HR/Director configure; reused across quarters unless scoped) ----
+// Each quarter can have its own set (12 Nov 2026, cohQuestions.js): a quarter uses its own questions when it has some,
+// otherwise the shared ones (quarterIds: null). Before, a quarter got the shared ones AND any scoped to it.
+const allQuestionDocs = async () => rows(await getDocs(collection(db, 'cohQuestions')));
+// The questions shown on a quarter's evaluation form and on its One To One forms: its set, active ones only.
 export async function listQuestions(quarterId) {
-  const all = rows(await getDocs(collection(db, 'cohQuestions'))).filter(q => q.active !== false && q.deleted !== true);
-  return all.filter(q => !q.quarterIds || q.quarterIds.includes(quarterId)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return questionsOf(await allQuestionDocs(), quarterId).filter(q => q.active !== false);
+}
+// Manage questions: a quarter's set (inactive ones included), and whether it is its own or the shared one.
+export async function listQuestionsFor(quarterId) {
+  const all = await allQuestionDocs();
+  const own = hasOwnSet(all, quarterId);
+  return { questions: questionsOf(all, quarterId), own, shared: !own && sharedSet(all).length > 0 };
+}
+// Has anyone been rated in this quarter yet? (Their marks point at the question documents.)
+export async function quarterHasEvaluations(quarterId) {
+  return !(await getDocs(query(collection(db, 'cohEvaluations'), where('quarterId', '==', quarterId), limit(1)))).empty;
+}
+const stampNew = s => ({ createdBy: s.user.uid, createdByName: s.name, createdAt: serverTimestamp() });
+// Before the first change to a quarter that is still on the shared questions: give it its own set, so the change stays
+// in that quarter. Returns { oldId: newId } for questions that were copied (empty when the same documents are kept).
+export async function ensureOwnSet(quarterId, allQuarterIds) {
+  const all = await allQuestionDocs();
+  if (hasOwnSet(all, quarterId) || !sharedSet(all).length) return {};
+  const rated = [];
+  for (const id of allQuarterIds) if (!hasOwnSet(all, id) && await quarterHasEvaluations(id)) rated.push(id);
+  const plan = planOwnSet(all, quarterId, allQuarterIds, rated);
+  const s = me(), b = writeBatch(db), map = {};
+  if (plan.mode === 'copy') {
+    for (const c of plan.copies) { const ref = doc(collection(db, 'cohQuestions')); b.set(ref, { ...c, ...stampNew(s) }); map[c.copiedFrom] = ref.id; }
+  } else if (plan.mode === 'keep') {
+    for (const id of plan.pin) b.update(doc(db, 'cohQuestions', id), { quarterIds: plan.pinTo });
+    for (const c of plan.clones) b.set(doc(collection(db, 'cohQuestions')), { ...c, ...stampNew(s) });
+  } else return {};
+  await b.commit();
+  audit('performance.coh.question.ownSet', `performanceQuarters/${quarterId}`, plan.mode === 'copy' ? 'Copied the shared questions for this quarter' : 'This quarter keeps the questions it was rated with');
+  return map;
+}
+// Use another quarter's questions for this one (replaces this quarter's own questions). Not once ratings exist here.
+export async function copyQuestionsFrom(fromQuarterId, toQuarterId) {
+  if (fromQuarterId === toQuarterId) throw new Error('Pick a different quarter to copy from.');
+  if (await quarterHasEvaluations(toQuarterId)) throw new Error('Evaluations have started in this quarter, so its questions can\'t be replaced. You can still add, edit or delete questions.');
+  const plan = planCopyFrom(await allQuestionDocs(), fromQuarterId, toQuarterId);
+  if (!plan.copies.length) throw new Error('That quarter has no questions to copy.');
+  const s = me(), b = writeBatch(db);
+  for (const id of plan.remove) b.update(doc(db, 'cohQuestions', id), { deleted: true, active: false, deletedAt: serverTimestamp(), deletedBy: s.user.uid, deletedByName: s.name });
+  for (const u of plan.unlink) b.update(doc(db, 'cohQuestions', u.id), { quarterIds: u.quarterIds });
+  for (const c of plan.copies) b.set(doc(collection(db, 'cohQuestions')), { ...c, ...stampNew(s) });
+  await b.commit();
+  audit('performance.coh.question.copy', `performanceQuarters/${toQuarterId}`, `Copied ${plan.copies.length} questions from ${fromQuarterId}`);
+  return plan.copies.length;
 }
 export async function listAllQuestions() {
   return rows(await getDocs(collection(db, 'cohQuestions'))).filter(q => q.deleted !== true).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));

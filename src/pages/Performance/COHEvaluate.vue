@@ -209,23 +209,58 @@
     </template>
 
     <template v-else-if="tab === 'questions' && canManageQuestions">
+      <!-- Questions per quarter (12 Nov 2026): each quarter has its own set; a new quarter can start from another quarter's. -->
       <div class="card" style="margin-bottom:16px;">
+        <h3 style="margin-top:0;">Questions for a quarter</h3>
+        <div class="coh-q-bar">
+          <label for="mqQuarter">Quarter</label>
+          <select id="mqQuarter" class="select" v-model="manageQuarterId" :disabled="saving">
+            <option v-for="q in quartersAll" :key="q.id" :value="q.id">{{ q.name }}</option>
+          </select>
+          <span class="pill" :class="manage.own ? 'green' : 'amber'" v-if="manageQuarterId && !manageLoading">
+            {{ manage.own ? `Its own questions · ${manage.questions.length}` : `Shared questions · ${manage.questions.length}` }}
+          </span>
+        </div>
+        <p class="note" v-if="manageQuarterId && !manage.own && manage.questions.length">
+          This quarter has no set of its own yet, so it uses the shared questions. The first change you make here gives it its own set; other quarters are not changed.
+        </p>
+        <p class="note" v-if="manageQuarterId && manage.hasEvaluations">Evaluations have started in this quarter. You can still add, edit or delete questions, but not replace them with another quarter's.</p>
+        <div class="coh-q-bar" v-if="otherQuarters.length">
+          <label for="mqFrom">Use the questions of</label>
+          <select id="mqFrom" class="select" v-model="copyFrom" :disabled="saving || manage.hasEvaluations">
+            <option value="">Choose a quarter</option>
+            <option v-for="q in otherQuarters" :key="q.id" :value="q.id">{{ q.name }}</option>
+          </select>
+          <template v-if="confirmCopy">
+            <span class="muted">Replace this quarter's {{ manage.questions.length }} question{{ manage.questions.length === 1 ? '' : 's' }}?</span>
+            <button class="btn btn-sm btn-danger" :disabled="saving" @click="copyQuarter">Yes, replace</button>
+            <button class="btn btn-sm" :disabled="saving" @click="confirmCopy = false">No</button>
+          </template>
+          <button v-else class="btn" :disabled="saving || !copyFrom || manage.hasEvaluations" @click="manage.own && manage.questions.length ? (confirmCopy = true) : copyQuarter()">Copy questions</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;" v-if="manageQuarterId">
         <h3 style="margin-top:0;">Add a question</h3>
         <FormField label="Title" req v-model="newQ.title" placeholder="Demonstrates responsibility and accountability" />
         <FormField label="Description (optional)" v-model="newQ.description" />
         <button class="btn btn-primary" :disabled="saving || !newQ.title" @click="addQuestion">Add question</button>
       </div>
 
-      <div class="card">
-        <h3 style="margin-top:0;">All questions</h3>
+      <div class="card" v-if="manageQuarterId">
+        <h3 style="margin-top:0;">{{ manageQuarterName }} questions</h3>
         <div class="table-wrap">
           <table class="table hover-rows">
             <thead><tr><th>Order</th><th>Title</th><th>Description</th><th>Active</th><th></th></tr></thead>
             <tbody>
-              <tr v-for="(q, i) in allQuestions" :key="q.id">
-                <td>
+              <!-- Drag and drop (12 Nov 2026): drag a row by its grip; the line shows where it lands. The arrows still work. -->
+              <tr v-for="(q, i) in manage.questions" :key="q.id"
+                :class="{ 'coh-ghost': dragId === q.id, 'coh-before': showLine && dropAt === i, 'coh-after': showLine && dropAt === manage.questions.length && i === manage.questions.length - 1 }"
+                @dragover="overRow($event, i)" @drop.prevent="dropRow">
+                <td class="coh-order">
+                  <span class="coh-grip" draggable="true" title="Drag to move" aria-hidden="true" @dragstart="startRowDrag($event, q)" @dragend="endRowDrag">⠿</span>
                   <button class="act-pill" :disabled="i === 0" @click="moveQuestion(i, -1)">↑</button>
-                  <button class="act-pill" :disabled="i === allQuestions.length - 1" @click="moveQuestion(i, 1)">↓</button>
+                  <button class="act-pill" :disabled="i === manage.questions.length - 1" @click="moveQuestion(i, 1)">↓</button>
                 </td>
                 <td><input class="input" v-model="q.title" @change="saveEdit(q, { title: q.title })"></td>
                 <td><input class="input" v-model="q.description" @change="saveEdit(q, { description: q.description })"></td>
@@ -240,19 +275,19 @@
                   <button v-else class="btn btn-sm" :disabled="saving" @click="deleting = q.id">Delete</button>
                 </td>
               </tr>
-              <tr v-if="!allQuestions.length"><td colspan="5" class="muted">No questions configured yet.</td></tr>
+              <tr v-if="!manage.questions.length"><td colspan="5" class="muted">{{ manageLoading ? 'Loading…' : 'No questions for this quarter yet. Add one above, or use another quarter\'s.' }}</td></tr>
             </tbody>
           </table>
         </div>
-        <p class="note">Disabling a question (unticking Active) keeps its history intact but stops it appearing in new evaluations.
-          Delete removes it from this list, from new evaluations and from the One To One form; marks already given for it are kept in the evaluations.</p>
+        <p class="note">Changes here are for {{ manageQuarterName }} only. Disabling a question (unticking Active) keeps its history intact but stops it appearing in new evaluations.
+          Delete removes it from this quarter's list, its new evaluations and its One To One forms; marks already given for it are kept in the evaluations.</p>
       </div>
     </template>
   </main>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick } from 'vue';
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue';
 import RatingPicker from '@/components/RatingPicker.vue';
 import FormField from '@/components/FormField.vue';
 import { NAV_ICONS } from '@/components/NavIcons.js';
@@ -260,9 +295,12 @@ import { useSession } from '@/stores/session.js';
 import { listQuarters, listParticipants } from '@/lib/performance/quarters.js';
 import { normalizeStatus } from '@/lib/performance/quarterStatus.js';
 import {
-  listQuestions, listAllQuestions, createQuestion, saveQuestion, deleteQuestion,
+  listQuestions, listQuestionsFor, quarterHasEvaluations, ensureOwnSet, copyQuestionsFrom, createQuestion, saveQuestion, deleteQuestion,
   listEvaluatees, listGiven, listReceived, listAllForQuarter, getEvaluation, submitEvaluation
 } from '@/lib/performance/coh.js';
+import { nextOrder } from '@/lib/performance/cohQuestions.js';
+import { dropIndex, moveTo } from '@/lib/agreements/fields.js';
+import { startDragScroll } from '@/lib/agreements/drag-scroll.js';
 
 const session = useSession();
 // Confirmed business rule: only Director and HR may configure COH questions — not whoever happens to hold the
@@ -280,7 +318,32 @@ const amParticipant = ref(false);
 const evaluatees = ref([]);
 const givenList = ref([]);
 const received = ref([]);
-const allQuestions = ref([]);
+// Manage questions: the quarter being managed and its set (12 Nov 2026: each quarter has its own questions).
+const quartersAll = ref([]);
+const manageQuarterId = ref('');
+const manage = ref({ questions: [], own: true, hasEvaluations: false });
+const manageLoading = ref(false);
+const copyFrom = ref('');
+const confirmCopy = ref(false);
+const manageQuarterName = computed(() => quartersAll.value.find(q => q.id === manageQuarterId.value)?.name || 'This quarter');
+const otherQuarters = computed(() => quartersAll.value.filter(q => q.id !== manageQuarterId.value));
+async function reloadManage() {
+  const id = manageQuarterId.value;
+  if (!id) { manage.value = { questions: [], own: true, hasEvaluations: false }; return; }
+  manageLoading.value = true;
+  try {
+    const [set, hasEvaluations] = await Promise.all([listQuestionsFor(id), quarterHasEvaluations(id)]);
+    if (id === manageQuarterId.value) manage.value = { questions: set.questions, own: set.own || !set.shared, hasEvaluations };
+  } catch (e) { error.value = e.message; }
+  manageLoading.value = false;
+}
+watch(manageQuarterId, () => { copyFrom.value = ''; confirmCopy.value = false; deleting.value = ''; reloadManage(); });
+// Before a change: make sure the managed quarter has its own set. Returns a function that gives a question's id in that set.
+async function ownSetFirst() {
+  if (manage.value.own) return id => id;
+  const map = await ensureOwnSet(manageQuarterId.value, quartersAll.value.map(q => q.id));
+  return id => map[id] || id;
+}
 const deleting = ref('');   // id of the question being asked "Delete it?"
 const newQ = ref({ title: '', description: '' });
 
@@ -404,7 +467,10 @@ async function load() {
     const quarters = await listQuarters();
     // COH is open while the quarter is Active (old 'evaluation' / 'pendingApproval' quarters count as Active too).
     quarter.value = quarters.find(q => normalizeStatus(q.status) === 'active') || null;
-    if (canManageQuestions.value) allQuestions.value = await listAllQuestions();
+    if (canManageQuestions.value) {
+      quartersAll.value = quarters;
+      if (!manageQuarterId.value) manageQuarterId.value = (quarter.value || quarters[0])?.id || '';   // its watcher loads the questions
+    }
     if (!quarter.value) return;
     const parts = await listParticipants(quarter.value.id);
     const activeParts = parts.filter(p => p.participationStatus === 'active');
@@ -486,32 +552,95 @@ async function doSubmit() {
 async function addQuestion() {
   saving.value = true; error.value = '';
   try {
-    await createQuestion({ title: newQ.value.title, description: newQ.value.description, order: allQuestions.value.length });
-    newQ.value = { title: '', description: '' }; allQuestions.value = await listAllQuestions();
+    await ownSetFirst();
+    await createQuestion({ title: newQ.value.title, description: newQ.value.description, quarterIds: [manageQuarterId.value], order: nextOrder(manage.value.questions) });
+    newQ.value = { title: '', description: '' }; await reloadManage();
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
 async function saveEdit(q, patch) {
-  try { await saveQuestion(q.id, patch); } catch (e) { error.value = e.message; }
+  try {
+    const wasShared = !manage.value.own;
+    const idOf = await ownSetFirst();
+    await saveQuestion(idOf(q.id), patch);
+    if (wasShared) await reloadManage();   // the rows are now this quarter's own questions
+  } catch (e) { error.value = e.message; await reloadManage(); }
+}
+async function copyQuarter() {
+  saving.value = true; error.value = '';
+  try { await copyQuestionsFrom(copyFrom.value, manageQuarterId.value); copyFrom.value = ''; confirmCopy.value = false; await reloadManage(); }
+  catch (e) { error.value = e.code === 'permission-denied' ? 'You don\'t have permission to change the questions.' : e.message; }
+  finally { saving.value = false; }
 }
 async function removeQuestion(q) {
   saving.value = true; error.value = '';
-  try { await deleteQuestion(q.id, q.title); deleting.value = ''; allQuestions.value = await listAllQuestions(); }
+  try { const idOf = await ownSetFirst(); await deleteQuestion(idOf(q.id), q.title); deleting.value = ''; await reloadManage(); }
   catch (e) { error.value = e.code === 'permission-denied' ? 'You don\'t have permission to delete this question.' : e.message; }
   finally { saving.value = false; }
 }
 async function moveQuestion(i, dir) {
   const j = i + dir;
-  if (j < 0 || j >= allQuestions.value.length) return;
-  const a = allQuestions.value[i], b = allQuestions.value[j];
-  [a.order, b.order] = [b.order ?? j, a.order ?? i];
+  const list = manage.value.questions;
+  if (j < 0 || j >= list.length) return;
+  const ids = list.map(q => q.id); [ids[i], ids[j]] = [ids[j], ids[i]];
+  await saveOrder(ids);
+}
+// Save a new order of the managed quarter's questions (ids in the order wanted).
+async function saveOrder(ids) {
+  const list = manage.value.questions;
+  if (saving.value || ids.every((id, k) => id === list[k].id)) return;
+  saving.value = true;
+  // Show the new order at once; the save follows.
+  manage.value = { ...manage.value, questions: ids.map(id => list.find(q => q.id === id)) };
   try {
-    await Promise.all([saveQuestion(a.id, { order: a.order }), saveQuestion(b.id, { order: b.order })]);
-    allQuestions.value = [...allQuestions.value].sort((x, y) => (x.order ?? 0) - (y.order ?? 0));
-  } catch (e) { error.value = e.message; }
+    const idOf = await ownSetFirst();
+    // Number the whole set 0, 1, 2…, so equal or missing order numbers can't get in the way.
+    await Promise.all(ids.map((id, k) => ({ id, k })).filter(x => list.find(q => q.id === x.id).order !== x.k || !manage.value.own)
+      .map(x => saveQuestion(idOf(x.id), { order: x.k })));
+    await reloadManage();
+  } catch (e) { error.value = e.message; await reloadManage(); } finally { saving.value = false; }
+}
+
+// ---- Drag and drop of the question rows ----
+const dragId = ref('');
+const dropAt = ref(-1);      // where it would land: 0…length (before that row; length = after the last)
+let stopScroll = null;
+function startRowDrag(e, q) {
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', q.id);
+  // Only the grip is draggable (so text in the boxes can still be selected); the whole row is what you see moving.
+  const row = e.currentTarget.closest('tr');
+  if (row && e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(row, 12, 12);
+  stopScroll = startDragScroll(e.currentTarget);   // the page scrolls up and down while dragging near its edges
+  setTimeout(() => { if (stopScroll) dragId.value = q.id; });
+}
+function endRowDrag() { stopScroll?.(); stopScroll = null; dragId.value = ''; dropAt.value = -1; }
+function overRow(e, i) {
+  if (!dragId.value) return;   // something else is being dragged over the table
+  e.preventDefault();
+  const r = e.currentTarget.getBoundingClientRect();
+  dropAt.value = dropIndex(i, e.clientY, r.top, r.height);
+}
+const showLine = computed(() => {
+  if (!dragId.value || dropAt.value < 0) return false;
+  const from = manage.value.questions.findIndex(q => q.id === dragId.value);
+  return dropAt.value !== from && dropAt.value !== from + 1;
+});
+async function dropRow() {
+  const ids = manage.value.questions.map(q => q.id), from = ids.indexOf(dragId.value), at = dropAt.value;
+  endRowDrag();
+  if (from < 0 || at < 0) return;
+  await saveOrder(moveTo(ids, from, at));
 }
 </script>
 
 <style scoped>
+.coh-q-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.coh-q-bar label { font-size: 13px; font-weight: 600; }
+.coh-order { white-space: nowrap; }
+.coh-grip { display: inline-block; cursor: grab; color: var(--muted); font-size: 16px; padding: 4px 6px 4px 0; user-select: none; vertical-align: middle; }
+tr.coh-ghost { opacity: .35; }
+tr.coh-before td { box-shadow: inset 0 3px 0 var(--accent); }
+tr.coh-after td { box-shadow: inset 0 -3px 0 var(--accent); }
 .coh-del { white-space: nowrap; text-align: right; }
 .coh-del .muted { margin-right: 6px; font-size: 12px; }
 /* Follows the account's selected theme (Settings > Appearance) throughout — var(--bg)/var(--surface)/
