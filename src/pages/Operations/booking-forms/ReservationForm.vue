@@ -25,9 +25,24 @@
         <!-- 1. Tenant -->
         <div v-show="step === 0">
           <h3>Tenant</h3>
-          <p class="help" v-if="bk.existing">{{ `Existing tenant ${bk.existing.id} has this phone number. Their details are filled in below and the booking will be added to their record.` }}</p>
+          <!-- 13 Nov 2026: a phone match no longer fills the form by itself; the match is shown and filled in only when picked -->
+          <div class="match" v-if="bk.existing && !bk.matchUsed">
+            <div><b>{{ `Existing tenant found: ${bk.existing.name || '(no name)'} (${bk.existing.id})` }}</b>
+              <p class="help">{{ [bk.existing.email, bk.existing.icPassport, bk.existing.nationality].filter(Boolean).join(' · ') || 'No other details saved.' }} The booking will be added to this tenant's record because the phone number matches.</p></div>
+            <button type="button" class="btn btn-primary" @click="useMatch()">Use these details</button>
+          </div>
+          <p class="help" v-else-if="bk.existing">{{ `Details filled in from existing tenant ${bk.existing.id}. The booking will be added to their record.` }}</p>
           <div class="grid-fields">
-            <FormField id="bName" label="Name" req v-model="bk.name" />
+            <div class="name-wrap">
+              <FormField id="bName" label="Name" req v-model="bk.name" autocomplete="off" />
+              <!-- 13 Nov 2026: existing tenants whose name matches what is typed; picking one fills the details and links the booking to them -->
+              <div class="name-hits" v-if="nameHits.length && !bk.matchUsed">
+                <p class="help">Existing tenants with this name. Pick one to fill in their details, or keep typing for a new tenant.</p>
+                <button type="button" class="hit" v-for="t in nameHits" :key="t.id" @click="pickTenant(t)">
+                  <b>{{ t.name || '(no name)' }}</b><span>{{ [t.id, t.phone, t.icPassport].filter(Boolean).join(' · ') }}</span>
+                </button>
+              </div>
+            </div>
             <FormField id="bPhone" label="Phone" req v-model="bk.phone" inputmode="tel" @change="refill(true)" />
             <FormField id="bEmail" label="Email" type="email" v-model="bk.email" />
             <FormField id="bIc" label="IC / Passport" req v-model="bk.icPassport" />
@@ -172,7 +187,7 @@ import FormSaved from '@/components/FormSaved.vue';
 import { idPrefix } from '@/lib/lodgment.js';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
 import { allDone, stillMissing } from '@/lib/steps.js';
-import { STATUS, CONTACT_ALL, DIRECT_BOOKERS, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf } from '@/lib/offline.js';
+import { STATUS, CONTACT_ALL, DIRECT_BOOKERS, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, findTenantsByName, privateOf } from '@/lib/offline.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { can } from '@/lib/access.js';
 
@@ -192,7 +207,7 @@ const stop = msg => Object.assign(new Error(msg), { plain: true });
 const errText = (e, what) => (e.plain ? e.message : friendlyError(e, what));
 const filled = v => !!String(v ?? '').trim();
 // What counts as "something typed" for the leave warning (not the ids and lookups the form sets itself)
-const typed = bk => JSON.stringify({ ...bk, existing: undefined, payId: undefined });
+const typed = bk => JSON.stringify({ ...bk, existing: undefined, matchUsed: undefined, payId: undefined });
 // The step a save message is about, so the form jumps there
 const STEP_OF = [[/tenant|phone|email|IC or passport|gender/i, 0], [/property and unit|check-in|Check-out|already booked/, 1], [/booking source|rental status|monthly rent/, 2],
   [/amount paid|mode of payment|purpose|receipt/, 3], [/passcode/, 4]];
@@ -204,7 +219,7 @@ export default {
   data() {
     return {
       GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, PAY_MODES, FEES,
-      lead: null, tenant: null, bk: {}, properties: [], units: [], start: '',
+      lead: null, tenant: null, bk: {}, properties: [], units: [], start: '', nameHits: [], nameTimer: null,
       step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'portfolio.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
     };
   },
@@ -285,7 +300,20 @@ export default {
       ];
     }
   },
-  watch: { dirty: { handler(v) { this.$emit('dirty', v); }, immediate: true } },
+  watch: {
+    dirty: { handler(v) { this.$emit('dirty', v); }, immediate: true },
+    // Name search: waits until typing stops (one query per pause, not per key), only while no tenant has been picked
+    'bk.name'(v) {
+      clearTimeout(this.nameTimer);
+      // A lead already linked to a tenant books for that tenant, so there is nothing to search
+      if (this.bk.matchUsed || this.lead?.tenantId || String(v || '').trim().length < 2) { this.nameHits = []; return; }
+      this.nameTimer = setTimeout(async () => {
+        const hits = await findTenantsByName(v).catch(() => []);
+        if (this.bk.name === v && !this.bk.matchUsed) this.nameHits = hits;
+      }, 500);
+    }
+  },
+  beforeUnmount() { clearTimeout(this.nameTimer); },
   methods: {
     short(iso) { if (!iso) return ''; const [, m, dd] = iso.slice(0, 10).split('-'); return `${+dd} ${MON[+m - 1]}`; },
     full(iso) { return iso ? `${this.short(iso)} ${iso.slice(0, 4)}` : ''; },
@@ -342,7 +370,7 @@ export default {
     },
     async startBooking() {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
-      this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null,
+      this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null, matchUsed: false,
         rentType: 'Daily', bookingSource: '', rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', othersFee: '', othersNote: '',
         payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
@@ -356,9 +384,21 @@ export default {
       const phone = this.bk.phone;
       const t = this.lead?.tenantId ? this.tenant : await findTenant(phone).catch(() => null);
       if (typed && this.bk.phone !== phone) return;
+      // A match is only offered (shown above the fields); useMatch() fills the details when it is picked
+      if ((t?.id || null) !== (this.bk.existing?.id || null)) this.bk.matchUsed = false;
       this.bk.existing = t || null;
-      if (t) Object.assign(this.bk, { name: t.name || this.bk.name, email: t.email || this.bk.email, icPassport: t.icPassport || '', nationality: t.nationality || this.bk.nationality,
-        dob: t.dob || this.bk.dob, gender: t.gender || this.bk.gender, genderOther: t.genderOther || this.bk.genderOther });
+    },
+    // A tenant picked from the name search: their phone is filled too, since the booking is linked to the tenant by phone on save
+    pickTenant(t) {
+      clearTimeout(this.nameTimer); this.nameHits = [];
+      this.bk.existing = t; this.bk.phone = t.phone || this.bk.phone;
+      this.useMatch();
+    },
+    useMatch() {
+      const t = this.bk.existing;
+      if (!t) return;
+      Object.assign(this.bk, { name: t.name || this.bk.name, email: t.email || this.bk.email, icPassport: t.icPassport || this.bk.icPassport, nationality: t.nationality || this.bk.nationality,
+        dob: t.dob || this.bk.dob, gender: t.gender || this.bk.gender, genderOther: t.genderOther || this.bk.genderOther, matchUsed: true });
     },
     async loadUnitList() {
       this.bk.unitId = ''; this.units = [];
@@ -651,4 +691,12 @@ export default {
 .spacer { flex: 1; }
 .bottom-actions { display: flex; gap: 10px; margin-top: 8px; padding: 14px 0 20px; }
 .bottom-actions .btn:disabled { opacity: .5; cursor: not-allowed; }
+.match { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; }
+.match .help { margin: 4px 0 0; }
+.name-wrap { min-width: 0; }
+.name-hits { border: 1px solid var(--border); border-radius: 10px; padding: 8px; margin: -6px 0 12px; }
+.name-hits .help { margin: 0 0 6px; }
+.hit { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 6px 8px; cursor: pointer; font: inherit; color: inherit; }
+.hit:hover, .hit:focus-visible { background: var(--accent-soft, rgba(0, 128, 128, .08)); }
+.hit span { font-size: 12px; color: var(--muted); }
 </style>

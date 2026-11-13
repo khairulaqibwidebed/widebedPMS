@@ -54,7 +54,7 @@
             <template v-if="whose === 'mine'">None started by you. <button type="button" class="editlink" @click="$emit('update:whose', 'everyone')">Show everyone's</button></template>
             <template v-else>No listings in progress.</template>
           </div>
-          <p class="help">Live and Not proceeding listings are on the Owner Leads page.</p>
+          <p class="help">Live and Not proceeding listings are in the Owner Leads list (close this panel and the listing).</p>
         </div>
       </section>
     </div>

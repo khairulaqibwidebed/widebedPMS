@@ -20,11 +20,17 @@ export default {
     section: { type: String, default: '' },        // 'short' | 'mid' | 'long'; empty = every type
     modelValue: { type: String, default: '' },
     disabled: { type: Boolean, default: false },
-    id: { type: String, default: 'feeType' }
+    id: { type: String, default: 'feeType' },
+    // 13 Nov 2026: only = offer just these type ids; exclude = leave these out (a type already chosen still shows)
+    only: { type: Array, default: null },
+    exclude: { type: Array, default: () => [] }
   },
   emits: ['update:modelValue'],
   computed: {
-    types() { return this.section ? typesFor(this.section) : Object.values(FEE_TYPES); },
+    types() {
+      const all = this.section ? typesFor(this.section) : Object.values(FEE_TYPES);
+      return all.filter(t => (!this.only || this.only.includes(t.id)) && (!this.exclude.includes(t.id) || t.id === this.modelValue));
+    },
     options() { return this.types.map(t => ({ value: t.id, label: t.label })); },
     current() { return FEE_TYPES[this.modelValue] || null; }
   }

@@ -47,7 +47,12 @@
           <p class="help">{{ isLong ? 'Long-term: each month is rent against payments dated in that month.' : 'Short stay: the rental is due in the check-in month; payments count in the month they are dated.' }}</p>
         </template>
         <div class="form-sec">Utility bill</div>
-        <p class="help">{{ bk.bill ? `${dmy(bk.bill.periodFrom)} to ${dmy(bk.bill.periodTo)} · RM ${amt(bk.bill.total)} (electricity ${amt(bk.bill.electricity)}, water ${amt(bk.bill.water)}, sewerage ${amt(bk.bill.sewerage)})` : 'No utility bill saved yet. Add it on Operations > Booking Forms > Utility Lodgment Form.' }}</p>
+        <p class="help" v-if="!bk.bill">No utility bill saved yet. Add it on Portfolio > Booking Forms > Utility Lodgment Form.</p>
+        <template v-else>
+          <!-- Each bill has its own period since 13 Nov 2026; older bills fall back to the one shared period -->
+          <div class="cal-row" v-for="u in billRows(bk.bill)" :key="u.label"><span>{{ `${u.label} · ${u.period}` }}</span><b>{{ `RM ${amt(u.v)}` }}</b></div>
+          <div class="cal-row"><span><b>Total utility</b></span><b>{{ `RM ${amt(bk.bill.total)}` }}</b></div>
+        </template>
         <div class="field" v-if="editable"><label>Reason for the change (audit log)</label><input class="input" id="bkReason" v-model="bk.reason" placeholder="e.g. Guest extended by two nights"></div>
         <div class="confirm-box" v-if="cancelling">
           <div class="field" style="margin-bottom:10px"><label for="bkCancelWhy" class="req">Why cancel this booking?</label><input class="input" id="bkCancelWhy" v-model="cancelReason" placeholder="e.g. Guest cancelled, booked by mistake"></div>
@@ -152,6 +157,12 @@ export default {
   },
   methods: {
     amt, dmy, shortName,
+    billRows(b) {
+      return [['electricity', 'Electricity'], ['water', 'Water'], ['sewerage', 'Sewerage']].filter(([k]) => Number(b[k]) > 0).map(([k, label]) => {
+        const a = b[k + 'From'] || b.periodFrom, z = b[k + 'To'] || b.periodTo;
+        return { label, v: b[k], period: a && z ? `${dmy(a)} to ${dmy(z)}` : 'no period' };
+      });
+    },
     startCancel() {
       this.cancelling = true;
       this.$nextTick(() => { const el = document.getElementById('bkCancelWhy'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); } });

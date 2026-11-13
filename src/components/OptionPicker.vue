@@ -1,6 +1,6 @@
 <template>
   <div class="op" ref="root">
-    <input v-if="searchable && open" ref="q" type="text" class="select op-input" v-model="q" :placeholder="current || 'Type to search'" :aria-label="label" aria-expanded="true" autocomplete="off" @input="hot = 0" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown.esc.stop.prevent="open = false">
+    <input v-if="searchable && open" ref="q" type="text" class="select op-input" v-model="q" :placeholder="current || 'Type to search'" :aria-label="label" aria-expanded="true" autocomplete="off" @mousedown.prevent="open = false" @input="hot = 0" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown.esc.stop.prevent="open = false">
     <button type="button" class="select op-btn" :class="{ searching: searchable && open }" :disabled="disabled" :aria-expanded="String(open)" aria-haspopup="listbox" :aria-label="label" @click="toggle" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown="typeAhead">
       <span class="op-val" :class="{ ph: !current && placeholder }">{{ current || placeholder }}</span>
     </button>
@@ -28,14 +28,22 @@
 // A drop-down in the theme colour (a native <select> list can't be styled).
 //   <OptionPicker v-model="propertyId" :options="[{ value: 'all', label: 'All properties' }, ...]" label="Property" @change="load()" />
 // Add `multiple` to pick several: v-model is then an array, the list stays open and each click ticks or unticks.
+// Add `picked-first` (with multiple): each time the list opens, the ticked ones are listed first. While it is open nothing
+// moves, so a row just ticked or unticked stays where it is until the list is opened again.
 export default {
-  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' } },
+  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, pickedFirst: { type: Boolean, default: false }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' } },
   emits: ['update:modelValue', 'change', 'add'],
-  data() { return { open: false, hot: 0, q: '', up: false, adding: false, newText: '' }; },
+  data() { return { open: false, hot: 0, q: '', up: false, adding: false, newText: '', order: null }; },
   computed: {
+    // The options in the order fixed when the list opened (picked-first), else as given
+    sorted() {
+      if (!this.order) return this.options;
+      const at = new Map(this.order.map((v, i) => [v, i]));
+      return [...this.options].sort((a, b) => (at.has(a.value) ? at.get(a.value) : 1e9) - (at.has(b.value) ? at.get(b.value) : 1e9));
+    },
     list() {
       const k = this.norm(this.q);
-      return k ? this.options.filter(o => this.norm(o.label).includes(k)) : this.options;
+      return k ? this.sorted.filter(o => this.norm(o.label).includes(k)) : this.sorted;
     },
     current() {
       if (this.multiple) return this.options.filter(o => this.isOn(o.value)).map(o => o.label).join(', ');
@@ -49,8 +57,8 @@ export default {
     norm(t) { return String(t || '').toLowerCase().replace(/[^a-z0-9]/g, ''); },
     toggle() {
       this.open = !this.open; this.q = ''; this.up = false; this.adding = false;
-      if (this.open) this.$nextTick(() => this.place());
-      if (this.open) { this.hot = Math.max(0, this.options.findIndex(o => this.isOn(o.value))); if (this.searchable) this.$nextTick(() => this.$refs.q?.focus()); }
+      if (this.open) { this.fixOrder(); this.$nextTick(() => this.place()); }
+      if (this.open) { this.hot = Math.max(0, this.list.findIndex(o => this.isOn(o.value))); if (this.searchable) this.$nextTick(() => this.$refs.q?.focus()); }
     },
     // Opens upward when the list would run off the bottom of the screen and there is more room above
     place() {
@@ -70,12 +78,19 @@ export default {
     typeAhead(e) {
       if (!this.searchable || e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1 || e.key === ' ' && !this.open) return;
       e.preventDefault();
-      if (!this.open) { this.open = true; this.q = ''; this.up = false; this.$nextTick(() => this.place()); }
+      if (!this.open) { this.open = true; this.q = ''; this.up = false; this.fixOrder(); this.$nextTick(() => this.place()); }
       this.q += e.key; this.hot = 0;
       this.$nextTick(() => this.$refs.q?.focus());
     },
     startAdd() { this.adding = true; this.newText = this.q.trim(); this.$nextTick(() => this.$refs.addq?.focus()); },
     submitAdd() { const t = this.newText.trim(); if (!t) return; this.$emit('add', t); this.adding = false; this.open = false; this.q = ''; },
+    // A click on the search box of an open list closes it, like a second click on the closed box opens it (13 Nov 2026)
+    // picked-first: ticked options first, the rest after, each keeping the given order. Fixed until the list opens again.
+    fixOrder() {
+      if (!this.pickedFirst || !this.multiple) { this.order = null; return; }
+      const on = this.options.filter(o => this.isOn(o.value)), off = this.options.filter(o => !this.isOn(o.value));
+      this.order = [...on, ...off].map(o => o.value);
+    },
     away(e) { if (this.open && !this.$refs.root.contains(e.target)) this.open = false; },
     move(d) {
       if (!this.open) { this.toggle(); return; }

@@ -27,7 +27,7 @@
       <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
       <!-- The same screens as a property's Fees & rates and OTA commissions tabs, for the shared set (no property) -->
-      <RatesTab :key="`${tab}:${loadNo}`" :mode="tab" :property-id="null" :units="units" :as-of="asOf" :months="months"
+      <RatesTab :key="`${tab}:${loadNo}`" :mode="tab" :property-id="null" :units="units" :pool="pool" :as-of="asOf" :months="months"
         @saved="onSaved" @error="error = $event" @busy="busy = $event" />
     </template>
 
@@ -45,7 +45,7 @@ import { monthOffset } from '@/lib/format.js';
 import { loadProperties, friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
-import { loadUnitsOf } from '@/lib/portfolio-data.js';
+import { loadUnitsOf, loadPoolByProperty } from '@/lib/portfolio-data.js';
 import { loadSharedVersions } from '@/lib/shared-rates.js';
 import MonthPicker from '@/components/MonthPicker.vue';
 import RefreshButton from '@/components/RefreshButton.vue';
@@ -62,7 +62,7 @@ export default {
     const months = Array.from({ length: 25 }, (_, i) => monthOffset(1 - i));
     if (!months.includes(asOf)) months.push(asOf);
     return { acc: portfolioAccess(me.role, me), months, asOf, tab: q.tab === 'ota' ? 'ota' : 'rates',
-      units: null, hasShared: false, loadNo: 0, loading: false, busy: false, error: '', okMsg: '', buildOpen: false };
+      units: null, pool: null, hasShared: false, loadNo: 0, loading: false, busy: false, error: '', okMsg: '', buildOpen: false };
   },
   mounted() { if (!this.acc.viewOnly) this.go(); },
   methods: {
@@ -78,12 +78,14 @@ export default {
     // The tab reads the shared set itself. Here: whether one exists (for the Build popup) and every unit I can see with
     // its terms for the month, for the Units here column (read after the page shows).
     async go(redrawTab = true) {
-      this.loading = true; this.error = ''; this.units = null;
+      this.loading = true; this.error = ''; this.units = null; this.pool = null;
       if (redrawTab) this.loadNo++;
       try {
         this.hasShared = (await loadSharedVersions()).length > 0;
         const properties = await loadProperties();
         this.units = await loadUnitsOf(properties, this.asOf, false);
+        // Pool Sharing is set on each property (13 Nov 2026); the Fees & rates tab lists it by property, view only
+        this.pool = await loadPoolByProperty(properties, this.asOf);
       } catch (e) { this.error = friendlyError(e, 'load the units'); }
       this.loading = false;
     },

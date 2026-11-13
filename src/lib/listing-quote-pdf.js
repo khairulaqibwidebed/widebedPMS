@@ -6,7 +6,7 @@
 // (type, deposit and balance). Owner phone and email only when the caller passes them (Directors and Procurement).
 import { loadPdfKit } from './statement-pdf.js';
 import {
-  quoteParts, quoteTotal, money, rentLabel, SERVICE_FEE, SERVICES, serviceOn, packageOf, payTypeLabel, isDeposit,
+  quoteParts, quoteTotal, servicesTotal, renoFurnTotal, feeText, money, rentLabel, SERVICES, serviceOn, payTypeLabel, isDeposit,
   depositOf, balanceOf, full, stamp, nowIso
 } from './owner-leads.js';
 
@@ -79,19 +79,20 @@ export async function buildQuotePdf(l, { contact = null, by = '' } = {}) {
   if (contact) { kv('Owner phone', contact.ownerPhone); kv('Owner email', contact.ownerEmail); }
 
   heading('Types of service');
+  // 13 Nov 2026: rental type and arrangement from Fees & Rates; services with RM amounts (layout to be redone by Khairul)
   const rt = l.services.rentType;
-  kv('Rent type', rt ? `${rentLabel(rt)} rent` : 'Not set');
-  kv('Service fee', rt ? `${SERVICE_FEE[rt]}% of the net receivable rental` : '—');
+  kv('Rental type', rt ? rentLabel(rt) : 'Not set');
+  kv('Arrangement', feeText(l));
   kv('Services', SERVICES.filter(x => serviceOn(l, x.key)).map(x => x.label).join(', ') || 'None ticked');
-  const pkg = packageOf(l.services.maintenance);
-  kv('Maintenance package', pkg.price ? `${pkg.label}, ${amt(pkg.price)} a year` : 'None');
 
   heading('Quotation');
   const parts = quoteParts(l);
-  if (!parts.length) { text('Nothing to quote: no renovation, furniture or maintenance package chosen.', M, y, { color: GREY }); y -= 16; }
+  if (!parts.length) { text('Nothing to quote yet: no service amounts, renovation or furniture.', M, y, { color: GREY }); y -= 16; }
   for (const [label, value] of parts) amountRow(label, value);
   room(24); rule(y + 8, INK, 0.8);
-  amountRow('Quotation total', quoteTotal(l), { b: true, color: BRAND });
+  amountRow('Services total', servicesTotal(l));
+  amountRow('Renovation & Furniture total', renoFurnTotal(l));
+  amountRow('Grand total', quoteTotal(l), { b: true, color: BRAND });
   y -= 4;
   amountRow('Final amount', l.payment.amount === '' ? quoteTotal(l) : l.payment.amount, { b: true });
   if (l.payment.amount === '') { text('(no final amount set yet: the quotation total is shown)', M, y + 2, { size: 8, color: GREY }); y -= 12; }

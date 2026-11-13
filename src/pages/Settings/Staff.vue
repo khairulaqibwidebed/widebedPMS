@@ -596,6 +596,14 @@ export default {
     .perm-table input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
     .perm-table input:disabled { cursor: not-allowed; }
 .fit-picker :deep(.op) { display: block; width: 100%; }
+/* The picker's own root carries .fit-picker (the rule above only reaches inner .op), so it is sized here (13 Nov 2026) */
+.fit-picker { display: block; width: 100%; min-width: 0; max-width: 100%; }
 .fit-picker :deep(.op-btn), .fit-picker :deep(.op-input) { width: 100%; text-align: left; }
 .fit-picker :deep(.op-pop) { width: 100%; max-width: none; }
+/* Edit staff panel (13 Nov 2026): never scrolls sideways; anything too wide wraps or is cut off with "…" */
+.drawer-body { overflow-x: hidden; }
+.drawer-body > *, .drawer-body .field { min-width: 0; max-width: 100%; }
+.drawer-body .help, .perm-table td { overflow-wrap: anywhere; }
+.fit-picker :deep(.op-btn) { overflow: hidden; min-width: 0; }
+.fit-picker :deep(.op-val) { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

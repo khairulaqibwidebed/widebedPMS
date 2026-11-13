@@ -5,6 +5,8 @@
         <h1>Bulk Upload</h1>
         <div class="sub">Add many properties or owners at once from an Excel or CSV file. Check the preview, then save.</div>
       </div>
+      <!-- 13 Nov 2026: turns a file in any layout into these templates -->
+      <router-link class="btn" to="/Portfolio/bulk-upload/converter" title="Turn your own Excel or CSV into the template layout">Converter</router-link>
     </div>
 
     <ol class="steps bu-steps" aria-label="Steps">
@@ -33,7 +35,7 @@
     <section class="card prop-card" v-show="kind === 'properties'">
       <div class="tpl-row" style="margin-top:0">
         <a class="btn tpl-btn" :href="base + 'templates/Widebed_Property_List_Template.xlsx'" download="Widebed_Property_List_Template.xlsx"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download template</a>
-        <span class="help">Fill in the Properties sheet under the green header, one property per row. Property Name, Short Code and State are needed (e.g. Johor, Selangor, Kuala Lumpur, Pulau Pinang). A code only has to be unique inside its state. Then drop the file here.</span>
+        <span class="help">Fill in the Properties sheet under the green header, one property per row. Property Name, Short Code and State are needed (e.g. Johor, Selangor, Kuala Lumpur, Pulau Pinang). A code only has to be unique inside its state. Then drop the file here. A file in another layout: use the Converter (top right) first.</span>
       </div>
     </section>
 
@@ -61,7 +63,7 @@
       <!-- Blank owner file to fill in (public/templates). base keeps the link right on Vercel previews too. -->
       <div class="tpl-row">
         <a class="btn tpl-btn" :href="base + 'templates/Widebed_Owner_List_Template.xlsx'" download="Widebed_Owner_List_Template.xlsx"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download template</a>
-        <span class="help">Write the property name or short code in B4, then fill in the Owners sheet under the green header, one unit per row. Drop the file here: the property is picked from B4 (check it above before saving).</span>
+        <span class="help">Write the property name or short code in B4, then fill in the Owners sheet under the green header, one unit per row. Unit Type and a joint owner (Owner Name 2) are optional. Drop the file here: the property is picked from B4 (check it above before saving). A file in another layout: use the Converter (top right) first.</span>
       </div>
 
       <!-- All properties: which property each sheet (or CSV file) goes to -->
@@ -125,30 +127,24 @@
         <p class="help">{{ columns.join(' · ') || 'None' }}</p>
       </details>
 
-      <Paged :items="rows" v-slot="{ pageRows }">
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th class="num">Row</th>
-              <template v-for="c in previewCols" :key="c.key"><th>{{ c.label }}</th></template>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="r in pageRows" :key="r.line">
-              <tr :class="{ dim: r.status !== 'ok' }">
-                <td class="num">{{ r.line }}</td>
-                <template v-for="c in previewCols" :key="c.key"><td>{{ show(r, c.key) }}</td></template>
-                <td>
-                  <span class="pill" :class="{ ok: 'green', skip: 'amber', error: 'red' }[r.status]">{{ r.status === 'ok' ? (kind === 'owners' ? (r.newOwner ? 'New owner' : 'Existing owner') : kind === 'bookings' ? r.id : 'New') : { skip: 'Skipped', error: 'Problem' }[r.status] }}</span>
-                  <div class="help" v-show="r.note">{{ r.note }}</div>
-                  <button type="button" class="btn btn-sm fix-btn" v-if="r.fixable && !saving" @click="openFix(r)">Fix this</button>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+      <Paged :items="rows" :size="9" v-slot="{ pageRows }">
+      <!-- One card per row (13 Nov 2026, was a table): row and first column on top, the status pill, the other columns as label/value, the notes below -->
+      <div class="bu-cards">
+        <template v-for="r in pageRows" :key="r.line">
+          <article class="bu-card" :class="r.status">
+            <header class="bu-card-head">
+              <div class="bu-card-title"><span class="bu-row">{{ `Row ${r.line}` }}</span><b>{{ show(r, previewCols[0].key) }}</b></div>
+              <span class="pill" :class="{ ok: 'green', skip: 'amber', error: 'red' }[r.status]">{{ r.status === 'ok' ? (kind === 'owners' ? (r.newOwner ? 'New owner' : 'Existing owner') : kind === 'bookings' ? r.id : 'New') : { skip: 'Skipped', error: 'Problem' }[r.status] }}</span>
+            </header>
+            <dl class="bu-kv">
+              <template v-for="c in previewCols.slice(1)" :key="c.key">
+                <div :class="{ empty: !r.data[c.key] && r.data[c.key] !== 0 }"><dt>{{ c.label }}</dt><dd>{{ show(r, c.key) }}</dd></div>
+              </template>
+            </dl>
+            <p class="bu-card-note" v-show="r.note">{{ r.note }}</p>
+            <button type="button" class="btn btn-sm fix-btn" v-if="r.fixable && !saving" @click="openFix(r)">Fix this</button>
+          </article>
+        </template>
       </div>
       </Paged>
 
@@ -193,7 +189,8 @@ import { ALL_MONTHS } from '@/lib/summaries.js';
 import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { normState, stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, shortState, stateTag } from '@/lib/states.js';
-import { refreshOwnerStates, freshOwnerNumber, loadOwners, BANK } from '@/lib/portfolio-data.js';
+import { refreshOwnerStates, freshOwnerNumber, loadOwners, loadUnitTypes, addUnitType, BANK } from '@/lib/portfolio-data.js';
+import { matchUnitType, newUnitType, sectionHeading } from '@/lib/bulk-templates.js';
 import { can } from '@/lib/access.js';
 import { scoped, getScoped, giveMeProperties } from '@/lib/property-scope.js';
 
@@ -299,7 +296,15 @@ function mapOwnerRow(row) {
     // Fee columns, read by feeTerms below. Saved only for units that have no fee set up yet.
     feeText:  col(row, 'Service Fees%', 'Percentage %'),              // "40", "20%", "25%"; "45%/20%/10%" = tiered, left out
     utilText: col(row, 'Utilities %', 'Utilities Sharing'),           // "20%" or "25" = utility fee; "1WSS"/"Owner" = no %
-    remark:   col(row, 'Remark', 'Remarks')                           // "Fixed Rental - RM 1,300" = fixed rent
+    remark:   col(row, 'Remark', 'Remarks'),                          // "Fixed Rental - RM 1,300" = fixed rent
+    // 13 Nov 2026: the unit's type (matched to the unit type list in checkOwners) and a joint owner.
+    // The joint owner goes on the SAME owner profile (private.coOwners, as Portfolio's "Add joint owner"): one owner code, one bank account.
+    // The row's own Unit Type, else the heading the row sits under in Finance's Owner List ("Double Room")
+    typeText: col(row, 'Unit Type', 'Room Type') || row.__section || '',
+    // The unit's account no. in Autocount (one per unit, e.g. 300-C013), saved on the unit as autocountAcc
+    autocount: col(row, 'Acc No. in Autocount', 'Autocount', 'Autocount Acc No'),
+    co: { fullName: ownerCell(col(row, 'Owner Name 2')), ic: ownerCell(col(row, 'IC / Passport No 2')),
+      phone: ownerCell(col(row, 'Contact No 2')), email: firstEmail(ownerCell(col(row, 'Email Address 2'))).toLowerCase() }
   };
 }
 
@@ -375,7 +380,7 @@ const ROWS_PER_BATCH = 50;   // up to 8 writes per unit-owner row (owner, privat
 
 const COLS = {
   properties: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }],
-  owners: [{ key: 'unit', label: 'Unit' }, { key: 'fullName', label: 'Full name' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'bankLabel', label: 'Bank' }, { key: 'feeLabel', label: 'Fee' }],
+  owners: [{ key: 'unit', label: 'Unit' }, { key: 'typeLabel', label: 'Unit type' }, { key: 'fullName', label: 'Full name' }, { key: 'coLabel', label: 'Joint owner' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'bankLabel', label: 'Bank' }, { key: 'feeLabel', label: 'Fee' }, { key: 'autocount', label: 'Autocount' }],
   bookings: [{ key: 'name', label: 'Name' }, { key: 'propertyName', label: 'Property' }, { key: 'unitNumber', label: 'Unit' }, { key: 'checkIn', label: 'Check in' }, { key: 'checkOut', label: 'Check out' }, { key: 'rentalAmount', label: 'Rental' }]
 };
 
@@ -479,11 +484,18 @@ export default {
           names.filter(n => !/^Column \d+$/.test(n)).forEach(n => cols.add(n));
           let end = stopAt ? grid.findIndex((r, i) => i > h && hasCell(r, stopAt)) : -1;
           if (end < 0) end = grid.length;
+          // Heading rows ("Double Room", "Twin Room") give the unit type of the rows under them (13 Nov 2026).
+          // A heading that is the property's name ("D'Majestic Place by Widebed") is not a type.
+          const skipNames = [...this.properties.map(p => p.name), this.propHints[sheet], sheet].filter(Boolean);
+          let section = '';
           for (let i = h + 1; i < end; i++) {
             const cells = grid[i] || [];
             if (!cells.some(c => String(c).trim())) continue;
+            const head = sectionHeading(cells, skipNames);
+            if (head !== null) section = head;
             const r = {}; names.forEach((n, j) => { if (!(n in r) || String(r[n]).trim() === '') r[n] = cells[j] ?? ''; });
             Object.defineProperty(r, '__byKey', { value: Object.fromEntries(Object.entries(r).map(([k, v]) => [norm(k), v])) });
+            Object.defineProperty(r, '__section', { value: head === null ? section : '' });
             lines.push({ r, sheet, line: i + 1 });   // row number as in the spreadsheet
             (this.parsed[sheet] ||= []).push({ r, sheet, line: String(i + 1) });
           }
@@ -712,9 +724,14 @@ export default {
       const nameOf = {};   // owner id -> name, for the notes (owner codes are never shown)
       // Bank details each owner already has (or gets from an earlier row of this file): only empty ones are filled
       const canBank = bankAllowed(), bankOf = {}, bankFrom = {};
+      // Joint owners each owner already has (private.coOwners). Only added to an owner with none; never changed here.
+      const coOf = {};
       privs.forEach((p, i) => { const v = p?.data?.() || {}, o = { id: snap.docs[i].id, where: 'in the PMS' }; nameOf[o.id] = v.fullName || '';
         if (v.ic) ics.set(icKey(v.ic), o); if (v.email) emails.set(v.email.toLowerCase(), o); if (v.fullName) names.set(norm(v.fullName), o);
-        bankOf[o.id] = Object.fromEntries(BANK.map(k => [k, String(v[k] || '').trim()])); bankFrom[o.id] = 'PMS'; });
+        bankOf[o.id] = Object.fromEntries(BANK.map(k => [k, String(v[k] || '').trim()])); bankFrom[o.id] = 'PMS';
+        coOf[o.id] = (v.coOwners || []).filter(c => String(c?.fullName || '').trim()); });
+      // Unit types: the fixed list, the ones added on Portfolio, and any already on these properties' units
+      const typeList = [...(await loadUnitTypes())];
       // Units already under each property (a new property has none)
       const unitsOf = {};
       for (const pid of new Set(groups.map(g => g.pid).filter(Boolean))) {
@@ -725,6 +742,7 @@ export default {
         docs.forEach((d, i) => {
           const u = { id: d.id, ...d.data(), hasTerms: !!termSnaps[i]?.size };
           for (const c of [u.unitCode, u.ezeeRoomMatch, ...(u.aliases || [])]) if (c) units.set(norm(c), u);
+          if (u.info?.type) typeList.push(u.info.type);
         });
       }
       return groups.flatMap(({ sheet, pid, lines }) => { const units = unitsOf[pid] || new Map(), seenUnits = new Map();
@@ -732,15 +750,25 @@ export default {
       return lines.map(({ r, line }) => ({ line: groups.length > 1 ? `${sheet} ${line}` : line, data: mapOwnerRow(r) })).filter(x => x.data).map(({ data, line }) => {
         data.email = data.email.toLowerCase();
         const ic = icKey(data.ic);
-        const row = { line, sheet, data, status: 'ok', note: '', ownerId: '', newOwner: false, unitId: '', newUnit: false, linkOwner: true, terms: null, bankFill: null, bankOnly: false, bankLeftOut: false };
+        const row = { line, sheet, data, status: 'ok', note: '', ownerId: '', newOwner: false, unitId: '', newUnit: false, linkOwner: true, terms: null, bankFill: null, bankOnly: false, bankLeftOut: false,
+          unitType: '', newType: false, typeFill: '', coFill: null, acNew: '', acFill: '' };
         const fee = feeTerms(data);
         data.feeLabel = fee.label;
+        // Unit type: matched to the list ("2BR" -> "2 bedrooms"); a type not on the list yet ("Double Room") is kept as
+        // written and added to the shared list when saving (the same list as Portfolio's "+ Add type")
+        row.unitType = matchUnitType(data.typeText, typeList);
+        if (!row.unitType && data.typeText) { row.unitType = newUnitType(data.typeText); row.newType = true; }
+        data.typeLabel = row.unitType ? `${row.unitType}${row.newType ? ' (new type)' : ''}` : '';
+        // Joint owner (Owner Name 2)
+        const co = data.co.fullName ? [{ fullName: data.co.fullName, ic: data.co.ic, phone: data.co.phone, email: data.co.email }] : [];
+        data.coLabel = co.length ? co[0].fullName : '';
         const hasBank = BANK.some(k => data[k]);
         data.bankLabel = hasBank ? (canBank ? [data.bankName, data.bankAccount ? `…${last4(data.bankAccount)}` : ''].filter(Boolean).join(' ') || '(holder only)' : 'Left out') : '';
         const fail = note => Object.assign(row, { status: 'error', note });
         if (!data.unit) return fail('No unit in this row.');
         if (!data.fullName) return fail('Needs the owner\'s full name.');
         if (data.email && !/^\S+@\S+\.\S+$/.test(data.email)) return fail('The email doesn\'t look right.');
+        if (co.length && co[0].email && !/^\S+@\S+\.\S+$/.test(co[0].email)) return fail('The joint owner\'s email doesn\'t look right.');
         if (seenUnits.has(norm(data.unit))) return fail(`Unit ${data.unit} is listed twice (also row ${seenUnits.get(norm(data.unit))}).`);
         seenUnits.set(norm(data.unit), line);
         // Owner: reuse when the IC or email is known, else a new code
@@ -766,19 +794,42 @@ export default {
           if (Object.keys(fill).length) row.bankFill = fill;
           if (row.bankFill && !row.newOwner) bankNotes.push(`Bank details added (${Object.keys(fill).map(k => BANK_LABEL[k].toLowerCase()).join(', ')}).`);
         }
+        // Joint owner (13 Nov 2026): added to an owner who has none yet. New owners always; an owner already in the PMS (or
+        // made by an earlier row) only when the uploader may edit owners, the same people as bank details. A different
+        // joint owner is shown, never saved over (change it on Portfolio).
+        if (co.length) {
+          const cur = coOf[row.ownerId] || [];
+          if (!cur.length) {
+            if (row.newOwner || canBank) { row.coFill = co; coOf[row.ownerId] = co; if (!row.newOwner) bankNotes.push(`Joint owner ${co[0].fullName} added.`); }
+            else bankNotes.push('Joint owner left out (needs the Bulk Upload Edit tick for an owner already saved).');
+          } else if (!cur.some(c => norm(c.fullName) === norm(co[0].fullName))) bankNotes.push(`Joint owner differs: file ${co[0].fullName} / saved ${cur.map(c => c.fullName).join(' & ')} (left as it is).`);
+        }
         // Unit: existing one under this property, or a new unit
         const u = units.get(norm(data.unit));
         if (u) {
           row.unitId = u.id;
           row.terms = u.hasTerms ? null : fee.terms;
           if (u.hasTerms && fee.terms) data.feeLabel = 'Already set up';
+          // Unit type: only filled in when the unit has none yet
+          if (row.unitType && !u.info?.type) { row.typeFill = row.unitType; bankNotes.push(`Unit type set to ${row.unitType}${row.newType ? ' (new type, added to the list)' : ''}.`); }
+          else if (row.unitType && u.info?.type !== row.unitType) { data.typeLabel = `${u.info.type} (kept)`; bankNotes.push(`Unit type stays ${u.info.type} (file says ${row.unitType}).`); }
+          // Autocount account no.: only filled in when the unit has none yet
+          if (data.autocount && !u.autocountAcc) {
+            if (canBank) { row.acFill = data.autocount; bankNotes.push(`Autocount no. set to ${data.autocount}.`); }
+            else bankNotes.push('Autocount no. left out (needs the Bulk Upload Edit tick).');
+          } else if (data.autocount && norm(u.autocountAcc) !== norm(data.autocount)) { bankNotes.push(`Autocount no. stays ${u.autocountAcc} (file says ${data.autocount}).`); data.autocount = `${u.autocountAcc} (kept)`; }
           if (u.ownerId === row.ownerId) {
-            // Nothing to change on the unit: skipped, unless the owner's empty bank details are filled from this row
-            if (!row.terms && !row.bankFill) return Object.assign(row, { status: 'skip', note: [`${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.`, ...bankNotes].join(' ') });
+            // Nothing to change on the unit: skipped, unless the owner's empty bank details, a joint owner, the unit type or the Autocount no. are filled from this row
+            if (!row.terms && !row.bankFill && !row.coFill && !row.typeFill && !row.acFill) return Object.assign(row, { status: 'skip', note: [`${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.`, ...bankNotes].join(' ') });
             if (!row.terms) return Object.assign(row, { linkOwner: false, bankOnly: true, note: [`${u.unitCode}: already linked to this owner.`, ...bankNotes].join(' ') });
             row.linkOwner = false; notes.length = 0; notes.push(`${u.unitCode}: owner already linked, fee added.`);
           } else notes.push(u.ownerId ? `${u.unitCode}: owner changes from ${nameOf[u.ownerId] || 'another owner'}.` : `${u.unitCode}: linked to this owner.`);
-        } else { row.newUnit = true; row.terms = fee.terms; notes.push(`New unit ${data.unit}.`); }
+        } else {
+          row.newUnit = true; row.terms = fee.terms; notes.push(`New unit ${data.unit}.`);
+          // Autocount no. on a new unit: the rules let only people with an Edit tick save it (Operations adding units can't yet)
+          if (data.autocount && canBank) row.acNew = data.autocount;
+          else if (data.autocount) bankNotes.push('Autocount no. left out (needs the Bulk Upload Edit tick).');
+        }
         row.note = [...notes, ...bankNotes].join(' ');
         return row;
       }); });
@@ -791,6 +842,11 @@ export default {
       this.saving = true; this.savedSoFar = 0; this.error = ''; this.done = '';
       try {
         if (this.kind === 'owners') await this.ensureProperty();
+        // Unit types not on the list yet ("Double Room") go on the shared list first, so Portfolio's dropdown has them
+        if (this.kind === 'owners') {
+          const fresh = new Set(ready.filter(r => r.newType && (r.newUnit || r.typeFill)).map(r => r.unitType));
+          for (const t of fresh) await addUnitType(t);
+        }
         const made = new Set();   // owners created in this upload (a later row of the same owner only links its unit)
         for (let i = 0; i < ready.length; i += ROWS_PER_BATCH) {
           const b = writeBatch(db);
@@ -919,21 +975,35 @@ export default {
         // Bank details only for Accounting and Directors (r.bankFill is null for anyone else); bankLast4 as Portfolio saves it
         const bank = r.bankFill || {}, l4 = last4(bank.bankAccount);
         b.set(doc(db, 'owners', r.ownerId), { code: r.ownerId, active: true, states: st ? [st] : [], ...(l4 ? { bankLast4: l4 } : {}), createdAt: serverTimestamp(), createdBy: me.user.uid });
-        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { fullName: d.fullName, email: d.email, phone: d.phone, ic: d.ic, ...bank, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+        // Joint owner (Owner Name 2) in private.coOwners, the same place Portfolio's "Add joint owner" saves it
+        const coPart = r.coFill ? { coOwners: r.coFill } : {};
+        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { fullName: d.fullName, email: d.email, phone: d.phone, ic: d.ic, ...bank, ...coPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
         // Audit names the owner code only, never the personal values (bank: the bank name and the account's last 4 digits)
-        audit(b, me, { action: 'owner.create', entity: `owners/${r.ownerId}`, propertyId: pid, changes: this.bankChanges(bank), reason: why });
-      } else if (r.bankFill) {
-        // Existing owner: fill only the bank fields that were empty (checked in the preview); nothing is overwritten
-        const l4 = last4(r.bankFill.bankAccount);
-        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { ...r.bankFill, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        audit(b, me, { action: 'owner.create', entity: `owners/${r.ownerId}`, propertyId: pid, changes: [...this.bankChanges(bank), ...(r.coFill ? [{ field: 'coOwners', old: null, new: '(set)' }] : [])], reason: why });
+      } else if (r.bankFill || r.coFill) {
+        // Existing owner: fill only the bank fields that were empty and a joint owner when there was none (checked in the preview); nothing is overwritten
+        const bank = r.bankFill || {}, l4 = last4(bank.bankAccount);
+        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { ...bank, ...(r.coFill ? { coOwners: r.coFill } : {}), updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
         if (l4) b.set(doc(db, 'owners', r.ownerId), { bankLast4: l4, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
-        audit(b, me, { action: 'owner.update', entity: `owners/${r.ownerId}`, propertyId: pid, changes: this.bankChanges(r.bankFill), reason: why });
+        audit(b, me, { action: 'owner.update', entity: `owners/${r.ownerId}`, propertyId: pid, changes: [...this.bankChanges(bank), ...(r.coFill ? [{ field: 'coOwners', old: null, new: '(set)' }] : [])], reason: why });
       }
-      if (r.bankOnly) return;   // unit already linked with its fee: only the owner's bank details were saved
       const unitId = r.unitId || unitIdOf(pid, d.unit);
+      // Unit type for a unit that had none (13 Nov 2026). info is merged, so the unit's other details stay.
+      const typePart = r.typeFill ? { info: { type: r.typeFill } } : {};
+      // Autocount account no. for a unit that had none (top-level autocountAcc, as the unit panel saves it)
+      const acPart = r.acFill ? { autocountAcc: r.acFill } : {};
+      const fills = [...(r.typeFill ? [{ field: 'type', old: null, new: r.typeFill }] : []), ...(r.acFill ? [{ field: 'autocountAcc', old: null, new: r.acFill }] : [])];
+      if (r.bankOnly) {
+        // Unit already linked with its fee: only the owner's details (above) and maybe the unit type / Autocount no. are saved
+        if (fills.length) {
+          b.set(doc(db, 'units', unitId), { ...typePart, ...acPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+          audit(b, me, { action: 'unit.update', entity: `units/${unitId}`, propertyId: pid, changes: fills, reason: why });
+        }
+        return;
+      }
       if (r.newUnit) b.set(doc(db, 'units', unitId), { propertyId: pid, unitCode: d.unit, ezeeRoomMatch: d.unit, aliases: [], ownerId: r.ownerId, active: true, ...stateTag(pid),
-        createdAt: serverTimestamp(), createdBy: me.user.uid });
-      else if (r.linkOwner) b.set(doc(db, 'units', unitId), { ownerId: r.ownerId, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        ...(r.unitType ? { info: { type: r.unitType } } : {}), ...(r.acNew ? { autocountAcc: r.acNew } : {}), createdAt: serverTimestamp(), createdBy: me.user.uid });
+      else if (r.linkOwner || fills.length) b.set(doc(db, 'units', unitId), { ...(r.linkOwner ? { ownerId: r.ownerId } : {}), ...typePart, ...acPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
       // Fee from the Owner List, for a unit with none yet. 2000-01 = applies to every month until a later version is added on Portfolio.
       if (r.terms) b.set(doc(db, 'units', unitId, 'terms', `2000-01_${Date.now()}`), { ...r.terms, otaOverrides: null, effectiveFrom: '2000-01',
         reason: why, createdBy: me.user.uid, createdByName: me.name, createdAt: serverTimestamp() });
@@ -941,6 +1011,8 @@ export default {
       const changes = [];
       if (r.linkOwner) changes.push({ field: 'ownerId', old: null, new: r.ownerId });
       if (r.terms) changes.push({ field: 'arrangement', old: null, new: r.terms.arrangement });
+      if (r.typeFill || (r.newUnit && r.unitType)) changes.push({ field: 'type', old: null, new: r.typeFill || r.unitType });
+      if (r.acFill || r.acNew) changes.push({ field: 'autocountAcc', old: null, new: r.acFill || r.acNew });
       audit(b, me, { action: r.newUnit ? 'unit.create' : 'unit.update', entity: `units/${unitId}`, propertyId: pid, changes, reason: why });
     }
   }
@@ -988,6 +1060,28 @@ export default {
     .cols summary { cursor: pointer; color: var(--text-2); }
     .cols .help { margin: 6px 0 0; word-break: break-word; }
     tr.dim td { color: var(--muted); }
+    /* Preview cards */
+    /* 9 cards a page in a 3 x 3 grid; 2 across on a tablet, 1 on a phone */
+    .bu-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    @media (max-width: 1100px) { .bu-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .bu-cards { grid-template-columns: minmax(0, 1fr); } }
+    .bu-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--border); border-left: 4px solid var(--green); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+    .bu-card.skip { border-left-color: var(--amber); }
+    .bu-card.error { border-left-color: var(--red); }
+    .bu-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .bu-card-title { min-width: 0; }
+    .bu-card-title b { display: block; font-size: 15px; word-break: break-word; }
+    .bu-row { font-size: 11.5px; color: var(--muted); }
+    .bu-card-head .pill { flex: none; }
+    .bu-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin: 0; }
+    .bu-kv div { min-width: 0; }
+    .bu-kv dt { font-size: 11.5px; color: var(--muted); }
+    .bu-kv dd { margin: 0; font-size: 13px; word-break: break-word; }
+    .bu-kv .empty dd { color: var(--muted); }
+    .bu-card-note { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--chip); font-size: 12.5px; color: var(--text-2); }
+    .bu-card.error .bu-card-note { background: var(--red-soft); color: var(--text); }
+    .bu-card.skip .bu-card-note { background: var(--amber-soft); }
+    .bu-card .fix-btn { align-self: flex-start; margin-top: 0; }
     .fix-btn { margin-top: 6px; }
     .fix-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
     .fix-grid :deep(.op), .fix-grid :deep(.op-btn) { display: block; width: 100%; }

@@ -1,6 +1,6 @@
 <template>
-  <section class="card" aria-label="Furniture">
-    <div class="card-head"><h2>{{ `${n}. Furniture` }}</h2><span class="muted">{{ furnUsed(d).length ? `${furnUsed(d).filter(f => subDoneOf(d, f.key)).length} of ${furnUsed(d).length} completed` : 'No items yet' }}</span></div>
+  <section class="card" aria-label="Furniture & Amenities">
+    <div class="card-head"><h2>{{ `${n}. Furniture & Amenities` }}</h2><span class="muted">{{ furnUsed(d).length ? `${furnUsed(d).filter(f => subDoneOf(d, f.key)).length} of ${furnUsed(d).length} completed` : 'No items yet' }}</span></div>
     <div class="notice error" v-show="err">{{ err }}</div>
     <template v-for="f in FURN" :key="f.key">
       <div class="sub-stage" :data-sub="f.key">

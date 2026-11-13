@@ -91,7 +91,7 @@ export const FEE_TYPES = {
     id: 'midTenant', label: 'Mid-term tenant', sections: ['mid'], netRental: false, scope: 'unit', everyMonth: false, tenant: true,
     explain: 'Widebed keeps Total % of the monthly rent the tenant pays. Same maths as Long-term tenant.',
     formula: ['Fees = Monthly rent × Total %', 'SST = Service fee × SST %', 'Owner gets = Monthly rent − Fees − SST − Expenses + Reimbursements', 'Rounded to RM 0.05'],
-    example: [['Monthly rent', 'RM 2,000'], ['Fee 10%', '− RM 200'], ['SST 8% of fee', '− RM 16'], ['Owner gets', 'RM 1,784']],
+    example: [['Monthly rent', 'RM 2,000'], ['Fee 20%', '− RM 400'], ['SST 8% of fee', '− RM 32'], ['Owner gets', 'RM 1,568']],
     calc: feesThenExpenses
   },
   tenant: {
