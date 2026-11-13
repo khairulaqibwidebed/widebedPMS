@@ -1,5 +1,8 @@
 rules_version = '2';
-// Widebed PMS Firestore rules. Draft 0.64, 12 Nov 2026 (Khairul): merge only. Holds Khairul's 0.62 + 0.63 and Neo's
+// Widebed PMS Firestore rules. Draft 0.65, 13 Nov 2026 (Khairul): HR may read the properties list, so they can give staff
+// property access on Settings > Staff Accounts (HR already updates users/{uid}.properties; the list showed "not found").
+// Nothing else changed.
+// Draft 0.64, 12 Nov 2026 (Khairul): merge only. Holds Khairul's 0.62 + 0.63 and Neo's
 // One To One draft (his "0.62", noted below as 0.62-Neo). Nothing new.
 // Draft 0.63, 12 Nov 2026 (Khairul): data access by property, two small gaps. (1) users/{uid}: you may
 // add ONE property to your own `properties` list, only a property you created (so a property you add doesn't vanish for you).
@@ -559,6 +562,8 @@ service cloud.firestore {
 
     match /properties/{propertyId} {
       allow read: if staff() || portfolioViewer();
+      // Draft 0.65: HR read every property (name, code, state) to set staff property access
+      allow read: if isHR();
       allow write: if portfolioEditor();
       allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'state', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
