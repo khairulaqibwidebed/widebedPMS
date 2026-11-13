@@ -134,12 +134,23 @@
             <span v-if="preview.cancelled"><b>{{ preview.cancelled }}</b> cancelled (not scored)</span>
             <span>Score <b>{{ preview.score != null ? preview.score.toFixed(2) : 'N/A' }}</b> / {{ quarterWeight }}</span>
           </div>
+          <!-- Remove the selection (12 Nov 2026): untick every workspace, then "Remove selection" -->
+          <p class="note" v-if="picker.hadSelection && !picker.workspaceIds.size">No workspace is ticked. "Remove selection" takes every task off {{ picker.employeeName }}'s TMS score for this quarter.</p>
           <p class="note" v-if="tickedOutsideWorkspaces">{{ tickedOutsideWorkspaces }} ticked task(s) sit in a workspace you've unticked — they won't be saved.</p>
         </template>
 
         <div class="modal-foot">
+          <button class="btn tms-remove-link" v-if="picker.hadSelection && !picker.loading && !picker.error && picker.workspaceIds.size" :disabled="busy" @click="untickAll">Remove selection…</button>
           <button class="btn" @click="closePicker">Cancel</button>
-          <button class="btn btn-primary" :disabled="busy || picker.loading || !!picker.error || !picker.workspaceIds.size" @click="savePicker">Save selection</button>
+          <template v-if="removing">
+            <template v-if="picker.confirmRemove">
+              <span class="muted">Remove {{ picker.employeeName }}'s tasks for this quarter?</span>
+              <button class="btn btn-danger" :disabled="busy" @click="removePicker">Yes, remove</button>
+              <button class="btn" :disabled="busy" @click="picker.confirmRemove = false">No</button>
+            </template>
+            <button v-else class="btn btn-danger" :disabled="busy" @click="picker.confirmRemove = true">Remove selection</button>
+          </template>
+          <button v-else class="btn btn-primary" :disabled="busy || picker.loading || !!picker.error || !picker.workspaceIds.size" @click="savePicker">Save selection</button>
         </div>
       </div>
     </div>
@@ -154,7 +165,7 @@ import { listStaff } from '@/lib/agreements/data.js';
 import { isCohOnly } from '@/lib/performance/calc.js';
 import {
   fetchEmployeeTasks, workspacesOf, dueInQuarter, localDay, countedElsewhere,
-  saveSelection, refreshSnapshot, approveSnapshot, getSnapshot, listSnapshots, tmsScoreFromCounts
+  saveSelection, clearSelection, hasSelection, refreshSnapshot, approveSnapshot, getSnapshot, listSnapshots, tmsScoreFromCounts
 } from '@/lib/performance/tms.js';
 
 const session = useSession();
@@ -177,7 +188,8 @@ const participants = ref([]);
 const staffRoles = ref(null);
 const snapshots = ref([]);
 const mySnapshot = ref(null);
-const snapOf = uid => snapshots.value.find(s => s.employeeId === uid) || null;
+// A selection that was removed (no workspace left) counts as nothing chosen.
+const snapOf = uid => snapshots.value.find(s => s.employeeId === uid && hasSelection(s)) || null;
 
 const formatWhen = ts => ts?.toDate ? ts.toDate().toLocaleString() : '—';
 const formatDay = iso => { const d = localDay(iso); return d ? new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; };
@@ -193,7 +205,8 @@ async function load() {
       quarterId.value = (quarters.value.find(q => !['finalized', 'archived'].includes(q.status)) || quarters.value[0]).id;
     }
     if (!quarterId.value) return;
-    mySnapshot.value = await getSnapshot(quarterId.value, session.user.uid);
+    const mine = await getSnapshot(quarterId.value, session.user.uid);
+    mySnapshot.value = hasSelection(mine) ? mine : null;   // a removed selection counts as none
     if (canManage.value) {
       // Directors are scored on COH only, so they have no KPIs / TMS tasks to set and are left out of this list.
       // Role comes from the participant record, or the staff list for participants saved before roles were stored.
@@ -215,7 +228,8 @@ async function openPicker(p) {
   error.value = ''; okMsg.value = '';
   picker.value = {
     employeeId: p.employeeId, employeeName: p.employeeName, loading: true, error: '',
-    tasks: [], workspaceIds: new Set(), ticked: new Set(), elsewhere: new Map(), onlyQuarter: false
+    tasks: [], workspaceIds: new Set(), ticked: new Set(), elsewhere: new Map(), onlyQuarter: false,
+    hadSelection: !!snapOf(p.employeeId), confirmRemove: false   // something is saved for this person: it can be removed
   };
   try {
     const [tasks, elsewhere] = await Promise.all([fetchEmployeeTasks(p.employeeId), countedElsewhere(p.employeeId, quarterId.value)]);
@@ -285,6 +299,19 @@ async function savePicker() {
   } catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 
+// Removing: something is saved for this person and no workspace is ticked any more.
+const removing = computed(() => !!picker.value && picker.value.hadSelection && !picker.value.loading && !picker.value.error && !picker.value.workspaceIds.size);
+function untickAll() { picker.value.workspaceIds = new Set(); picker.value.ticked = new Set(); picker.value.confirmRemove = true; }
+async function removePicker() {
+  busy.value = true; error.value = '';
+  try {
+    await clearSelection(quarter.value, picker.value.employeeId);
+    okMsg.value = `Removed ${picker.value.employeeName}'s TMS tasks for this quarter.`;
+    picker.value = null;
+    await load();
+  } catch (e) { error.value = e.message; picker.value = null; } finally { busy.value = false; }
+}
+
 // ---- Director: refresh / approve ----
 async function refreshOne(p) {
   busy.value = true; error.value = ''; okMsg.value = '';
@@ -323,6 +350,7 @@ async function approve(p) {
 .tms-dot.done { background: var(--green); }
 .tms-dot.cancelled, .tms-dot.missing { background: var(--muted, var(--text-2)); }
 
+.tms-remove-link { margin-right: auto; }
 .tms-picker { max-width: 820px; width: 100%; max-height: 90vh; overflow-y: auto; }
 .tms-section-label { font-size: 13px; font-weight: 600; color: var(--text); margin: 16px 0 8px; }
 .tms-ws-list { display: flex; flex-wrap: wrap; gap: 8px; }

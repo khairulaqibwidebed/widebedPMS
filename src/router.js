@@ -26,8 +26,6 @@ const routes = [
   ticked('/Portfolio/owners', () => import('./pages/Portfolio/Owners/OwnersPage.vue'), 'Owners', 'portfolio'),
   ticked('/Portfolio/properties', () => import('./pages/Portfolio/Properties/PropertiesRoute.vue'), 'Properties', 'portfolio'),
   ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'portfolio'),
-  // Fees & Rates (12 Nov 2026): one set for every property. Opens with Portfolio View (the page shows a notice); the sidebar item needs Edit (access.js editTo).
-  ticked('/Portfolio/fees-rates', () => import('./pages/Portfolio/FeesRates/FeesRatesPage.vue'), 'Fees & Rates', 'portfolio'),
   ticked('/Portfolio/bulk-upload', () => import('./pages/Portfolio/BulkUpload.vue'), 'Bulk Upload', 'bulkUpload'),
   { path: '/Portfolio', redirect: to => ({ path: `/Portfolio/${['owners', 'bookings'].includes(to.query.tab) ? to.query.tab : 'properties'}`, query: { ...to.query, tab: undefined } }) },
 

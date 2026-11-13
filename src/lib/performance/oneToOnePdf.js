@@ -1,6 +1,6 @@
 // lib/performance/oneToOnePdf.js — draws the One To One Session form as an A4 PDF (pdf-lib), laid out like HR's Word
 // template "One To One - Name Staff (Tahun).docx": page 1 the details and the Code of Honor table, page 2 Behaviour
-// Competencies and Action. Filled in: Date & Venue, Staff Name, Join Date, Position, Topic, and the Code of Honor marks
+// Competencies and Action (page 2). Filled in: Date & Venue, Staff Name, Join Date, Position, Topic, and the Code of Honor marks
 // (one line per COH question) with their average. Everything else is left empty to write in at the session.
 //
 // data: { company, topic, date, venue, staffName, joinDate, position, questions: [{ title, mark }], average, raters, expected }
@@ -118,43 +118,69 @@ export async function buildOneToOnePdf(data, opts = {}) {
   const from = data.raters ? `Code of Honor marks: the average from ${data.raters}${data.expected ? ` of ${data.expected}` : ''} colleague${data.raters === 1 ? '' : 's'}, on a scale of 1 to 5.` : 'Code of Honor marks: no colleague has rated this person yet.';
   footer(from);
 
-  // ================= Page 2 =================
+  // ================= Page 2: Behaviour Competencies and Action (2 pages at most, 13 Nov 2026) =================
+  // The Behaviour table and the signatures are kept compact so the Action box gets all the room left on the page.
   page = pdf.addPage(A4);
-  text('Behaviour Competencies:', X0, 30, { font: F.b, size: 10 });
+  text('Behaviour Competencies:', X0, 22, { font: F.b, size: 10 });
   const gw = [2405, 1298, 687, 1409, 717, 1247, 737, 2268].map(w => w * WIDTH / 10768);
   const gx = gw.reduce((a, w) => [...a, a[a.length - 1] + w], [X0]);
-  let top = 43;
+  let top = 35;
   const row = (h, draw, full) => {
     hline(X0, X0 + WIDTH, top); vline(X0, top, top + h); vline(X0 + WIDTH, top, top + h); vline(gx[1], top, top + h);
     if (!full) gx.slice(2, 8).forEach(x => vline(x, top, top + h));
     draw(top); top += h; hline(X0, X0 + WIDTH, top);
   };
-  row(20, t => {
+  const bSize = 7, bLead = 8, pairGap = 3;
+  row(16, t => {
     ['1', '2', '3', '4', '5'].forEach((s, k) => text(s, gx[k + 1] + gw[k + 1] / 2, t + 3, { size: 9, align: 'center' }));
     text('Self', gx[6] + 4, t + 3, { size: 9 }); text('Superior', gx[7] + 4, t + 3, { size: 9 });
   });
-  for (const [name, h, cells] of BEHAVIOUR) {
+  for (const [name, , cells] of BEHAVIOUR) {
+    // Each row is as tall as its longest cell
+    const wrapped = cells.map((pair, k) => pair.map(phrase => wrap(phrase, F.n, bSize, gw[1 + k * 2] - 6)));
+    const h = Math.max(...wrapped.map(pair => pair.reduce((a, ls) => a + ls.length * bLead, 0) + pairGap * (pair.length - 1))) + 7;
     row(h, t => {
       text(name, X0 + 5, t + 3, { font: F.b, size: 9 });
-      cells.forEach((pair, k) => {
+      wrapped.forEach((pair, k) => {
         const col = 1 + k * 2; let y = t + 3;
-        pair.forEach(phrase => { const ls = wrap(phrase, F.n, 7.5, gw[col] - 6); ls.forEach((s, j) => text(s, gx[col] + gw[col] / 2, y + j * 8.6, { size: 7.5, align: 'center' })); y += ls.length * 8.6 + 5; });
+        pair.forEach(ls => { ls.forEach((s, j) => text(s, gx[col] + gw[col] / 2, y + j * bLead, { size: bSize, align: 'center' })); y += ls.length * bLead + pairGap; });
       });
     });
-    row(19, t => text('Remark:', gx[1] - 5, t + 4, { size: 9, align: 'right' }), true);
+    row(15, t => text('Remark:', gx[1] - 5, t + 3, { size: 9, align: 'right' }), true);
   }
-  text('Action:', X0, top + 28, { font: F.b, size: 11 });
-  const aTop = top + 50, aH = 246;
+
+  // Action: the box takes all the space down to the signatures. Its top row: "Action:" on the left,
+  // tick boxes on the right (Confirmation, Extend, Need Training, Other: ____); below them the template's lines
+  // (1. Recommendation for Confirmation, If Yes, action, 2. Quarterly Review) and space to write in.
+  const sigH = 56;                                   // signature block: label, line, "Name:"
+  const aTop = top + 12, aBottom = 798 - sigH - 14, aH = aBottom - aTop, headH = 28;
   box(X0, aTop, WIDTH, aH);
-  text('1.     Recommendation for Confirmation:  N/A', X0 + 5, aTop + 22, { size: 9 });
-  text('If Yes, action:', X0 + 23, aTop + 42, { font: F.i, size: 9 });
-  text('2.     Quarterly Review :', X0 + 5, aTop + 80, { size: 9 });
-  // Signatures, as at the end of the template
-  const sTop = aTop + aH + 34;
-  [['Attended by:', X0 + 5], ['Acknowledged by:', X0 + WIDTH / 2 + 20]].forEach(([label, x]) => {
-    text(label, x, sTop, { size: 10 });
-    hline(x, x + 170, sTop + 62);
-    text('Name:', x, sTop + 70, { size: 10 });
+  hline(X0, X0 + WIDTH, aTop + headH);
+  const mid = aTop + headH / 2;
+  text('Action:', X0 + 8, mid - 6, { font: F.b, size: 12 });
+  const tick = { size: 10 }, sq = 10, gap = 6, between = 18, otherLine = 80;
+  const choices = ['Confirmation', 'Extend', 'Need Training', 'Other:'];
+  const widths = choices.map(o => sq + gap + widthOf(o, F.n, tick.size));
+  const total = widths.reduce((a, w) => a + w, 0) + between * (choices.length - 1) + 4 + otherLine;
+  let x = X0 + WIDTH - 10 - total;
+  choices.forEach((o, k) => {
+    box(x, mid - sq / 2, sq, sq);
+    text(o, x + sq + gap, mid - 4.5, tick);
+    x += widths[k] + between;
+  });
+  hline(x - between + 4, x - between + 4 + otherLine, mid + 5);   // the line after "Other:" to write on
+  // Under the tick boxes, the template's own lines; the rest is space to write in.
+  const body = aTop + headH;
+  text('1.     Recommendation for Confirmation:  N/A', X0 + 8, body + 16, { size: 9 });
+  text('If Yes, action:', X0 + 26, body + 36, { font: F.i, size: 9 });
+  text('2.     Quarterly Review :', X0 + 8, body + 74, { size: 9 });
+
+  // Signatures, side by side under the box
+  const sTop = aBottom + 14;
+  [['Attended by:', X0 + 5], ['Acknowledged by:', X0 + WIDTH / 2 + 20]].forEach(([label, sx]) => {
+    text(label, sx, sTop, { size: 10 });
+    hline(sx, sx + 170, sTop + 38);
+    text('Name:', sx, sTop + 44, { size: 10 });
   });
   footer('');
   return pdf.save();
