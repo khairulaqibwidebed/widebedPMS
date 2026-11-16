@@ -1,17 +1,16 @@
 <template>
+  <!-- 16 Nov 2026: a centred popup over the Owner Leads list instead of its own page -->
   <div>
-    <div class="page-head">
-      <div>
-        <h1>New listing</h1>
-        <div class="sub">For a new unit that has no task in the task system. Listings that start as a task are started from "From task system" instead.</div>
-      </div>
-      <div class="head-tools">
-        <button class="btn" @click="$emit('cancel')">Cancel</button>
-        <button class="btn btn-primary" @click="save()" :disabled="busy">Save listing</button>
-      </div>
+    <div class="drawer-back" @click="!busy && $emit('cancel')"></div>
+    <aside class="drawer wide" role="dialog" aria-label="New listing" v-esc="() => !busy && $emit('cancel')">
+    <div class="drawer-head">
+      <div><h2>New listing</h2>
+        <div class="help" style="margin-top:2px">For a new unit with no task in the task system.</div></div>
+      <button type="button" class="icon-btn" @click="$emit('cancel')" :disabled="busy" aria-label="Close">×</button>
     </div>
+    <div class="drawer-body">
     <div class="notice error" v-show="formError">{{ formError }}</div>
-    <section class="card" style="max-width:760px">
+    <section>
       <div class="grid-fields">
         <PropertyField :o="form" :properties="properties" id="nProp" req />
         <div class="field"><label for="nState" class="req">State</label>
@@ -30,11 +29,17 @@
       <div class="field"><label for="nRem">Remarks</label><textarea class="input" id="nRem" v-model="form.remarks" placeholder="e.g. Owner prefers WhatsApp after 6 pm"></textarea></div>
       <div class="field"><label for="nDesc">Description</label><textarea class="input" id="nDesc" v-model="form.description" placeholder="e.g. 2-bedroom unit, owner wants it live before December"></textarea></div>
     </section>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn" @click="$emit('cancel')" :disabled="busy">Cancel</button>
+      <button class="btn btn-primary" @click="save()" :disabled="busy">{{ busy ? 'Saving…' : 'Save listing' }}</button>
+    </div>
+    </aside>
   </div>
 </template>
 
 <script>
-// + New listing (no task in the task system). Emits saved(id, message) once saved, or cancel.
+// + New listing (no task in the task system), shown as a popup (16 Nov 2026). Emits saved(id, message) once saved, or cancel.
 import { createListing, emailOk, errText, UNIT_TYPES, SOURCES, CONTACT_READERS } from '@/lib/owner-leads.js';
 import { useSession } from '@/stores/session.js';
 import { stateChoices, statesOf, stateOf } from '@/lib/states.js';
@@ -79,7 +84,8 @@ export default {
 
 <style scoped>
 .head-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.grid-fields { align-items: start; }
+.grid-fields { align-items: start; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 860px) { .grid-fields { grid-template-columns: 1fr; } }
 textarea.input { height: 80px; padding: 10px 12px; }
 .field > .select { width: 100%; height: 40px; font-weight: 400; font-size: 14px; padding-left: 12px; }
 </style>

@@ -8,7 +8,7 @@
     </section>
 
     <div class="toolbar lb-tools">
-      <input class="input" type="search" placeholder="Search NL no., subject, property, unit, owner or remarks" v-model="search" aria-label="Search owner leads">
+      <input class="input" type="search" placeholder="Search leads, units or owners" title="Searches NL no., subject, property, unit, owner and remarks" v-model="search" aria-label="Search owner leads">
       <OptionPicker v-model="status" :options="[{ value: 'all', label: `All statuses · ${rows.length}` }, ...LEAD_KEYS.map(k => ({ value: k, label: `${LEAD_STATUS[k].label} · ${count(k)}` }))]" label="Status" />
       <OptionPicker v-model="source" :options="[{ value: 'all', label: 'All sources' }, ...SOURCES.map(s => ({ value: s, label: s }))]" label="Source" />
       <OptionPicker v-model="property" :options="[{ value: 'all', label: 'All properties' }, ...propertyList.map(p => ({ value: p, label: p }))]" label="Property" searchable />

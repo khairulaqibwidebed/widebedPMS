@@ -380,7 +380,7 @@ const ROWS_PER_BATCH = 50;   // up to 8 writes per unit-owner row (owner, privat
 
 const COLS = {
   properties: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }],
-  owners: [{ key: 'unit', label: 'Unit' }, { key: 'typeLabel', label: 'Unit type' }, { key: 'fullName', label: 'Full name' }, { key: 'coLabel', label: 'Joint owner' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'bankLabel', label: 'Bank' }, { key: 'feeLabel', label: 'Fee' }, { key: 'autocount', label: 'Autocount' }],
+  owners: [{ key: 'unit', label: 'Unit' }, { key: 'typeLabel', label: 'Unit type' }, { key: 'fullName', label: 'Full name' }, { key: 'coLabel', label: 'Joint owner' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'bankLabel', label: 'Bank' }, { key: 'feeLabel', label: 'Fee' }, { key: 'autocount', label: 'Autocount' }, { key: 'remark', label: 'Remark' }],
   bookings: [{ key: 'name', label: 'Name' }, { key: 'propertyName', label: 'Property' }, { key: 'unitNumber', label: 'Unit' }, { key: 'checkIn', label: 'Check in' }, { key: 'checkOut', label: 'Check out' }, { key: 'rentalAmount', label: 'Rental' }]
 };
 
@@ -751,7 +751,7 @@ export default {
         data.email = data.email.toLowerCase();
         const ic = icKey(data.ic);
         const row = { line, sheet, data, status: 'ok', note: '', ownerId: '', newOwner: false, unitId: '', newUnit: false, linkOwner: true, terms: null, bankFill: null, bankOnly: false, bankLeftOut: false,
-          unitType: '', newType: false, typeFill: '', coFill: null, acNew: '', acFill: '' };
+          unitType: '', newType: false, typeFill: '', coFill: null, acNew: '', acFill: '', remNew: '', remFill: '' };
         const fee = feeTerms(data);
         data.feeLabel = fee.label;
         // Unit type: matched to the list ("2BR" -> "2 bedrooms"); a type not on the list yet ("Double Room") is kept as
@@ -818,9 +818,14 @@ export default {
             if (canBank) { row.acFill = data.autocount; bankNotes.push(`Autocount no. set to ${data.autocount}.`); }
             else bankNotes.push('Autocount no. left out (needs the Bulk Upload Edit tick).');
           } else if (data.autocount && norm(u.autocountAcc) !== norm(data.autocount)) { bankNotes.push(`Autocount no. stays ${u.autocountAcc} (file says ${data.autocount}).`); data.autocount = `${u.autocountAcc} (kept)`; }
+          // Remark (16 Nov 2026): the whole text kept on the unit as remarks, only when the unit has none yet (same people as the Autocount no.)
+          if (data.remark && !String(u.remarks || '').trim()) {
+            if (canBank) { row.remFill = data.remark; bankNotes.push('Remark added to the unit.'); }
+            else bankNotes.push('Remark left out (needs the Bulk Upload Edit tick).');
+          } else if (data.remark && norm(u.remarks) !== norm(data.remark)) bankNotes.push('The unit already has a different remark (kept; change it on Portfolio).');
           if (u.ownerId === row.ownerId) {
-            // Nothing to change on the unit: skipped, unless the owner's empty bank details, a joint owner, the unit type or the Autocount no. are filled from this row
-            if (!row.terms && !row.bankFill && !row.coFill && !row.typeFill && !row.acFill) return Object.assign(row, { status: 'skip', note: [`${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.`, ...bankNotes].join(' ') });
+            // Nothing to change on the unit: skipped, unless the owner's empty bank details, a joint owner, the unit type, the Autocount no. or the remark are filled from this row
+            if (!row.terms && !row.bankFill && !row.coFill && !row.typeFill && !row.acFill && !row.remFill) return Object.assign(row, { status: 'skip', note: [`${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.`, ...bankNotes].join(' ') });
             if (!row.terms) return Object.assign(row, { linkOwner: false, bankOnly: true, note: [`${u.unitCode}: already linked to this owner.`, ...bankNotes].join(' ') });
             row.linkOwner = false; notes.length = 0; notes.push(`${u.unitCode}: owner already linked, fee added.`);
           } else notes.push(u.ownerId ? `${u.unitCode}: owner changes from ${nameOf[u.ownerId] || 'another owner'}.` : `${u.unitCode}: linked to this owner.`);
@@ -829,6 +834,8 @@ export default {
           // Autocount no. on a new unit: the rules let only people with an Edit tick save it (Operations adding units can't yet)
           if (data.autocount && canBank) row.acNew = data.autocount;
           else if (data.autocount) bankNotes.push('Autocount no. left out (needs the Bulk Upload Edit tick).');
+          if (data.remark && canBank) row.remNew = data.remark;
+          else if (data.remark) bankNotes.push('Remark left out (needs the Bulk Upload Edit tick).');
         }
         row.note = [...notes, ...bankNotes].join(' ');
         return row;
@@ -991,8 +998,9 @@ export default {
       // Unit type for a unit that had none (13 Nov 2026). info is merged, so the unit's other details stay.
       const typePart = r.typeFill ? { info: { type: r.typeFill } } : {};
       // Autocount account no. for a unit that had none (top-level autocountAcc, as the unit panel saves it)
-      const acPart = r.acFill ? { autocountAcc: r.acFill } : {};
-      const fills = [...(r.typeFill ? [{ field: 'type', old: null, new: r.typeFill }] : []), ...(r.acFill ? [{ field: 'autocountAcc', old: null, new: r.acFill }] : [])];
+      const acPart = { ...(r.acFill ? { autocountAcc: r.acFill } : {}), ...(r.remFill ? { remarks: r.remFill } : {}) };   // and the remark (top-level remarks)
+      const fills = [...(r.typeFill ? [{ field: 'type', old: null, new: r.typeFill }] : []), ...(r.acFill ? [{ field: 'autocountAcc', old: null, new: r.acFill }] : []),
+        ...(r.remFill ? [{ field: 'remarks', old: null, new: '(set)' }] : [])];
       if (r.bankOnly) {
         // Unit already linked with its fee: only the owner's details (above) and maybe the unit type / Autocount no. are saved
         if (fills.length) {
@@ -1002,7 +1010,7 @@ export default {
         return;
       }
       if (r.newUnit) b.set(doc(db, 'units', unitId), { propertyId: pid, unitCode: d.unit, ezeeRoomMatch: d.unit, aliases: [], ownerId: r.ownerId, active: true, ...stateTag(pid),
-        ...(r.unitType ? { info: { type: r.unitType } } : {}), ...(r.acNew ? { autocountAcc: r.acNew } : {}), createdAt: serverTimestamp(), createdBy: me.user.uid });
+        ...(r.unitType ? { info: { type: r.unitType } } : {}), ...(r.acNew ? { autocountAcc: r.acNew } : {}), ...(r.remNew ? { remarks: r.remNew } : {}), createdAt: serverTimestamp(), createdBy: me.user.uid });
       else if (r.linkOwner || fills.length) b.set(doc(db, 'units', unitId), { ...(r.linkOwner ? { ownerId: r.ownerId } : {}), ...typePart, ...acPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
       // Fee from the Owner List, for a unit with none yet. 2000-01 = applies to every month until a later version is added on Portfolio.
       if (r.terms) b.set(doc(db, 'units', unitId, 'terms', `2000-01_${Date.now()}`), { ...r.terms, otaOverrides: null, effectiveFrom: '2000-01',
@@ -1013,6 +1021,7 @@ export default {
       if (r.terms) changes.push({ field: 'arrangement', old: null, new: r.terms.arrangement });
       if (r.typeFill || (r.newUnit && r.unitType)) changes.push({ field: 'type', old: null, new: r.typeFill || r.unitType });
       if (r.acFill || r.acNew) changes.push({ field: 'autocountAcc', old: null, new: r.acFill || r.acNew });
+      if (r.remFill || r.remNew) changes.push({ field: 'remarks', old: null, new: '(set)' });
       audit(b, me, { action: r.newUnit ? 'unit.create' : 'unit.update', entity: `units/${unitId}`, propertyId: pid, changes, reason: why });
     }
   }

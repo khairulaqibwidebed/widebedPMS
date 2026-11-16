@@ -1,7 +1,8 @@
 <template>
   <section class="card">
     <div class="card-head"><h2>{{ `Owners · ${shownOwners.length}` }}</h2>
-      <div class="pills"><button class="pill-btn" :class="{ on: !showInactive }" @click="showInactive = false">Active</button><button class="pill-btn" :class="{ on: showInactive }" @click="showInactive = true">Deactivated</button></div></div>
+      <!-- 16 Nov 2026: the same switch as Table / Cards on Bookings -->
+      <div class="seg slide st-seg" role="radiogroup" aria-label="Show owners"><button type="button" role="radio" :aria-checked="String(!showInactive)" :class="{ on: !showInactive }" @click="showInactive = false">Active</button><button type="button" role="radio" :aria-checked="String(showInactive)" :class="{ on: showInactive }" @click="showInactive = true">Deactivated</button></div></div>
     <p class="card-intro" v-if="acc.canEdit">Owner names and contact details are personal data (PDPA): Accounting, Directors and Marketing see them. Click an owner to edit. Bank details stay with Accounting.</p>
     <p class="card-intro" v-else-if="acc.viewOnly && acc.ownerNames">Owner contact and bank details are personal data (PDPA), seen only by Accounting and Directors. This list shows each owner's name and units.</p>
     <p class="card-intro" v-else-if="acc.viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Accounting and Directors. This list shows each owner's units only.</p>
@@ -76,3 +77,7 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+.st-seg { margin: 0; width: 220px; flex: none; }
+</style>

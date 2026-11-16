@@ -6,13 +6,14 @@
       <span class="ss-phone-text"><b>{{ `Step ${modelValue + 1} of ${steps.length}: ${steps[modelValue]?.label || ''}` }}</b><small>{{ noteOf(modelValue) }}</small></span>
       <svg class="ss-chev" :class="{ up: open }" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
     </button>
-    <nav class="ss-cards" :class="{ open }" :aria-label="label" :style="{ '--n': steps.length }">
+    <!-- 16 Nov 2026: a card that appears after the page has loaded (e.g. Invoice or Payment when Rental status is picked) slides in from the left -->
+    <TransitionGroup tag="nav" name="ss" class="ss-cards" :class="{ open }" :aria-label="label" :style="{ '--n': steps.length }">
       <button v-for="(s, i) in steps" :key="s.key || i" type="button" class="ss-card" :class="[states[i].state, { on: modelValue === i }]"
         :aria-current="modelValue === i ? 'step' : null" @click="pick(i)">
         <span class="ss-dot" :class="states[i].state"></span>
         <span class="ss-text"><b>{{ `${i + 1}. ${s.label}` }}</b><small>{{ noteOf(i) }}</small></span>
       </button>
-    </nav>
+    </TransitionGroup>
     <!-- Room for a second strip under a step later (e.g. rooms on a Property Inspection) -->
     <slot name="sub"></slot>
   </div>
@@ -74,6 +75,10 @@ export default {
 .ss-dot.bad { background: var(--red); border-color: var(--red); }
 .ss-dot.bad::after { content: '!'; color: #fff; font-size: 12px; font-weight: 700; }
 .ss-dot.skip { border-style: dashed; }
+.ss-enter-active { animation: ss-in .35s ease-out; }
+.ss-leave-active { display: none; }   /* a card going away goes at once, so nothing doubles up */
+@keyframes ss-in { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ss-enter-active { animation: none; } }
 .ss-phone { display: none; }
 .ss-chev { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; margin-left: auto; flex: none; }
 .ss-chev.up { transform: rotate(180deg); }

@@ -45,9 +45,17 @@
           <label for="cvSheet">Sheet</label>
           <select class="select" id="cvSheet" v-model="sheet" @change="loadSheet(true)"><option v-for="n in sheetNames" :key="n" :value="n">{{ n }}</option></select>
         </div>
+        <!-- 16 Nov 2026: found by itself, so it is just a line; the row picker shows only after Change -->
         <div class="field">
-          <label for="cvHead">Header row (the row with the column names)</label>
-          <select class="select" id="cvHead" v-model.number="headerRow" @change="autoMatch()"><option v-for="o in headerChoices" :key="o.value" :value="o.value">{{ o.label }}</option></select>
+          <label for="cvHead">Column names</label>
+          <div class="cv-head-line" v-if="!pickHead">
+            <span>{{ `Found on row ${headerRow} of your file: ` }}<b>{{ headNames }}</b></span>
+            <button type="button" class="link" @click="pickHead = true">Change</button>
+          </div>
+          <template v-else>
+            <select class="select" id="cvHead" v-model.number="headerRow" @change="autoMatch(); pickHead = false"><option v-for="o in headerChoices" :key="o.value" :value="o.value">{{ o.label }}</option></select>
+            <span class="help">Pick the row in your file that has the column names (Owner Name, Bank Name…). Only needed if the matches below look wrong.</span>
+          </template>
         </div>
         <div class="field" v-if="kind === 'owners'">
           <label for="cvProp">Property (goes in B4)</label>
@@ -58,24 +66,24 @@
       <p class="help" v-if="kind === 'owners'" style="margin:8px 0 0">One property per file. For a workbook with one sheet per property (like Finance's Owner List), convert one sheet at a time.</p>
 
       <h3 class="cv-h3">Match the columns</h3>
-      <p class="help" style="margin:0 0 10px">{{ `Matched ${matchedCount} of ${tpl.cols.length} template columns by name. Fix any wrong match; leave a column empty when your file doesn't have it.` }}</p>
-      <div class="table-wrap">
-        <table class="table cv-map">
-          <thead><tr><th>Template column</th><th>From your file</th><th>First value</th></tr></thead>
-          <tbody>
-            <tr v-for="c in tpl.cols" :key="c.header" :class="{ miss: c.req && map[c.header] === '' }">
-              <td><b>{{ c.header }}</b><span class="pill red" v-if="c.req" style="margin-left:6px">Needed</span></td>
-              <td>
-                <select class="select" v-model="map[c.header]" :aria-label="`Column for ${c.header}`">
-                  <option value="">(leave empty)</option>
-                  <option v-for="f in fileCols" :key="f.idx" :value="String(f.idx)">{{ f.name }}{{ usedBy(f.idx, c.header) ? ` (also ${usedBy(f.idx, c.header)})` : '' }}</option>
-                </select>
-              </td>
-              <td class="muted">{{ sample(c) }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <!-- 16 Nov 2026: compact. A summary line, then only the columns that need a look; matched ones are behind Show matched -->
+      <div class="cv-sum">
+        <span class="pill green">{{ `${matchedCount} matched` }}</span>
+        <span class="pill red" v-if="missingReq.length">{{ `${missingReq.length} needed` }}</span>
+        <span class="pill grey" v-if="tpl.cols.length - matchedCount - missingReq.length > 0">{{ `${tpl.cols.length - matchedCount - missingReq.length} not in your file` }}</span>
+        <button type="button" class="link" @click="showMatched = !showMatched">{{ showMatched ? 'Hide matched' : 'Show matched' }}</button>
       </div>
+      <div class="cv-map" v-if="mapCols.length">
+        <div class="cv-map-row" v-for="c in mapCols" :key="c.header" :class="{ bad: c.req && !map[c.header], ok: map[c.header] }">
+          <span class="cv-map-name"><i class="cv-dot" aria-hidden="true"></i>{{ c.header }}<span class="req-star" v-if="c.req" aria-label="needed">*</span></span>
+          <select class="select" v-model="map[c.header]" :aria-label="`Column for ${c.header}`">
+            <option value="">(leave empty)</option>
+            <option v-for="f in fileCols" :key="f.idx" :value="String(f.idx)">{{ f.name }}{{ usedBy(f.idx, c.header) ? ` (also ${usedBy(f.idx, c.header)})` : '' }}</option>
+          </select>
+          <span class="cv-map-eg" :title="map[c.header] ? sample(c) : ''">{{ map[c.header] ? `e.g. ${sample(c)}` : c.req ? 'Needed for Bulk Upload' : 'Not in your file' }}</span>
+        </div>
+      </div>
+      <p class="help" v-else style="margin:4px 0 0">Every column is matched. Click Show matched to check them.</p>
       <p class="help" v-show="unusedCols.length" style="margin:10px 0 0">{{ `Not used from your file: ${unusedCols.join(' · ')}` }}</p>
     </section>
 
@@ -89,21 +97,19 @@
         <div class="cv-stat bad"><b>{{ rows.filter(r => r.errors.length).length }}</b><span>With problems</span></div>
       </div>
       <p class="help" v-show="stopNote">{{ stopNote }}</p>
-      <Paged :items="rows" v-slot="{ pageRows }">
-        <div class="table-wrap">
-          <table class="table">
-            <thead><tr><th class="num">Row</th><th v-for="c in shownCols" :key="c.header">{{ c.header }}</th><th>Check</th></tr></thead>
-            <tbody>
-              <tr v-for="r in pageRows" :key="r.line" :class="{ bad: r.errors.length }">
-                <td class="num">{{ r.line }}</td>
-                <td v-for="c in shownCols" :key="c.header">{{ showVal(r.out[c.header], c) }}</td>
-                <td>
-                  <span class="pill" :class="r.errors.length ? 'red' : r.warnings.length ? 'amber' : 'green'">{{ r.errors.length ? 'Problem' : r.warnings.length ? 'Note' : 'OK' }}</span>
-                  <div class="help" v-show="r.errors.length || r.warnings.length">{{ [...r.errors, ...r.warnings].join(' ') }}</div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+      <!-- One card per row, 9 a page in a 3 x 3 grid (16 Nov 2026, was a table): row and first column on top, the other matched columns as label/value, notes below -->
+      <Paged :items="rows" :size="9" v-slot="{ pageRows }">
+        <div class="cv-cards">
+          <article class="cv-card" v-for="r in pageRows" :key="r.line" :class="r.errors.length ? 'bad' : r.warnings.length ? 'note' : 'ok'">
+            <header class="cv-card-head">
+              <div class="cv-card-title"><span class="cv-row">{{ `Row ${r.line}` }}</span><b>{{ showVal(r.out[shownCols[0].header], shownCols[0]) }}</b></div>
+              <span class="pill" :class="r.errors.length ? 'red' : r.warnings.length ? 'amber' : 'green'">{{ r.errors.length ? 'Problem' : r.warnings.length ? 'Note' : 'OK' }}</span>
+            </header>
+            <dl class="cv-kv">
+              <div v-for="c in shownCols.slice(1)" :key="c.header" :class="{ empty: r.out[c.header] === '' || r.out[c.header] == null }"><dt>{{ c.header }}</dt><dd>{{ showVal(r.out[c.header], c) }}</dd></div>
+            </dl>
+            <p class="cv-card-note" v-show="r.errors.length || r.warnings.length">{{ [...r.errors, ...r.warnings].join(' ') }}</p>
+          </article>
         </div>
       </Paged>
       <div class="actions cv-actions">
@@ -149,10 +155,12 @@ function fit(name, c) {
 export default {
   data() {
     return { TEMPLATES, kind: 'owners', dragging: false, loading: false, error: '', fileName: '', wb: null, sheetNames: [], sheet: '',
-      grid: [], rawGrid: [], headerRow: 1, map: {}, propHint: '', propAuto: '', properties: [], unitTypes: [], leaveOutBad: false };
+      grid: [], rawGrid: [], headerRow: 1, map: {}, propHint: '', propAuto: '', properties: [], unitTypes: [], leaveOutBad: false, showMatched: false, pickHead: false };
   },
   computed: {
     tpl() { return TEMPLATES[this.kind]; },
+    // The first few column names on the header row, for the one-line summary
+    headNames() { return (this.grid[this.headerRow - 1] || []).map(c => String(c).trim()).filter(Boolean).slice(0, 4).join(', ') || '(empty row)'; },
     headerChoices() {
       const n = Math.min(this.grid.length, 40), out = [];
       for (let i = 0; i < n; i++) {
@@ -172,6 +180,8 @@ export default {
       }
       return out;
     },
+    // The rows shown under Match the columns: the unmatched ones, or every column with Show matched
+    mapCols() { return this.showMatched ? this.tpl.cols : this.tpl.cols.filter(c => !this.map[c.header]); },
     matchedCount() { return this.tpl.cols.filter(c => this.map[c.header] !== '' && this.map[c.header] != null).length; },
     missingReq() { return this.tpl.cols.filter(c => c.req && !this.map[c.header]).map(c => c.header); },
     unusedCols() { const used = new Set(Object.values(this.map).filter(v => v !== '')); return this.fileCols.filter(f => !used.has(String(f.idx))).map(f => f.name); },
@@ -224,7 +234,7 @@ export default {
     setKind(k) {
       if (k === this.kind) return;
       this.kind = k;
-      if (this.grid.length) { this.headerRow = this.guessHeader(); this.autoMatch(); }
+      if (this.grid.length) { this.headerRow = this.guessHeader(); this.pickHead = false; this.autoMatch(); }
       else this.map = {};
     },
     clear() { Object.assign(this, { error: '', fileName: '', wb: null, sheetNames: [], sheet: '', grid: [], rawGrid: [], map: {}, headerRow: 1 }); if (this.propHint === this.propAuto) this.propHint = ''; },
@@ -255,7 +265,7 @@ export default {
       this.grid = markRaw(X.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, blankrows: true, dateNF: 'yyyy-mm-dd' }));
       this.rawGrid = markRaw(X.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true, blankrows: true }));
       if (!match) return;
-      this.headerRow = this.guessHeader();
+      this.headerRow = this.guessHeader(); this.pickHead = false;
       this.autoMatch();
       // Owners: a sheet named like a property's code (DM, FLEXUS) fills B4, unless something was typed
       if (this.kind === 'owners' && (!this.propHint || this.propHint === this.propAuto)) {
@@ -396,8 +406,46 @@ export default {
     .cv-row .field { margin: 0; flex: 1 1 220px; min-width: 0; }
     .cv-row .select, .cv-row .input { width: 100%; }
     .cv-h3 { font-size: 15px; margin: 18px 0 4px; }
-    .cv-map .select { min-width: 200px; width: 100%; }
-    .cv-map tr.miss td { background: var(--red-soft); }
+    /* Cards (16 Nov 2026): 3 across, 2 on a tablet, 1 on a phone. Same look as the Bulk Upload preview. */
+    .cv-head-line { min-height: 40px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13.5px; color: var(--text-2); }
+    .cv-head-line b { color: var(--text); font-weight: 600; }
+    .cv-sum { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+    .cv-sum .link { margin-left: 4px; }
+    .cv-map { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .cv-map-row { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(200px, 1.2fr) minmax(0, 1.4fr); gap: 14px; align-items: center; padding: 8px 14px; }
+    .cv-map-row + .cv-map-row { border-top: 1px solid var(--border); }
+    .cv-map-row .select { width: 100%; height: 36px; }
+    .cv-map-name { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; min-width: 0; }
+    .cv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex: none; }
+    .cv-map-row.ok .cv-dot { background: var(--green); }
+    .cv-map-row.bad .cv-dot { background: var(--red); }
+    .req-star { color: var(--red); margin-left: -4px; }
+    .cv-map-eg { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cv-map-row.bad .cv-map-eg { color: var(--red); }
+    @media (max-width: 720px) { .cv-map-row { grid-template-columns: minmax(0, 1fr); gap: 6px; } }
+    .cv-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    @media (max-width: 1100px) { .cv-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .cv-cards { grid-template-columns: minmax(0, 1fr); } }
+    .cv-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--border); border-left: 4px solid var(--green); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+    .cv-card.note { border-left-color: var(--amber); }
+    .cv-card.bad { border-left-color: var(--red); }
+    .cv-card.map.off:not(.bad) { border-left-color: var(--border); }
+    .cv-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .cv-card-head > b, .cv-card-title b { font-size: 14.5px; word-break: break-word; }
+    .cv-card-title { min-width: 0; }
+    .cv-card-title b { display: block; }
+    .cv-card-head .pill { flex: none; }
+    .cv-row { font-size: 11.5px; color: var(--muted); }
+    .cv-card .select { width: 100%; }
+    .cv-first { font-size: 12.5px; color: var(--text-2); word-break: break-word; }
+    .cv-first span { display: block; font-size: 11.5px; color: var(--muted); }
+    .cv-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; margin: 0; }
+    .cv-kv div { min-width: 0; }
+    .cv-kv dt { font-size: 11.5px; color: var(--muted); }
+    .cv-kv dd { margin: 0; font-size: 13px; word-break: break-word; }
+    .cv-kv .empty dd { color: var(--muted); }
+    .cv-card-note { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--amber-soft); font-size: 12.5px; color: var(--text); }
+    .cv-card.bad .cv-card-note { background: var(--red-soft); }
     .cv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px; }
     .cv-stat { padding: 12px 14px; border-radius: 10px; background: var(--chip); }
     .cv-stat b { display: block; font-size: 24px; line-height: 1.1; }

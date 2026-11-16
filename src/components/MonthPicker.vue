@@ -37,10 +37,12 @@ export default {
   data() { return { drag: null, open: false, year: +(this.first() || monthOffset(0)).slice(0, 4), MON, thisMonth: monthOffset(0) }; },
   computed: {
     label() {
-      if (this.multiple) { const n = this.modelValue.length; return !n ? (this.allLabel || 'All months') : n === 1 ? monthName(this.modelValue[0]) : `${n} months`; }
+      if (this.multiple) { const n = this.modelValue.length; return !n ? (this.allLabel || 'All months') : n === 1 ? monthName(this.modelValue[0]) : this.wholeYear ? `All of ${this.modelValue[0].slice(0, 4)}` : `${n} months`; }
       return this.modelValue ? monthName(this.modelValue) : (this.allLabel || monthName(monthOffset(0)));
     },
     maxMonth() { return monthOffset(this.ahead); },
+    // 16 Nov 2026: all 12 months of one year are ticked (Bookings starts like this); a click on a month then picks just that month
+    wholeYear() { const v = this.multiple ? this.modelValue : []; return v.length === 12 && new Set(v.map(m => m.slice(0, 4))).size === 1; },
     maxYear() { return +this.maxMonth.slice(0, 4); }
   },
   mounted() { document.addEventListener('mousedown', this.away); document.addEventListener('mouseup', this.up); },
@@ -54,13 +56,13 @@ export default {
       if (this.multiple && d && d.moved && i >= Math.min(d.a, d.b) && i <= Math.max(d.a, d.b)) return d.mode;
       return this.isOn(this.key(i));
     },
-    down(i) { if (this.multiple && this.key(i) <= this.maxMonth) this.drag = { a: i, b: i, moved: false, mode: !this.isOn(this.key(i)) }; },
+    down(i) { if (this.multiple && this.key(i) <= this.maxMonth) this.drag = { a: i, b: i, moved: false, mode: this.wholeYear || !this.isOn(this.key(i)) }; },
     over(i) { const d = this.drag; if (d && d.b !== i) { d.b = i; d.moved = true; } },
     up() {
       const d = this.drag; if (!d) return;
       this.drag = null;
       if (!d.moved) return this.pick(d.a);
-      const s = new Set(this.modelValue);
+      const s = new Set(this.wholeYear ? [] : this.modelValue);
       for (let i = Math.min(d.a, d.b); i <= Math.max(d.a, d.b); i++) { const k = this.key(i); if (k > this.maxMonth) continue; d.mode ? s.add(k) : s.delete(k); }
       const next = [...s].sort(); this.$emit('update:modelValue', next); this.$nextTick(() => this.$emit('change', next));
     },
@@ -72,7 +74,7 @@ export default {
     pick(i) {
       if (!this.multiple) return this.set(this.key(i));
       // several months: a pick ticks or unticks the month and the grid stays open
-      const k = this.key(i), s = new Set(this.modelValue); s.has(k) ? s.delete(k) : s.add(k);
+      const k = this.key(i), s = new Set(this.wholeYear ? [] : this.modelValue); s.has(k) ? s.delete(k) : s.add(k);
       const next = [...s].sort(); this.$emit('update:modelValue', next); this.$nextTick(() => this.$emit('change', next));
     },
     set(m) {

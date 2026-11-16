@@ -35,13 +35,19 @@
     <template v-if="panelOpen">
       <div>
         <div class="drawer-back" @click="close()"></div>
-        <aside class="drawer" role="dialog" :aria-label="panel.isNew ? 'Create role' : 'Edit role'" v-esc="() => { close() }">
+        <aside class="drawer sp-fixed" role="dialog" :aria-label="panel.isNew ? 'Create role' : 'Edit role'" v-esc="() => { close() }">
           <div class="drawer-head">
             <h2>{{ panel.isNew ? 'Create role' : `Edit ${panel.name}` }}</h2>
             <button class="icon-btn" @click="close()" aria-label="Close">×</button>
           </div>
+          <!-- 16 Nov 2026: two tabs instead of one long scrolling popup -->
+          <div class="tabs sp-tabs" role="tablist" aria-label="Role">
+            <button type="button" role="tab" :aria-selected="String(panel.tab === 'details')" :class="{ on: panel.tab === 'details' }" @click="panel.tab = 'details'">Role details</button>
+            <button type="button" role="tab" :aria-selected="String(panel.tab === 'perms')" :class="{ on: panel.tab === 'perms' }" @click="panel.tab = 'perms'">Page access</button>
+          </div>
           <form class="drawer-body" id="roleForm" @submit.prevent="save()">
             <div class="notice error" v-show="panel.error">{{ panel.error }}</div>
+            <div v-show="panel.tab === 'details'">
             <div class="field">
               <label for="rName" class="req">Role name</label>
               <input class="input" id="rName" v-model="panel.name" maxlength="40" placeholder="e.g. Leasing">
@@ -64,6 +70,20 @@
               </div>
             </div>
 
+            <div v-if="!panel.isNew">
+              <label class="switch" v-if="!panel.builtin">
+                <span><b>Role active</b><br><span class="help">Turned off = nobody can be given this role. It can't be turned off while people still have it.</span></span>
+                <input type="checkbox" v-model="panel.active">
+              </label>
+              <div class="field">
+                <label for="rWhy" class="req">Reason for the change</label>
+                <textarea class="input" id="rWhy" v-model="panel.reason" placeholder="e.g. Leasing now needs Offline Payments"></textarea>
+                <span class="help">Saved in the audit log with your name.</span>
+              </div>
+            </div>
+            <p class="help" v-if="!panel.isNew">{{ `${people[panel.id] || 0} people have this role. Changes reach them the next time they open a page.` }}</p>
+            </div>
+            <div v-show="panel.tab === 'perms'">
             <div class="field">
               <div class="perm-top">
                 <label>Default page access</label>
@@ -85,19 +105,7 @@
                 </table>
               </div>
             </div>
-
-            <div v-if="!panel.isNew">
-              <label class="switch" v-if="!panel.builtin">
-                <span><b>Role active</b><br><span class="help">Turned off = nobody can be given this role. It can't be turned off while people still have it.</span></span>
-                <input type="checkbox" v-model="panel.active">
-              </label>
-              <div class="field">
-                <label for="rWhy" class="req">Reason for the change</label>
-                <textarea class="input" id="rWhy" v-model="panel.reason" placeholder="e.g. Leasing now needs Offline Payments"></textarea>
-                <span class="help">Saved in the audit log with your name.</span>
-              </div>
             </div>
-            <p class="help" v-if="!panel.isNew">{{ `${people[panel.id] || 0} people have this role. Changes reach them the next time they open a page.` }}</p>
           </form>
           <div class="drawer-foot">
             <button class="btn" @click="close()">Cancel</button>
@@ -173,10 +181,10 @@ export default {
       } catch (e) { this.error = friendlyError(e, 'load the roles'); }
       this.loading = false;
     },
-    openNew() { this.panel = { isNew: true, builtin: false, id: '', name: '', description: '', color: COLOURS[4], perms: [], active: true, reason: '', busy: false, error: '' }; this.panelOpen = true; },
+    openNew() { this.panel = { isNew: true, builtin: false, id: '', name: '', description: '', color: COLOURS[4], perms: [], active: true, reason: '', busy: false, error: '', tab: 'details' }; this.panelOpen = true; },
     openEdit(r) {
       if (r.id === 'director') return;
-      this.panel = { isNew: false, builtin: r.builtin, id: r.id, name: r.name, description: r.builtin ? '' : r.description, color: r.color || COLOURS[4], perms: cleanPerms(r.perms), active: r.active, reason: '', busy: false, error: '', before: cleanPerms(r.perms), wasActive: r.active };
+      this.panel = { isNew: false, builtin: r.builtin, id: r.id, name: r.name, description: r.builtin ? '' : r.description, color: r.color || COLOURS[4], perms: cleanPerms(r.perms), active: r.active, reason: '', busy: false, error: '', tab: 'details', before: cleanPerms(r.perms), wasActive: r.active };
       this.panelOpen = true;
     },
     // Delete only when nothing at all uses the role (no account, even turned-off, and no ticket tag); otherwise Disable / Enable
@@ -225,20 +233,20 @@ export default {
     async save() {
       const p = this.panel; p.error = '';
       const name = p.name.trim();
-      if (!name) return p.error = 'Enter a role name.';
+      if (!name) return p.tab = 'details', p.error = 'Enter a role name.';
       let id = p.id;
       if (p.isNew) {
         id = slug(name);
-        if (!id) return p.error = 'Use letters or numbers in the role name.';
+        if (!id) return p.tab = 'details', p.error = 'Use letters or numbers in the role name.';
         if (BUILTIN_ROLES.includes(id) || this.rolesDocs[id] || this.rows.some(r => r.name.toLowerCase() === name.toLowerCase())
-          || Object.values(BUILTIN_TAG).some(w => w.toLowerCase() === name.toLowerCase())) return p.error = 'A role with this name already exists.';   // also a built-in's saved word, e.g. "Finance"
+          || Object.values(BUILTIN_TAG).some(w => w.toLowerCase() === name.toLowerCase())) return p.tab = 'details', p.error = 'A role with this name already exists.';   // also a built-in's saved word, e.g. "Finance"
       } else {
-        if (!p.reason.trim()) return p.error = 'Add a short reason. It goes in the audit log.';
+        if (!p.reason.trim()) return p.tab = 'details', p.error = 'Add a short reason. It goes in the audit log.';
         // A name must not match another role's (shown name or a built-in's saved word)
         const clash = this.rows.some(r => r.id !== id && r.name.toLowerCase() === name.toLowerCase())
           || Object.entries(BUILTIN_TAG).some(([k, w]) => k !== id && w.toLowerCase() === name.toLowerCase());
-        if (clash) return p.error = 'Another role already uses this name.';
-        if (!p.builtin && !p.active && p.wasActive && this.people[id]) return p.error = `${this.people[id]} people still have this role. Move them to another role on Staff accounts first.`;
+        if (clash) return p.tab = 'details', p.error = 'Another role already uses this name.';
+        if (!p.builtin && !p.active && p.wasActive && this.people[id]) return p.tab = 'details', p.error = `${this.people[id]} people still have this role. Move them to another role on Staff accounts first.`;
       }
       const perms = cleanPerms(p.perms);
       const changes = [];
@@ -273,6 +281,9 @@ export default {
 </script>
 
 <style scoped>
+/* Tabbed popup (16 Nov 2026): same height on both tabs, only the content changes */
+.drawer.sp-fixed { height: min(820px, 90dvh); }
+.sp-tabs { margin: 0; padding: 0 24px; flex: none; }   /* stays put; only the content below scrolls */
 .name-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; overflow-wrap: anywhere; }
 .roles-table { table-layout: fixed; width: 100%; }
 .roles-table td, .roles-table th { white-space: normal; overflow-wrap: anywhere; vertical-align: middle; }

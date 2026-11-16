@@ -28,24 +28,24 @@
         </template>
         <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ acc.canEdit ? '· private, Accounting, Directors and Marketing only' : acc.viewOnly ? '· private: once saved, only Accounting and Directors see them' : '· private, Accounting and Directors only' }}</span></div>
         <div class="grid-fields">
-          <div class="field"><label for="oName" class="req">{{ o.coOwners.length ? 'Full name (owner 1)' : 'Full name' }}</label><input class="input" id="oName" v-model="o.fullName" placeholder="e.g. Owner A"></div>
-          <div class="field"><label for="oIc">IC / passport</label><input class="input" id="oIc" v-model="o.ic"></div>
-          <div class="field"><label for="oEmail">Email</label><input class="input" id="oEmail" type="email" v-model="o.email"></div>
-          <div class="field"><label for="oPhone">Phone number</label><input class="input" id="oPhone" v-model="o.phone"></div>
+          <div class="field"><label for="oName" class="req">{{ o.coOwners.length ? 'Full name (owner 1)' : 'Full name' }}</label><input class="input" id="oName" v-model="o.fullName" placeholder="Full name as on IC / passport"></div>
+          <div class="field"><label for="oIc">IC / passport</label><input class="input" id="oIc" v-model="o.ic" placeholder="e.g. 900101-14-5678 or A12345678"></div>
+          <div class="field"><label for="oEmail">Email</label><input class="input" id="oEmail" type="email" v-model="o.email" placeholder="name@email.com"></div>
+          <div class="field"><label for="oPhone">Phone number</label><input class="input" id="oPhone" v-model="o.phone" placeholder="e.g. 012-345 6789"></div>
           <div class="field"><label for="oDob">Date of birth</label><input class="input" id="oDob" type="date" v-model="o.dob"></div>
-          <div class="field"><label for="oWa">WhatsApp</label><input class="input" id="oWa" v-model="o.whatsapp"></div>
-          <div class="field"><label for="oWc">WeChat ID</label><input class="input" id="oWc" v-model="o.wechat"></div>
+          <div class="field"><label for="oWa">WhatsApp</label><input class="input" id="oWa" v-model="o.whatsapp" placeholder="e.g. 012-345 6789"></div>
+          <div class="field"><label for="oWc">WeChat ID</label><input class="input" id="oWc" v-model="o.wechat" placeholder="WeChat ID"></div>
           <div></div>
-          <div class="field" style="grid-column:1/-1"><label for="oAddr">Correspondence address</label><textarea class="input" id="oAddr" v-model="o.address"></textarea></div>
+          <div class="field" style="grid-column:1/-1"><label for="oAddr">Correspondence address</label><textarea class="input" id="oAddr" v-model="o.address" placeholder="Street, postcode, city, state"></textarea></div>
         </div>
         <!-- Joint owners: same owner code, bank and units; each extra person has their own name and contact -->
         <template v-for="(c, i) in o.coOwners" :key="c.key">
           <div class="co-owner-head"><span class="form-sec" style="margin:0">{{ `Owner ${i + 2}` }}</span><button type="button" class="btn btn-sm" @click="removeCoOwner(i)">Remove</button></div>
           <div class="grid-fields">
-            <div class="field"><label :for="`coName${i}`" class="req">Full name</label><input class="input" :id="`coName${i}`" v-model="c.fullName" placeholder="e.g. Owner B"></div>
-            <div class="field"><label :for="`coIc${i}`">IC / passport</label><input class="input" :id="`coIc${i}`" v-model="c.ic"></div>
-            <div class="field"><label :for="`coEmail${i}`">Email</label><input class="input" :id="`coEmail${i}`" type="email" v-model="c.email"></div>
-            <div class="field"><label :for="`coPhone${i}`">Phone number</label><input class="input" :id="`coPhone${i}`" v-model="c.phone"></div>
+            <div class="field"><label :for="`coName${i}`" class="req">Full name</label><input class="input" :id="`coName${i}`" v-model="c.fullName" placeholder="Full name as on IC / passport"></div>
+            <div class="field"><label :for="`coIc${i}`">IC / passport</label><input class="input" :id="`coIc${i}`" v-model="c.ic" placeholder="e.g. 900101-14-5678 or A12345678"></div>
+            <div class="field"><label :for="`coEmail${i}`">Email</label><input class="input" :id="`coEmail${i}`" type="email" v-model="c.email" placeholder="name@email.com"></div>
+            <div class="field"><label :for="`coPhone${i}`">Phone number</label><input class="input" :id="`coPhone${i}`" v-model="c.phone" placeholder="e.g. 012-345 6789"></div>
           </div>
         </template>
         <div><button type="button" class="btn" @click="addCoOwner()">+ Add another owner</button>
@@ -53,9 +53,9 @@
         <template v-if="!acc.viewOnly">
           <div class="form-sec">Bank</div>
           <div class="grid-3">
-            <div class="field"><label for="oBank">Bank name</label><input class="input" id="oBank" v-model="o.bankName"></div>
-            <div class="field"><label for="oHolder">Account holder name</label><input class="input" id="oHolder" v-model="o.accountHolder"></div>
-            <div class="field"><label for="oAcc">Bank account</label><input class="input" id="oAcc" v-model="o.bankAccount" inputmode="numeric"></div>
+            <div class="field"><label for="oBank">Bank name</label><input class="input" id="oBank" v-model="o.bankName" placeholder="e.g. Maybank"></div>
+            <div class="field"><label for="oHolder">Account holder name</label><input class="input" id="oHolder" v-model="o.accountHolder" placeholder="Name as on the bank account"></div>
+            <div class="field"><label for="oAcc">Bank account</label><input class="input" id="oAcc" v-model="o.bankAccount" inputmode="numeric" placeholder="Account number"></div>
           </div>
         </template>
         <p class="help" v-else>Bank details are added by Accounting or a Director.</p>

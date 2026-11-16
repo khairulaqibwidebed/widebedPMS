@@ -13,7 +13,7 @@
 // Order and groups follow the sidebar (6 Nov 2026): Portfolio, Leads & Agreements, Accounting, then the rest.
 export const PAGES = [
   { key: 'portfolio',        label: 'Owners, Properties & Bookings', group: 'Portfolio',   to: ['/Portfolio/owners', '/Portfolio/properties', '/Portfolio/bookings', '/Portfolio/fees-rates'], editTo: ['/Portfolio/fees-rates'] },
-  { key: 'bookingForms',     label: 'Booking Forms',                 group: 'Portfolio',   to: ['/Operations/booking-forms'], viewOnly: true },
+  { key: 'bookingForms',     label: 'Utility Lodgment Form & New booking',                 group: 'Portfolio',   to: ['/Operations/booking-forms'], viewOnly: true },
   { key: 'offlinePayments',  label: 'Offline Payments',              group: 'Portfolio',   to: ['/Finance/offline-payments'] },
   { key: 'bulkUpload',       label: 'Bulk Upload',                   group: 'Portfolio',   to: ['/Portfolio/bulk-upload'] },
   { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/listing-flow', '/Procurement/owner-leads'] },
@@ -34,7 +34,7 @@ export const PAGES = [
 // so the security rules and the sidebar work as before.
 export const ACCESS_ROWS = [
   { id: 'portfolio', label: 'Owners, Properties & Bookings', group: 'Portfolio', keys: ['portfolio'] },
-  { id: 'bookingForms', label: 'Booking Forms', group: 'Portfolio', keys: ['bookingForms'] },
+  { id: 'bookingForms', label: 'Utility Lodgment Form & New booking', group: 'Portfolio', keys: ['bookingForms'] },
   { id: 'offlinePayments', label: 'Offline Payments', group: 'Portfolio', keys: ['offlinePayments'] },
   { id: 'bulkUpload', label: 'Bulk Upload', group: 'Portfolio', keys: ['bulkUpload'] },
   { id: 'newOwnerListings', label: 'Owner Leads', group: 'Leads & Agreements', keys: ['newOwnerListings'] },

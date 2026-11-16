@@ -45,13 +45,6 @@ export default {
 };
 </script>
 
-<style>
-/* Beside a side panel: sit to its left so the panel never covers the file */
-@media (min-width: 1000px) {
-  body:has(.drawer) .fv-back { justify-content: flex-start; padding-right: 460px; }
-  body:has(.drawer.wide) .fv-back { padding-right: 900px; }
-}
-</style>
 <style scoped>
 .vwr { max-width: 960px; width: 100%; padding: 14px 18px; }
 .vwr-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }

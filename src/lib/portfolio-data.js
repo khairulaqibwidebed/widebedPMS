@@ -72,7 +72,7 @@ export function changeList(a) {
   const v = x => (x == null || x === '' ? '—' : Array.isArray(x) ? (x.join(', ') || '—') : knownArrangement(String(x))?.name || String(x));
   const names = { ownerId: 'Owner', aliases: 'eZee names', active: 'Active', arrangement: 'Arrangement', units: 'Units', status: 'Status',
     fullName: 'Full name', coOwners: 'Co-owners', dob: 'Date of birth', bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account',
-    ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID', autocountAcc: 'Autocount account no.' };
+    ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID', autocountAcc: 'Autocount account no.', remarks: 'Remarks' };
   const nice = f => names[f] || f.replace(/([A-Z])/g, ' $1').replace(/^./, m => m.toUpperCase());
   const out = (a.changes || []).map(c => c.new === '(changed)' ? `${nice(c.field)} updated` : `${nice(c.field)}: ${v(c.old)} → ${v(c.new)}`);
   return out.length ? out : ['—'];
@@ -446,13 +446,14 @@ export async function reactivateOwner(me, id, reason) {
 // purchasePrice (Accounting / Directors): used by Pool Sharing; undefined = left as it is.
 // autocountAcc (13 Nov 2026): the unit's account no. in Autocount; undefined = left as it is. Only sent by people with an
 // Edit tick: the rules don't let Operations or Marketing save it yet.
-export async function saveUnit(me, { id, isNew, detailsOnly, propertyId, code, aliases, ownerId, info, active, purchasePrice, autocountAcc, terms, termsChanged, effectiveFrom, reason, changes }) {
+// remarks (16 Nov 2026): free notes on the unit; undefined = left as it is. Same people as autocountAcc.
+export async function saveUnit(me, { id, isNew, detailsOnly, propertyId, code, aliases, ownerId, info, active, purchasePrice, autocountAcc, remarks, terms, termsChanged, effectiveFrom, reason, changes }) {
   // The owner before this save, so both the old and the new owner's states are worked out again after it
   const before = !isNew && !detailsOnly ? await getDoc(doc(db, 'units', id)).then(s => (s.exists() ? s.data().ownerId || null : null)).catch(() => null) : null;
   const st = await stateFor(propertyId);
   const b = writeBatch(db);
   const unitData = { propertyId, ...(st ? { state: st } : {}), unitCode: code, ezeeRoomMatch: code, aliases, ownerId, info, active, updatedAt: serverTimestamp(), updatedBy: me.user.uid,
-    ...(purchasePrice !== undefined ? { purchasePrice } : {}), ...(autocountAcc !== undefined ? { autocountAcc } : {}) };
+    ...(purchasePrice !== undefined ? { purchasePrice } : {}), ...(autocountAcc !== undefined ? { autocountAcc } : {}), ...(remarks !== undefined ? { remarks } : {}) };
   if (isNew) unitData.createdAt = serverTimestamp(), unitData.createdBy = me.user.uid;
   b.set(doc(db, 'units', id), detailsOnly ? { aliases, info, updatedAt: serverTimestamp(), updatedBy: me.user.uid } : unitData, { merge: true });
   markFrom(b, propertyId, ALL_MONTHS, id);   // this unit's month summaries are worked out again (owner, status, settings)

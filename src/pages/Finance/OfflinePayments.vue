@@ -35,7 +35,7 @@
       <div class="list-head">
         <p class="help">{{ loading ? 'Loading…' : `${shown.length} record${shown.length === 1 ? '' : 's'}` }}</p>
         <!-- 13 Nov 2026: table (default) or cards (one full-width card per payment, as a list); remembered on this browser -->
-        <div class="seg layout-seg" role="radiogroup" aria-label="Show payments as">
+        <div class="seg slide layout-seg" role="radiogroup" aria-label="Show payments as">
           <button type="button" role="radio" :aria-checked="layout === 'table'" :class="{ on: layout === 'table' }" @click="setLayout('table')">Table</button>
           <button type="button" role="radio" :aria-checked="layout === 'cards'" :class="{ on: layout === 'cards' }" @click="setLayout('cards')">Cards</button>
         </div>
@@ -106,12 +106,12 @@
             <FormField label="Amount (RM)" req type="number" min="0" step="0.01" v-model="ed.amount" />
             <div class="field"><label>Payment method</label>
               <OptionPicker class="fld-pick" v-model="ed.mode" :options="MODES" label="Payment method" /></div>
-            <FormField label="Bank reference" v-model="ed.bankRef" />
+            <FormField label="Bank reference" v-model="ed.bankRef" placeholder="Reference no. on the bank slip" />
             <div class="field"><label class="req">Property</label>
-              <PropertyPicker block picker-class="fld-pick" v-model="ed.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="editProperty" /></div>
+              <PropertyPicker block class="fld-pick" v-model="ed.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="editProperty" /></div>
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="ed.unitCode" :disabled="!ed.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-            <FormField label="Guest / tenant name" req v-model="ed.guest" />
+            <FormField label="Guest / tenant name" req v-model="ed.guest" placeholder="Full name as on IC / passport" />
             <FormField v-if="canEdit" label="Payment code" v-model="ed.remarks" placeholder="Add payment code" />
             <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
           </div>
@@ -126,6 +126,8 @@
             </ul>
           </div>
           <div class="modal-foot" v-if="!editing">
+            <!-- 16 Nov 2026: Directors only (Firestore rules 0.72) -->
+            <button type="button" class="btn del-btn" v-if="isDirector" @click="removePayment(view)" :disabled="busy">Delete</button>
             <button type="button" class="btn" @click="view = null">Close</button>
             <button type="button" class="btn" v-if="hist.length" @click="showHist = !showHist">{{ showHist ? 'Hide history' : 'Change history' }}</button>
             <button type="button" class="btn btn-primary" v-if="canEdit || opsEdit(view)" @click="startEdit">{{ opsEdit(view) ? 'Add details' : 'Edit details' }}</button>
@@ -148,7 +150,7 @@
             <div class="field"><label>Report</label>
               <OptionPicker class="fld-pick" v-model="rep.type" :options="[{ value: 'monthly', label: 'Monthly' }, { value: 'yearly', label: 'Yearly' }, { value: 'custom', label: 'Custom dates' }]" label="Report type" /></div>
             <div class="field"><label>Property</label>
-              <PropertyPicker block picker-class="fld-pick" v-model="rep.propertyId" :properties="properties" :before="[{ value: '', label: 'All properties' }]" /></div>
+              <PropertyPicker block class="fld-pick" v-model="rep.propertyId" :properties="properties" :before="[{ value: '', label: 'All properties' }]" /></div>
             <div class="field" v-if="rep.type === 'monthly'"><label>Month</label><MonthPicker v-model="rep.month" /></div>
             <div class="field" v-if="rep.type === 'yearly'"><label>Year</label>
               <OptionPicker class="fld-pick" v-model="rep.year" :options="yearOptions" label="Year" /></div>
@@ -181,11 +183,11 @@
               <div class="field"><label class="req">Payment method</label>
                 <OptionPicker class="fld-pick" v-model="f.mode" :options="MODES" label="Payment method" /></div>
               <div class="field"><label class="req">Property</label>
-                <PropertyPicker block picker-class="fld-pick" v-model="f.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="loadUnitList" /></div>
+                <PropertyPicker block class="fld-pick" v-model="f.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="loadUnitList" /></div>
               <div class="field"><label class="req">Unit</label>
                 <OptionPicker class="fld-pick" v-model="f.unitCode" :disabled="!f.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-              <FormField label="Guest / tenant name" req v-model="f.guest" />
-              <FormField label="Bank reference" v-model="f.bankRef" />
+              <FormField label="Guest / tenant name" req v-model="f.guest" placeholder="Full name as on IC / passport" />
+              <FormField label="Bank reference" v-model="f.bankRef" placeholder="Reference no. on the bank slip" />
               <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
               <div class="field wide"><label class="req">Receipts / documents</label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
               <div class="field wide"><label>Payment code</label><input class="input" v-model="f.remarks"></div>
@@ -209,6 +211,7 @@ import { stateFor } from '@/lib/states.js';
 import { scopedOrBlank, getScoped } from '@/lib/property-scope.js';
 import { can } from '@/lib/access.js';
 import { toast } from '@/lib/toast.js';
+import { askConfirm } from '@/lib/confirm.js';
 import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PropertyPicker from '@/components/PropertyPicker.vue';
@@ -236,6 +239,7 @@ export default {
   data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: { view(r) { this.loadHistory(r); } },
   computed: {
+    isDirector() { return useSession().role === 'director'; },
     // View and Edit are separate ticks on Staff accounts: View reads the page, Edit also creates and changes payments
     canEdit() { return can(useSession(), 'offlinePayments.edit'); },
     yearOptions() { const y = new Date().getFullYear(); return Array.from({ length: 5 }, (_, i) => ({ value: String(y - i), label: String(y - i) })); },
@@ -384,6 +388,24 @@ export default {
       } catch (err) { this.formError = friendlyError(err, 'save the changes'); }
       this.busy = false;
     },
+    // Directors: delete a payment for good. The audit line keeps what it was.
+    async removePayment(r) {
+      const what = `RM ${(+r.amount || 0).toFixed(2)} on ${r.date || 'no date'}${r.guest ? ` from ${r.guest}` : ''}${r.unitCode ? ` (${r.unitCode})` : ''}`;
+      const ok = await askConfirm({ title: 'Delete this payment?', danger: true, confirmText: 'Delete payment',
+        message: `${what} will be removed for good.${r.bookingId ? ` It is linked to booking ${r.bookingNo || r.bookingId}, so that booking will show less paid.` : ''} Uploaded files stay in Google Drive. This cannot be undone.` });
+      if (!ok) return;
+      this.busy = true; this.error = '';
+      try {
+        const me = useSession(), batch = writeBatch(db);
+        batch.delete(doc(db, 'offlinePayments', r.id));
+        const keep = ['date', 'amount', 'propertyName', 'unitCode', 'guest', 'purpose', 'mode', 'bankRef', 'status', 'bookingNo', 'remarks'];
+        audit(batch, me, { action: 'offlinePayment.delete', entity: `offlinePayments/${r.id}`, propertyId: r.propertyId || null, reason: `Deleted: ${what}`,
+          changes: keep.filter(k => r[k] !== undefined && r[k] !== '' && r[k] !== null).map(k => ({ field: k, old: r[k], new: null })) });
+        await batch.commit();
+        this.rows = this.rows.filter(x => x.id !== r.id); this.view = null; toast('Payment deleted');
+      } catch (e) { this.view = null; this.error = e.code === 'permission-denied' ? 'Deleting was refused. Only Directors can delete payments (Firestore rules 0.72 must be published).' : friendlyError(e, 'delete the payment'); window.scrollTo(0, 0); }
+      this.busy = false;
+    },
     async patch(r, data, field, was) {
       this.error = ''; this.done = '';
       const me = useSession();
@@ -473,6 +495,10 @@ export default {
 .who { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .tag.st-edited { background: #E6EEFB; color: #2B5DB8; }
 .rep-modal { max-width: 640px; }
+/* 16 Nov 2026: every picker in the report popup fills its column, all the same height */
+.rep-modal :deep(.op), .rep-modal :deep(.pp), .rep-modal :deep(.mp) { display: block; width: 100%; }
+.rep-modal :deep(.op-btn), .rep-modal :deep(.op-input), .rep-modal :deep(.mp-btn) { width: 100%; min-height: 44px; font-size: 15px; text-align: left; }
+.rep-modal :deep(.op-pop) { max-width: none; width: 100%; }
 .clamp { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.4; }
 .v-purpose { grid-column: 1 / -1; }
 .v-purpose b { white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 600; line-height: 1.5; }
@@ -513,6 +539,7 @@ export default {
 .v-edit-grid, .v-edit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin-top: 14px; }
 @media (max-width: 640px) { .v-grid, .v-edit, .v-edit-grid { grid-template-columns: minmax(0, 1fr); } }
 .fld-pick { display: block; width: 100%; }
+.fld-pick :deep(.op) { display: block; width: 100%; }
 .fld-pick :deep(.op-btn), .fld-pick :deep(.op-input) { width: 100%; min-height: 44px; font-size: 15px; }
 .fld-pick :deep(.op-pop) { max-width: none; width: 100%; }
 .table-wrap { min-height: 260px; }
@@ -542,6 +569,8 @@ export default {
 .modal { max-width: 920px; width: min(920px, 100%); }
 .modal { padding: 18px 24px 0; }
 .modal .modal-foot { padding: 12px 0 18px; margin-top: 8px; }
+.del-btn { margin-right: auto; color: var(--danger); }
+.del-btn:hover:not(:disabled) { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; }
 .modal .field { margin-bottom: 0; }
 .modal .field label { margin-bottom: 4px; }
 .modal .input { min-height: 44px; font-size: 15px; }

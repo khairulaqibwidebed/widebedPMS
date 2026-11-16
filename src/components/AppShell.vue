@@ -137,7 +137,8 @@ export default {
     me: () => useSession(),
     // Main role's sidebar plus the pages of any extra departments (nav.js navFor).
     groups() { return navFor(this.me); },
-    active() { return this.$route.meta.label; },
+    // navLabel: a sub-page that keeps its parent's sidebar item lit and its group open (e.g. New booking under Bookings)
+    active() { return this.$route.meta.navLabel || this.$route.meta.label; },
     // Collapsed AND on desktop. On mobile the sidebar is always the full drawer.
     rail() { return this.collapsed && this.wide; },
     // Neo's Notification: return a mock unread count (e.g., 2) so it doesn't crash

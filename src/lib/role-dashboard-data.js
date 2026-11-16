@@ -62,7 +62,8 @@ export async function loadOps(uid) {
   ]);
   const ezee = (snap, dir) => rows(snap).filter(b => b.status !== 'cancelled')
     .map(b => ({ key: 'e' + b.id + dir, dir, unit: b.unitCode || b.roomRaw || 'Room ?', source: b.source || 'eZee', propertyId: b.propertyId || '', ezee: true }));
-  const offline = rows(offSnap).filter(b => b.status !== 'cancelled');
+  // Awaiting payment (status pending, 16 Nov 2026) is left out until it is paid and finished
+  const offline = rows(offSnap).filter(b => b.status !== 'cancelled' && b.status !== 'pending');
   const off = (dir, field) => offline.filter(b => b[field] === today)
     .map(b => ({ key: 'o' + b.id + dir, dir, unit: b.unitCode || '(no unit)', source: b.source === 'direct' ? 'Direct' : 'Offline', propertyId: b.propertyId || '', id: b.id }));
   const moves = [...ezee(arr, 'in'), ...off('in', 'arrival'), ...ezee(dep, 'out'), ...off('out', 'departure')]

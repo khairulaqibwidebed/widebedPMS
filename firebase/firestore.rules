@@ -1,4 +1,13 @@
 rules_version = '2';
+// Draft 0.72, 16 Nov 2026 (Khairul): Directors may delete an offline payment (Accounting > Offline Payments; audited).
+// Draft 0.71, 16 Nov 2026 (Khairul): bookings Awaiting payment + invoice.
+//   - config/invoiceDefaults: the invoice header, T&Cs and bank details (New booking > invoice). Staff read; Directors write.
+//   - offlineBookings status 'pending' (shown as Awaiting payment): Operations may save one from their inquiry while the
+//     inquiry stays Interested; finishing it later (pending -> active) may add the booking's payment and mark the inquiry booked.
+// Draft 0.70, 16 Nov 2026 (Khairul): config/ownerLeadDefaults (Owner Leads > Defaults: the Operations Setup and
+// Marketing rows new listings start with). Every staff member reads it; only Directors write (as every config doc).
+// Draft 0.69, 16 Nov 2026 (Khairul): users/{uid}/drafts/{draftId}, form drafts saved on your own account
+// (New booking > Save draft). Only you read and write your own. Nothing else changed.
 // Widebed PMS Firestore rules. Draft 0.68, 13 Nov 2026 (Khairul): merge only. Holds Khairul's 0.65 to 0.67 and
 // the changes pulled from origin/testing (Neo's side). Nothing new.
 // Draft 0.67, 13 Nov 2026 (Khairul): Directors may delete an owner listing
@@ -348,6 +357,12 @@ service cloud.firestore {
     // ---- Operations: inquiries, Create booking, direct bookings ----
     function assignedToMe(inqId) { return get(docPath('offlineInquiries', inqId)).data.get('assignedToUid', null) == request.auth.uid; }
     // True only inside the Create booking transaction: offline_{id} doesn't exist before and does after.
+    // Draft 0.71: true only in the write that finishes an Awaiting payment booking (status pending -> active).
+    function bookingPaidNow(bId) {
+      return bId is string && exists(docPath('offlineBookings', bId))
+        && get(docPath('offlineBookings', bId)).data.get('status', '') == 'pending'
+        && getAfter(docPath('offlineBookings', bId)).data.get('status', '') == 'active';
+    }
     function bookingMadeNow(inqId) {
       return !exists(docPath('offlineBookings', 'offline_' + inqId)) && existsAfter(docPath('offlineBookings', 'offline_' + inqId));
     }
@@ -412,6 +427,13 @@ service cloud.firestore {
       // Sign-in stamps lastLoginAt on your own record (Team activity).
       allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
       allow delete: if false;
+
+      // Form drafts on your own account (New booking > Save draft, 16 Nov 2026). Only you; small docs only.
+      match /drafts/{draftId} {
+        allow read, delete: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn() && request.auth.uid == uid && request.resource.data.size() <= 10
+          && (!('bk' in request.resource.data) || (request.resource.data.bk is string && request.resource.data.bk.size() < 60000));
+      }
     }
 
     // Roles page (Director only). Everyone signed in reads, so the app can show names and usual pages after sign-in.
@@ -424,6 +446,23 @@ service cloud.firestore {
     match /config/{docId} {
       allow read: if staff();
       allow write: if isDirector();
+    }
+
+    // Owner Leads defaults (Draft 0.70): read by whoever starts a listing; written by Directors (config/{docId} above).
+    match /config/ownerLeadDefaults {
+      allow read: if anyStaff();
+      allow write: if isDirector() && request.resource.data.setup is list && request.resource.data.setup.size() <= 40
+        && request.resource.data.marketing is list && request.resource.data.marketing.size() <= 40;
+    }
+
+    // Booking invoice defaults (Draft 0.71): read by whoever makes a booking; written by Directors only.
+    match /config/invoiceDefaults {
+      allow read: if anyStaff();
+      allow write: if isDirector()
+        && request.resource.data.keys().hasOnly(['header', 'terms', 'bank', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && request.resource.data.header is string && request.resource.data.header.size() <= 1000
+        && request.resource.data.terms is string && request.resource.data.terms.size() <= 20000
+        && request.resource.data.bank is string && request.resource.data.bank.size() <= 2000;
     }
 
     // One To One Session (Draft 0.62): the venues HR picks from on Performance > One To One Session.
@@ -827,7 +866,9 @@ service cloud.firestore {
         && changed().hasOnly(['status', 'history', 'updatedAt', 'tenantId', 'bookingId'])
         && request.resource.data.status in ['new', 'interested', 'considering', 'uninterested', 'booked']
         && (bookingMadeNow(id)
-            || (!changed().hasAny(['tenantId', 'bookingId']) && (request.resource.data.status != 'booked' || resource.data.status == 'booked')));
+            || (!changed().hasAny(['tenantId', 'bookingId']) && (request.resource.data.status != 'booked' || resource.data.status == 'booked'))
+            // Draft 0.71: Awaiting payment booking finished -> the inquiry becomes booked
+            || (!changed().hasAny(['tenantId', 'bookingId']) && request.resource.data.status == 'booked' && bookingPaidNow(resource.data.get('bookingId', null))));
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
       allow delete: if false;
@@ -869,14 +910,16 @@ service cloud.firestore {
       allow update: if can('offlinePayments.edit');
       // The Booking Form saves the booking's payment here (Pending), in the same write as the booking itself.
       allow create: if (isOps() || finOrDir()) && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'Pending'
-        && request.resource.data.bookingId is string && !exists(docPath('offlineBookings', request.resource.data.bookingId))
-        && existsAfter(docPath('offlineBookings', request.resource.data.bookingId));
+        && request.resource.data.bookingId is string
+        && ((!exists(docPath('offlineBookings', request.resource.data.bookingId)) && existsAfter(docPath('offlineBookings', request.resource.data.bookingId)))
+            || bookingPaidNow(request.resource.data.bookingId));   // Draft 0.71: paid later, when an Awaiting payment booking is finished
       // Operations fill in a payment that has no receipt (status Unknown): saving it makes it Edited, and Finance is told.
       allow update: if role() == 'operations' && can('offlinePayments.view') && resource.data.status == 'Unknown' && request.resource.data.status == 'Edited'
         && !changed().hasAny(['createdBy', 'createdAt', 'submittedByName', 'verifiedByName', 'verifiedDate', 'remarks']);
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
-      allow delete: if false;
+      // Draft 0.72: only a Director deletes a payment (the page writes an audit line with what it was)
+      allow delete: if isDirector();
     }
     // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
     match /utilityBills/{bookingId} {
@@ -901,7 +944,9 @@ service cloud.firestore {
       allow create: if isOps() && bookingId == 'offline_' + request.resource.data.inquiryId
         && assignedToMe(request.resource.data.inquiryId)
         && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.bookingId == bookingId
-        && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.status == 'booked';
+        && (getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.status == 'booked'
+            // Draft 0.71: saved as Awaiting payment; the inquiry stays Interested (Pending payment)
+            || (request.resource.data.get('status', '') == 'pending' && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.status == 'interested'));
       // ...and adding the eZee reservation no. later.
       allow update: if isOps() && assignedToMe(resource.data.inquiryId)
         && changed().hasOnly(['ezeeReservationNo', 'updatedAt', 'updatedBy']);

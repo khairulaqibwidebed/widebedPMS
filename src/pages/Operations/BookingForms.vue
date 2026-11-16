@@ -2,8 +2,8 @@
   <main class="content">
     <div class="page-head">
       <div>
-        <h1>Booking forms</h1>
-        <div class="sub">Operations forms. Pick a form below and fill it in step by step.</div>
+        <h1>Utility Lodgment Form</h1>
+        <div class="sub">Utility and property inspection forms. Pick a form below and fill it in step by step.</div>
       </div>
     </div>
     <div class="bf-bar">
@@ -13,20 +13,20 @@
     </div>
     <!-- Each form stays loaded once opened, so switching tabs keeps what was typed (nothing is saved as a draft) -->
     <div v-for="t in TABS" :key="t.key" v-show="tab === t.key" role="tabpanel">
-      <component :is="t.form" v-if="seen[t.key]" :key="t.key === 'reservation' ? 'r' + leadId : t.key" v-bind="t.key === 'reservation' ? { leadId } : {}" @dirty="v => dirty[t.key] = v" />
+      <component :is="t.form" v-if="seen[t.key]" :key="t.key" @dirty="v => dirty[t.key] = v" />
     </div>
   </main>
 </template>
 
 <script>
-// Operations > Booking forms: one tab per form, each with its own address (/Operations/booking-forms/reservation, /utility).
+// Operations > Booking forms: one tab per form, each with its own address (/Operations/booking-forms/utility, /property).
+// The Reservation Lodgment Form moved to Portfolio > Bookings > New booking (/Portfolio/bookings/new) on 16 Nov 2026.
 // The forms are their own files in ./booking-forms/; this page only shows the tabs and warns before leaving with something typed.
 // Add a form: a file in ./booking-forms/ that emits 'dirty', a line in TABS, and its name in the route in router.js.
 import { defineAsyncComponent, markRaw } from 'vue';
 import { askConfirm } from '@/lib/confirm.js';
 
 const TABS = [
-  { key: 'reservation', label: 'Reservation Lodgment Form', form: markRaw(defineAsyncComponent(() => import('./booking-forms/ReservationForm.vue'))) },
   { key: 'utility', label: 'Utility Lodgment Form', form: markRaw(defineAsyncComponent(() => import('./booking-forms/UtilityForm.vue'))) },
   { key: 'property', label: 'Property Inspection Form', form: markRaw(defineAsyncComponent(() => import('./booking-forms/PropertyInspectionForm.vue'))) }
 ];
@@ -35,11 +35,11 @@ const BASE = '/Operations/booking-forms';
 export default {
   data() {
     const tab = this.tabOf(this.$route);
-    return { TABS, tab, seen: { [tab]: true }, dirty: {}, leadId: this.$route.query.lead || '' };
+    return { TABS, tab, seen: { [tab]: true }, dirty: {} };
   },
   computed: { anyDirty() { return Object.values(this.dirty).some(Boolean); } },
   created() {
-    // The old address (no form in it) opens the Reservation tab
+    // The old address (no form in it) opens the first tab (Utility). Reservation moved to /Portfolio/bookings/new on 16 Nov 2026.
     if (!this.$route.params.form) this.$router.replace({ path: `${BASE}/${this.tab}`, query: this.$route.query });
   },
   mounted() { window.addEventListener('beforeunload', this.warn); },
@@ -49,8 +49,6 @@ export default {
       if (!to.path.startsWith(BASE)) return;
       this.tab = this.tabOf(to);
       this.seen[this.tab] = true;
-      // The inquiry (?lead=) belongs to the Reservation tab: switching to Utility and back keeps it
-      if (this.tab === 'reservation') this.leadId = to.query.lead || '';
     }
   },
   // Leaving the page (sidebar, back button, another page) with something typed: ask first. Switching tabs doesn't ask.
@@ -59,10 +57,10 @@ export default {
     return askConfirm({ title: 'Leave?', message: "What you've entered will be lost.", confirmText: 'Leave', danger: true });
   },
   methods: {
-    tabOf(route) { return TABS.some(t => t.key === route.params.form) ? route.params.form : 'reservation'; },
+    tabOf(route) { return TABS.some(t => t.key === route.params.form) ? route.params.form : TABS[0].key; },
     open(key) {
       if (key === this.tab) return;
-      this.$router.push({ path: `${BASE}/${key}`, query: key === 'reservation' && this.leadId ? { lead: this.leadId } : {} });
+      this.$router.push({ path: `${BASE}/${key}` });
     },
     // Closing or reloading the browser tab: the browser's own "Leave site?" warning
     warn(e) { if (!this.anyDirty) return; e.preventDefault(); e.returnValue = ''; }

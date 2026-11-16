@@ -127,30 +127,19 @@
     <template v-if="panelOpen">
       <div>
         <div class="drawer-back" @click="close()"></div>
-        <aside class="drawer" role="dialog" :aria-label="panel.mode === 'add' ? 'Add staff' : 'Edit staff'" v-esc="() => { close() }">
+        <aside class="drawer sp-fixed" role="dialog" :aria-label="panel.mode === 'add' ? 'Add staff' : 'Edit staff'" v-esc="() => { close() }">
           <div class="drawer-head">
             <h2>{{ panel.mode === 'add' ? 'Invite staff' : 'Edit staff' }}</h2>
             <button class="icon-btn" @click="close()" aria-label="Close">×</button>
           </div>
-          <form class="drawer-body" id="staffForm" @submit.prevent="save()">
+          <!-- 16 Nov 2026: two tabs instead of one long scrolling popup -->
+          <div class="tabs sp-tabs" role="tablist" aria-label="Staff details">
+            <button type="button" role="tab" :aria-selected="String(panel.tab === 'account')" :class="{ on: panel.tab === 'account' }" @click="panel.tab = 'account'">Account details</button>
+            <button type="button" role="tab" :aria-selected="String(panel.tab === 'perms')" :class="{ on: panel.tab === 'perms' }" @click="panel.tab = 'perms'">Permissions</button>
+          </div>
+          <form class="drawer-body" id="staffForm" novalidate @submit.prevent="save()">
             <div class="notice error" v-show="panel.error">{{ panel.error }}</div>
-            <!-- Account status (12 Nov 2026): two clear choices instead of a small tick at the bottom -->
-            <div class="acct" v-if="panel.mode === 'edit'">
-              <div class="acct-top">
-                <b>Account status</b>
-                <span class="pill" :class="wasActive ? 'green' : 'grey'">{{ wasActive ? 'Active now' : 'Turned off now' }}</span>
-              </div>
-              <div class="acct-opts" role="radiogroup" aria-label="Account status">
-                <button type="button" role="radio" class="acct-opt on-opt" :class="{ picked: panel.active }" :aria-checked="String(panel.active)" :disabled="cantEdit" @click="panel.active = true">
-                  <span class="acct-dot"></span><span><b>Active</b><small>Can sign in and use their pages.</small></span>
-                </button>
-                <button type="button" role="radio" class="acct-opt off-opt" :class="{ picked: !panel.active }" :aria-checked="String(!panel.active)" :disabled="cantEdit" @click="panel.active = false">
-                  <span class="acct-dot"></span><span><b>Turned off</b><small>Can't sign in or see anything. Their history stays.</small></span>
-                </button>
-              </div>
-              <div class="acct-note off" v-if="wasActive && !panel.active">{{ `Saving turns off ${panel.displayName || 'this account'}. Add the reason below (e.g. Left the company).` }}</div>
-              <div class="acct-note on" v-if="!wasActive && panel.active">{{ `Saving turns ${panel.displayName || 'this account'} back on. They sign in with their old password, or use Forgot password.` }}</div>
-            </div>
+            <div class="sp-pane" v-show="panel.tab === 'account'">
             <div class="field">
               <label for="sName">Full name</label>
               <input class="input" id="sName" v-model="panel.displayName" required>
@@ -161,6 +150,29 @@
               <span class="help" v-show="panel.mode === 'add'">They get an email with a link to set their own password.</span>
               <span class="help" v-show="panel.mode === 'edit'">An email can't be changed. Switch this account off and add a new one instead.</span>
             </div>
+            <template v-if="panel.mode === 'edit'">
+              <div>
+                <div class="field">
+                  <label for="sReason" :class="{ req: changedStatus }">Reason for the change</label>
+                  <textarea class="input" id="sReason" v-model="panel.reason" placeholder="e.g. Covers Expenses while Accounting is on leave"></textarea>
+                  <span class="help">Saved in the audit log with your name.</span>
+                </div>
+                <hr class="divider">
+                <button type="button" class="btn" @click="sendReset()" :disabled="panel.busy">Send password reset email</button>
+              </div>
+            </template>
+            <!-- Account status (12 Nov 2026): two clear choices instead of a small tick at the bottom -->
+            <div class="acct" v-if="panel.mode === 'edit'">
+              <!-- 16 Nov 2026: a simple on/off toggle -->
+              <label class="acct-row">
+                <span><b>Account active</b><small>{{ panel.active ? 'Can sign in and use their pages.' : "Can't sign in or see anything. Their history stays." }}</small></span>
+                <span class="tgl"><input type="checkbox" role="switch" v-model="panel.active" :disabled="cantEdit" aria-label="Account active"><span class="tgl-track"></span></span>
+              </label>
+              <div class="acct-note off" v-if="wasActive && !panel.active">{{ `Saving turns off ${panel.displayName || 'this account'}. Add the reason above (e.g. Left the company).` }}</div>
+              <div class="acct-note on" v-if="!wasActive && panel.active">{{ `Saving turns ${panel.displayName || 'this account'} back on. They sign in with their old password, or use Forgot password.` }}</div>
+            </div>
+            </div>
+            <div class="sp-pane" v-show="panel.tab === 'perms'">
             <div class="field">
               <label>Role</label>
               <OptionPicker class="fit-picker" v-model="panel.role" :options="roleChoices.map(r => ({ value: r, label: ROLE_LABEL[r] }))" label="Role" :disabled="cantEdit" @change="resetPerms()" />
@@ -199,17 +211,7 @@
             </div>
             <p class="help" v-else>A Director can open and change every page.</p>
 
-            <template v-if="panel.mode === 'edit'">
-              <div>
-                <div class="field">
-                  <label for="sReason" :class="{ req: changedStatus }">Reason for the change</label>
-                  <textarea class="input" id="sReason" v-model="panel.reason" placeholder="e.g. Covers Expenses while Accounting is on leave"></textarea>
-                  <span class="help">Saved in the audit log with your name.</span>
-                </div>
-                <hr class="divider">
-                <button type="button" class="btn" @click="sendReset()" :disabled="panel.busy">Send password reset email</button>
-              </div>
-            </template>
+            </div>
           </form>
           <div class="drawer-foot">
             <button class="btn" @click="close()">Cancel</button>
@@ -419,13 +421,13 @@ export default {
     openAdd() {
       this.okMsg = '';
       this.panelOpen = true;
-      this.panel = { mode: 'add', displayName: '', email: '', role: 'finance', perms: presetOf('finance'), properties: [], active: true, reason: '', isMe: false, busy: false, error: '' };
+      this.panel = { mode: 'add', displayName: '', email: '', role: 'finance', perms: presetOf('finance'), properties: [], active: true, reason: '', isMe: false, busy: false, error: '', tab: 'account' };
     },
     openEdit(u) {
       this.okMsg = '';
       this.panelOpen = true;
       this.panel = { mode: 'edit', id: u.id, original: u, displayName: u.displayName || '', email: u.email, role: u.role || 'finance',
-        perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '' };
+        perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '', tab: 'account' };
     },
     close() { if (!this.panel.busy) this.panelOpen = false; },
 
@@ -437,11 +439,12 @@ export default {
       const perms = p.role === 'director' ? [] : cleanPerms(p.perms);
       const custom = p.role !== 'director' && !samePerms(perms, presetOf(p.role));
       const properties = p.role === 'director' ? [] : [...new Set(p.properties || [])].sort();   // Directors: always every property
-      if (!name) return p.error = 'Enter their full name.';
-      if (p.mode === 'add' && p.role !== 'director' && !properties.length) return p.error = 'Choose at least one property.';
+      if (!name) { p.tab = 'account'; return p.error = 'Enter their full name.'; }
+      if (p.mode === 'add' && p.role !== 'director' && !properties.length) { p.tab = 'perms'; return p.error = 'Choose at least one property.'; }
       if (p.mode === 'add') {
-        if (!email) return p.error = 'Enter their work email.';
-        if (this.users.some(u => (u.email || '').toLowerCase() === email)) return p.error = 'Someone on the list already uses this email.';
+        if (!email) { p.tab = 'account'; return p.error = 'Enter their work email.'; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { p.tab = 'account'; return p.error = 'That email address does not look right.'; }
+        if (this.users.some(u => (u.email || '').toLowerCase() === email)) { p.tab = 'account'; return p.error = 'Someone on the list already uses this email.'; }
       }
       p.busy = true;
       try {
@@ -469,7 +472,7 @@ export default {
           if (p.role !== 'director' && !sameList(properties, propsOf(o))) changes.push({ field: 'properties', old: propsOf(o), new: properties });
           if (p.active !== (o.active !== false)) changes.push({ field: 'active', old: o.active !== false, new: p.active });
           if (!changes.length) { p.busy = false; this.panelOpen = false; return; }
-          if (!p.reason.trim()) { p.busy = false; return p.error = 'Add a short reason. It goes in the audit log.'; }
+          if (!p.reason.trim()) { p.busy = false; p.tab = 'account'; return p.error = 'Add a short reason. It goes in the audit log.'; }
           batch.update(doc(db, 'users', p.id), {
             displayName: name, role: p.role, active: p.active, perms: custom ? perms : deleteField(), ...(p.role === 'director' ? {} : { properties }),
             updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name
@@ -547,7 +550,7 @@ export default {
     .staff-table td:first-child { white-space: normal; overflow-wrap: anywhere; min-width: 140px; max-width: 220px; }
     .custom-tag { margin: 0 0 0 6px; }
     /* Account status card in the edit panel */
-    .acct { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 16px; background: var(--surface); }
+    .acct { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 16px; background: var(--surface); }
     .acct-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
     .acct-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .acct-opt { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px;
@@ -564,7 +567,19 @@ export default {
     .acct-note { margin-top: 10px; font-size: 13px; padding: 8px 10px; border-radius: 8px; }
     .acct-note.off { color: var(--danger, #c0392b); background: color-mix(in srgb, var(--danger, #c0392b) 8%, transparent); }
     .acct-note.on { color: var(--green, #2e7d32); background: color-mix(in srgb, var(--green, #2e7d32) 9%, transparent); }
-    @media (max-width: 480px) { .acct-opts { grid-template-columns: minmax(0, 1fr); } }
+    .acct-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+    .acct-row b { display: block; font-size: 14px; }
+    .acct-row small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .tgl { position: relative; flex: none; width: 42px; height: 24px; }
+    .tgl input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+    .tgl input:disabled { cursor: not-allowed; }
+    .tgl-track { position: absolute; inset: 0; border-radius: 999px; background: var(--border); transition: background .2s ease; }
+    .tgl-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff;
+      box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .2s ease; }
+    .tgl input:checked + .tgl-track { background: var(--green, #2e7d32); }
+    .tgl input:checked + .tgl-track::after { transform: translateX(18px); }
+    .tgl input:focus-visible + .tgl-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tgl input:disabled + .tgl-track { opacity: .5; }
     .states-cell { white-space: normal !important; min-width: 110px; }
     .states-cell.no-state { color: var(--danger, #c0392b); font-weight: 600; }
     .no-state-note { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
@@ -595,6 +610,9 @@ export default {
     .perm-table .perm-grp small { display: block; font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); margin-top: 2px; }
     .perm-table input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
     .perm-table input:disabled { cursor: not-allowed; }
+/* Tabbed popup (16 Nov 2026): same height on both tabs, only the content changes */
+.drawer.sp-fixed { height: min(820px, 90dvh); }
+.sp-tabs { margin: 0; padding: 0 24px; flex: none; }   /* stays put; only the content below scrolls */
 .fit-picker :deep(.op) { display: block; width: 100%; }
 /* The picker's own root carries .fit-picker (the rule above only reaches inner .op), so it is sized here (13 Nov 2026) */
 .fit-picker { display: block; width: 100%; min-width: 0; max-width: 100%; }
