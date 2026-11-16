@@ -1,8 +1,6 @@
 <template>
   <main class="content">
     <div class="loading-bar" v-show="loading || busy"></div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <!-- List (Figma 254:6983) -->
     <template v-if="view === 'list'">

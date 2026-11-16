@@ -13,7 +13,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-if="error">{{ error }}</div>
     <div class="notice" v-if="!loading && !quarters.length">No quarter yet. Make one on Quarterly Management first.</div>
 
     <div class="oo-grid" v-if="quarters.length">

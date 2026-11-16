@@ -24,8 +24,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="notice warn" v-show="!loading && !properties.length">No properties yet. Upload an eZee report first; it creates the property and its units.</div>
 
     <div v-show="!selOpen">
@@ -139,7 +137,6 @@
             <h2>Why are you changing these bookings?</h2>
             <p class="help" style="margin:0 0 12px">The reason goes in the audit log with the old and new values.</p>
             <div class="field"><label for="editWhy">Reason</label><textarea class="input" id="editWhy" v-model="editReason" placeholder="e.g. eZee price was wrong, corrected from the invoice" ref="editWhy"></textarea></div>
-            <div class="notice error" v-if="error" style="margin-top:10px">{{ error }}</div>
             <div class="modal-foot"><button class="btn" @click="editAsk = false" :disabled="busy">Back</button><button class="btn btn-primary" @click="saveEdit()" :disabled="busy || !editReason.trim()">Save changes</button></div>
           </div>
         </div>

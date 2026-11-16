@@ -17,8 +17,6 @@
       <RouterLink to="/Settings/staff" class="on">Accounts</RouterLink>
       <RouterLink to="/Settings/staff-hr">HR details</RouterLink>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <!-- Properties (12 Nov 2026): staff see only the properties on their record, so everyone needs at least one -->
     <div class="notice error no-state-note" v-if="noStateCount">
       <span>{{ `${noStateCount} active staff ${noStateCount === 1 ? 'has' : 'have'} no properties yet. They see no property data until some are given.` }}</span>

@@ -11,8 +11,6 @@
         <button type="button" class="btn btn-primary" @click="save()" :disabled="busy || !dirty">{{ busy ? 'Saving…' : 'Save settings' }}</button>
       </div>
     </div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <div class="is-grid" v-if="!loading">
       <section class="card" v-for="box in BOXES" :key="box.key" :class="{ tall: box.key === 'terms' }">

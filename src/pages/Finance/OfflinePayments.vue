@@ -12,7 +12,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="done">{{ done }}</div>
 
     <section class="kpis">

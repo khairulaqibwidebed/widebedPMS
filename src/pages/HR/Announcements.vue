@@ -4,8 +4,6 @@
       <div><h1>Announcements</h1><div class="sub">{{ poster ? 'Post announcements to everyone or to chosen teams, and see who has read them.' : 'Announcements from HR and the Directors.' }}</div></div>
       <div class="head-tools" v-if="poster"><button class="btn btn-primary" @click="openNew()">+ Post announcement</button></div>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <!-- ===== One announcement (5 Nov 2026: strip on top like the cards, message on the left, attachments and HR's panel on the right) ===== -->
     <template v-if="open">

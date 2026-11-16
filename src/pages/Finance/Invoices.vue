@@ -13,7 +13,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="ok">{{ ok }}</div>
     <div class="notice warn" v-show="!loading && !properties.length">No properties yet. Upload an eZee report first; it creates the property and its units.</div>
 

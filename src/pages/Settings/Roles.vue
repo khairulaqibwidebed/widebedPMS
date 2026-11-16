@@ -10,8 +10,6 @@
       <div class="head-tools"><button class="btn btn-primary" @click="openNew()">+ Create role</button></div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <div class="table-wrap soft-wrap">
       <!-- Fixed column widths: a long role name or description wraps onto the next line instead of pushing the columns (4 Nov 2026) -->

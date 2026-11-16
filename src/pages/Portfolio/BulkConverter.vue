@@ -21,7 +21,6 @@
       </button>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <label class="dropzone" :class="{ over: dragging }" v-show="!grid.length && !loading"
            @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dragging = false; pick($event.dataTransfer.files)">

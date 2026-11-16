@@ -1,8 +1,6 @@
 <template>
   <main class="content ol-flow">
     <div class="loading-bar" v-show="loading || busy"></div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice warn" v-if="syncNotes.length"><template v-for="(n, i) in syncNotes" :key="i"><div>{{ n }}</div></template></div>
 
     <!-- Back to the Owner Leads list (13 Nov 2026: replaces the Listings panel button); with a listing open it sits in its header instead -->

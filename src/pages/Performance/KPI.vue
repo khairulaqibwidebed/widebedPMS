@@ -13,8 +13,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-if="error">{{ error }}</div>
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
     <div class="pills" role="group" style="margin-bottom:12px;" v-if="canManageKpi">
       <button class="pill-btn" :class="{ on: tab === 'mine' }" @click="tab = 'mine'">My KPIs</button>

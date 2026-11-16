@@ -91,6 +91,8 @@ button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparen
 .login-row { display: flex; justify-content: space-between; align-items: center; margin: -4px 0 20px; }
 .notice { border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 16px; animation: fade var(--med) var(--ease); }
 .notice.error { background: var(--red-soft); color: var(--red); }
+/* 16 Nov 2026: an empty date box (FormField) shows dd/mm/yyyy in grey; the calendar icon stays */
+.input.date-empty { color: var(--muted); }
 .notice.ok { background: var(--green-soft); color: var(--green); }
 .notice.warn { background: var(--amber-soft); color: var(--amber); }
 .login-foot { color: var(--muted); font-size: 12px; text-align: center; margin-top: 20px; }
@@ -227,9 +229,6 @@ button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparen
   transform: rotate(45deg); animation: tick-pop .35s var(--ease); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes tick-pop { from { opacity: 0; transform: rotate(45deg) scale(.3); } }
-.toast.ok { display: flex; align-items: center; gap: 8px; }
-.toast.ok::before { content: ''; width: 5px; height: 10px; margin: -3px 3px 0 2px; border: solid currentColor; border-width: 0 2px 2px 0;
-  transform: rotate(45deg); animation: tick-pop .35s var(--ease) .1s backwards; }
 
 /* 4. Progress ring for uploads (components/ProgressRing.vue) */
 .p-ring { flex: none; transform: rotate(-90deg); }
@@ -249,9 +248,28 @@ button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparen
 }
 
 /* ---------- Toast and command palette ---------- */
-.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--navy); color: #fff;
-  padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 50; box-shadow: 0 6px 20px rgba(0,0,0,.2);
-  animation: toast-in var(--med) var(--ease); }
+.toasts { position: fixed; top: 74px; right: 20px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
+/* as wide as the message, up to 380px */
+.toasts .toast { max-width: min(380px, calc(100vw - 32px)); }
+.toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; padding: 12px 10px 12px 14px; border-radius: 12px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-left: 4px solid var(--muted); box-shadow: 0 10px 30px rgba(0, 0, 0, .14); font-size: 13px; line-height: 1.45;
+  animation: toast-slide .25s var(--ease); }
+.toast.out { animation: toast-leave .2s ease-in forwards; }
+.toast-icon { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; background: var(--muted); margin-top: -1px; }
+.toast.ok { border-left-color: var(--green); } .toast.ok .toast-icon { background: var(--green); }
+.toast.error { border-left-color: var(--red); } .toast.error .toast-icon { background: var(--red); }
+.toast.warn { border-left-color: var(--amber); } .toast.warn .toast-icon { background: var(--amber); }
+.toast.info .toast-icon { background: var(--navy); }
+.toast-body { flex: 1; min-width: 0; }
+.toast-body p { margin: 0; overflow-wrap: anywhere; }
+.toast-act { margin-top: 6px; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.toast-act:hover { text-decoration: underline; }
+.toast-x { flex: none; width: 24px; height: 24px; margin: -3px 0 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.toast-x:hover { background: var(--chip, var(--border)); color: var(--text); }
+@keyframes toast-slide { from { opacity: 0; transform: translateX(24px); } }
+@keyframes toast-leave { to { opacity: 0; transform: translateX(24px); } }
+@media (max-width: 600px) { .toasts { top: auto; bottom: 16px; right: 16px; left: 16px; } }
+@media (prefers-reduced-motion: reduce) { .toast, .toast.out { animation: none; } }
 .palette-back { position: fixed; inset: 0; background: rgba(26,29,35,.35); z-index: 40; display: flex; justify-content: center; padding: 12vh 16px 0;
   animation: fade var(--fast) ease-out; }
 .palette { width: 100%; max-width: 520px; background: var(--surface); border-radius: 12px; overflow: hidden; height: fit-content;
@@ -471,7 +489,6 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
   --accent-soft: #3A2620; --green-soft: #17311F; --amber-soft: #34290F; --red-soft: #3A2620; --blue-soft: #18283C; color-scheme: dark;
   --green: #5CC48C; --amber: #E2A84A; --red: #F08A70; --blue: #7FAFE6; }
 :root[data-mode="dark"] body, :root[data-mode="dark"] .app { background: var(--bg); }
-:root[data-mode="dark"] .toast { color: #0F141A; }
 :root[data-mode="dark"][data-brand="blue"] { --accent-soft: #1A2740; }
 :root[data-mode="dark"] .btn-navy, :root[data-mode="dark"] .selbar { color: #0F141A; }
 

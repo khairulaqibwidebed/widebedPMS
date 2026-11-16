@@ -17,8 +17,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <OwnersList :owners="owners" :units="units" :properties="properties" :bf-lines="bfLines" :property-id="propertyId" :acc="acc" :loading="loading"
       @open="openOwner" @add="openOwner(null)" />

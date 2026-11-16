@@ -4,6 +4,7 @@
 // rent & terms (no rental status), then the T&Cs and the bank details. A field left empty is not printed.
 // Nothing is saved: each download makes a fresh PDF. The header, T&Cs and bank details come from config/invoiceDefaults
 // (Portfolio > Bookings > Invoice settings, Directors; Firestore rules 0.71); the T&Cs can be changed for one invoice.
+import { rentTermLabel } from './rent-term.js';
 import { doc, getDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { useSession } from '@/stores/session.js';
@@ -99,7 +100,7 @@ export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '
   return {
     tenant: [['Name', t?.name], ['Email', t?.email], ['Phone number', t?.phone]],
     property: [['Property', propertyName || b.propertyName], ['Unit', unitCode || b.unitCode], ['Type', unitType]],
-    terms: [['Type of rent', b.rentType], ['Move-in date', day(b.arrival)], ['Move-out date', day(b.departure)], ['Total nights', nights == null || nights < 0 ? '' : String(nights)]],
+    terms: [['Type of rent', rentTermLabel(b.rentType)], ['Move-in date', day(b.arrival)], ['Move-out date', day(b.departure)], ['Total nights', nights == null || nights < 0 ? '' : String(nights)]],
     amounts,
     total: amounts.reduce((s, [, v]) => s + v, 0)
   };

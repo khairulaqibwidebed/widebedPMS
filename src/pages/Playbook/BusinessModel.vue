@@ -10,7 +10,6 @@
         <button class="btn edit-outline" v-show="canEdit && !editing" :disabled="loading" @click="startEdit()">Edit page</button>
       </div>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="loading-bar" v-show="loading"></div>
 
     <div class="edit-bar" v-show="editing">
@@ -18,7 +17,6 @@
       <button class="btn" @click="cancel()">Cancel</button>
       <button class="btn btn-primary" :disabled="busy" @click="save()">{{ busy ? 'Saving…' : 'Save page' }}</button>
     </div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <div class="side-grid">
       <div class="stack" style="gap:16px">

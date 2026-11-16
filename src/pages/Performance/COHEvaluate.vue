@@ -8,7 +8,6 @@
       <button class="pill-btn" :class="{ on: tab === 'questions' }" @click="tab = 'questions'">Manage questions</button>
     </div>
 
-    <div class="notice error" v-if="error">{{ error }}</div>
 
     <template v-if="tab === 'evaluate'">
       <div class="coh-panel">

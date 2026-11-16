@@ -11,7 +11,6 @@
       <RouterLink to="/Settings/staff">Accounts</RouterLink>
       <RouterLink to="/Settings/staff-hr" class="on">HR details</RouterLink>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <div class="list-tools">
       <div class="search-box">

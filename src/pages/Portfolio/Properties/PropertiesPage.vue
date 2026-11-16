@@ -17,8 +17,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <!-- States (12 Nov 2026): every property needs one before data is locked by state. Directors set them here. -->
     <div class="notice error no-state-note" v-if="isDirector && noState.length">
       <span>{{ `${noState.length} ${noState.length === 1 ? 'property has' : 'properties have'} no state.` }}</span>
@@ -133,6 +131,7 @@ import { setPropertyState, forgetProperties } from '@/lib/portfolio-data.js';
 const me = useSession();
 
 export default {
+  popups: true,   // 16 Nov 2026: shown inside PropertiesRoute, so it opts in to the corner popups (lib/page-popups.js)
   mixins: [liveMixin],
   components: { MonthPicker, RefreshButton, PropertyDrawer, StampStates },
   data() {

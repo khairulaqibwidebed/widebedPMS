@@ -8,7 +8,6 @@
       </div>
       <span class="chip">Read-only</span>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <div class="toolbar">
       <input class="input" type="search" placeholder="Search who, unit, reason…" v-model="search" aria-label="Search">

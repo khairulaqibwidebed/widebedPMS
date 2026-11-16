@@ -91,9 +91,9 @@
           <fieldset class="lock" :disabled="!!resume">
           <div class="grid-fields">
             <div class="field"><label class="req" for="bProp">Property</label>
-              <PropertyPicker block class="fld-pick" v-model="bk.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="loadUnitList()" /></div>
+              <PropertyPicker block class="fld-pick" v-model="bk.propertyId" :properties="properties" placeholder="Choose property" @change="loadUnitList()" /></div>
             <div class="field"><label class="req" for="bUnit">Unit</label>
-              <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="[{ value: '', label: bk.propertyId && !units.length ? 'No units found' : 'Choose unit' }, ...units.map(x => ({ value: x.id, label: x.unitCode || x.id }))]" label="Unit" searchable /></div>
+              <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="units.map(x => ({ value: x.id, label: x.unitCode || x.id }))" :placeholder="bk.propertyId && !units.length ? 'No units found' : 'Choose unit'" label="Unit" searchable /></div>
             <FormField id="bIn" label="Check-in" req type="date" v-model="bk.arrival" />
             <FormField id="bOut" label="Check-out" req type="date" v-model="bk.departure" />
           </div>
@@ -108,10 +108,10 @@
           <!-- 16 Nov 2026 (Khairul): grouped and compact - Booking and Rent three across, the fees as a two-column list -->
           <div class="rd-sec">Booking</div>
           <div class="rd-3">
-            <div class="field"><label class="req">Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="SOURCES_BK" label="Booking source" /></div>
-            <div class="field"><label class="req">Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" /></div>
+            <div class="field"><label class="req">Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="SOURCES_BK" label="Booking source" placeholder="Choose source…" /></div>
+            <div class="field"><label class="req">Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" placeholder="Choose status…" /></div>
             <div class="field"><label for="bRentType">Type of rent</label>
-              <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" /></div>
+              <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" placeholder="Choose type of rent…" /></div>
           </div>
           <div class="rd-sec">Rent</div>
           <div class="rd-3">
@@ -165,7 +165,7 @@
           <div class="grid-fields">
             <FormField id="bAmt" :label="longTerm ? 'Amount paid (RM)' : 'Amount (RM)'" :req="!longTerm && !unpaid" type="number" min="0" step="0.01" placeholder="0.00" v-model="bk.amount" />
             <div class="field"><label :class="{ req: +bk.amount > 0 }" for="bMode">Mode of payment</label>
-              <OptionPicker class="fld-pick" v-model="bk.payMode" :options="PAY_MODES" label="Mode of payment" /></div>
+              <OptionPicker class="fld-pick" v-model="bk.payMode" :options="PAY_MODES" label="Mode of payment" placeholder="Choose mode" /></div>
             <FormField id="bPayDate" label="Date" type="date" v-model="bk.payDate" />
             <FormField id="bRef" label="Reference numbers" v-model="bk.paymentRef" placeholder="e.g. bank transfer ref or receipt no." />
             <FormField id="bEzee" label="eZee reservation no." v-model="bk.ezeeNo" placeholder="Add once it is keyed into eZee" />
@@ -260,6 +260,7 @@ import PropertyPicker from '@/components/PropertyPicker.vue';
 import FormField from '@/components/FormField.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import StepStrip from '@/components/StepStrip.vue';
+import { RENT_TERMS, rentTermLabel } from '@/lib/rent-term.js';
 import FormSaved from '@/components/FormSaved.vue';
 import { idPrefix } from '@/lib/lodgment.js';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
@@ -274,10 +275,12 @@ import { invoiceOf } from '@/lib/booking-invoice.js';
 const me = useSession();
 const LONG_TERM_NIGHTS = 30;
 const GENDERS = ['Male', 'Female', 'Other'].map(x => ({ value: x, label: x }));
-const SOURCES_BK = [{ value: '', label: 'Choose source…' }, ...['Offline', 'Website', 'Agent', 'OTA'].map(x => ({ value: x, label: x }))];
-const RENTAL_STATUSES = [{ value: '', label: 'Choose status…' }, { value: 'Paid', label: 'Paid' }, { value: 'Unpaid', label: 'Unpaid' }];
-const RENT_TYPES = ['Daily', 'Monthly', 'Yearly'].map(x => ({ value: x, label: x }));
-const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); PAY_MODES.unshift({ value: '', label: 'Choose mode' });
+// 16 Nov 2026: no "Choose…" row in the lists; the drop-downs show a grey placeholder until something is picked
+const SOURCES_BK = ['Offline', 'Website', 'Agent', 'OTA'].map(x => ({ value: x, label: x }));
+const RENTAL_STATUSES = [{ value: 'Paid', label: 'Paid' }, { value: 'Unpaid', label: 'Unpaid' }];
+// 16 Nov 2026: shown as Short / Mid / Long term; saved as Daily / Monthly / Yearly (lib/rent-term.js)
+const RENT_TYPES = RENT_TERMS.map(x => ({ value: x.value, label: x.label }));
+const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x }));
 const FEES = [{ key: 'utilityDeposit', label: 'Utility deposit' }, { key: 'internetFee', label: 'Internet fees' }, { key: 'carparkFee', label: 'Carpark fees' },
   { key: 'cleaningFee', label: 'Cleaning fees' }, { key: 'taFee', label: 'Tenancy agreement fees', short: 'Tenancy agreement' }, { key: 'taStampFee', label: 'Tenancy agreement stamping fees', short: 'TA stamping' },
   { key: 'gatewayFee', label: 'Payment gateway charges', short: 'Payment gateway' }, { key: 'cardFee', label: 'Credit card charges' }, { key: 'othersFee', label: 'Others' }];
@@ -400,7 +403,7 @@ export default {
           ...(b.existing ? [['Existing tenant', b.existing.id]] : []), ...(b.coTenants.length ? [['Other tenants', b.coTenants.map(c => c.name || '(no name)').join(', ')]] : [])] },
         { key: 'stay', label: 'Stay', rows: [['Property', prop?.name || '—'], ['Unit', this.units.find(u => u.id === b.unitId)?.unitCode || d(b.unitId)], ['Check-in', b.arrival ? this.full(b.arrival) : '—'], ['Check-out', b.departure ? this.full(b.departure) : '—'],
           ['Nights', this.hasStay ? (this.nights === 0 ? '0 · Same-day check-out' : `${this.nights} · ${this.longTerm ? 'Long-term lease' : 'Short stay'}`) : '—']] },
-        { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ['Rental status', d(b.rentalStatus)], ['Type of rent', d(b.rentType)],
+        { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ['Rental status', d(b.rentalStatus)], ['Type of rent', d(rentTermLabel(b.rentType))],
           ['Rental', money(this.longTerm ? b.monthlyRent : b.rental)], ['Security deposit', this.longTerm ? this.rm(this.deposit) : money(b.securityDeposit)], ...fees,
           ...(+b.othersFee > 0 ? [['Others is for', d(b.othersNote)]] : [])] },
         { key: 'payment', label: 'Payment', rows: [['Amount', money(b.amount)], ['Mode', d(b.payMode)], ['Date', b.payDate ? this.full(b.payDate) : '—'], ['Reference', d(b.paymentRef)],
@@ -481,7 +484,8 @@ export default {
     async startBooking() {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
       this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null, matchUsed: false,
-        rentType: 'Daily', bookingSource: '', rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', gatewayFee: '', cardFee: '', othersFee: '', othersNote: '',
+        rentType: '', bookingSource: '',   // 16 Nov 2026: starts empty (placeholder)
+        rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', gatewayFee: '', cardFee: '', othersFee: '', othersNote: '',
         payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
       this.units = []; this.formError = '';

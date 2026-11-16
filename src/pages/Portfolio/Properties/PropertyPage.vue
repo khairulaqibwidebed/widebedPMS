@@ -21,8 +21,6 @@
       <template v-for="t in acc.PTABS" :key="t.key"><button :class="{ on: ptab === t.key }" @click="setPtab(t.key)">{{ t.label }}</button></template>
     </nav>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <template v-if="property.id">
       <OverviewTab v-show="ptab === 'overview'" :property="property" :units="units" :as-of="asOf" :done="monthDocs[property.id]?.status === 'completed'" :acc="acc"
@@ -86,6 +84,7 @@ import AuditTab from './tabs/AuditTab.vue';
 const me = useSession();
 
 export default {
+  popups: true,   // 16 Nov 2026: shown inside PropertiesRoute, so it opts in to the corner popups (lib/page-popups.js)
   components: { PropertyPicker, OptionPicker, MonthPicker, RefreshButton, OwnersList, OwnerDrawer, PropertyDrawer, UnitDrawer, OverviewTab, UnitsTab, RatesTab, AuditTab },
   data() {
     const q = this.$route.query, acc = portfolioAccess(me.role, me);

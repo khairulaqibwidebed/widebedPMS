@@ -15,8 +15,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-if="error">{{ error }}</div>
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
     <div class="card" v-if="!loading">
       <div class="table-wrap">

@@ -2,7 +2,6 @@
   <main class="content">
     <div class="loading-bar" v-show="loading"></div>
     <div class="ag-crumb"><RouterLink to="/Agreements/setup">Agreement Setup</RouterLink><span>›</span><span>Form</span></div>
-    <div class="notice error" v-if="error">{{ error }}</div>
 
     <template v-if="form">
       <div class="ag-bar fb-top">

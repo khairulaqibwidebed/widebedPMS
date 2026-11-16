@@ -13,8 +13,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <section class="kpis sa-kpis">
       <button type="button" class="card kpi kpi-link" :class="{ on: tab === 'waiting' }" @click="tab = 'waiting'"><div class="label">Waiting for you</div><div class="value" :class="{ alert: waiting.length }">{{ waiting.length }}</div><div class="hint">Sent by Accounting</div></button>

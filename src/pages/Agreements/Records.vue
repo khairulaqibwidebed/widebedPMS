@@ -16,8 +16,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-if="error">{{ error }}</div>
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
     <div v-if="!loading && !forms.length" class="card ag-empty">
       <b>No agreement forms yet</b>

@@ -10,8 +10,6 @@
     </div>
 
     <div class="notice warn" v-if="!driveReady()">Google Drive isn't connected yet, so templates and files can't be uploaded. Follow apps-script/SETUP.md, then add VITE_AGREEMENTS_DRIVE_URL.</div>
-    <div class="notice error" v-if="error">{{ error }}</div>
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
     <section class="card setup-card setup-group">
 <div class="group-row">

@@ -48,6 +48,7 @@ const MESSAGES = {
 };
 
 export default {
+  popups: false,   // 16 Nov 2026: messages stay on the page here (lib/page-popups.js)
   data: () => ({ configMissing, email: '', password: '', showPw: false, busy: false, err: '', ok: '' }),
   async created() {
     if ('noaccess' in this.$route.query) this.err = NO_ACCESS;

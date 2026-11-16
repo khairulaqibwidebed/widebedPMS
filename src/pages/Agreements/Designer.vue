@@ -2,7 +2,6 @@
   <main class="content ds">
     <div class="loading-bar" v-show="loading || busy"></div>
     <div class="ag-crumb"><RouterLink to="/Agreements/setup">Agreement Setup</RouterLink><span>›</span><span>Place fields</span></div>
-    <div class="notice error" v-if="error">{{ error }}</div>
 
     <template v-if="tpl && form">
       <!-- Toolbar -->

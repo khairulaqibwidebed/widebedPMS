@@ -11,8 +11,6 @@
         <button type="button" class="btn btn-primary" @click="save()" :disabled="busy || !dirty">{{ busy ? 'Saving…' : 'Save defaults' }}</button>
       </div>
     </div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <!-- 16 Nov 2026 (Khairul): tabs to swap between the two lists instead of side by side -->
     <div class="tabs" role="tablist" aria-label="Defaults" v-if="!loading">

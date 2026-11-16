@@ -13,8 +13,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-if="error">{{ error }}</div>
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
     <div v-if="!loading && !trackedForms.length" class="card ag-empty">
       <b>No agreements are tracked yet</b>
