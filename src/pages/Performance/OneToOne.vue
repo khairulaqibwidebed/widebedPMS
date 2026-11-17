@@ -69,6 +69,8 @@
         <div class="grid-fields oo-fields">
           <div class="field"><label for="ooName">Staff name</label><input id="ooName" class="input" v-model="edit.staffName" maxlength="120" :placeholder="sel.name"></div>
           <div class="field"><label for="ooPos">Position</label><input id="ooPos" class="input" v-model="edit.position" maxlength="120" :placeholder="sel.position || 'Position'"></div>
+          <!-- IC (17 Nov 2026): from Staff accounts › HR details; can be typed over for this form -->
+          <div class="field"><label for="ooIc">IC number</label><input id="ooIc" class="input" v-model="edit.ic" maxlength="40" :placeholder="sel.ic || 'Not saved in HR details'"></div>
         </div>
         <div class="field oo-fields">
           <label for="ooTopic">Topic</label><input id="ooTopic" class="input" v-model="topic" maxlength="120" :placeholder="TOPIC">
@@ -82,6 +84,20 @@
           <input id="ooJoin" class="input" type="date" v-model="joinDraft">
           <button type="button" class="btn btn-sm" :disabled="savingJoin || joinDraft === (sel.joinDate || '')" @click="saveJoin">{{ savingJoin ? 'Saving…' : 'Save' }}</button>
           <span class="help" v-if="!sel.joinDate">Entered once; it's kept on the staff record.</span>
+        </div>
+
+        <!-- Leave taken this year (17 Nov 2026): typed in for this form, printed under Join Date. Not saved. -->
+        <div class="oo-leave">
+          <div class="oo-leave-head"><b>Leave taken in {{ leaveYear }}</b><span class="help">Days. Type them for this form; they aren't saved.</span></div>
+          <table class="oo-leave-table">
+            <thead><tr><th v-for="t in LEAVE_TYPES" :key="t.key" scope="col">{{ t.label }}</th><th scope="col">Total</th></tr></thead>
+            <tbody><tr>
+              <td v-for="t in LEAVE_TYPES" :key="t.key">
+                <input class="input" type="number" min="0" max="366" step="0.5" inputmode="decimal" placeholder="0" v-model="edit.leave[t.key]" :aria-label="t.label + ' leave days in ' + leaveYear">
+              </td>
+              <td class="oo-leave-total">{{ form.leave.total || '—' }}</td>
+            </tr></tbody>
+          </table>
         </div>
 
         <div class="notice warn" v-if="notes.length"><div v-for="n in notes" :key="n">{{ n }}</div></div>
@@ -103,7 +119,7 @@
 // Performance › One To One Session (12 Nov 2026). HR and Directors only: only they can read the COH marks.
 // The form is the PDF drawn by lib/performance/oneToOnePdf.js (laid out like HR's Word template); what you see is what prints.
 import { listQuarters } from '@/lib/performance/quarters.js';
-import { loadSession, loadVenues, saveVenues, saveJoinDate, formData, fileName, cleanVenues, DEFAULT_VENUES, TOPIC } from '@/lib/performance/oneToOne.js';
+import { loadSession, loadVenues, saveVenues, saveJoinDate, formData, fileName, cleanVenues, DEFAULT_VENUES, TOPIC, LEAVE_TYPES, emptyLeave } from '@/lib/performance/oneToOne.js';
 import { buildOneToOnePdf } from '@/lib/performance/oneToOnePdf.js';
 import { CJK_FONT_URL } from '@/lib/agreements/pdf.js';
 import { friendlyError } from '@/lib/finance-data.js';
@@ -119,16 +135,17 @@ export default {
       loading: true, error: '', quarters: [], quarterId: '', questions: [], rows: [], unreadable: 0, search: '', selectedUid: '',
       date: todayKey(), venues: [...DEFAULT_VENUES], venue: DEFAULT_VENUES[0], venueOpen: false, newVenue: '', venueLocal: false,
       joinDraft: '', savingJoin: false, pdfUrl: '', building: false, fontMissing: false,
-      TOPIC, topic: TOPIC, edit: { staffName: '', position: '' }, editsByUid: {}   // what HR typed over the filled-in details, kept per person while the page is open
+      TOPIC, LEAVE_TYPES, topic: TOPIC, edit: { staffName: '', position: '', ic: '', leave: emptyLeave() }, editsByUid: {}   // what HR typed over the filled-in details, kept per person while the page is open
     };
   },
   computed: {
     shown() { const q = this.search.trim().toLowerCase(); return q ? this.rows.filter(r => r.name.toLowerCase().includes(q)) : this.rows; },
     sel() { return this.rows.find(r => r.uid === this.selectedUid) || null; },
+    leaveYear() { return /^\d{4}/.test(this.date || '') ? this.date.slice(0, 4) : String(new Date().getFullYear()); },
     quarterName() { return this.quarters.find(q => q.id === this.quarterId)?.name || ''; },
     form() { return this.sel ? formData({ row: this.sel, questions: this.questions, date: this.date, venue: this.venue, edits: { ...this.edit, topic: this.topic } }) : null; },
     downloadName() { return this.form ? fileName(this.form.staffName, this.quarterName) : ''; },
-    edited() { return !!this.sel && (this.edit.staffName !== this.sel.name || this.edit.position !== this.sel.position || this.topic !== TOPIC); },
+    edited() { return !!this.sel && (this.edit.staffName !== this.sel.name || this.edit.position !== this.sel.position || this.edit.ic !== (this.sel.ic || '') || this.topic !== TOPIC); },
     notes() {
       const f = this.form, out = [];
       if (!f) return out;
@@ -144,9 +161,11 @@ export default {
     quarterId() { this.loadQuarter(); },
     // Another person: their details are filled in (or what was typed for them earlier on this visit).
     selectedUid(uid, old) {
-      if (old) this.editsByUid[old] = { ...this.edit };
+      if (old) this.editsByUid[old] = { ...this.edit, leave: { ...this.edit.leave } };
       this.joinDraft = this.sel?.joinDate || '';
-      this.edit = this.sel ? { ...(this.editsByUid[uid] || { staffName: this.sel.name, position: this.sel.position }) } : { staffName: '', position: '' };
+      const kept = this.editsByUid[uid];
+      this.edit = this.sel ? (kept ? { ...kept, leave: { ...kept.leave } } : { staffName: this.sel.name, position: this.sel.position, ic: this.sel.ic || '', leave: emptyLeave() })
+        : { staffName: '', position: '', ic: '', leave: emptyLeave() };
     },
     form: { handler() { this.queueBuild(); }, deep: true }
   },
@@ -204,7 +223,7 @@ export default {
     },
     rememberVenue() { if (this.venue) this.keepVenues(); },
 
-    resetEdits() { this.edit = { staffName: this.sel.name, position: this.sel.position }; this.topic = TOPIC; },
+    resetEdits() { this.edit = { ...this.edit, staffName: this.sel.name, position: this.sel.position, ic: this.sel.ic || '' }; this.topic = TOPIC; },   // the leave typed in stays
 
     // ---- Join date ----
     async saveJoin() {
@@ -225,7 +244,7 @@ export default {
       try {
         if (!logoBytes) { try { logoBytes = new Uint8Array(await (await fetch(logoUrl)).arrayBuffer()); } catch (_) { logoBytes = null; } }
         // A name the built-in fonts can't print (e.g. Chinese): try the same extra font the agreements use.
-        const odd = /[^\u0000-ÿ‘’“”–—…]/.test(`${data.staffName}${data.position}${data.venue}${data.questions.map(q => q.title).join('')}`);
+        const odd = /[^\u0000-ÿ‘’“”–—…]/.test(`${data.staffName}${data.position}${data.ic}${data.venue}${data.questions.map(q => q.title).join('')}`);
         if (odd && fallbackFont === undefined) {
           try { const res = await fetch(CJK_FONT_URL); fallbackFont = res.ok && !(res.headers.get('content-type') || '').includes('text/html') ? new Uint8Array(await res.arrayBuffer()) : null; } catch (_) { fallbackFont = null; }
         }
@@ -281,6 +300,16 @@ export default {
 .oo-join { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .oo-join label { font-size: 13px; font-weight: 600; }
 .oo-join .input { width: 170px; }
+.oo-leave { margin: 0 0 12px; }
+.oo-leave-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 6px; }
+.oo-leave-head b { font-size: 13px; }
+.oo-leave-head .help { margin: 0; }
+.oo-leave-table { width: 100%; max-width: 520px; border-collapse: separate; border-spacing: 0; table-layout: fixed; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.oo-leave-table th { padding: 7px 8px; font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--chip); text-align: center; border-bottom: 1px solid var(--border); }
+.oo-leave-table td { padding: 6px; text-align: center; }
+.oo-leave-table th + th, .oo-leave-table td + td { border-left: 1px solid var(--line); }
+.oo-leave-table .input { width: 100%; height: 34px; text-align: center; padding: 0 6px; }
+.oo-leave-total { font-weight: 700; font-variant-numeric: tabular-nums; }
 .oo-preview { background: var(--chip); border-radius: 10px; padding: 10px; margin: 10px 0; }
 .oo-preview iframe { display: block; width: 100%; height: 760px; border: 0; background: #fff; border-radius: 6px; }
 </style>
