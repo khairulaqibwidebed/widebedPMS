@@ -228,6 +228,7 @@
 
 <script>
 import { notifyUser } from '@/services/notificationService.js';
+import { syncStaff } from '@/lib/tms.js';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, updateProfile, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { collection, doc, getDocs, serverTimestamp, writeBatch, query, where, limit, deleteField } from 'firebase/firestore';
@@ -476,6 +477,13 @@ export default {
           audit(batch, 'staff.update', p.id, changes, p.reason.trim());
           await batch.commit();
           this.okMsg = `${name} updated. Changes apply the next time they open a page.`;
+          // The task system (TMS) follows straight away: name, role/department, switched off (17 Nov 2026).
+          // A failure never undoes the save here; the TMS then catches up at their next sign-in.
+          if (changes.some(c => ['displayName', 'role', 'active'].includes(c.field)))
+            syncStaff([p.id]).catch(e => {
+              console.warn('Task system not updated:', e.message);
+              this.okMsg = `${name} updated. The task system could not be reached, so it will update at their next sign-in there.`;
+            });
           // The person hears that their role or page access changed (3 Nov 2026). Not for switched-off accounts or yourself.
           const roleChanged = p.role !== o.role, accessChanged = changes.some(c => c.field === 'perms' || c.field === 'properties');
           if ((roleChanged || accessChanged) && p.active && p.id !== me.user.uid)
