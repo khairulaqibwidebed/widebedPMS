@@ -28,7 +28,9 @@
             <tbody>
               <template v-for="r in pageRows" :key="r.key">
                 <tr :class="{ clickable: !!r.listingId }" @click="open(r)">
-                  <td><b>{{ r.listingId || '—' }}</b><button v-if="!r.listingId && canStart && r.status === 'new'" class="btn btn-primary btn-sm lb-start" @click.stop="$emit('start', r.lead)" :disabled="busy">Start</button></td>
+                  <td><!-- 17 Nov 2026: a lead not started shows only the Start button (no dash above it) -->
+                    <button v-if="!r.listingId && canStart && r.status === 'new'" class="btn btn-primary btn-sm lb-start" @click.stop="$emit('start', r.lead)" :disabled="busy">Start</button>
+                    <b v-else>{{ r.listingId || '—' }}</b></td>
                   <td class="wrap">{{ r.subject || '—' }}</td>
                   <td>{{ r.property || '—' }}</td>
                   <td>{{ r.unit || '—' }}</td>
@@ -150,7 +152,7 @@ export default {
 .lb-view button { border: 0; background: none; padding: 6px 14px; border-radius: 8px; font: inherit; font-size: 13px; cursor: pointer; color: var(--muted); }
 .lb-view button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .lb-table td { font-size: 13px; }
-.lb-start { margin-left: 8px; }
+.lb-start { white-space: nowrap; }
 .wrap { overflow-wrap: anywhere; min-width: 120px; }
 .remarks { max-width: 220px; }
 .nowrap { white-space: nowrap; }
