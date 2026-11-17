@@ -61,7 +61,7 @@
           <tbody>
             <tr v-for="f in forms" :key="f.id">
               <td><RouterLink class="setup-name" :to="'/Agreements/setup/form/' + f.id">{{ f.name }}</RouterLink></td>
-              <td class="num">{{ f.fields.filter(x => x.type !== 'section').length }}</td>
+              <td class="num">{{ f.fields.filter(x => !['section', 'note'].includes(x.type)).length }}</td>
               <td class="num">{{ f.fields.filter(x => x.type === 'formula').length }}</td>
               <td class="num">{{ templates.filter(t => t.formId === f.id).length }}</td>
               <td><span class="pill" :class="f.renewal?.on ? 'green' : 'grey'">{{ f.renewal?.on ? 'Reminders on' : 'Off' }}</span></td>

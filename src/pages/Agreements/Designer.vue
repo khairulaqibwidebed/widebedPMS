@@ -165,7 +165,7 @@
       <div class="field">
         <label for="newFieldType">Type</label>
         <select id="newFieldType" class="input select" v-model="ask.type">
-          <option v-for="t in FIELD_TYPES.filter(t => !['section', 'file', 'formula'].includes(t.type))" :key="t.type" :value="t.type">{{ t.label }}</option>
+          <option v-for="t in FIELD_TYPES.filter(t => !['section', 'note', 'file', 'formula'].includes(t.type))" :key="t.type" :value="t.type">{{ t.label }}</option>
         </select>
       </div>
     </NameDialog>

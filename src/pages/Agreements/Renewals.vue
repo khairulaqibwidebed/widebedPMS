@@ -29,50 +29,56 @@
       </div>
 
       <div class="card">
-        <div class="ag-bar rn-bar">
+        <div class="ag-bar rn-tabs">
           <div class="pills" role="group" aria-label="Show">
             <button v-for="t in TABS" :key="t.key" class="pill-btn" :class="{ on: tab === t.key }" @click="tab = t.key">{{ t.label }} ({{ count(t.key) }})</button>
           </div>
         </div>
-        <div class="ag-bar rn-bar">
+        <div class="rn-filters">
           <label class="sr-only" for="rnSearch">Search</label>
           <input id="rnSearch" class="input rn-search" v-model="search" placeholder="Search agreement or person…">
           <label class="sr-only" for="rnForm">Form</label>
-          <select id="rnForm" class="select" v-model="formFilter">
+          <select id="rnForm" class="select rn-form" v-model="formFilter">
             <option value="">All forms</option>
             <option v-for="f in trackedForms" :key="f.id" :value="f.id">{{ f.name }}</option>
           </select>
-          <label class="ag-check-row rn-mine"><input type="checkbox" v-model="onlyMine"> Only mine</label>
           <label class="sr-only" for="rnUnit">Unit</label>
-          <select id="rnUnit" class="select" v-model="unitFilter">
+          <select id="rnUnit" class="select rn-unit-filter" v-model="unitFilter">
             <option value="">All units</option>
             <option v-for="u in unitsAvailable" :key="u" :value="u">{{ u }}</option>
           </select>
+          <label class="rn-mine"><input type="checkbox" v-model="onlyMine"> Only mine</label>
         </div>
 
         <div class="table-wrap">
-          <table class="table hover-rows">
-            <thead><tr><th>Agreement</th><th>Unit</th><th>Ends</th><th>Status</th><th>In charge</th><th></th></tr></thead>
+          <table class="table hover-rows rn-table">
+            <colgroup>
+              <col><col class="c-unit"><col class="c-ends"><col class="c-status"><col class="c-ic"><col class="c-acts">
+            </colgroup>
+            <thead><tr><th>Agreement</th><th>Unit</th><th>Ends</th><th>Status</th><th>In charge</th><th class="rn-acts-h"><span class="sr-only">Actions</span></th></tr></thead>
             <tbody>
               <tr v-for="r in shown" :key="r.id">
-                <td>
+                <td class="ct-title">
                   <RouterLink class="rn-name" :to="'/Agreements/record/' + r.id">{{ r.title || 'Untitled' }}</RouterLink>
-                  <br><small class="muted">{{ formName(r.formId) }}<template v-if="r.renewal?.renewedFrom"> · renewal</template></small>
-                </td>
-                <td>{{ r.unit || '—' }}</td>
-                <td>
-                  <b>{{ r.endDate ? formatDate(r.endDate, 'DD MMM YYYY') : '—' }}</b>
-                  <br><small :class="dayClass(r)">{{ daysText(r.state.days) }}</small>
+                  <span class="rn-sub">{{ formName(r.formId) }}<template v-if="r.renewal?.renewedFrom"> · renewal</template></span>
                 </td>
                 <td>
+                  <span v-if="r.unit" class="rn-unit">{{ r.unit }}</span>
+                  <span v-else class="rn-none">—</span>
+                </td>
+                <td>
+                  <span class="rn-date">{{ r.endDate ? formatDate(r.endDate, 'DD MMM YYYY') : '—' }}</span>
+                  <span class="rn-sub" :class="dayClass(r)">{{ daysText(r.state.days) }}</span>
+                </td>
+                <td class="ct-badge">
                   <span class="pill" :class="r.state.pill">{{ r.state.label }}</span>
-                  <br v-if="r.renewal?.note"><small class="muted" v-if="r.renewal?.note">{{ r.renewal.note }}</small>
+                  <span class="rn-sub" v-if="r.renewal?.note" :title="r.renewal.note">{{ r.renewal.note }}</span>
                 </td>
                 <td class="rn-ic">
                   <PeoplePicker compact :model-value="inChargeOf(r)" :staff="staff" :disabled="r.busy" :label="'Add a person in charge of ' + r.title"
                     @update:model-value="list => setInCharge(r, list)" />
                 </td>
-                <td><div class="rn-acts">
+                <td class="ct-actions"><div class="rn-acts">
                   <template v-if="['soon', 'ended', 'active', 'noDate'].includes(r.state.key)">
                     <button class="act-pill" :disabled="r.busy" @click="setState(r, 'renewing')">Start renewal</button>
                     <button class="act-pill good" :disabled="r.busy" @click="renew(r)">Renew</button>
@@ -89,7 +95,7 @@
                   <button v-else class="act-pill" :disabled="r.busy" @click="setState(r, '')">Undo</button>
                 </div></td>
               </tr>
-              <tr v-if="!shown.length"><td colspan="6" class="muted">Nothing here.</td></tr>
+              <tr v-if="!shown.length"><td colspan="6" class="rn-empty">Nothing here.</td></tr>
             </tbody>
           </table>
         </div>
@@ -229,15 +235,53 @@ async function renew(r) {
 
 <style scoped>
 .kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.rn-bar { margin-bottom: 12px; }
-.rn-search { max-width: 280px; }
-.rn-mine { margin: 0; }
-.rn-name { font-weight: 600; color: var(--text); }
+.rn-tabs { margin-bottom: 14px; }
+
+/* Filters: one tidy row, every control the same height (17 Nov 2026) */
+.rn-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.rn-filters .input, .rn-filters .select { height: 38px; margin: 0; }
+.rn-search { flex: 1 1 240px; max-width: 340px; }
+.rn-form { flex: 0 1 240px; min-width: 160px; }
+.rn-unit-filter { flex: 0 0 140px; }
+.rn-mine { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.rn-mine input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+
+/* Table: fixed columns so every row lines up, two-line cells for name / date / status */
+.rn-table { table-layout: fixed; min-width: 1080px; }
+.rn-table col.c-unit { width: 110px; }
+.rn-table col.c-ends { width: 140px; }
+.rn-table col.c-status { width: 150px; }
+.rn-table col.c-ic { width: 270px; }
+.rn-table col.c-acts { width: 320px; }
+.rn-table td { vertical-align: middle; padding-top: 14px; padding-bottom: 14px; }
+.rn-name { display: block; font-weight: 600; color: var(--text); line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }   /* long names go on to the next line */
 .rn-name:hover { color: var(--accent); }
-.rn-ic { min-width: 200px; max-width: 280px; }
-.rn-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.rn-sub { display: block; margin-top: 3px; font-size: 12px; line-height: 1.4; color: var(--muted); white-space: normal; overflow-wrap: anywhere; }
+.rn-date { display: block; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rn-unit { display: inline-block; max-width: 100%; padding: 3px 8px; border-radius: 6px; background: var(--chip); color: var(--text); font-size: 12px; font-weight: 600;
+  font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.rn-none { color: var(--muted); }
 .rn-late { color: var(--red); font-weight: 600; }
 .rn-soon { color: var(--amber, #B45309); font-weight: 600; }
+.rn-empty { text-align: center; color: var(--muted); padding: 32px 16px; }
+
+/* In charge: chips and a small "+ Add" list on one line, wrapping only when there are several people */
+.rn-ic :deep(.pp) { gap: 6px; }
+.rn-ic :deep(.pp-add) { height: 30px; min-width: 0; width: 84px; padding: 0 24px 0 12px; font-size: 12px; border-radius: 999px; background-position: calc(100% - 15px) 13px, calc(100% - 11px) 13px; }
+.rn-ic :deep(.pp-none) { font-size: 12px; }
+
+/* Actions: one line, right aligned */
+.rn-acts-h { text-align: right; }
+.rn-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: nowrap; }
 .rn-note { margin-top: 12px; }
+
 @media (max-width: 900px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .rn-search, .rn-form { flex: 1 1 100%; max-width: none; }
+  .rn-unit-filter { flex: 1 1 auto; }
+  .rn-table { min-width: 0; table-layout: auto; }
+  .rn-acts { flex-wrap: wrap; }
+  .rn-ic :deep(.pp) { justify-content: flex-end; }
+}
 </style>

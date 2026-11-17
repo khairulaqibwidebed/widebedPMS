@@ -3,6 +3,7 @@ import { todayISO } from './formula.js';
 
 export const FIELD_TYPES = [
   { type: 'section', label: 'Section heading', hint: 'A title between groups of fields' },
+  { type: 'note', label: 'Text block', hint: 'Text to read only, no answer: house rules, terms. Show it on the form or as a link to open' },
   { type: 'text', label: 'Text' },
   { type: 'textarea', label: 'Long text' },
   { type: 'email', label: 'Email' },
@@ -30,7 +31,9 @@ export const RESULT_TYPES = [
 export const STATUS = { draft: 'Draft', submitted: 'To check', completed: 'Completed', archived: 'Archived' };
 export const STATUS_PILL = { draft: 'amber', submitted: 'blue', completed: 'green', archived: 'grey' };
 
-export const hasValue = f => f.type !== 'section';
+// Section headings and text blocks are only shown, never answered.
+export const NO_VALUE = ['section', 'note'];
+export const hasValue = f => !NO_VALUE.includes(f.type);
 // Can be placed on an agreement page (attachments are kept with the record, not printed).
 export const placeable = f => hasValue(f) && f.type !== 'file';
 export const hasOptions = f => f.type === 'dropdown' || f.type === 'radio';
@@ -69,7 +72,7 @@ export function moveTo(list, from, to) {
   out.splice(from < to ? to - 1 : to, 0, x);
   return out;
 }
-export const isEditableInGrid = f => !['section', 'formula', 'signature', 'image', 'file'].includes(f.type);
+export const isEditableInGrid = f => !['section', 'note', 'formula', 'signature', 'image', 'file'].includes(f.type);
 export const onForm = f => f.onForm !== false;
 
 export function newId(prefix = 'f_') {
@@ -92,7 +95,9 @@ export function newField(type, fields = [], label) {
   return {
     id: newId(), type, label: name, placeholder: '', default: '', help: '', required: false, onForm: true,
     options: hasOptions({ type }) ? ['Option 1', 'Option 2'] : [], allowOther: false,
-    showIf: null, format: {}, expr: '', resultType: 'number'
+    showIf: null, format: {}, expr: '', resultType: 'number',
+    ...(type === 'note' ? { content: '', display: 'inline' } : {}),
+    ...(type === 'checkbox' ? { checkText: '' } : {})
   };
 }
 

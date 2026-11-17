@@ -33,7 +33,7 @@
         <div v-for="(s, i) in steps" :key="s.title + i" class="wz-review">
           <div class="wz-review-head"><b>{{ s.title }}</b><button type="button" class="link" @click="go(i)">Change</button></div>
           <dl>
-            <template v-for="f in s.shown" :key="f.id">
+            <template v-for="f in s.shown.filter(x => x.type !== 'note')" :key="f.id">
               <dt>{{ f.label }}</dt>
               <dd>
                 <img v-if="f.type === 'signature' && modelValue[f.id]" :src="modelValue[f.id]" alt="Signature" class="wz-sig">
