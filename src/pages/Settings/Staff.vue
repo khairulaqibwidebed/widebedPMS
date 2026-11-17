@@ -482,6 +482,18 @@ export default {
       this.resetPerms();
       if (this.panel.mode === 'add') this.panel.kind = this.panel.role === HK_ROLE ? 'hk' : 'staff';
     },
+    // Add staff: Username goes with the Housekeeping role, Work email with every other role (kept in step both ways)
+    setKind(kind) {
+      const p = this.panel;
+      if (p.kind === kind) return;
+      p.kind = kind; p.error = '';
+      const role = kind === 'hk' ? HK_ROLE : p.role === HK_ROLE ? 'finance' : p.role;
+      if (role !== p.role) { p.role = role; this.resetPerms(); }
+    },
+    roleChanged() {
+      this.resetPerms();
+      if (this.panel.mode === 'add') this.panel.kind = this.panel.role === HK_ROLE ? 'hk' : 'staff';
+    },
     close() { if (!this.panel.busy) this.panelOpen = false; },
 
     async save() {
