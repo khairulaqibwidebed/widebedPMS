@@ -192,7 +192,7 @@ export default {
       this.okMsg = '';
       // View-only roles open an owner only to add one (or Marketing, to edit)
       if (!own && !this.acc.canAdd) return;
-      if (own && this.acc.viewOnly && !this.acc.canEdit) return;
+      if (own && this.acc.ownerLevel === 'none') return;   // 16 Nov 2026: Owners Base open an owner read-only
       this.ownerDrawer = { owner: own };
     },
     async onSaved(msg) {

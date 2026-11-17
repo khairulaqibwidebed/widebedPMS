@@ -21,14 +21,14 @@
             <td><span class="role-cell"><span class="dot" :style="{ background: colourOf(r) }"></span><span class="role-name"><button class="name-btn" @click="openEdit(r)" :disabled="r.id === 'director'">{{ r.name }}</button><span class="tag" v-if="r.builtin">Built-in</span></span></span></td>
             <td>{{ r.description || '-' }}</td>
             <td>{{ people[r.id] || 0 }}</td>
-            <td>{{ r.id === 'director' ? 'All' : permCount(r) }}</td>
+            <td>{{ r.id === 'director' ? 'All' : permCount(r) + (r.isAi ? ' (view only)' : '') }}</td>
             <td><span class="pill" :class="r.active ? 'green' : 'grey'">{{ r.active ? 'Active' : 'Turned off' }}</span></td>
             <td class="row-acts"><template v-if="r.id !== 'director'"><button class="act-pill" @click="openEdit(r)">Edit</button> <button class="act-pill" :class="{ danger: canDelete(r) || r.active }" :disabled="r.builtin" :title="r.builtin ? 'Built-in roles cannot be removed or turned off' : canDelete(r) ? 'Nothing uses this role, so it can be deleted' : whyKept(r) || (r.active ? 'Turn this role off' : 'Turn this role back on')" @click="rowAction(r)">{{ rowLabel(r) }}</button></template><span class="muted" v-else>-</span></td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p class="note">New roles can sign in, see their Dashboard, Issues, Agreements, Playbook and the staff HR pages, plus every page ticked below. Statement Approvals, Brand Logos, Staff accounts, Roles, Audit log and complaints can't be ticked. Role-wide notifications only reach the built-in roles for now.</p>
+    <p class="note">New roles can sign in, see their Dashboard, Issues, Agreements, Playbook and the staff HR pages, plus every page given access below. The AI Agent only reads: each page is None or Base (view), never Full, and it can't open the PMS screens. Statement Approvals, Brand Logos, Staff accounts, Roles, Audit log and complaints can't be ticked. Role-wide notifications only reach the built-in roles for now.</p>
 
     <template v-if="panelOpen">
       <div>
@@ -48,9 +48,10 @@
             <div v-show="panel.tab === 'details'">
             <div class="field">
               <label for="rName" class="req">Role name</label>
-              <input class="input" id="rName" v-model="panel.name" maxlength="40" placeholder="e.g. Leasing">
+              <input class="input" id="rName" v-model="panel.name" maxlength="40" placeholder="e.g. Leasing" :readonly="panel.isAi">
               <!-- Built-in roles: only the name shown changes; behind the scenes the role keeps its id and saved tag word -->
-              <span class="help" v-if="panel.builtin">{{ `Shown wherever this role's name appears (badges, tags, lists). Behind the scenes it stays "${BUILTIN_TAG[panel.id]}", so tickets, notifications and access keep working. Sentences written in the pages keep their wording.` }}
+              <span class="help" v-if="panel.isAi">The AI Agent's name stays as it is.</span>
+              <span class="help" v-else-if="panel.builtin">{{ `Shown wherever this role's name appears (badges, tags, lists). Behind the scenes it stays "${BUILTIN_TAG[panel.id]}", so tickets, notifications and access keep working. Sentences written in the pages keep their wording.` }}
                 <button type="button" class="link" v-if="panel.name.trim() !== DEFAULT_LABEL[panel.id]" @click="panel.name = DEFAULT_LABEL[panel.id]">{{ `Reset to "${DEFAULT_LABEL[panel.id]}"` }}</button></span>
             </div>
             <div class="field">
@@ -85,18 +86,21 @@
             <div class="field">
               <div class="perm-top">
                 <label>Default page access</label>
-                <button type="button" class="link" v-if="panel.builtin" @click="panel.perms = cleanPerms(ORIGINAL[panel.id] || [])">Reset to built-in defaults</button>
+                <button type="button" class="link" v-if="panel.builtin" @click="panel.perms = (panel.isAi ? cleanAiPerms : cleanPerms)(ORIGINAL[panel.id] || [])">Reset to built-in defaults</button>
               </div>
-              <span class="help">A tick gives full access to that page. Anyone in this role starts with these pages.</span>
+              <span class="help" v-if="panel.isAi">What the AI agent may read. Base (view) only: it can never change anything, and IC, passport, bank details, door passcodes and payments stay hidden whatever is picked here.</span>
+              <span class="help" v-else>Base (view) lets them open and read the page. Full (edit) also lets them change it. Anyone in this role starts with these levels.</span>
               <div class="perm-wrap">
                 <table class="perm-table">
                   <thead><tr><th>Page</th><th>Access</th></tr></thead>
                   <tbody>
-                    <template v-for="grp in pageGroups" :key="grp.name">
-                      <tr class="perm-grp"><td colspan="2">{{ grp.name }}<small v-if="GROUP_NOTES[grp.name]">{{ GROUP_NOTES[grp.name] }}</small></td></tr>
-                      <tr v-for="row in grp.pages" :key="row.id" :class="{ on: rowState(row) !== 'off' }">
+                    <template v-for="grp in (panel.isAi ? aiGroups : pageGroups)" :key="grp.name">
+                      <tr class="perm-grp"><td colspan="2">{{ grp.name }}<small v-if="groupNote(grp.name)">{{ groupNote(grp.name) }}</small></td></tr>
+                      <tr v-for="row in grp.pages" :key="row.id" :class="{ on: rowLevel(panel.perms, row) !== 'none' }">
                         <td>{{ row.label }}</td>
-                        <td><input type="checkbox" :checked="rowState(row) !== 'off'" :aria-label="row.label" @change="tickRow(row, $event.target.checked)"></td>
+                        <td><select class="lvl-select" :value="rowLevel(panel.perms, row)" :aria-label="`${row.label} access`" @change="panel.perms = setRowLevel(panel.perms, row, $event.target.value)">
+                          <option v-for="lv in levelsOf(row)" :key="lv" :value="lv">{{ levelLabel(row, lv) }}</option>
+                        </select></td>
                       </tr>
                     </template>
                   </tbody>
@@ -122,42 +126,49 @@ import { friendlyError } from '@/lib/finance-data.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { useSession } from '@/stores/session.js';
 import { roleColor } from '@/lib/avatars.js';
-import { ACCESS_ROWS, rowPerms, GROUP_NOTES, PRESETS, cleanPerms, samePerms } from '@/lib/access.js';
+import { ACCESS_ROWS, AI_ROWS, AI_GROUP_NOTES, cleanAiPerms, GROUP_NOTES, PRESETS, cleanPerms, samePerms, pageCount, levelsOf, rowLevel, setRowLevel, LEVEL_LABEL, levelLabel, AI_ROLE } from '@/lib/access.js';
 
 const me = useSession();
 const BUILTIN_TEXT = {
   director: 'Everything, including Staff accounts and Roles.', finance: 'Upload eZee, expenses, month-end payout, exports.', it: 'View-only, except Issues.',
   operations: 'Issues, offline inquiries, booking forms, Playbook and SOPs.', hr: 'SOP pages, complaints, Staff accounts, Audit log.',
-  procurement: 'Owner leads and Portfolio details.', marketing: 'Owner leads and Portfolio details.'
+  procurement: 'Owner leads and Portfolio details.', marketing: 'Owner leads and Portfolio details.',
+  ai: 'Login for the AI agent (Grok). Reads only the pages given here; never IC, bank details or payments. No PMS screens.'
 };
 const COLOURS = ['#E0603F', '#2F86D6', '#C98A12', '#7E5BD6', '#1C9A8F', '#3E9B5A', '#D6457E', '#7A8190'];
 const slug = s => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 // Built-in roles' usual pages as shipped (before any change on this page).
 const ORIGINAL = JSON.parse(JSON.stringify(PRESETS));
+// Access table rows by group heading (Portfolio, Accounting…).
+function groupRows(rows) {
+  const groups = [];
+  for (const pg of rows) {
+    let g = groups.find(x => x.name === pg.group);
+    if (!g) groups.push(g = { name: pg.group, pages: [] });
+    g.pages.push(pg);
+  }
+  return groups;
+}
 
 export default {
-  data() { return { ORIGINAL, COLOURS, GROUP_NOTES, BUILTIN_TAG, DEFAULT_LABEL, loading: true, error: '', okMsg: '', rolesDocs: {}, people: {}, accounts: {}, ticketUse: {}, panel: {}, panelOpen: false }; },
+  data() { return { ORIGINAL, COLOURS, GROUP_NOTES, LEVEL_LABEL, BUILTIN_TAG, DEFAULT_LABEL, loading: true, error: '', okMsg: '', rolesDocs: {}, people: {}, accounts: {}, ticketUse: {}, panel: {}, panelOpen: false }; },
   computed: {
     rows() {
       const built = BUILTIN_ROLES.map(id => ({ id, name: ROLE_LABEL[id], builtin: true, active: true, description: this.rolesDocs[id]?.description || BUILTIN_TEXT[id], perms: id === 'director' ? [] : (PRESETS[id] || []) }));
       const custom = Object.keys(CUSTOM_ROLES).map(id => ({ id, builtin: false, ...CUSTOM_ROLES[id], perms: PRESETS[id] || [] }));
-      return [...built, ...custom];
+      // AI Agent (17 Nov 2026): its pages are set here, Base (view) only
+      const ai = { id: AI_ROLE, name: ROLE_LABEL[AI_ROLE], builtin: true, isAi: true, active: true, description: BUILTIN_TEXT[AI_ROLE], perms: cleanAiPerms(PRESETS[AI_ROLE] || []) };
+      return [...built, ai, ...custom];
     },
-    pageGroups() {
-      const groups = [];
-      for (const pg of ACCESS_ROWS) {
-        let g = groups.find(x => x.name === pg.group);
-        if (!g) groups.push(g = { name: pg.group, pages: [] });
-        g.pages.push(pg);
-      }
-      return groups;
-    }
+    pageGroups() { return groupRows(ACCESS_ROWS); },
+    aiGroups() { return groupRows(AI_ROWS); }
   },
   async mounted() { await this.load(); },
   methods: {
-    cleanPerms,
+    cleanPerms, cleanAiPerms, levelsOf, rowLevel, setRowLevel, levelLabel,
+    groupNote(name) { return (this.panel.isAi && AI_GROUP_NOTES[name]) || GROUP_NOTES[name] || ''; },
     colourOf(r) { return roleColor(r.id); },
-    permCount(r) { return cleanPerms(r.perms).length ? `${new Set(cleanPerms(r.perms).map(p => p.split('.')[0])).size} pages` : 'None'; },
+    permCount(r) { const n = pageCount(r.perms); return n ? `${n} pages` : 'None'; },
     async load() {
       this.loading = true; this.error = '';
       try {
@@ -182,7 +193,8 @@ export default {
     openNew() { this.panel = { isNew: true, builtin: false, id: '', name: '', description: '', color: COLOURS[4], perms: [], active: true, reason: '', busy: false, error: '', tab: 'details' }; this.panelOpen = true; },
     openEdit(r) {
       if (r.id === 'director') return;
-      this.panel = { isNew: false, builtin: r.builtin, id: r.id, name: r.name, description: r.builtin ? '' : r.description, color: r.color || COLOURS[4], perms: cleanPerms(r.perms), active: r.active, reason: '', busy: false, error: '', tab: 'details', before: cleanPerms(r.perms), wasActive: r.active };
+      const clean = r.isAi ? cleanAiPerms : cleanPerms;
+      this.panel = { isNew: false, builtin: r.builtin, isAi: !!r.isAi, id: r.id, name: r.name, description: r.builtin ? '' : r.description, color: r.color || COLOURS[4], perms: clean(r.perms), active: r.active, reason: '', busy: false, error: '', tab: 'details', before: clean(r.perms), wasActive: r.active };
       this.panelOpen = true;
     },
     // Delete only when nothing at all uses the role (no account, even turned-off, and no ticket tag); otherwise Disable / Enable
@@ -221,13 +233,6 @@ export default {
       } catch (e) { this.error = friendlyError(e, 'change the role'); }
     },
     close() { if (!this.panel.busy) this.panelOpen = false; },
-    has(p) { return (this.panel.perms || []).includes(p); },
-    rowState(row) { const all = rowPerms(row), n = all.filter(p => this.has(p)).length; return n === all.length ? 'on' : n ? 'some' : 'off'; },
-    tickRow(row, on) {
-      const set = new Set(this.panel.perms || []);
-      for (const p of rowPerms(row)) on ? set.add(p) : set.delete(p);
-      this.panel.perms = cleanPerms([...set]);
-    },
     async save() {
       const p = this.panel; p.error = '';
       const name = p.name.trim();
@@ -236,7 +241,7 @@ export default {
       if (p.isNew) {
         id = slug(name);
         if (!id) return p.tab = 'details', p.error = 'Use letters or numbers in the role name.';
-        if (BUILTIN_ROLES.includes(id) || this.rolesDocs[id] || this.rows.some(r => r.name.toLowerCase() === name.toLowerCase())
+        if (BUILTIN_ROLES.includes(id) || id === AI_ROLE || this.rolesDocs[id] || this.rows.some(r => r.name.toLowerCase() === name.toLowerCase())
           || Object.values(BUILTIN_TAG).some(w => w.toLowerCase() === name.toLowerCase())) return p.tab = 'details', p.error = 'A role with this name already exists.';   // also a built-in's saved word, e.g. "Finance"
       } else {
         if (!p.reason.trim()) return p.tab = 'details', p.error = 'Add a short reason. It goes in the audit log.';
@@ -246,7 +251,7 @@ export default {
         if (clash) return p.tab = 'details', p.error = 'Another role already uses this name.';
         if (!p.builtin && !p.active && p.wasActive && this.people[id]) return p.tab = 'details', p.error = `${this.people[id]} people still have this role. Move them to another role on Staff accounts first.`;
       }
-      const perms = cleanPerms(p.perms);
+      const perms = p.isAi ? cleanAiPerms(p.perms) : cleanPerms(p.perms);
       const changes = [];
       if (p.isNew) changes.push({ field: 'role', old: null, new: name });
       else {
@@ -259,7 +264,8 @@ export default {
       p.busy = true;
       try {
         const b = writeBatch(db);
-        const data = p.builtin
+        const data = p.isAi ? { builtin: true, perms, updatedAt: serverTimestamp(), updatedBy: me.user.uid }   // AI Agent: pages only
+          : p.builtin
           ? { builtin: true, perms, name, updatedAt: serverTimestamp(), updatedBy: me.user.uid }
           : { name, description: p.description.trim(), color: p.color, perms, active: p.active, builtin: false, updatedAt: serverTimestamp(), updatedBy: me.user.uid, ...(p.isNew ? { createdAt: serverTimestamp(), createdBy: me.user.uid } : {}) };
         b.set(doc(db, 'roles', id), data, { merge: true });
@@ -301,7 +307,10 @@ export default {
 .perm-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 4px 0; }
 .perm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .perm-table th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--head); padding: 8px 12px; border-bottom: 1px solid var(--border); }
-.perm-table th:not(:first-child), .perm-table td:not(:first-child) { width: 56px; text-align: center; }
+.perm-table th:not(:first-child), .perm-table td:not(:first-child) { width: 164px; text-align: right; }
+.lvl-select { appearance: none; -webkit-appearance: none; width: 140px; font: inherit; font-size: 13px; font-weight: 500; text-align: left; padding: 5px 28px 5px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237A8190' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center / 10px 6px; color: var(--text); cursor: pointer; }
+.lvl-select:hover { border-color: var(--muted); }
+.lvl-select option { background: var(--surface); color: var(--text); font-weight: 400; }
 .perm-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .perm-table tr:last-child td { border-bottom: 0; }
 .perm-table tr.on td { background: var(--accent-soft); }

@@ -20,7 +20,7 @@ export const db = initializeFirestore(app, {
 
 // Roles that can sign in. Each sees only the pages in its sidebar (nav.js) and its route list (router.js).
 export const ALLOWED_ROLES = ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing'];   // every role signs in (Khairul 21 Oct)
-export const ROLE_LABEL = { director: 'Director', finance: 'Accounting', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing' };
+export const ROLE_LABEL = { director: 'Director', finance: 'Accounting', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing', ai: 'AI Agent' };   // ai: AI Agent login (16 Nov 2026), not in ALLOWED_ROLES: it can't open the PMS screens
 // Built-in role names have two layers (4 Nov 2026):
 //   BUILTIN_TAG = the fixed word SAVED for each built-in role (Issues tags, who raised a ticket). The security rules
 //                 (myIssueTag) and every older ticket use these, so they never change.
@@ -47,10 +47,13 @@ export function loadRoleRegistry(force = false) {
     try {
       const snap = await getDocs(collection(db, 'roles'));
       for (const id of BUILTIN_ROLES) { if (id !== 'director') PRESETS[id] = ORIGINAL_PRESETS[id]; ROLE_LABEL[id] = DEFAULT_LABEL[id]; }
+      PRESETS.ai = ORIGINAL_PRESETS.ai;
       for (const id of Object.keys(CUSTOM_ROLES)) { delete CUSTOM_ROLES[id]; delete ROLE_LABEL[id]; delete PRESETS[id]; }
       for (let i = ALLOWED_ROLES.length - 1; i >= 0; i--) if (!BUILTIN_ROLES.includes(ALLOWED_ROLES[i])) ALLOWED_ROLES.splice(i, 1);
       snap.forEach(d => {
         const r = d.data(), id = d.id;
+        // AI Agent (17 Nov 2026): only its pages (view levels) come from roles/ai; never a custom role
+        if (id === 'ai') { if (Array.isArray(r.perms)) PRESETS.ai = r.perms; return; }
         if (BUILTIN_ROLES.includes(id)) {
           if (id !== 'director' && Array.isArray(r.perms)) PRESETS[id] = r.perms;
           if (id !== 'director' && typeof r.name === 'string' && r.name.trim()) ROLE_LABEL[id] = r.name.trim();   // renamed on the Roles page

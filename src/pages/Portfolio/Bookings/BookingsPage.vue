@@ -12,7 +12,7 @@
       </div>
       <div class="head-tools">
         <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="reload()" />
-        <MonthPicker :ahead="1" multiple all-label="All months" v-model="monthsModel" v-if="!acc.viewOnly" />
+        <MonthPicker :ahead="1" multiple all-label="All months" v-model="monthsModel" v-if="acc.bkView" />
         <RefreshButton v-if="propertyId === 'all'" @refresh="go()" />
         <LiveStatus v-else :status="liveStatus.bookings?.status || 'live'" />
       </div>
@@ -63,7 +63,7 @@
             <div class="bk-stay"><span class="bk-k">Stay</span>{{ `${niceDate(row.arrival) || '—'} to ${niceDate(row.departure) || '—'}` }}</div>
             <div class="bk-meta">{{ [row.longTerm ? 'Long-term lease' : 'Short stay', nights(row) ? `${nights(row)} ${nights(row) === 1 ? 'night' : 'nights'}` : '', row.ezeeReservationNo ? `eZee ${row.ezeeReservationNo}` : ''].filter(Boolean).join(' · ') }}</div>
           </div>
-          <div class="bk-side" v-if="!acc.viewOnly">
+          <div class="bk-side" v-if="acc.bkView">
             <b class="bk-amt">{{ row.longTerm ? `RM ${amt(row.monthlyRent)}` : (paidOf(row) === '—' ? '—' : `RM ${paidOf(row)}`) }}<small>{{ row.longTerm ? ' /month' : ' paid' }}</small></b>
             <div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length || wholeYear ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template></div>
           </div>
@@ -74,7 +74,7 @@
       </div>
       <div class="table-wrap" v-else>
         <table class="table">
-          <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="!acc.viewOnly">Amount (RM)</th><th v-if="!acc.viewOnly" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
+          <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="acc.bkView">Amount (RM)</th><th v-if="acc.bkView" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
           <tbody>
             <template v-for="row in pageRows" :key="row.id">
               <tr class="clickable" @click="open = row">
@@ -84,17 +84,17 @@
                 <td class="nw">{{ dmy(row.arrival) }}</td>
                 <td class="nw">{{ dmy(row.departure) }}</td>
                 <td class="nw">{{ row.longTerm ? 'Long-term lease' : 'Short stay' }} <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span><span class="pill amber" v-else-if="row.status === 'pending'">Awaiting payment</span></td>
-                <td class="num nw" v-if="!acc.viewOnly">{{ row.longTerm ? `${amt(row.monthlyRent)} /M` : paidOf(row) }}</td>
-                <td v-if="!acc.viewOnly"><div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length || wholeYear ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template><span class="muted" v-if="!payMonths.some(m => monthStatus(row, m))">—</span></div></td>
+                <td class="num nw" v-if="acc.bkView">{{ row.longTerm ? `${amt(row.monthlyRent)} /M` : paidOf(row) }}</td>
+                <td v-if="acc.bkView"><div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length || wholeYear ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template><span class="muted" v-if="!payMonths.some(m => monthStatus(row, m))">—</span></div></td>
                 <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
               </tr>
             </template>
-            <tr v-show="!shown.length"><td :colspan="9 - (acc.viewOnly ? 2 : 0)" class="muted">{{ emptyMsg }}</td></tr>
+            <tr v-show="!shown.length"><td :colspan="9 - (!acc.bkView ? 2 : 0)" class="muted">{{ emptyMsg }}</td></tr>
           </tbody>
         </table>
       </div>
       </Paged>
-      <div class="card-foot" v-if="!acc.viewOnly"><span>Invoice and receipt PDFs are made from a booking, approved by Accounting, saved to the company Google Drive and listed on Accounting › Invoices & Receipts. Nothing is sent automatically.</span></div>
+      <div class="card-foot" v-if="acc.bkView"><span>Invoice and receipt PDFs are made from a booking, approved by Accounting, saved to the company Google Drive and listed on Accounting › Invoices & Receipts. Nothing is sent automatically.</span></div>
     </section>
 
     <BookingDrawer v-if="open" :key="open.id" :booking="open" :acc="acc" @close="open = null" @saved="onSaved" @deleted="onDeleted" />

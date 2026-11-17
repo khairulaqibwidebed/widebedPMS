@@ -1,7 +1,5 @@
 <template>
   <form class="lodge" @submit.prevent="save()" novalidate>
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="done">{{ done }}</div>
 
     <section class="card">
       <h2>Tenant information</h2>
@@ -62,6 +60,7 @@ const blank = () => ({ guestName: '', icPassport: '', phone: '', email: '', book
 const digits = v => String(v || '').replace(/\D/g, '');
 
 export default {
+  popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { OptionPicker },
   data() { return { SOURCES, STATUSES, f: blank(), busy: false, error: '', done: '' }; },
   computed: {

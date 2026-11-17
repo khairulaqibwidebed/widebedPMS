@@ -16,7 +16,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <template v-if="ready">
       <!-- KPI cards: each opens the page that shows it, or (when this role has no such page) the panel below -->
@@ -331,6 +330,7 @@ const QUICK = {
 };
 
 export default {
+  popups: true,   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   props: { role: { type: String, required: true } },
   data() {
     return {

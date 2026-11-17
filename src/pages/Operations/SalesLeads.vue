@@ -270,7 +270,7 @@ import { askConfirm } from '@/lib/confirm.js';
 import { audit, friendlyError, loadProperties } from '@/lib/finance-data.js';
 import { stateChoices, statesOf, stateOf } from '@/lib/states.js';
 import { scoped, countScoped } from '@/lib/property-scope.js';
-import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf } from '@/lib/offline.js';
+import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf, guestContact } from '@/lib/offline.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 
@@ -625,6 +625,7 @@ export default {
         if (t) {
           b.set(doc(db, 'tenants', t.id, 'private', 'main'), { kind: 'tenant', name: e.name, phone: e.phone, phoneKey: key, email: e.email,
             icPassport: e.icPassport, nationality: e.nationality, searchWords: searchWords(e.name) }, { merge: true });
+          b.set(doc(db, 'tenants', t.id, 'private', 'contact'), guestContact(e), { merge: true });   // name, phone, email only (17 Nov 2026)
           b.update(doc(db, 'tenants', t.id), { updatedAt: serverTimestamp(), updatedBy: me.user.uid });
         }
         b.set(doc(lRef, 'private', 'main'), { contactName: e.name, phone: e.phone, phoneKey: key, email: e.email }, { merge: true });

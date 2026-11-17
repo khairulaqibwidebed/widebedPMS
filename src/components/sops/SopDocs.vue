@@ -46,18 +46,18 @@ export default {
     pick(e) { const f = e.target.files[0]; e.target.value = ''; this.upload(f); },
     async upload(f) {
       if (!f || this.busy || this.up.on) return;
-      if (f.size > 4 * 1024 * 1024) return toast('Files must be 4 MB or less.');
+      if (f.size > 4 * 1024 * 1024) return toast.error('Files must be 4 MB or less.');
       this.up = { on: true, pct: 0, name: f.name, drag: false };
       try {
         const [u] = await uploadForLink('sops', [f], p => { this.up.pct = Math.round(p * 100); }, this.sopKey, this.title);
         this.up.pct = 100;
         await new Promise(done => this.$emit('add', { name: f.name, on: fmt(new Date()), by: this.me.name, fileId: u.id, url: u.url }, done));
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast.error(err.message); }
       this.up.on = false;
     },
     async download(d) {
       if (!d.fileId) return toast('This starter file has no upload yet. HR can upload it below.');
-      try { await downloadFile('sops', d.fileId, d.name); } catch (err) { toast(err.message); }
+      try { await downloadFile('sops', d.fileId, d.name); } catch (err) { toast.error(err.message); }
     }
   }
 };

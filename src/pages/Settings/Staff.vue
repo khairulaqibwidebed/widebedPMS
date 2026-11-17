@@ -114,8 +114,9 @@
         <div><b>HR</b><span>SOP pages, complaints, Playbook, Staff accounts and Audit log, Issues.</span></div>
         <div><b>Procurement</b><span>The Fillout form links, Issues, Playbook and SOPs.</span></div>
         <div><b>Marketing</b><span>Issues, Playbook and SOPs for now. Own pages come later.</span></div>
+        <div><b>AI Agent</b><span>Login for the AI agent (Grok). Reads only the pages set on Roles > AI Agent; never IC, bank details or payments; no PMS screens. Director only.</span></div>
         <div v-for="r in Object.keys(CUSTOM_ROLES)" :key="r"><b>{{ CUSTOM_ROLES[r].name }}</b><span>{{ CUSTOM_ROLES[r].description || 'Made on the Roles page.' }}{{ CUSTOM_ROLES[r].active ? '' : ' (turned off)' }}</span></div>
-        <div><b>Page access</b><span>Each role starts with its usual pages ticked. You can tick View or Edit on any other page, or untick a usual one. Statement Approvals, Brand Logos, Staff accounts, Audit log and complaints always follow the role.</span></div>
+        <div><b>Page access</b><span>Each role starts with its usual access. For any page you can pick None, Base (view) or Full (edit) for one person. Statement Approvals, Brand Logos, Staff accounts, Audit log and complaints always follow the role.</span></div>
       </div>
         <div class="modal-foot"><button class="btn" @click="rolesOpen = false">Close</button></div>
       </div>
@@ -176,29 +177,32 @@
               <OptionPicker class="fit-picker" v-model="panel.role" :options="roleChoices.map(r => ({ value: r, label: ROLE_LABEL[r] }))" label="Role" :disabled="cantEdit" @change="resetPerms()" />
               <span class="help" v-show="panel.isMe">You can't change your own access. Ask another Director.</span>
               <span class="help" v-show="!panel.isMe && locked(panel.original || {})">Only a Director can change a Director's account.</span>
-              <span class="help" v-show="!panel.isMe && !canSignIn(panel.role)">This role can't sign in yet. Its pages come in a later increment.</span>
+              <span class="help" v-show="!panel.isMe && !canSignIn(panel.role) && panel.role !== AI_ROLE">This role can't sign in yet. Its pages come in a later increment.</span>
+              <span class="help" v-show="panel.role === AI_ROLE">AI Agent: read only, and it can't open the PMS screens. Its pages are set on Settings > Roles > AI Agent (Base only), never IC, bank details or payments.</span>
             </div>
             <!-- The properties they may see (12 Nov 2026, data access by property) -->
-            <StaffPropertiesField v-if="panel.role !== 'director'" v-model="panel.properties" :properties="allProperties" :disabled="cantEdit" />
-            <p class="help" v-else>A Director sees every property.</p>
+            <StaffPropertiesField v-if="panel.role !== 'director' && panel.role !== AI_ROLE" v-model="panel.properties" :properties="allProperties" :disabled="cantEdit" />
+            <p class="help" v-else-if="panel.role === 'director'">A Director sees every property.</p>
 
             <!-- Page access: one tick per page, starting from the role's usual pages -->
-            <div class="field" v-if="panel.role !== 'director'">
+            <div class="field" v-if="panel.role !== 'director' && panel.role !== AI_ROLE">
               <div class="perm-top">
                 <label>Page access</label>
                 <button type="button" class="link" @click="resetPerms()" :disabled="cantEdit || !panelCustom">Reset to {{ ROLE_LABEL[panel.role] }} defaults</button>
               </div>
-              <span class="help">Starts with the role's usual pages. A tick gives full access to that page. Changing the role resets these ticks.</span>
+              <span class="help">Starts with the role's usual access. Base (view) lets them open and read the page; Full (edit) also lets them change it. A change here is for this person only and is marked. Changing the role resets these.</span>
               <div class="perm-wrap">
                 <table class="perm-table">
                   <thead><tr><th>Page</th><th>Access</th></tr></thead>
                   <tbody>
                     <template v-for="grp in pageGroups" :key="grp.name">
                       <tr class="perm-grp"><td colspan="2">{{ grp.name }}<small v-if="GROUP_NOTES[grp.name]">{{ GROUP_NOTES[grp.name] }}</small></td></tr>
-                      <tr v-for="row in grp.pages" :key="row.id" :class="{ on: rowState(row) !== 'off' }">
-                        <td>{{ row.label }}<small class="muted" v-if="rowState(row) === 'some'"> · some pages only (tick to give all)</small></td>
+                      <tr v-for="row in grp.pages" :key="row.id" :class="{ on: rowLevel(panel.perms, row) !== 'none' }">
+                        <td>{{ row.label }}<small class="custom-mark" v-if="rowLevel(panel.perms, row) !== rowLevel(rolePerms, row)">{{ ` · changed (role: ${levelLabel(row, rowLevel(rolePerms, row))})` }}</small></td>
                         <td>
-                          <input type="checkbox" :checked="rowState(row) !== 'off'" :indeterminate.prop="rowState(row) === 'some'" :disabled="cantEdit" :aria-label="row.label" @change="tickRow(row, $event.target.checked)">
+                          <select class="lvl-select" :value="rowLevel(panel.perms, row)" :disabled="cantEdit" :aria-label="`${row.label} access`" @change="panel.perms = setRowLevel(panel.perms, row, $event.target.value)">
+                            <option v-for="lv in levelsOf(row)" :key="lv" :value="lv">{{ levelLabel(row, lv) }}</option>
+                          </select>
                         </td>
                       </tr>
                     </template>
@@ -207,7 +211,7 @@
               </div>
               <span class="help">Always open for everyone: Dashboard, Issues, Playbook, SOPs, Raise a Complaint and Profile. Statement Approvals, Brand Logos, Staff accounts, Audit log and complaints can't be ticked: they follow the role.</span>
             </div>
-            <p class="help" v-else>A Director can open and change every page.</p>
+            <p class="help" v-else-if="panel.role === 'director'">A Director can open and change every page.</p>
 
             </div>
           </form>
@@ -235,7 +239,7 @@ import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { STATES, statesOf, statesText } from '@/lib/states.js';
 import StaffPropertiesField from '@/components/StaffPropertiesField.vue';
-import { PAGES, ACCESS_ROWS, rowPerms, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel } from '@/lib/access.js';
+import { PAGES, ACCESS_ROWS, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel, levelsOf, rowLevel, setRowLevel, LEVEL_LABEL, levelLabel, AI_ROLE } from '@/lib/access.js';
 
 const me = useSession();
 
@@ -250,8 +254,8 @@ const presetOf = role => role === 'director' ? [] : cleanPerms(PRESETS[role] || 
 const sameList = (a, b) => [...a].sort().join('|') === [...b].sort().join('|');
 // "+ Expenses & Others (edit), − Reports" for the audit log.
 function permDiff(oldList, newList) {
-  const added = newList.filter(p => !oldList.includes(p)).map(p => '+ ' + permLabel(p));
-  const removed = oldList.filter(p => !newList.includes(p)).map(p => '− ' + permLabel(p));
+  const added = newList.filter(p => !oldList.includes(p) && permLabel(p)).map(p => '+ ' + permLabel(p));
+  const removed = oldList.filter(p => !newList.includes(p) && permLabel(p)).map(p => '− ' + permLabel(p));
   return [...added, ...removed].join(', ') || 'no change';
 }
 
@@ -284,7 +288,7 @@ export default {
   components: { OptionPicker, StaffPropertiesField },
   data() {
     return {
-      ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, when, STATES, statesText, noStateOnly: false, allProperties: [],
+      ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, LEVEL_LABEL, AI_ROLE, when, STATES, statesText, noStateOnly: false, allProperties: [],
       myUid: me.user.uid,
       users: [], loading: true, error: '', okMsg: '',
       filter: 'active', roleFilter: '', search: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
@@ -295,8 +299,11 @@ export default {
   computed: {
     // Built-in roles, then the ones made on the Roles page (turned-off roles left out).
     ROLES() { return [...BUILTIN_ROLES, ...Object.keys(CUSTOM_ROLES).filter(r => CUSTOM_ROLES[r].active)]; },
-    roleOptions() { return [{ value: '', label: 'All roles' }, ...this.ROLES.map(r => ({ value: r, label: ROLE_LABEL[r] || r }))]; },
-    roleChoices() { return me.role === 'director' ? this.ROLES : this.ROLES.filter(r => r !== 'director'); },
+    roleOptions() { return [{ value: '', label: 'All roles' }, ...[...this.ROLES, AI_ROLE].map(r => ({ value: r, label: ROLE_LABEL[r] || r }))]; },
+    // AI Agent (16 Nov 2026): only a Director gives it
+    roleChoices() { return me.role === 'director' ? [...this.ROLES, AI_ROLE] : this.ROLES.filter(r => r !== 'director'); },
+    // The role's usual levels, to mark rows changed for this person
+    rolePerms() { return presetOf(this.panel.role); },
     // The tick table, one heading per group (Finance, Portfolio…).
     pageGroups() {
       const groups = [];
@@ -361,18 +368,8 @@ export default {
     roleText(u) { const r = ROLE_LABEL[u.role] || 'No role'; return u.intern ? `Intern (${r})` : r; },
     joined(ts) { const d = ts.toDate ? ts.toDate() : new Date(ts); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); },
 
-    // Tick table helpers. Ticking Edit also ticks View; unticking View also unticks Edit.
-    has(perm) { return (this.panel.perms || []).includes(perm); },
-    // 'on' = every permission of the row is ticked, 'some' = a few (an older custom set), 'off' = none
-    rowState(row) {
-      const all = rowPerms(row), have = all.filter(p => this.has(p)).length;
-      return have === all.length ? 'on' : have ? 'some' : 'off';
-    },
-    tickRow(row, on) {
-      const set = new Set(this.panel.perms || []);
-      for (const p of rowPerms(row)) on ? set.add(p) : set.delete(p);
-      this.panel.perms = cleanPerms([...set]);
-    },
+    // Access table helpers (16 Nov 2026): one level per page
+    levelsOf, rowLevel, setRowLevel, levelLabel,
     tick(pg, level, on) {
       const set = new Set(this.panel.perms || []);
       const view = pg.key + '.view', edit = pg.key + '.edit';
@@ -434,11 +431,12 @@ export default {
       p.error = '';
       const name = p.displayName.trim(), email = p.email.trim().toLowerCase();
       // Saved only when different from the role's usual pages, so later changes to a role's defaults still reach them.
-      const perms = p.role === 'director' ? [] : cleanPerms(p.perms);
-      const custom = p.role !== 'director' && !samePerms(perms, presetOf(p.role));
+      const noTicks = p.role === 'director' || p.role === AI_ROLE;   // Directors: everything; AI Agent: locked
+      const perms = noTicks ? [] : cleanPerms(p.perms);
+      const custom = !noTicks && !samePerms(perms, presetOf(p.role));
       const properties = p.role === 'director' ? [] : [...new Set(p.properties || [])].sort();   // Directors: always every property
       if (!name) { p.tab = 'account'; return p.error = 'Enter their full name.'; }
-      if (p.mode === 'add' && p.role !== 'director' && !properties.length) { p.tab = 'perms'; return p.error = 'Choose at least one property.'; }
+      if (p.mode === 'add' && !noTicks && !properties.length) { p.tab = 'perms'; return p.error = 'Choose at least one property.'; }
       if (p.mode === 'add') {
         if (!email) { p.tab = 'account'; return p.error = 'Enter their work email.'; }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { p.tab = 'account'; return p.error = 'That email address does not look right.'; }
@@ -599,7 +597,12 @@ export default {
     .perm-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 4px 0; }
     .perm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .perm-table th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--head); padding: 8px 12px; border-bottom: 1px solid var(--border); }
-    .perm-table th:not(:first-child), .perm-table td:not(:first-child) { width: 56px; text-align: center; }
+    .perm-table th:not(:first-child), .perm-table td:not(:first-child) { width: 164px; text-align: right; }
+    .lvl-select { appearance: none; -webkit-appearance: none; width: 140px; font: inherit; font-size: 13px; font-weight: 500; text-align: left; padding: 5px 28px 5px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237A8190' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 11px center / 10px 6px; color: var(--text); cursor: pointer; }
+    .lvl-select:hover { border-color: var(--muted); }
+    .lvl-select option { background: var(--surface); color: var(--text); font-weight: 400; }
+    .lvl-select:disabled { cursor: not-allowed; opacity: .6; }
+    .perm-table .custom-mark { font-size: 11px; font-weight: 400; color: var(--muted); }
     .perm-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); transition: background var(--fast, .15s); }
     .perm-table tr:last-child td { border-bottom: 0; }
     .perm-table tr.on td { background: var(--accent-soft); }

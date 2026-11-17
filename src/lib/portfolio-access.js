@@ -28,10 +28,27 @@ export function portfolioAccess(role, me = null) {
     // details stay hidden on screen for view-only roles.
     ownerNames: ['director', 'finance', 'marketing', 'operations'].includes(role),
     canBook: ['director', 'finance', 'operations'].includes(role),     // + New booking (direct, no inquiry)
-    bkEdit: ['director', 'finance', 'operations'].includes(role),      // edit an offline booking
     canOpenInquiry: ['director', 'finance', 'operations'].includes(role),
-    guestNames: ['director', 'finance', 'operations'].includes(role),  // may read guests' names (private data)
     guestOnTenant: ['director', 'finance'].includes(role),             // may change guest details kept on a tenant record
-    PTABS: viewOnly ? ALL_PTABS.slice(0, 3) : ALL_PTABS
+    PTABS: viewOnly ? ALL_PTABS.slice(0, 3) : ALL_PTABS,
+    // 16 Nov 2026 (Khairul): Owners and Bookings follow their own access levels (Settings > Roles / Staff accounts).
+    ...levelAccess(me)
+  };
+}
+
+// Owners: Base = names and contact (owners/{id}/private/contact); Full = also IC, date of birth, address and bank
+// details (private/main), and can edit. Bookings: Base = stay dates, deposit and payments, read only; Full = can change them
+// and see the guest's details. Same tests as ownersFull() / can('bookings.*') in firestore.rules.
+export const ownersFull = me => !!me && (can(me, 'owners.edit') || can(me, 'bulkUpload.edit'));
+export function levelAccess(me) {
+  const full = ownersFull(me), bkFull = !!me && can(me, 'bookings.edit');
+  return {
+    ownerLevel: full ? 'edit' : me && can(me, 'owners.view') ? 'view' : 'none',
+    ownerFull: full,
+    ownerNames: full || (!!me && can(me, 'owners.view')),   // reads names (private/contact or private/main)
+    bkView: !!me && can(me, 'bookings.view'),
+    bkEdit: bkFull,
+    // Guest names, phone and IC (tenant records): Full only
+    guestNames: !!me && (bkFull || ['director', 'finance'].includes(me.role) || can(me, 'offlineInquiries.edit'))
   };
 }

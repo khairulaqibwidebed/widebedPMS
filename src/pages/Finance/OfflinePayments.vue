@@ -12,7 +12,6 @@
       </div>
     </div>
 
-    <div class="notice ok" v-show="done">{{ done }}</div>
 
     <section class="kpis">
       <div class="card kpi"><div class="label">Total submissions</div><div class="value">{{ rows.length }}</div></div>
@@ -233,6 +232,7 @@ const savedLayout = () => { try { return localStorage.getItem(LAYOUT_KEY) === 'c
 const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '' });
 
 export default {
+  popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   mixins: [liveMixin],
   components: { PropertyPicker, FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus },
   data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },

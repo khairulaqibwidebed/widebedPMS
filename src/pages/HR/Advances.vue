@@ -400,7 +400,7 @@ export default {
       try {
         const { id, form } = await createByHR(me, this.nfStaff, { amount: this.nf.amount, reason: this.nf.reason, description: deductText(this.nf.desc, this.nf.amount), told: this.nf.told, sig: this.sig });
         try { download(advanceFileName(form), new Blob([await buildAdvancePdf(form)], { type: 'application/pdf' })); }
-        catch { toast('Form saved, but the PDF could not be made here. Open the request and download it from Documents.'); }
+        catch { toast.warn('Form saved, but the PDF could not be made here. Open the request and download it from Documents.'); }
         this.nf.open = false; await this.load();
         toast(`${form.ref} made for ${form.name}. Send the PDF on WhatsApp.`);
         const a = this.list.find(x => x.id === id); if (a) this.open(a);

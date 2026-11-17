@@ -15,11 +15,15 @@
         </div>
         <div class="notice warn" v-if="cancelled">{{ `Cancelled${bk.cancelledReason ? ': ' + bk.cancelledReason : ''}. It is left out of the lists, the Dashboard and the forms. Restore it, or delete it for good.` }}</div>
         <p class="help" v-if="bk.inquiryId && acc.canOpenInquiry"><RouterLink class="navlink" :to="`/Operations/offline-inquiries?id=${bk.inquiryId}`">{{ `Open inquiry ${bk.inquiryId}` }}</RouterLink></p>
-        <div class="form-sec">Guest <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· private, Accounting, Directors and Operations only</span></div>
+        <!-- 16 Nov 2026: guest details (tenant personal data) only with Bookings Full -->
+        <template v-if="acc.guestNames">
+        <div class="form-sec">Guest <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· private, Bookings Full only</span></div>
         <div class="field"><label>Name</label><input class="input" v-model="bk.f.name" :disabled="!guestEditable"></div>
         <div class="field"><label>Phone</label><input class="input" v-model="bk.f.phone" :disabled="!guestEditable"></div>
         <div class="field"><label>Email</label><input class="input" id="bkEmail" v-model="bk.f.email" :disabled="!guestEditable"></div>
         <div class="field"><label>IC / Passport</label><input class="input" v-model="bk.f.icPassport" :disabled="!guestEditable"></div>
+        </template>
+        <p class="help" v-else>Guest details are private: seen only with Bookings Full access.</p>
         <div class="form-sec">Stay</div>
         <div class="field"><label>Check in</label><input class="input" id="bkIn" type="date" v-model="bk.f.arrival" :disabled="!editable"></div>
         <div class="field"><label>Check out</label><input class="input" id="bkOut" type="date" v-model="bk.f.departure" :disabled="!editable"></div>

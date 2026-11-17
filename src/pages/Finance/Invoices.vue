@@ -13,7 +13,6 @@
       </div>
     </div>
 
-    <div class="notice ok" v-show="ok">{{ ok }}</div>
     <div class="notice warn" v-show="!loading && !properties.length">No properties yet. Upload an eZee report first; it creates the property and its units.</div>
 
     <section class="kpis">
@@ -178,6 +177,7 @@ import MonthPicker from '@/components/MonthPicker.vue';
 import OwnerPaymentModal, { PAY, payStatusOf } from '@/components/OwnerPaymentModal.vue';
 const PAY_FILTERS = [{ value: 'all', label: 'Any payment status' }, { value: 'pending', label: 'Pending Payment' }, { value: 'paid', label: 'Paid' }, { value: 'none', label: 'Nothing to pay' }];
 export default {
+  popups: { ok: 'ok' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   mixins: [liveMixin],
   components: { PropertyPicker, OptionPicker, MonthPicker, OwnerPaymentModal },
   beforeCreate() { params = new URLSearchParams(location.search); },

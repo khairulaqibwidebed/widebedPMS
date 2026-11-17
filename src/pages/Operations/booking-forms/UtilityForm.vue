@@ -4,7 +4,6 @@
       <h2>Utility Lodgment Form</h2>
       <p class="sub">Log utility invoices to an active booking.</p>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <FormSaved v-if="saved" :message="done" @again="startAgain()">
       <p class="saved-note" v-if="tenant.email">You can still email the bill to the tenant.</p>
@@ -60,7 +59,6 @@
             <ul class="miss"><li v-for="m in missing" :key="m.index"><button type="button" class="editlink" @click="step = m.index">{{ `${m.index + 1}. ${m.label}` }}</button>: {{ m.items.join(', ') }}</li></ul>
           </div>
           <div class="notice ok" v-else-if="!done">Everything needed is filled in. Check the details and press Save.</div>
-          <div class="notice ok" v-show="done">{{ done }}</div>
           <div class="rev">
             <div class="card-head"><h4>1. Booking</h4><button type="button" class="editlink" @click="step = 0">Edit</button></div>
             <div class="kv"><span>Booking ID</span><span>{{ bookingId || '—' }}</span></div>
@@ -118,6 +116,7 @@ const nameCache = reactive({});
 const cents = v => Math.round((+v || 0) * 100) / 100;
 
 export default {
+  popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { FormField, OptionPicker, DriveFiles, StepStrip, FormSaved },
   emits: ['dirty'],
   data() { return { KINDS, f: blank(), start: JSON.stringify(blank()), bookings: [], bills: {}, names: nameCache, bookingId: '', loading: true, tenant: {}, tenantLoaded: false,

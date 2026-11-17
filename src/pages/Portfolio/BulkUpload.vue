@@ -88,7 +88,6 @@
       </div>
     </section>
 
-    <div class="notice ok" v-show="done">{{ done }}</div>
 
     <!-- Drop zone -->
     <label class="dropzone" :class="{ over: dragging }" v-show="!rows.length && !loading"
@@ -194,7 +193,8 @@ import { ALL_MONTHS } from '@/lib/summaries.js';
 import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { normState, stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, shortState, stateTag } from '@/lib/states.js';
-import { refreshOwnerStates, freshOwnerNumber, loadOwners, loadUnitTypes, addUnitType, BANK } from '@/lib/portfolio-data.js';
+import { refreshOwnerStates, freshOwnerNumber, loadOwners, loadUnitTypes, addUnitType, BANK, contactOf } from '@/lib/portfolio-data.js';
+import { guestContact } from '@/lib/offline.js';
 import { matchUnitType, newUnitType, sectionHeading } from '@/lib/bulk-templates.js';
 import { can } from '@/lib/access.js';
 import { scoped, getScoped, giveMeProperties } from '@/lib/property-scope.js';
@@ -383,7 +383,7 @@ function col(row, ...names) {
 }
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '');   // same as Portfolio, so ids match
 const icKey = s => String(s || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
-const ROWS_PER_BATCH = 50;   // up to 8 writes per unit-owner row (owner, private, unit, fee, summary mark, 2 audits) stays under Firestore's 500 per batch
+const ROWS_PER_BATCH = 50;   // up to 9 writes per unit-owner row (owner, private, contact, unit, fee, summary mark, 2 audits) stays under Firestore's 500 per batch
 
 const COLS = {
   properties: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }],
@@ -392,6 +392,7 @@ const COLS = {
 };
 
 export default {
+  popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { PropertyPicker, OptionPicker },
   data() {
     return { base: import.meta.env.BASE_URL, kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
@@ -969,6 +970,7 @@ export default {
         createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
       b.set(doc(ref, 'private', 'main'), { name: d.name, icPassport: d.icPassport, phone: d.phone, email: d.email,
         mainDoorPasscode: d.mainDoorPasscode, currentExpiryDate: d.currentExpiryDate, nextDoorPasscode: d.nextDoorPasscode, nextExpiryDate: d.nextExpiryDate });
+      b.set(doc(ref, 'private', 'contact'), guestContact(d));   // name, phone, email only (17 Nov 2026)
       audit(b, me, { action: 'offlineBooking.create', entity: `offlineBookings/${id}`, propertyId: r.pid, reason: `Bulk upload (${this.fileName})` });
     },
     writeBill(b, r) {
@@ -1040,6 +1042,8 @@ export default {
         // Joint owner (Owner Name 2) in private.coOwners, the same place Portfolio's "Add joint owner" saves it
         const coPart = r.coFill ? { coOwners: r.coFill } : {};
         b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { fullName: d.fullName, email: d.email, phone: d.phone, ic: d.ic, ...bank, ...coPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+        // 16 Nov 2026: names and contact also in private/contact (what Owners Base read)
+        b.set(doc(db, 'owners', r.ownerId, 'private', 'contact'), { ...contactOf({ fullName: d.fullName, email: d.email, phone: d.phone, ...coPart }), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
         // Audit names the owner code only, never the personal values (bank: the bank name and the account's last 4 digits)
         audit(b, me, { action: 'owner.create', entity: `owners/${r.ownerId}`, propertyId: pid, changes: [...this.bankChanges(bank), ...(r.coFill ? [{ field: 'coOwners', old: null, new: '(set)' }] : [])], reason: why });
       } else if (r.bankFill || r.coFill || r.idFill) {
@@ -1047,6 +1051,9 @@ export default {
         // nothing is overwritten except values saved like 1.12317E+11 (16 Nov 2026: bank account no., IC, phone, joint owner's IC/phone)
         const bank = r.bankFill || {}, l4 = last4(bank.bankAccount), ids = r.idFill || {};
         b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { ...bank, ...ids, ...(r.coFill ? { coOwners: r.coFill } : {}), updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        // A fixed phone or a new joint owner also goes in private/contact (16 Nov 2026)
+        const cPart = contactOf({ ...('phone' in ids ? { phone: ids.phone } : {}), ...(r.coFill ? { coOwners: r.coFill } : {}) });
+        if (Object.keys(cPart).length) b.set(doc(db, 'owners', r.ownerId, 'private', 'contact'), { ...cPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
         if (l4) b.set(doc(db, 'owners', r.ownerId), { bankLast4: l4, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
         audit(b, me, { action: 'owner.update', entity: `owners/${r.ownerId}`, propertyId: pid, changes: [...this.bankChanges(bank), ...Object.keys(ids).map(k => ({ field: k, old: null, new: '(set)' })), ...(r.coFill ? [{ field: 'coOwners', old: null, new: '(set)' }] : [])], reason: why });
       }

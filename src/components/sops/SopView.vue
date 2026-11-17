@@ -31,7 +31,6 @@
           v-model="delWhy" label="Reason" placeholder="e.g. Replaced by the new Cleaning SOP" confirm-text="Delete SOP" danger :busy="busy" @confirm="remove()" @cancel="delOpen = false" />
       </div>
     </div>
-    <div class="notice error" v-show="err">{{ err }}</div>
     <div class="loading-bar" v-show="loading"></div>
     <div class="side-grid" v-if="sop">
       <SopSteps :sop="sop" :can-edit="canEdit" :busy="busy" :edit-first="editFirst" @save="saveSteps" />
@@ -60,6 +59,7 @@ import { useSession } from '@/stores/session.js';
 import { can } from '@/lib/access.js';
 
 export default {
+  popups: { error: 'err' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { SopSteps, SopDocs, SopLog, SopIcon, SopIconPicker, ConfirmReason },
   // editFirst: a new SOP opens with the steps editor already open.
   props: { sopKey: { type: String, required: true }, editFirst: Boolean },
@@ -76,7 +76,7 @@ export default {
     async save(what, action, next, reason = '') {
       this.busy = true;
       try { this.sop = await saveSop(this.me, this.sop, what, action, next, reason); return true; }
-      catch (e) { toast(friendlyError(e, 'save the SOP')); return false; }
+      catch (e) { toast.error(friendlyError(e, 'save the SOP')); return false; }
       finally { this.busy = false; }
     },
     async saveSteps({ steps, reason, done, fail }) {
@@ -98,7 +98,7 @@ export default {
         toast(`${this.sop.title} deleted.`);
         this.delOpen = false;
         this.$router.push('/HR/sops');
-      } catch (e) { toast(e.code ? friendlyError(e, 'delete the SOP') : e.message); }
+      } catch (e) { toast.error(e.code ? friendlyError(e, 'delete the SOP') : e.message); }
       this.busy = false;
     },
     async removeDoc(i) {

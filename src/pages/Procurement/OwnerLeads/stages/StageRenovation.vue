@@ -1,7 +1,6 @@
 <template>
   <section class="card" aria-label="Renovation">
     <div class="card-head"><h2>{{ `${n}. Renovation` }}</h2><span class="muted">{{ `${d.renovation.items.filter(x => x.status === 'done').length} of ${d.renovation.items.length} done` }}</span></div>
-    <div class="notice error" v-show="err">{{ err }}</div>
     <template v-for="g in renoGroupsOf(d)" :key="g">
       <div class="form-sec">{{ g }}</div>
       <div class="table-wrap">
@@ -62,6 +61,7 @@ import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
 
 export default {
+  popups: { error: 'err' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { UploadFile, FileViewer },
   props: { d: { type: Object, required: true }, listingId: { type: String, required: true }, canEdit: Boolean, n: { type: Number, default: 2 } },
   emits: ['copy'],

@@ -35,4 +35,8 @@ export async function findTenantsByName(text, max = 8) {
     .filter(t => { const have = String(t.name || '').toLowerCase().split(/\s+/); return words.every(w => have.some(h => h.startsWith(w))); })
     .slice(0, max);
 }
+// 17 Nov 2026: a guest's name, phone and email also go in private/contact (tenants and offline bookings), the part the
+// AI Agent may read with Bookings Base. IC/passport, passcodes and the rest stay in private/main only.
+export const GUEST_CONTACT = ['name', 'phone', 'email'];
+export const guestContact = d => { const o = {}; for (const k of GUEST_CONTACT) if (d && k in d) o[k] = String(d[k] ?? ''); return o; };
 export const privateOf = async ref => { const s = await getDoc(doc(ref, 'private', 'main')); return s.exists() ? s.data() : {}; };

@@ -23,9 +23,9 @@ const routes = [
   ticked('/Reports', () => import('./pages/Reports/Reports.vue'), 'Reports', 'reports'),
 
   // Portfolio: three separate pages (4 Nov 2026, Phase A). /Portfolio/properties?property=<id> is one property.
-  ticked('/Portfolio/owners', () => import('./pages/Portfolio/Owners/OwnersPage.vue'), 'Owners', 'portfolio'),
+  ticked('/Portfolio/owners', () => import('./pages/Portfolio/Owners/OwnersPage.vue'), 'Owners', 'owners'),
   ticked('/Portfolio/properties', () => import('./pages/Portfolio/Properties/PropertiesRoute.vue'), 'Properties', 'portfolio'),
-  ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'portfolio'),
+  ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'bookings'),
   // New booking (Reservation Lodgment Form), moved off Booking forms 16 Nov 2026. Still the Booking Forms tick for now.
   // Invoice settings (16 Nov 2026): header, T&Cs and bank details on booking invoices; Directors only
   page('/Portfolio/bookings/invoice-settings', () => import('./pages/Portfolio/Bookings/InvoiceSettings.vue'), 'Invoice settings', D, { navLabel: 'Bookings' }),
@@ -131,7 +131,7 @@ router.beforeEach(async to => {
   if (!canOpen(to.meta, me, ALLOWED_ROLES)) {
     if (ALLOWED_ROLES.includes(me.role)) return { path: homeFor(me.role) };
     await signOut(auth);
-    location.replace('/?noaccess=1');
+    location.replace(me.role === 'ai' ? '/?noaccess=ai' : '/?noaccess=1');   // AI Agent: its own message (17 Nov 2026)
     return false;
   }
   return true;

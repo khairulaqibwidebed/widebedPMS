@@ -265,7 +265,7 @@ import FormSaved from '@/components/FormSaved.vue';
 import { idPrefix } from '@/lib/lodgment.js';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
 import { allDone, stillMissing } from '@/lib/steps.js';
-import { STATUS, CONTACT_ALL, DIRECT_BOOKERS, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, findTenantsByName, privateOf } from '@/lib/offline.js';
+import { STATUS, CONTACT_ALL, DIRECT_BOOKERS, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, findTenantsByName, privateOf, guestContact } from '@/lib/offline.js';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { can } from '@/lib/access.js';
 import { askConfirm } from '@/lib/confirm.js';
@@ -306,7 +306,7 @@ export default {
       GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, PAY_MODES, FEES,
       lead: null, tenant: null, bk: {}, properties: [], units: [], start: '', nameHits: [], nameTimer: null,
       draft: null, draftBusy: false, draftMsg: '', resume: null, pendingSaved: false, invoice: null, invoiceNo: '',
-      step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'portfolio.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
+      step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'bookings.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
     };
   },
   async mounted() {
@@ -671,6 +671,7 @@ export default {
             tx.set(tRef, { status: 'active', firstInquiryId: null, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           }
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
+          tx.set(doc(tRef, 'private', 'contact'), guestContact(details), { merge: true });   // name, phone, email only (17 Nov 2026)
           return tenantId;
         });
         ids.push(id);
@@ -789,6 +790,7 @@ export default {
             tx.set(tRef, { status: 'active', firstInquiryId: ld.id, lastInquiryId: ld.id, ...tStates, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           }
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
+          tx.set(doc(tRef, 'private', 'contact'), guestContact(details), { merge: true });   // name, phone, email only (17 Nov 2026)
           tx.set(lcRef, { next: ln + 1 });
           tx.set(bRef, { source: 'offline', inquiryId: ld.id, bookingNo, tenantId,
             propertyId: b.propertyId, ...tag, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
@@ -879,6 +881,7 @@ export default {
             tx.set(tRef, { status: 'active', firstInquiryId: null, lastBookingId: bookingId, ...tStates, createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           }
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
+          tx.set(doc(tRef, 'private', 'contact'), guestContact(details), { merge: true });   // name, phone, email only (17 Nov 2026)
           tx.set(lcRef, { next: ln + 1 });
           tx.set(bRef, { source: 'direct', inquiryId: null, bookingNo, tenantId,
             propertyId: b.propertyId, ...tag, propertyName: prop?.name || '', unitId: b.unitId, unitCode,

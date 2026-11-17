@@ -1,4 +1,22 @@
 rules_version = '2';
+// Draft 0.74, 17 Nov 2026 (Khairul): the AI Agent's pages are set on Settings > Roles (roles/ai), Base (view) only.
+//   - roles/ai: a Director saves it; its perms may only hold aiViewPerms() (Owners, Properties, Bookings, Owner Leads and
+//     the AI-only Issues, Announcements, Playbook/SOP rows). The AI's own staff record ticks are ignored.
+//   - It reads with those levels like anyone else, plus: tenants' and offline bookings' private/contact (name, phone,
+//     email) with Bookings Base; issues and replies, announcements, Playbook and SOPs with their AI rows.
+//   - Never: owner records (they hold the bank's last 4 digits; names come from private/contact), private/main of
+//     anything, payments, finance, staff list, HR records, other people's notifications. It never writes anything.
+//   - Guests' name, phone and email are also saved in tenants/{id}/private/contact and offlineBookings/{id}/private/contact.
+// Draft 0.73, 16 Nov 2026 (Khairul): access levels and the AI Agent role.
+//   - "Owners, Properties & Bookings" split into Owners, Properties (portfolio.*) and Bookings ticks, each Base (view) or
+//     Full (edit). Lists saved before this have no 'split.v2' mark: their portfolio ticks count as Owners and Bookings too,
+//     and Tenant Leads View as Bookings Full (can() / legacyHas(), same as upgradePerms in lib/access.js).
+//   - Owner personal data in two parts: owners/{id}/private/contact (name, email, phone, WhatsApp, WeChat; Owners Base and
+//     up) and private/main (everything, IC, date of birth, address and bank included; Owners Full only). The private
+//     catch-all no longer covers owners. Marketing read and change private/contact only.
+//   - Guest/tenant personal data (tenants and offline bookings private parts): Bookings Full or Tenant Leads Full.
+//   - Bookings Base read offline payments (the booking's payments); Bookings Full edit offline bookings.
+//   - AI Agent role ('ai'): no ticks, not "any staff"; reads properties only. Nothing else, never writes.
 // Draft 0.72, 16 Nov 2026 (Khairul): Directors may delete an offline payment (Accounting > Offline Payments; audited).
 // Draft 0.71, 16 Nov 2026 (Khairul): bookings Awaiting payment + invoice.
 //   - config/invoiceDefaults: the invoice header, T&Cs and bank details (New booking > invoice). Staff read; Directors write.
@@ -264,7 +282,9 @@ service cloud.firestore {
     function isHR()       { return role() == 'hr'; }
     function opsRole()    { return role() == 'operations'; }
     // Any active staff record with a role (every role, including IT).
-    function anyStaff()   { return role() != null; }
+    // Draft 0.73: not the AI Agent
+    function anyStaff()   { return role() != null && role() != 'ai'; }
+    function isAI()       { return role() == 'ai'; }
     // Staff accounts: Director and HR. HR can't create, edit or promote anyone to Director.
     function staffAdmin() { return isDirector() || isHR(); }
     function hrOrDir()    { return isHR() || isDirector(); }
@@ -275,12 +295,15 @@ service cloud.firestore {
       return {
         'finance': ['reports.view', 'reports.edit', 'ezeeUpload.view', 'ezeeUpload.edit', 'expenses.view', 'expenses.edit',
           'monthEnd.view', 'monthEnd.edit', 'invoices.view', 'invoices.edit', 'offlinePayments.view', 'offlinePayments.edit',
-          'portfolio.view', 'portfolio.edit', 'bulkUpload.view', 'bulkUpload.edit', 'offlineInquiries.view', 'offlineInquiries.edit'],
-        'operations': ['portfolio.view', 'offlineInquiries.view', 'offlineInquiries.edit', 'bookingForms.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'offlinePayments.view'],
-        'it': [],
-        'hr': ['playbook.edit', 'sops.edit'],
-        'procurement': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit'],
-        'marketing': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit']
+          'owners.view', 'owners.edit', 'portfolio.view', 'portfolio.edit', 'bookings.view', 'bookings.edit',
+          'bulkUpload.view', 'bulkUpload.edit', 'offlineInquiries.view', 'offlineInquiries.edit', 'split.v2'],
+        'operations': ['owners.view', 'portfolio.view', 'bookings.view', 'bookings.edit', 'offlineInquiries.view', 'offlineInquiries.edit',
+          'bookingForms.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'offlinePayments.view', 'split.v2'],
+        'it': ['split.v2'],
+        'hr': ['playbook.edit', 'sops.edit', 'split.v2'],
+        'procurement': ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2'],
+        'marketing': ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2'],
+        'ai': ['portfolio.view', 'split.v2']
       }.get(r, []);
     }
     // Draft 0.17: the Director can change a role's usual pages and make new roles on the Roles page, saved in roles/{id}.
@@ -288,8 +311,19 @@ service cloud.firestore {
     function roleDoc(r)     { return /databases/$(database)/documents/roles/$(r); }
     function roleDefault(r) { return exists(roleDoc(r)) ? get(roleDoc(r)).data.get('perms', presetFor(r)) : presetFor(r); }
     // The person's ticks: saved on their record, or their role's usual pages. A switched-off record has none.
-    function myPerms()    { return role() != null ? get(myRecord()).data.get('perms', roleDefault(role())) : []; }
-    function can(p)       { return isDirector() || p in myPerms(); }
+    // Draft 0.73: the AI Agent never has ticks, whatever is saved on its record.
+    // Draft 0.74: the AI Agent's list is its role's (roles/ai, view levels only); never its own record's.
+    function myPerms()    { return role() == null ? [] : (role() == 'ai' ? roleDefault('ai') : get(myRecord()).data.get('perms', roleDefault(role()))); }
+    function can(p)       { return isDirector() || p in myPerms() || (role() != 'ai' && !('split.v2' in myPerms()) && legacyHas(p)); }
+    // Every name roles/ai may hold. KEEP IN STEP WITH AI_VIEW_PERMS in lib/access.js.
+    function aiViewPerms() { return ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'aiIssues.view', 'aiAnnouncements.view', 'aiContent.view', 'split.v2']; }
+    // A list saved before Draft 0.73 (no 'split.v2'): Portfolio View/Edit also give Owners and Bookings View/Edit, and
+    // Tenant Leads View gives Bookings View and Edit (they edited offline bookings before).
+    function legacyHas(p) {
+      return (p in ['owners.view', 'bookings.view'] && 'portfolio.view' in myPerms())
+        || (p in ['owners.edit', 'bookings.edit'] && 'portfolio.edit' in myPerms())
+        || (p in ['bookings.view', 'bookings.edit'] && 'offlineInquiries.view' in myPerms());
+    }
 
     // Finance data: any Finance page lets them read it; any Finance page ticked for Edit lets them change it.
     function finEdit()    { return isDirector() || myPerms().hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit']); }
@@ -299,10 +333,16 @@ service cloud.firestore {
     // Finance-data readers, plus IT (view-only on everything, as before).
     function staff()      { return finView() || isIT(); }
     // Offline Inquiries page: works the inquiries assigned to them (Create booking, tenants, direct bookings).
-    function isOps()      { return can('offlineInquiries.view'); }
+    function isOps()      { return can('offlineInquiries.view') && role() != 'ai'; }
     // Portfolio: View reads owners, properties, units and bookings. Edit (or Bulk Upload Edit) changes them,
     // terms and bank details included.
     function portfolioViewer() { return can('portfolio.view'); }
+    // Draft 0.73: Owners Base read names and contact (private/contact); Owners Full (or Bulk Upload Edit) everything.
+    function ownersViewer()    { return can('owners.view'); }
+    function ownersFull()      { return can('owners.edit') || can('bulkUpload.edit'); }
+    function ownerContactKeys() { return ['fullName', 'email', 'phone', 'whatsapp', 'wechat', 'coOwners', 'updatedAt', 'updatedBy']; }
+    // Guest and tenant personal data: Bookings Full or Tenant Leads Full (Accounting edit through the catch-all).
+    function guestFull()       { return can('bookings.edit') || can('offlineInquiries.edit'); }
     function portfolioEditor() { return finEdit() || can('portfolio.edit') || can('bulkUpload.edit'); }
     // Operations, Marketing and (Draft 0.66) Procurement with Portfolio View may also add properties, units and owners
     // (no terms or bank details).
@@ -405,10 +445,10 @@ service cloud.firestore {
     // their own rules below.
     match /{parent=**}/private/{docId} {
       allow read, write: if finOrDir() && parent[0] != 'complaints' && parent[0] != 'newOwnerListings'
-        && parent[0] != 'cohEvaluations';
+        && parent[0] != 'cohEvaluations' && parent[0] != 'owners';   // Draft 0.73: owners follow Owners Full
       // Returning tenant search: collectionGroup('private') where kind == 'tenant'. kind is written only on
       // tenants/{id}/private/main; Operations can't add it to an inquiry's private doc.
-      allow read: if (isOps() || finOrDir()) && resource.data.get('kind', '') == 'tenant';
+      allow read: if (guestFull() || finOrDir()) && resource.data.get('kind', '') == 'tenant';   // Draft 0.73: Full only
     }
 
     match /users/{uid} {
@@ -425,13 +465,13 @@ service cloud.firestore {
       allow update: if isHR() && permsOk() && uid != request.auth.uid
         && resource.data.role != 'director' && request.resource.data.role != 'director';
       // Sign-in stamps lastLoginAt on your own record (Team activity).
-      allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
+      allow update: if signedIn() && !isAI() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
       allow delete: if false;
 
       // Form drafts on your own account (New booking > Save draft, 16 Nov 2026). Only you; small docs only.
       match /drafts/{draftId} {
         allow read, delete: if signedIn() && request.auth.uid == uid;
-        allow create, update: if signedIn() && request.auth.uid == uid && request.resource.data.size() <= 10
+        allow create, update: if signedIn() && !isAI() && request.auth.uid == uid && request.resource.data.size() <= 10
           && (!('bk' in request.resource.data) || (request.resource.data.bk is string && request.resource.data.bk.size() < 60000));
       }
     }
@@ -439,8 +479,11 @@ service cloud.firestore {
     // Roles page (Director only). Everyone signed in reads, so the app can show names and usual pages after sign-in.
     match /roles/{rid} {
       allow read: if signedIn();
-      allow create, update: if isDirector() && request.resource.data.perms is list && rid != 'director';
-      allow delete: if isDirector() && rid != 'director';
+      allow create, update: if isDirector() && request.resource.data.perms is list && rid != 'director' && rid != 'ai';
+      // Draft 0.74: the AI Agent's pages, view levels only
+      allow create, update: if isDirector() && rid == 'ai' && request.resource.data.perms is list
+        && request.resource.data.perms.hasOnly(aiViewPerms());
+      allow delete: if isDirector() && rid != 'director' && rid != 'ai';
     }
 
     match /config/{docId} {
@@ -532,7 +575,7 @@ service cloud.firestore {
           && request.resource.data.get('pinned', false) is bool
           && request.resource.data.get('files', []) is list && request.resource.data.get('files', []).size() <= 10;
       }
-      allow read: if annPoster() || (anyStaff() && resource.data.audience.hasAny([role(), 'everyone']));
+      allow read: if annPoster() || (anyStaff() && resource.data.audience.hasAny([role(), 'everyone'])) || (isAI() && can('aiAnnouncements.view'));
       allow create: if annPoster() && annOk() && request.resource.data.createdBy == request.auth.uid;
       allow update: if annPoster() && annOk() && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt;
@@ -604,7 +647,7 @@ service cloud.firestore {
     // Version documents are add-only: a change is a new document.
 
     match /properties/{propertyId} {
-      allow read: if staff() || portfolioViewer();
+      allow read: if staff() || portfolioViewer();   // Draft 0.74: the AI Agent with Properties Base (portfolioViewer)
       allow write: if portfolioEditor();
       allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'state', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
@@ -663,8 +706,8 @@ service cloud.firestore {
 
     // The owner parent holds bankLast4 (not shown to portfolio viewers); Operations create it with none.
     match /owners/{ownerId} {
-      allow read: if staff() || portfolioViewer();
-      allow create, update: if portfolioEditor();
+      allow read: if !isAI() && (staff() || portfolioViewer() || ownersViewer());   // Draft 0.74: holds bankLast4, so never the AI
+      allow create, update: if portfolioEditor() || ownersFull();
       allow delete: if isDirector();   // safe delete: the page only offers it for owners with no units
       allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'states', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.get('bankLast4', null) == null
@@ -677,18 +720,20 @@ service cloud.firestore {
       allow update: if stampOnly();
       // Operations write name and contact details once, in the batch that creates the owner, and never read them back.
       match /private/{docId} {
-        // Portfolio Edit: names, contact and bank details.
-        allow read, write: if portfolioEditor() && docId == 'main';
+        // Draft 0.73: Owners Full: everything (main) and the contact part.
+        allow read, write: if ownersFull() && docId in ['main', 'contact'];
+        // Adding an owner (Operations, Marketing, Procurement): both parts written once, in the batch that creates the
+        // owner; private/main is never read back.
         allow create: if portfolioAdder() && docId == 'main' && createdNow('owners', ownerId)
           && newKeysOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy'])
           && request.resource.data.updatedBy == request.auth.uid;
-        // Marketing read and edit names and contact details (Khairul 27 Oct). Bank fields share this document: the
-        // page hides them and Marketing can't change them.
-        allow read: if isMkt() && docId == 'main';
-        // Draft 0.58: Operations read it too, for owner names (the page shows only the name)
-        allow read: if portfolioAdder() && docId == 'main';
-        allow update: if isMkt() && docId == 'main' && request.resource.data.updatedBy == request.auth.uid
-          && changed().hasOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy']);
+        allow create: if portfolioAdder() && docId == 'contact' && createdNow('owners', ownerId)
+          && newKeysOnly(ownerContactKeys()) && request.resource.data.updatedBy == request.auth.uid;
+        // Owners Base (and Marketing, Operations as before): names and contact only.
+        allow read: if (ownersViewer() || isMkt()) && docId == 'contact';
+        // Marketing change names and contact details (Khairul 27 Oct), in the contact part only.
+        allow create, update: if isMkt() && docId == 'contact' && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.keys().hasOnly(ownerContactKeys());
       }
     }
 
@@ -894,7 +939,8 @@ service cloud.firestore {
       allow update: if stampOnly();
       allow delete: if false;
       match /private/{docId} {
-        allow read: if isOps();
+        allow read: if isOps() && guestFull();   // Draft 0.73: tenant personal data, Full only
+        allow read: if isAI() && docId == 'contact' && can('bookings.view');   // Draft 0.74: name, phone, email only
         allow create, update: if opsBooking(getAfter(docPath('tenants', tenantId)).data.get('lastInquiryId', null), tenantId);
         allow create, update: if isOps()
           && directBookingMadeNow(getAfter(docPath('tenants', tenantId)).data.get('lastBookingId', null), tenantId);
@@ -905,7 +951,7 @@ service cloud.firestore {
     // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
     // View and Edit are separate ticks: Offline Payments View reads; Offline Payments Edit creates and changes.
     match /offlinePayments/{id} {
-      allow read: if can('offlinePayments.view') || can('offlinePayments.edit');
+      allow read: if can('offlinePayments.view') || can('offlinePayments.edit') || (can('bookings.view') && !isAI());   // Draft 0.73: a booking's payments (not the AI, 0.74)
       allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
       allow update: if can('offlinePayments.edit');
       // The Booking Form saves the booking's payment here (Pending), in the same write as the booking itself.
@@ -937,7 +983,7 @@ service cloud.firestore {
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
     // offline_{inquiryId} from Create booking, or offline_BK-0001 for a direct booking (no inquiry).
     match /offlineBookings/{bookingId} {
-      allow read: if finOrDir() || isOps() || portfolioViewer();
+      allow read: if finOrDir() || isOps() || portfolioViewer() || can('bookings.view');
       allow create: if finOrDir() && bookingId == 'offline_' + request.resource.data.inquiryId;
       allow update: if finOrDir() && request.resource.data.inquiryId == resource.data.inquiryId;
       // Operations: Create booking on their own inquiry (the inquiry must point back and be booked in the same write).
@@ -951,7 +997,8 @@ service cloud.firestore {
       allow update: if isOps() && assignedToMe(resource.data.inquiryId)
         && changed().hasOnly(['ezeeReservationNo', 'updatedAt', 'updatedBy']);
       // Operations edit any booking's details (Portfolio > Bookings > open a booking); who, source and the inquiry link stay as they were.
-      allow update: if isOps() && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId']);
+      // Draft 0.73: Bookings Full (was any Operations)
+      allow update: if can('bookings.edit') && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId']);
       // Direct booking (Portfolio > Bookings > + New booking).
       allow create: if (finOrDir() || isOps()) && bookingId.matches('offline_BK-[0-9]+')
         && request.resource.data.source == 'direct' && request.resource.data.inquiryId == null
@@ -962,12 +1009,13 @@ service cloud.firestore {
       allow create: if finOrDir() && bookingId.matches('offline_[A-Z0-9]+-[0-9]+') && request.resource.data.source == 'import'
         && request.resource.data.createdBy == request.auth.uid;
       // Draft 0.36: delete for good, only a cancelled booking (the page also checks no payment is recorded).
-      allow delete: if (finOrDir() || isOps()) && resource.data.get('status', '') == 'cancelled';
+      allow delete: if (finOrDir() || can('bookings.edit')) && resource.data.get('status', '') == 'cancelled';
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
-      // Door passcodes for the booking (Booking Form).
+      // Door passcodes for the booking (Booking Form), and the guest on imported bookings. Draft 0.73: read with Full only.
       match /private/{doc} {
-        allow read: if finOrDir() || isOps();
+        allow read: if finOrDir() || (isOps() && guestFull());
+        allow read: if isAI() && doc == 'contact' && can('bookings.view');   // Draft 0.74: guest name, phone, email
         allow create: if (finOrDir() || isOps()) && existsAfter(docPath('offlineBookings', bookingId));
         allow update: if finOrDir() || isOps();
         allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
@@ -977,7 +1025,7 @@ service cloud.firestore {
     // Issues: seen by the tagged roles, the person who raised it and Directors. Every role raises tickets.
     // Completed tickets are locked.
     match /issues/{id} {
-      allow read: if canSeeIssue(resource.data);
+      allow read: if canSeeIssue(resource.data) || (isAI() && can('aiIssues.view'));   // Draft 0.74
       allow create: if anyStaff()
         && request.resource.data.raisedByUid == request.auth.uid
         && request.resource.data.status == 'open'
@@ -1013,7 +1061,7 @@ service cloud.firestore {
       allow update: if stampOnly();
       allow delete: if false;
       match /replies/{replyId} {
-        allow read: if canSeeIssue(get(docPath('issues', id)).data);
+        allow read: if canSeeIssue(get(docPath('issues', id)).data) || (isAI() && can('aiIssues.view'));   // Draft 0.74
         allow create: if anyStaff() && request.resource.data.byUid == request.auth.uid
           && canSeeIssue(get(docPath('issues', id)).data)
           && get(docPath('issues', id)).data.status in ['open', 'progress'];
@@ -1113,7 +1161,7 @@ service cloud.firestore {
 
     // sops/{key}. Everyone reads; HR and Directors edit and soft-delete (deleted: true). Never removed.
     match /sops/{sopKey} {
-      allow read: if anyStaff();
+      allow read: if anyStaff() || (isAI() && can('aiContent.view'));   // Draft 0.74
       // Any SOP key: lower case, digits and dashes, 2 to 40 long (the first four keep their keys).
       allow create, update: if can('sops.edit') && sopKey.matches('^[a-z0-9][a-z0-9-]{1,39}$')
         && request.resource.data.updatedByUid == request.auth.uid
@@ -1130,7 +1178,7 @@ service cloud.firestore {
 
     // playbook/businessModel and playbook/onboarding. Everyone reads; HR and Directors edit.
     match /playbook/{pageId} {
-      allow read: if anyStaff();
+      allow read: if anyStaff() || (isAI() && can('aiContent.view'));   // Draft 0.74
       allow create, update: if can('playbook.edit') && pageId in ['businessModel', 'onboarding']
         && request.resource.data.updatedByUid == request.auth.uid;
       allow delete: if false;
@@ -1186,7 +1234,7 @@ service cloud.firestore {
         allow read: if (isHR() && complaintNow(id).kind == 'staff')
           || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
           || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
-        allow create: if complaintNow(id).kind == 'staff'
+        allow create: if !isAI() && complaintNow(id).kind == 'staff'
           && newKeysOnly(['text', 'by', 'byName', 'byUid', 'closing', 'imageIds', 'createdAt'])
           && request.resource.data.text is string && request.resource.data.text.size() <= 2000
           && (request.resource.data.text.size() > 0
@@ -1221,7 +1269,7 @@ service cloud.firestore {
         allow read: if (isHR() && complaintNow(id).kind == 'staff')
           || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
           || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
-        allow create: if complaintNow(id).kind == 'staff'
+        allow create: if !isAI() && complaintNow(id).kind == 'staff'
           && newKeysOnly(['data', 'w', 'h', 'size', 'scope', 'threadId', 'byUid', 'createdAt'])
           && request.resource.data.data is string && request.resource.data.data.size() <= 700000
           && ((request.resource.data.scope == 'complaint' && !('threadId' in request.resource.data)
@@ -1247,7 +1295,7 @@ service cloud.firestore {
         allow read: if (isHR() && complaintNow(id).kind == 'staff')
           || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
           || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
-        allow create: if complaintNow(id).kind == 'staff'
+        allow create: if !isAI() && complaintNow(id).kind == 'staff'
           && newKeysOnly(['name', 'fileId', 'mimeType', 'by', 'byUid', 'threadId', 'createdAt'])
           && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
           && request.resource.data.fileId is string && request.resource.data.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
@@ -1430,7 +1478,7 @@ service cloud.firestore {
       // done (matches the KPI.vue UI, which hides the submit form at that point) — otherwise
       // an employee could write status back to 'submitted' with nulled-out review fields and erase a
       // reviewer's decision.
-      allow create, update: if (resource == null || (resource.data.employeeId == request.auth.uid && resource.data.status != 'done'))
+      allow create, update: if !isAI() && (resource == null || (resource.data.employeeId == request.auth.uid && resource.data.status != 'done'))
         && request.resource.data.employeeId == request.auth.uid
         && request.resource.data.status == 'submitted'
         && request.resource.data.get('finalApprovedRating', null) == null
@@ -1445,7 +1493,7 @@ service cloud.firestore {
         && request.resource.data.status == 'discussionRequested'
         && changed().hasOnly(['status', 'directorRating', 'directorComments', 'directorId', 'ratedAt', 'discussionStatus', 'history']);
       // The employee's own discussion-status flip, set alongside their replies.
-      allow update: if resource.data.employeeId == request.auth.uid && changed().hasOnly(['discussionStatus']);
+      allow update: if !isAI() && resource.data.employeeId == request.auth.uid && changed().hasOnly(['discussionStatus']);
       allow delete: if false;
     }
 
@@ -1474,7 +1522,7 @@ service cloud.firestore {
     // Discussion requests: the employee who raised it, and HR/Director, read and resolve.
     match /performanceDiscussions/{id} {
       allow read: if (resource == null && anyStaff()) || isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
-      allow create: if request.resource.data.employeeId == request.auth.uid && request.resource.data.status == 'requested';
+      allow create: if !isAI() && request.resource.data.employeeId == request.auth.uid && request.resource.data.status == 'requested';
       allow update: if isDirector() || can('performance.edit');
       allow delete: if false;
     }

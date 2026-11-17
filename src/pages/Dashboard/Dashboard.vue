@@ -15,7 +15,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <template v-if="data">
       <div>
@@ -212,6 +211,7 @@ import { noteQuotaError } from '@/lib/quota.js';
 const me = useSession();
 
 export default {
+  popups: true,   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { PropertyPicker, MonthPicker, OptionPicker },
   data() {
     return {

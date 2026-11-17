@@ -1,8 +1,6 @@
 <template>
   <main class="content">
     <div class="loading-bar" v-show="loading || busy"></div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice warn" v-show="leadsError">{{ leadsError }}</div>
     <div class="notice warn" v-if="syncNotes.length"><template v-for="(n, i) in syncNotes" :key="i"><div>{{ n }}</div></template></div>
     <div class="page-head">
@@ -100,6 +98,7 @@ import LiveStatus from '@/components/LiveStatus.vue';
 const HINTS = { new: 'On the board, not started', progress: 'Owner interested', signed: 'Agreement signed', live: 'Handed over to Operations', cancelled: 'Owner not going ahead' };
 
 export default {
+  popups: true,   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { OptionPicker, LiveStatus },
   mixins: [liveMixin],
   data() {

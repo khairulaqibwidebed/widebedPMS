@@ -38,6 +38,8 @@ import { useSession } from '../stores/session.js';
 import { homeFor } from '../nav.js';
 
 const NO_ACCESS = 'Your account has no access to this system yet. Ask a Director to give you a role.';
+// 17 Nov 2026: AI Agent logins (role 'ai') read data only, never the screens
+const AI_ONLY = "This is an AI Agent account. It reads data only and can't open the PMS screens.";
 const MESSAGES = {
   'auth/invalid-credential': 'Email or password is wrong.',
   'auth/invalid-email': 'That email address does not look right.',
@@ -51,7 +53,7 @@ export default {
   popups: false,   // 16 Nov 2026: messages stay on the page here (lib/page-popups.js)
   data: () => ({ configMissing, email: '', password: '', showPw: false, busy: false, err: '', ok: '' }),
   async created() {
-    if ('noaccess' in this.$route.query) this.err = NO_ACCESS;
+    if ('noaccess' in this.$route.query) this.err = this.$route.query.noaccess === 'ai' ? AI_ONLY : NO_ACCESS;
     // Already signed in with a working role: go straight to the dashboard.
     if (!configMissing) {
       const me = await useSession().check();
@@ -66,12 +68,12 @@ export default {
       try {
         const cred = await signInWithEmailAndPassword(auth, this.email, this.password);
         const profile = await profileOf(cred.user);
-        if (!ALLOWED_ROLES.includes(profile.role)) { await signOut(auth); throw { code: 'noaccess' }; }
+        if (!ALLOWED_ROLES.includes(profile.role)) { await signOut(auth); throw { code: profile.role === 'ai' ? 'aionly' : 'noaccess' }; }
         try { await updateDoc(doc(db, 'users', cred.user.uid), { lastLoginAt: serverTimestamp() }); } catch (_) {}
         useSession().set({ user: cred.user, ...profile });
         this.$router.replace(homeFor(profile.role));
       } catch (e) {
-        this.err = e.code === 'noaccess' ? NO_ACCESS : (MESSAGES[e.code] || 'Could not sign in. Try again.');
+        this.err = e.code === 'aionly' ? AI_ONLY : e.code === 'noaccess' ? NO_ACCESS : (MESSAGES[e.code] || 'Could not sign in. Try again.');
         this.busy = false;
       }
     },

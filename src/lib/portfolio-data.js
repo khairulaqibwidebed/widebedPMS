@@ -15,12 +15,46 @@ import { cached, clearCache, patchCache, TTL } from '@/lib/cache.js';
 import { propertyFields, normState, stateFor, rememberStates } from '@/lib/states.js';
 import { scoped, scopedOrBlank, getScoped, myProperties, giveMeProperties } from '@/lib/property-scope.js';
 import { useSession } from '@/stores/session.js';
+import { can } from '@/lib/access.js';
+import { guestContact } from '@/lib/offline.js';
+import { ownersFull } from '@/lib/portfolio-access.js';
 import { loadSharedVersions, forgetShared, mergeVersions, sharedList } from '@/lib/shared-rates.js';
 
 // ---------- constants ----------
 export const MONTH_PAY = { paid: { label: 'Paid', cls: 'green' }, part: { label: 'Part paid', cls: 'amber' }, unpaid: { label: 'Unpaid', cls: 'red' } };
 export const PRIVATE = ['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'bankName', 'accountHolder', 'bankAccount'];
 export const BANK = ['bankName', 'accountHolder', 'bankAccount'];
+// 16 Nov 2026 (Khairul): owner personal data in two parts. private/contact = name and contact (Owners Base and up);
+// private/main = everything, IC, date of birth, address and bank details included (Owners Full only).
+export const CONTACT = ['fullName', 'email', 'phone', 'whatsapp', 'wechat'];
+export const CO_CONTACT = ['fullName', 'email', 'phone'];
+export const SENSITIVE = PRIVATE.filter(k => !CONTACT.includes(k));
+// The contact part of a private record (joint owners without their IC).
+export function contactOf(priv) {
+  const out = {};
+  for (const k of CONTACT) if (k in priv) out[k] = String(priv[k] ?? '');
+  if (Array.isArray(priv.coOwners)) out.coOwners = priv.coOwners.map(c => Object.fromEntries(CO_CONTACT.map(k => [k, String(c?.[k] || '')])));
+  return out;
+}
+// Full readers: private/main with the contact part on top (Marketing may have changed names or contact since).
+export function mergeOwnerPriv(main, contact) {
+  if (!contact || !Object.keys(contact).length) return main || {};
+  const out = { ...(main || {}), ...contact };
+  if (Array.isArray(contact.coOwners)) out.coOwners = contact.coOwners.map((c, i) => ({ ...((main?.coOwners || [])[i] || {}), ...c }));
+  return out;
+}
+// Which part this person reads: 'main' (Full), 'contact' (Base) or null (no Owners access).
+export function ownerPrivLevel() {
+  const me = useSession();
+  return ownersFull(me) ? 'main' : can(me, 'owners.view') ? 'contact' : null;
+}
+async function readOwnerPriv(id, lvl = ownerPrivLevel()) {
+  if (!lvl) return {};
+  const ref = doc(db, 'owners', id), get = d => getDoc(doc(ref, 'private', d)).then(x => (x.exists() ? x.data() : {})).catch(() => ({}));
+  if (lvl === 'contact') return get('contact');
+  const [m, c] = await Promise.all([get('main'), get('contact')]);
+  return mergeOwnerPriv(m, c);
+}
 export const PROP_INFO = ['address', 'city', 'state', 'ezeeAccount', 'ezeeName'];
 export const UNIT_INFO = ['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb'];
 export { STATES } from '@/lib/states.js';   // the list moved to lib/states.js (12 Nov 2026)
@@ -119,7 +153,7 @@ export const freshOwnerCode = async owners => ownerCodeOf(await freshOwnerNumber
 export const nextOwnerCode = owners => `OWN-${String(Math.max(0, ...owners.map(x => Number(String(x.code || x.id).replace(/\D/g, '')) || 0)) + 1).padStart(3, '0')}`;
 
 // ---------- reads ----------
-const ownersKey = (viewOnly, canEdit) => `owners:${viewOnly}:${canEdit}:${(myProperties() || ['all']).join(',')}`;
+const ownersKey = (viewOnly, canEdit) => `owners:${ownerPrivLevel()}:${(myProperties() || ['all']).join(',')}`;   // 16 Nov 2026: by Owners level (viewOnly, canEdit kept for the callers)
 // The owners I may see (12 Nov 2026, lib/property-scope.js): owners of units in my properties (owners.propertyIds),
 // plus owners I added myself that have no unit yet. Directors: every owner.
 function ownerQueries(extra = []) {
@@ -128,13 +162,14 @@ function ownerQueries(extra = []) {
   const uid = useSession().user?.uid;
   return myProperties() && uid ? [...list, query(col, where('createdBy', '==', uid), ...extra)] : list;
 }
-// Every owner, by name. Names live in private/main (PDPA); older owners kept the name on the main record.
-// View-only roles (except Marketing) don't read the private part.
+// Every owner, by name. Names live in the private part (PDPA); older owners kept the name on the main record.
+// Owners Full read private/main (+ contact), Owners Base private/contact, no Owners access nothing (16 Nov 2026).
 export async function loadOwners(viewOnly, canEdit) {
   const list = await cached(ownersKey(viewOnly, canEdit), TTL.mid, async () => {
     const rows = (await getScoped(ownerQueries())).docs.map(d => ({ id: d.id, ...d.data() }));
-    const privs = viewOnly && !canEdit ? [] : await Promise.all(rows.map(x => getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null)));
-    rows.forEach((x, i) => { x.private = privs[i]?.exists?.() ? privs[i].data() : {}; });
+    const lvl = ownerPrivLevel();
+    const privs = lvl ? await Promise.all(rows.map(x => readOwnerPriv(x.id, lvl))) : [];
+    rows.forEach((x, i) => { x.private = privs[i] || {}; });
     return rows;
   });
   return [...list].sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id));
@@ -150,11 +185,9 @@ export function watchOwners(viewOnly, canEdit, onRows, onError, seed = []) {
   let turn = 0;
   return listen(ownerQueries([limit(1000)]), async rows => {
     const mine = ++turn;
-    const todo = viewOnly && !canEdit ? [] : rows.filter(x => !(x.id in privs) || seenAt[x.id] !== stamp(x));
-    await Promise.all(todo.map(async x => {
-      const d = await getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null);
-      privs[x.id] = d?.exists?.() ? d.data() : {}; seenAt[x.id] = stamp(x);
-    }));
+    const lvl = ownerPrivLevel();
+    const todo = lvl ? rows.filter(x => !(x.id in privs) || seenAt[x.id] !== stamp(x)) : [];
+    await Promise.all(todo.map(async x => { privs[x.id] = await readOwnerPriv(x.id, lvl); seenAt[x.id] = stamp(x); }));
     if (mine !== turn) return;
     clearCache('owners:');
     onRows(rows.map(x => ({ ...x, private: privs[x.id] || {} }))
@@ -334,6 +367,10 @@ export async function saveOfflineBooking(me, b, main, changes, privData, guestDa
   batch.update(ref, { ...main, ...(st ? { state: st } : {}), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
   if (privData) batch.set(doc(ref, 'private', 'main'), privData, { merge: true });
   if (guestData) batch.set(doc(db, 'tenants', b.tenantId, 'private', 'main'), guestData, { merge: true });
+  // The guest's name, phone and email also in private/contact (17 Nov 2026)
+  const pc = guestContact(privData), gc = guestContact(guestData);
+  if (Object.keys(pc).length) batch.set(doc(ref, 'private', 'contact'), pc, { merge: true });
+  if (Object.keys(gc).length) batch.set(doc(db, 'tenants', b.tenantId, 'private', 'contact'), gc, { merge: true });
   audit(batch, me, { action: 'offlineBooking.update', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
     changes: [...changes, ...Object.keys({ ...(privData || {}), ...(guestData || {}) }).map(k => ({ field: `private.${k}`, old: null, new: null }))], reason: b.reason.trim() });
   await batch.commit();
@@ -355,6 +392,7 @@ export async function setBookingCancelled(me, b, cancel, reason) {
 export async function deleteOfflineBooking(me, b, reason) {
   const batch = writeBatch(db), ref = doc(db, 'offlineBookings', b.id);
   batch.delete(doc(ref, 'private', 'main'));
+  batch.delete(doc(ref, 'private', 'contact'));
   batch.delete(doc(db, 'utilityBills', b.id));
   batch.delete(ref);
   audit(batch, me, { action: 'offlineBooking.delete', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
@@ -368,8 +406,8 @@ export async function deleteOfflineBooking(me, b, reason) {
 export async function refreshOwner(id, viewOnly, canEdit, removed = false) {
   let owner = null;
   if (!removed) {
-    const [m, pr] = await Promise.all([getDoc(doc(db, 'owners', id)), getDoc(doc(db, 'owners', id, 'private', 'main')).catch(() => null)]);
-    if (m.exists()) owner = { id, ...m.data(), private: pr?.exists?.() ? pr.data() : {} };
+    const [m, pr] = await Promise.all([getDoc(doc(db, 'owners', id)), readOwnerPriv(id)]);
+    if (m.exists()) owner = { id, ...m.data(), private: pr };
   }
   const ok = await patchCache(ownersKey(viewOnly, canEdit), list => [...list.filter(x => x.id !== id), ...(owner ? [owner] : [])]);
   if (!ok) await clearCache('owners:');
@@ -401,7 +439,9 @@ export function handoffProperty(h, properties) {
 
 // ---------- writes: owners ----------
 // keepMain: Marketing editing an owner leave the code, status and bank digits as they are.
-export async function saveOwner(me, { id, isNew, keepMain, active, bankLast4, priv, changed, reason, propertyId }) {
+// full: Owners Full (writes private/main and private/contact). Otherwise a new owner (Operations, Marketing) writes both
+// once and never reads private/main back; Marketing editing an owner write private/contact only (16 Nov 2026).
+export async function saveOwner(me, { id, isNew, keepMain, active, bankLast4, priv, changed, reason, propertyId, full = true }) {
   const b = writeBatch(db);
   const main = keepMain ? { updatedAt: serverTimestamp(), updatedBy: me.user.uid }
     : { code: id, active, bankLast4, updatedAt: serverTimestamp(), updatedBy: me.user.uid };
@@ -412,7 +452,9 @@ export async function saveOwner(me, { id, isNew, keepMain, active, bankLast4, pr
     main.states = st ? [st] : (me.role === 'director' ? [] : (me.states || []));
   }
   b.set(doc(db, 'owners', id), main, { merge: true });
-  b.set(doc(db, 'owners', id, 'private', 'main'), { ...priv, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+  const stamp = { updatedAt: serverTimestamp(), updatedBy: me.user.uid };
+  if (full || isNew) b.set(doc(db, 'owners', id, 'private', 'main'), { ...priv, ...stamp }, { merge: true });
+  b.set(doc(db, 'owners', id, 'private', 'contact'), { ...contactOf(priv), ...stamp }, { merge: true });
   // Audit names the fields changed, never the personal values.
   audit(b, me, { action: isNew ? 'owner.create' : 'owner.update', entity: `owners/${id}`, propertyId,
     changes: changed.map(k => ({ field: k, old: null, new: '(changed)' })), reason });
@@ -421,9 +463,43 @@ export async function saveOwner(me, { id, isNew, keepMain, active, bankLast4, pr
   // may add propertyIds from rules Draft 0.59; until then a refusal is ignored (they still see owners they added).
   if (isNew && propertyId) await setDoc(doc(db, 'owners', id), { propertyIds: arrayUnion(propertyId) }, { merge: true }).catch(e => console.warn('Owner propertyIds not saved:', e.code || e.message));
 }
+// One-off move (16-17 Nov 2026), Directors: copy names and contact details from private/main into private/contact for
+// owners (name, email, phone, WhatsApp, WeChat), tenants and offline bookings (name, phone, email), so Owners Base and the
+// AI Agent can read them without IC, passport, address, bank details or passcodes. A contact part that already has a
+// name is left alone; one with only a few fields keeps them and gets the rest. Notes the run in config/contactSplit so
+// the button goes away. Returns the counts copied.
+export const contactSplitDone = async () => (await getDoc(doc(db, 'config', 'contactSplit')).catch(() => null))?.exists?.() || false;
+export async function copyContacts(me) {
+  let b = writeBatch(db), n = 0;
+  const put = async (ref, data) => { b.set(ref, data); if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; } };
+  const stamp = { updatedAt: serverTimestamp(), updatedBy: me.user.uid };
+  const part = async (col, pick, nameKey) => {
+    const ids = (await getDocs(collection(db, col))).docs.map(d => d.id);
+    let copied = 0;
+    for (const id of ids) {
+      const [m, c] = await Promise.all([getDoc(doc(db, col, id, 'private', 'main')), getDoc(doc(db, col, id, 'private', 'contact'))]);
+      if (!m.exists() || (c.exists() && c.data()[nameKey])) continue;
+      const data = pick(m.data());
+      if (!data[nameKey] && !data.phone && !data.email) continue;   // nothing to copy (e.g. passcodes only)
+      await put(doc(db, col, id, 'private', 'contact'), { ...data, ...(c.exists() ? c.data() : {}), ...stamp });
+      copied++;
+    }
+    return copied;
+  };
+  const counts = { owners: await part('owners', contactOf, 'fullName'), tenants: await part('tenants', guestContact, 'name'),
+    offlineBookings: await part('offlineBookings', guestContact, 'name') };
+  b.set(doc(db, 'config', 'contactSplit'), { doneAt: serverTimestamp(), by: me.user.uid, byName: me.name, ...counts });
+  audit(b, me, { action: 'contactSplit', entity: 'config/contactSplit',
+    changes: [{ field: 'private/contact', old: null, new: `${counts.owners} owners, ${counts.tenants} tenants, ${counts.offlineBookings} bookings` }],
+    reason: 'Names and contact details copied for Owners Base and the AI Agent' });
+  await b.commit();
+  clearCache('owners:');
+  return counts;
+}
 export async function deleteOwner(me, o, propertyId) {
   const b = writeBatch(db);
   b.delete(doc(db, 'owners', o.id, 'private', 'main'));
+  b.delete(doc(db, 'owners', o.id, 'private', 'contact'));
   b.delete(doc(db, 'owners', o.id));
   audit(b, me, { action: 'owner.delete', entity: `owners/${o.id}`, propertyId, changes: [{ field: 'owner', old: o.fullName || o.code || o.id, new: null }], reason: 'Deleted, no units linked' });
   await b.commit();
