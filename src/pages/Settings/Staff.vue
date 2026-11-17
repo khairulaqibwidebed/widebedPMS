@@ -36,8 +36,7 @@
       <OptionPicker v-model="roleFilter" :options="roleOptions" label="Filter by role" />
       <div class="head-tools push">
         <button class="btn" @click="openLogs()">Logs</button>
-        <button class="btn" @click="openAdd('hk')">+ Add housekeeper</button>
-        <button class="btn btn-primary" @click="openAdd()">+ Invite staff</button>
+        <button class="btn btn-primary" @click="openAdd()">+ Add staff</button>
       </div>
     </div>
 
@@ -52,10 +51,10 @@
           <template v-for="row in pageRows" :key="row.id">
             <tr>
               <td><button class="name-btn" @click="openEdit(row)">{{ row.displayName || '(no name)' }}</button><span class="you" v-show="row.id === myUid">You</span></td>
-              <td><template v-if="usernameOf(row.email)">{{ usernameOf(row.email) }} <span class="tag hk-tag" title="Signs in on the Housekeeping tab with this username">username</span></template><template v-else>{{ row.email }}</template></td>
+              <td><template v-if="usernameOf(row.email)">{{ usernameOf(row.email) }} <span class="tag hk-tag" title="Username: signs in with this username" aria-label="Username">U</span></template><template v-else>{{ row.email }}</template></td>
               <td>
                 {{ roleText(row) }}
-                <span class="tag custom-tag" v-if="isCustom(row)" title="Page access changed from the role's usual pages">Custom access</span>
+                <span class="tag custom-tag" v-if="isCustom(row)" title="Custom access: page access changed from the role's usual pages" aria-label="Custom access">CA</span>
               </td>
               <td class="states-cell" :class="{ 'no-state': needsState(row) }">{{ propertiesText(row) }}</td>
               <td>{{ row.lastLoginAt ? when(row.lastLoginAt) : 'Never' }}</td>
@@ -115,9 +114,12 @@
         <div><b>HR</b><span>SOP pages, complaints, Playbook, Staff accounts and Audit log, Issues.</span></div>
         <div><b>Procurement</b><span>The Fillout form links, Issues, Playbook and SOPs.</span></div>
         <div><b>Marketing</b><span>Issues, Playbook and SOPs for now. Own pages come later.</span></div>
-        <div><b>Housekeeping</b><span>Signs in with a username and password HR sets (Housekeeping tab on the sign-in page). Dashboard, Issues, Playbook, SOPs, COH and HR pages to start; add more pages per person. In COH they rate, and are rated by, only the people HR assigns.</span></div>
+        <div><b>Housekeeping</b><span>Signs in with a username and password HR sets (typed in the Email or username box on the sign-in page). Dashboard, Issues, Playbook, SOPs, COH and HR pages to start; add more pages per person. In COH they rate, and are rated by, only the people HR assigns.</span></div>
         <div><b>AI Agent</b><span>Login for the AI agent (Grok). Reads only the pages set on Roles > AI Agent; never IC, bank details or payments; no PMS screens. Director only.</span></div>
         <div v-for="r in Object.keys(CUSTOM_ROLES)" :key="r"><b>{{ CUSTOM_ROLES[r].name }}</b><span>{{ CUSTOM_ROLES[r].description || 'Made on the Roles page.' }}{{ CUSTOM_ROLES[r].active ? '' : ' (turned off)' }}</span></div>
+        <!-- 17 Nov 2026: the short tags on the staff list -->
+        <div><b><span class="tag hk-tag">U</span> Username</b><span>Signs in with a username and password instead of an email (Housekeeping).</span></div>
+        <div><b><span class="tag custom-tag">CA</span> Custom access</b><span>This person's page access was changed from their role's usual pages.</span></div>
         <div><b>Page access</b><span>Each role starts with its usual access. For any page you can pick None, Base (view) or Full (edit) for one person. Statement Approvals, Brand Logos, Staff accounts, Audit log and complaints always follow the role.</span></div>
       </div>
         <div class="modal-foot"><button class="btn" @click="rolesOpen = false">Close</button></div>
@@ -130,7 +132,7 @@
         <div class="drawer-back" @click="close()"></div>
         <aside class="drawer sp-fixed" role="dialog" :aria-label="panel.mode === 'add' ? 'Add staff' : 'Edit staff'" v-esc="() => { close() }">
           <div class="drawer-head">
-            <h2>{{ panel.mode === 'add' ? (panel.kind === 'hk' ? 'Add housekeeper' : 'Invite staff') : 'Edit staff' }}</h2>
+            <h2>{{ panel.mode === 'add' ? 'Add staff' : 'Edit staff' }}</h2>
             <button class="icon-btn" @click="close()" aria-label="Close">×</button>
           </div>
           <!-- 16 Nov 2026: two tabs instead of one long scrolling popup -->
@@ -143,20 +145,29 @@
             <div class="sp-pane" v-show="panel.tab === 'account'">
             <div class="field">
               <label for="sName">Full name</label>
-              <input class="input" id="sName" v-model="panel.displayName" required>
+              <input class="input" id="sName" v-model="panel.displayName" required placeholder="e.g. Abu bin Bakar">
+            </div>
+            <!-- 17 Nov 2026: one Add staff popup. Email = invite by email; Username = a housekeeper's username and password. -->
+            <div class="field" v-if="panel.mode === 'add'">
+              <label>Signs in with</label>
+              <div class="signin-seg" :class="{ hk: panel.kind === 'hk' }" role="radiogroup" aria-label="Signs in with">
+                <span class="signin-thumb" aria-hidden="true"></span>
+                <button type="button" role="radio" :aria-checked="String(panel.kind === 'staff')" :class="{ on: panel.kind === 'staff' }" @click="setKind('staff')">Work email</button>
+                <button type="button" role="radio" :aria-checked="String(panel.kind === 'hk')" :class="{ on: panel.kind === 'hk' }" @click="setKind('hk')">Username (Housekeeping)</button>
+              </div>
             </div>
             <!-- Housekeeping (17 Nov 2026): a username and a password HR sets, no email -->
             <template v-if="panel.kind === 'hk'">
               <div class="field">
                 <label for="sUser">Username</label>
-                <input class="input" id="sUser" v-model.trim="panel.username" :readonly="panel.mode === 'edit'" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="siti">
-                <span class="help" v-if="panel.mode === 'add'">They type this on the Housekeeping tab of the sign-in page. Lower-case letters, numbers, dot, dash or underscore; 3 to 30 characters.</span>
+                <input class="input" id="sUser" v-model.trim="panel.username" :readonly="panel.mode === 'edit'" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="e.g. abu.bakar">
+                <span class="help" v-if="panel.mode === 'add'">They type this in the Email or username box on the sign-in page. Lower-case letters, numbers, dot, dash or underscore; 3 to 30 characters.</span>
                 <span class="help" v-else>A username can't be changed. Switch this account off and add a new one instead.</span>
               </div>
               <div class="field" v-if="panel.mode === 'add'">
                 <label for="sPw">Password</label>
                 <div class="pw-row">
-                  <input class="input" id="sPw" :type="panel.showPw ? 'text' : 'password'" v-model="panel.password" autocomplete="new-password">
+                  <input class="input" id="sPw" :type="panel.showPw ? 'text' : 'password'" v-model="panel.password" autocomplete="new-password" placeholder="e.g. Widebed2026">
                   <button type="button" class="btn" @click="panel.showPw = !panel.showPw">{{ panel.showPw ? 'Hide' : 'Show' }}</button>
                 </div>
                 <span class="help">At least 8 characters with letters and a number. Give it to them in person; they can't reset it by email.</span>
@@ -164,7 +175,7 @@
             </template>
             <div class="field" v-else>
               <label for="sEmail">Work email</label>
-              <input class="input" id="sEmail" type="email" v-model="panel.email" :readonly="panel.mode === 'edit'" required>
+              <input class="input" id="sEmail" type="email" v-model="panel.email" :readonly="panel.mode === 'edit'" required placeholder="e.g. abu@widebed.com">
               <span class="help" v-show="panel.mode === 'add'">They get an email with a link to set their own password.</span>
               <span class="help" v-show="panel.mode === 'edit'">An email can't be changed. Switch this account off and add a new one instead.</span>
             </div>
@@ -203,7 +214,7 @@
             <div class="sp-pane" v-show="panel.tab === 'perms'">
             <div class="field">
               <label>Role</label>
-              <OptionPicker class="fit-picker" v-model="panel.role" :options="roleChoices.map(r => ({ value: r, label: ROLE_LABEL[r] }))" label="Role" :disabled="cantEdit" @change="resetPerms()" />
+              <OptionPicker class="fit-picker" v-model="panel.role" :options="roleChoices.map(r => ({ value: r, label: ROLE_LABEL[r] }))" label="Role" :disabled="cantEdit" @change="roleChanged()" />
               <span class="help" v-show="panel.isMe">You can't change your own access. Ask another Director.</span>
               <span class="help" v-show="!panel.isMe && locked(panel.original || {})">Only a Director can change a Director's account.</span>
               <span class="help" v-show="!panel.isMe && !canSignIn(panel.role) && panel.role !== AI_ROLE">This role can't sign in yet. Its pages come in a later increment.</span>
@@ -247,7 +258,7 @@
           <div class="drawer-foot">
             <button class="btn" @click="close()">Cancel</button>
             <button class="btn" :class="changedStatus && !panel.active ? 'btn-danger' : 'btn-primary'" type="submit" form="staffForm" :disabled="panel.busy || locked(panel.original || {})">{{ panel.busy ? 'Saving…'
-              : panel.mode === 'add' ? 'Send invite' : changedStatus ? (panel.active ? 'Save and turn back on' : 'Save and turn off') : 'Save changes' }}</button>
+              : panel.mode === 'add' ? (panel.kind === 'hk' ? 'Add housekeeper' : 'Send invite') : changedStatus ? (panel.active ? 'Save and turn back on' : 'Save and turn off') : 'Save changes' }}</button>
           </div>
         </aside>
       </div>
@@ -459,6 +470,18 @@ export default {
         id: u.id, original: u, displayName: u.displayName || '', email: u.email, role: u.role || 'finance',
         perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '', tab: 'account' };
     },
+    // Add staff: Username goes with the Housekeeping role, Work email with every other role (kept in step both ways)
+    setKind(kind) {
+      const p = this.panel;
+      if (p.kind === kind) return;
+      p.kind = kind; p.error = '';
+      const role = kind === 'hk' ? HK_ROLE : p.role === HK_ROLE ? 'finance' : p.role;
+      if (role !== p.role) { p.role = role; this.resetPerms(); }
+    },
+    roleChanged() {
+      this.resetPerms();
+      if (this.panel.mode === 'add') this.panel.kind = this.panel.role === HK_ROLE ? 'hk' : 'staff';
+    },
     close() { if (!this.panel.busy) this.panelOpen = false; },
 
     async save() {
@@ -499,7 +522,7 @@ export default {
           if (properties.length) changes.push({ field: 'properties', old: [], new: properties });
           audit(batch, 'staff.create', uid, changes, 'New staff account');
           await batch.commit();
-          if (hk) this.okMsg = `${name} added as ${ROLE_LABEL[p.role]}. They sign in on the Housekeeping tab with the username "${username}" and the password you set.`;
+          if (hk) this.okMsg = `${name} added as ${ROLE_LABEL[p.role]}. They sign in with the username "${username}" and the password you set.`;
           else {
             try { await sendPasswordResetEmail(auth, email); } catch (_) {}
             this.okMsg = `${name} added as ${ROLE_LABEL[p.role]}${custom ? ' with custom page access' : ''}. A set-password email is on its way to ${email}.`;
@@ -578,9 +601,21 @@ export default {
 </script>
 
 <style scoped>
+    /* Signs in with: the white pill slides under the choice picked (as the old login tabs did) */
+    .signin-seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 10px; background: var(--chip); border: 1px solid var(--border); }
+    /* The picked side in the theme colour, so the choice stands out */
+    .signin-thumb { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); border-radius: 7px; background: var(--accent);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .15); transition: transform .3s cubic-bezier(.4, 0, .2, 1); }
+    .signin-seg.hk .signin-thumb { transform: translateX(100%); }
+    .signin-seg button { position: relative; z-index: 1; height: 34px; border: 0; border-radius: 7px; background: none; font: inherit; font-size: 14px;
+      font-weight: 600; color: var(--muted); cursor: pointer; transition: color .25s ease; }
+    .signin-seg button.on { color: #fff; }
+    @media (prefers-reduced-motion: reduce) { .signin-thumb, .signin-seg button { transition: none; } }
     .pw-row { display: flex; gap: 8px; align-items: center; }
     .pw-row .input { flex: 1; min-width: 0; }
     .hk-tag { font-size: 11px; margin-left: 4px; }
+    .hk-tag, .custom-tag { cursor: help; }
+    .role-list b .tag { margin: 0 4px 0 0; cursor: default; }
     /* Active / Inactive switch: two equal tabs; the white pill (thumb) slides under the picked one (as on Issues) */
     .staff-seg { --i: 0; position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: none; width: 240px; height: 40px;
       padding: 3px; border-radius: 10px; background: var(--chip); border: 1px solid var(--border); box-sizing: border-box; }

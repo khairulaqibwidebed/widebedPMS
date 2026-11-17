@@ -1,5 +1,5 @@
 // lib/housekeeping.js — Housekeeping staff (17 Nov 2026).
-// Housekeepers sign in with a username and password that HR sets (Login > Housekeeping tab). Firebase sign-in needs an
+// Housekeepers sign in with a username and password that HR sets (Login: the Email or username box). Firebase sign-in needs an
 // email, so the username is turned into a sign-in address nobody sees: "siti" -> "siti@housekeeping.widebed.com".
 // No mail is ever sent there; HR sets a new password on Staff accounts (api/hk-password.js) instead of a reset email.
 // Their role is 'housekeeping': an ordinary role with its own usual pages (Settings > Roles), ticks per person as usual.
