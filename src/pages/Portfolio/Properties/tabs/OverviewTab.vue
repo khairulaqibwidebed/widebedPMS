@@ -68,7 +68,7 @@ export default {
   watch: { 'property.id': { immediate: true, handler() { this.findDrive(); } } },
   computed: {
     info() { return this.property.info || {}; },
-    canSetUnits() { return canSetUpStates(useSession().role); },
+    canSetUnits() { return canSetUpStates(useSession()); },
     fixedTotal() { return this.units.filter(x => isFixedTerms(x.terms)).reduce((s, x) => s + (Number(x.terms.fixedRentAmount) || 0), 0); }
   },
   methods: {

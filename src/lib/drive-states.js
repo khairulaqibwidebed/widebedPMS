@@ -7,6 +7,7 @@ import { doc, getDoc, setDoc, writeBatch, serverTimestamp } from 'firebase/fires
 import { db } from '@/lib/firebase.js';
 import { audit } from '@/lib/finance-data.js';
 import { STATES } from '@/lib/states.js';
+import { can } from '@/lib/access.js';
 
 let cache = null;
 // { 'W.P. Kuala Lumpur': { folderId, folderName, link, ... } }
@@ -18,7 +19,8 @@ export async function loadDriveStates(fresh = false) {
 }
 // The states a new property may get: set up, in the usual order
 export const setUpStates = map => STATES.filter(s => map?.[s]?.folderId);
-export const canSetUpStates = role => ['director', 'operations'].includes(role);
+// Full (edit) on Google Drive Folders (Staff accounts / Roles access; Directors and Operations by default)
+export const canSetUpStates = me => can(me, 'driveFolders.edit');
 
 // Saves one state's folder (folder = { id, name, link }) or removes it (folder = null)
 export async function saveDriveState(me, state, folder) {

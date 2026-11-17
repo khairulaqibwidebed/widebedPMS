@@ -30,6 +30,9 @@ export const PAGES = [
   { key: 'playbook',         label: 'Playbook (Onboarding, Business Model)', group: 'Content', to: [], editOnly: true },
   { key: 'sops',             label: 'HR SOP pages',                  group: 'Content',     to: [], editOnly: true },
   { key: 'performance',      label: 'Performance Management',        group: 'Performance', to: ['/Performance/quarters'] },
+  // 17 Nov 2026: Google Drive Folders (Settings). Base: see the page and the link check. Full: set a state's folder, create
+  // unit folders, change a property's units folder. KEEP IN STEP WITH driveFolders in firestore.rules and api/drive.js.
+  { key: 'driveFolders',     label: 'Google Drive Folders',          group: 'Company Settings', to: ['/Settings/states'] },
   // 17 Nov 2026: shown only on the AI Agent role (aiOnly). Everyone else reads these through their role.
   { key: 'aiIssues',         label: 'Issues (tickets and replies)',  group: 'AI Agent only', to: [], viewOnly: true, aiOnly: true },
   { key: 'aiAnnouncements',  label: 'Announcements',                 group: 'AI Agent only', to: [], viewOnly: true, aiOnly: true },
@@ -43,7 +46,7 @@ export const ACCESS_ROWS = PAGES.filter(p => !p.aiOnly).map(p => ({ id: p.key, l
 // The AI only ever gets None or Base (view).
 // Left out for the AI: payments and finance (Khairul 17 Nov 2026: not needed), people's work or personal records, and
 // pages that would let it act (forms, uploads). The rules accept only AI_VIEW_PERMS on roles/ai.
-const AI_SKIP = ['bookingForms', 'bulkUpload', 'offlineInquiries', 'agreementSetup', 'performance',
+const AI_SKIP = ['bookingForms', 'bulkUpload', 'offlineInquiries', 'agreementSetup', 'performance', 'driveFolders',
   'offlinePayments', 'ezeeUpload', 'expenses', 'monthEnd', 'invoices', 'reports'];
 const aiPage = p => !p.editOnly && !AI_SKIP.includes(p.key);
 export const AI_ROWS = PAGES.filter(aiPage).map(p => ({ id: p.key, label: p.label, group: p.group, keys: [p.key], ai: true }));
@@ -85,6 +88,7 @@ export const GROUP_NOTES = {
   Portfolio: 'Owners Base: names and contact only. Owners Full: also IC, date of birth, address and bank details, and can edit. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data.',
   Content: 'Everyone can read these. Full lets them change the text.',
   'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
+  'Company Settings': 'Google Drive Folders Base: see each state\'s folder and which properties and units are linked. Full: set a state\'s folder, create unit folders and change a property\'s units folder.',
   Performance: 'Quarterly performance management (quarters, COH, KPI, TMS administration). Everyone can still see their own results without this access.'
 };
 
@@ -105,7 +109,7 @@ export const PRESETS = {
   finance: [...both('reports'), ...both('ezeeUpload'), ...both('expenses'), ...both('monthEnd'), ...both('invoices'),
     ...both('offlinePayments'), ...both('owners'), ...both('portfolio'), ...both('bookings'), ...both('bulkUpload'), ...both('offlineInquiries'), SPLIT_MARK],
   // 13 Nov 2026: Operations work owner listings too (Owner Leads Edit; Operations Setup is theirs)
-  operations: ['owners.view', 'portfolio.view', ...both('bookings'), ...both('offlineInquiries'), 'bookingForms.view', ...both('newOwnerListings'), 'offlinePayments.view', SPLIT_MARK],
+  operations: ['owners.view', 'portfolio.view', ...both('bookings'), ...both('offlineInquiries'), 'bookingForms.view', ...both('newOwnerListings'), 'offlinePayments.view', ...both('driveFolders'), SPLIT_MARK],
   it: [SPLIT_MARK],
   hr: ['playbook.edit', 'sops.edit', SPLIT_MARK],
   procurement: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), SPLIT_MARK],

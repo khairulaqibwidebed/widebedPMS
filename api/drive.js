@@ -145,7 +145,20 @@ async function recordFolder(tok, kind, recordId, label = '') {
 }
 
 // ---------- Owner Files (17 Nov 2026) ----------
-const OWNER_SUB = 'Owner', MAINT = 'Maintenance', SETUP_ROLES = ['director', 'operations'];
+const OWNER_SUB = 'Owner', MAINT = 'Maintenance';
+// Google Drive Folders access (17 Nov 2026): 'edit', 'view' or ''. As lib/access.js: Directors always; otherwise the person's
+// own ticks, else their role's saved list (Roles page), else the built-in preset (Operations: Full). KEEP IN STEP.
+async function driveAccess(user) {
+  const u = await readDoc(user, `users/${user.uid}`);
+  if (!u || u.active?.booleanValue === false) return '';
+  const role = u.role?.stringValue || '';
+  if (role === 'director') return 'edit';
+  const listOf = f => (f?.perms?.arrayValue?.values || []).map(v => v.stringValue);
+  let perms = u.perms ? listOf(u) : null;
+  if (!perms) { const r = role ? await readDoc(user, `roles/${role}`) : null; perms = r?.perms ? listOf(r) : null; }
+  if (!perms) perms = role === 'operations' ? ['driveFolders.view', 'driveFolders.edit'] : [];
+  return perms.includes('driveFolders.edit') ? 'edit' : perms.includes('driveFolders.view') ? 'view' : '';
+}
 const FOLDER = 'application/vnd.google-apps.folder';
 // "DM 13-11", "dm1311" and "DM 1311" are the same name
 const nameKey = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -165,7 +178,7 @@ async function propertyOf(user, propertyId) {
   if (!SAFE.test(propertyId || '')) return null;
   const f = await readDoc(user, `properties/${propertyId}`);
   if (!f) return null;
-  return { name: f.name?.stringValue || '', state: f.state?.stringValue || f.info?.mapValue?.fields?.state?.stringValue || '' };
+  return { name: f.name?.stringValue || '', code: f.code?.stringValue || '', state: f.state?.stringValue || f.info?.mapValue?.fields?.state?.stringValue || '' };
 }
 // 17 Nov 2026: a property whose unit folders sit somewhere else than <property>/Owner (e.g. D Majestic: "Profit Sharing").
 // Set on the property's Overview (Directors, Operations), saved in config/driveUnits { props: { propertyId: { folderId, ... } } }.
@@ -223,6 +236,81 @@ function driveUnitName(code) {
   return [...parts, m ? `${m[1]}-${m[2]}` : last].join(' ').trim();
 }
 const link = id => `https://drive.google.com/drive/folders/${id}`;
+
+// ---------- Unit folders in each property's own style (17 Nov 2026) ----------
+// A property's unit folders show how it names them, e.g. D Majestic "DM 13-11" for unit DM 1311 (dash before the last two
+// digits), LK "A1-25-07" for unit LK A1-25-07 (no property code). The style most existing folders follow is used for a new
+// one; with no folders yet the PMS name is used as it is.
+const STYLES = [{ drop: false, dash: false }, { drop: false, dash: true }, { drop: true, dash: false }, { drop: true, dash: true }];
+const tidyName = s => String(s || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+function styled(code, st) {
+  let parts = String(code || '').trim().replace(/\s+/g, ' ').split(' ');
+  if (st.drop && parts.length > 1) parts = parts.slice(1);
+  if (st.dash) { const m = /^(\d+[A-Za-z]?)(\d{2})$/.exec(parts[parts.length - 1] || ''); if (m) parts = [...parts.slice(0, -1), `${m[1]}-${m[2]}`]; }
+  return parts.join(' ').replace(/[\\/]/g, ' ').trim();
+}
+function learnStyle(folders, codes) {
+  const votes = STYLES.map(() => 0);
+  for (const c of codes || []) {
+    const f = findUnit(folders, c);
+    if (!f) continue;
+    const name = tidyName(f.name).toLowerCase();
+    STYLES.forEach((st, i) => { if (styled(c, st).toLowerCase() === name) votes[i]++; });
+  }
+  let best = 0;
+  votes.forEach((v, i) => { if (v > votes[best]) best = i; });   // a tie keeps the earlier one ("as in the PMS" first)
+  return { ...STYLES[best], seen: votes[best] };
+}
+// The property's unit codes, read with the person's own sign-in ([] when the rules refuse)
+async function unitCodesOf(user, propertyId) {
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId()}/databases/(default)/documents:runQuery`, {
+    method: 'POST', headers: { Authorization: `Bearer ${user.idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: 'units' }], where: { fieldFilter: { field: { fieldPath: 'propertyId' }, op: 'EQUAL', value: { stringValue: propertyId } } } } }) });
+  if (!r.ok) return [];
+  return (await r.json()).map(x => x.document?.fields?.unitCode?.stringValue).filter(Boolean);
+}
+// The state's folder id and name (Settings > States)
+async function stateInfo(user, state) {
+  if (!state) return { id: '', name: '' };
+  const f = await readDoc(user, 'config/driveStates');
+  const s = f?.states?.mapValue?.fields?.[state]?.mapValue?.fields || {};
+  return { id: s.folderId?.stringValue || '', name: s.folderName?.stringValue || state };
+}
+// What would be made for one property: { id, path: [{ name, new }], parentId, folders, style, create: [{ unit, name }], skip }
+// p = { id, units: [every unit code], only: [the codes to make] (default: every unit) }. Reads Drive only.
+async function unitPlanOne(tok, user, p, own) {
+  const id = String(p.id || ''), codes = (Array.isArray(p.units) ? p.units : []).map(String).slice(0, 1000);
+  const only = Array.isArray(p.only) ? p.only.map(String).slice(0, 1000) : codes;
+  const prop = await propertyOf(user, id);
+  if (!prop?.name) return { id, skip: 'property' };
+  const path = []; let parentId = '';
+  if (own[id]) {
+    const meta = await (await g(`${API}/files/${own[id]}?fields=name&supportsAllDrives=true`, tok)).json();
+    path.push({ name: meta.name || 'Units folder' }); parentId = own[id];
+  } else {
+    const st = await stateInfo(user, prop.state);
+    if (!st.id) return { id, name: prop.name, skip: 'state', state: prop.state };
+    path.push({ name: st.name });
+    const hit = findByKey(await subfolders(tok, st.id), prop.name);
+    if (!hit) path.push({ name: prop.name.replace(/[\\/]/g, ' ').trim(), new: true }, { name: OWNER_SUB, new: true });
+    else {
+      path.push({ name: hit.name });
+      const owner = findByKey(await subfolders(tok, hit.id), OWNER_SUB);
+      if (owner) { path.push({ name: owner.name }); parentId = owner.id; } else path.push({ name: OWNER_SUB, new: true });
+    }
+  }
+  const folders = parentId ? await subfolders(tok, parentId) : [];
+  const style = learnStyle(folders, codes.length ? codes : only);
+  const names = new Set(folders.map(f => nameKey(f.name))), create = [];
+  for (const c of only) {
+    if (findUnit(folders, c)) continue;
+    const name = styled(c, style);
+    if (!name || names.has(nameKey(name))) continue;   // two codes that would give the same folder: made once
+    names.add(nameKey(name)); create.push({ unit: c, name });
+  }
+  const sample = codes[0] || only[0] || '';
+  return { id, name: prop.name, path, parentId, style: { drop: style.drop, dash: style.dash, seen: style.seen, example: sample ? styled(sample, style) : '' }, create };
+}
 // A property's folder under its state's folder. make: create it (with Owner inside) when missing.
 // { id, made } or { id: '', why } when it can't be found
 async function propertyFolder(tok, user, propertyId, make = false) {
@@ -256,7 +344,9 @@ async function issueFolder(tok, user, b) {
   // (or <units folder>/<unit>/Maintenance/... for a property with its own units folder, 17 Nov 2026)
   const parent = await unitsParent(tok, user, b.propertyId, true);
   if (!parent.id) return '';
-  const unitId = await findOrMake(tok, parent.id, unit, driveUnitName(unit), findUnit);
+  // A new unit folder follows the names already there (17 Nov 2026); with none yet, the PMS name as it is
+  const sibs = await subfolders(tok, parent.id), hitUnit = findUnit(sibs, unit);
+  const unitId = hitUnit ? hitUnit.id : await makeFolder(tok, parent.id, styled(unit, learnStyle(sibs, await unitCodesOf(user, b.propertyId))) || unit);
   const maint = await findOrMake(tok, unitId, MAINT);
   const tag = b.recordId.slice(-5);
   // Drive's "name contains" only matches word starts, so the "(tag)" ending is checked here instead
@@ -309,8 +399,10 @@ export default async function handler(req, res) {
     }
     const tok = await driveToken(acct);
     // ---- Owner Files (17 Nov 2026) ----
-    if (['checkFolder', 'linkCheck'].includes(b.action) && !SETUP_ROLES.includes(await roleOf(user)))
-      throw new HttpError(403, 'Only Directors and Operations can set up state folders.');
+    if (b.action === 'checkFolder' && await driveAccess(user) !== 'edit')
+      throw new HttpError(403, 'You need Full access to Google Drive Folders to set a folder.');
+    if (b.action === 'linkCheck' && !await driveAccess(user))
+      throw new HttpError(403, 'You need access to Google Drive Folders.');
     if (b.action === 'checkFolder') {
       // A link pasted on Settings > States: is it a folder this Drive account can open?
       if (!SAFE.test(b.folderId || '')) throw new HttpError(400, 'That is not a Google Drive folder link.');
@@ -361,6 +453,30 @@ export default async function handler(req, res) {
       // A property's folder link (Overview); make: create it with Owner inside when missing (Add property)
       const pf = await propertyFolder(tok, user, b.propertyId, !!b.make);
       return res.status(200).json(pf.id ? { link: link(pf.id), made: !!pf.made } : { link: '', why: pf.why, state: pf.state || '' });
+    }
+    if (b.action === 'unitPlan' || b.action === 'makeUnitFolders') {
+      // 17 Nov 2026: unit folders in each property's style. unitPlan only reads Drive (the preview); makeUnitFolders makes
+      // the folders the plan lists (and a missing property / Owner folder). properties = [{ id, units, only }].
+      // One unit of one property (Add unit): anyone who can read the property. More (Settings > States): Directors, Operations.
+      const list = (Array.isArray(b.properties) ? b.properties : []).slice(0, 300);
+      const many = list.length > 1 || list.some(p => (Array.isArray(p.only) ? p.only : p.units || []).length > 1);
+      if (many && await driveAccess(user) !== 'edit') throw new HttpError(403, 'You need Full access to Google Drive Folders to make folders for many units at once.');
+      const own = await unitsFolders(user), out = [];
+      for (let i = 0; i < list.length; i += 6) out.push(...await Promise.all(list.slice(i, i + 6).map(p => unitPlanOne(tok, user, p, own))));
+      if (b.action === 'unitPlan') return res.status(200).json({ properties: out.map(({ parentId, ...r }) => r) });
+      const made = [];
+      for (const r of out) {
+        if (r.skip || !r.create.length) continue;
+        const parent = await unitsParent(tok, user, r.id, true);
+        if (!parent.id) continue;
+        const now = await subfolders(tok, parent.id);
+        for (const c of r.create) {
+          if (findUnit(now, c.unit)) continue;   // made by someone else meanwhile
+          const fid = await makeFolder(tok, parent.id, c.name);
+          made.push({ id: r.id, unit: c.unit, name: c.name, link: link(fid) });
+        }
+      }
+      return res.status(200).json({ made });
     }
     if (b.action === 'unitFolder') {
       // A unit's folder link (Unit view): <property>/Owner/<unit>, or <units folder>/<unit>. Read-only.
