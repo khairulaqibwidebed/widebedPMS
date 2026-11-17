@@ -27,7 +27,7 @@ const LEADS_DIR = G('Leads & Agreements', 'handshake', [...LEADS.items, P('Agree
 const ACCOUNTING = G('Accounting', 'calculator', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'),
   P('Month-End Payout', '/Finance/month-end', 'banknote'), P('Invoices & Receipts', '/Finance/invoices', 'files'), P('Reports', '/Reports', 'pieChart')]);
 const ACCOUNTING_DIR = G('Accounting', 'calculator', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'),
-  P('Month-End Payout', '/Finance/month-end', 'banknote'), P('Statement Approvals', '/Finance/statement-approvals', 'fileCheck'),
+  P('Statement Approvals', '/Finance/statement-approvals', 'fileCheck'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
   P('Invoices & Receipts', '/Finance/invoices', 'files'), P('Reports', '/Reports', 'pieChart')]);
 // Everyone evaluates and is evaluated; only Director/HR (performance tick) also get Quarterly Management.
 const PERFORMANCE = G('Performance', 'chart', [P('My Performance', '/Performance/my', 'trendingUp'), P('COH Evaluations', '/Performance/coh', 'userCheck'), P('KPI Management', '/Performance/kpi', 'target'), P('TMS Performance', '/Performance/tms', 'listChecks')]);
@@ -59,7 +59,9 @@ export const NAV = {
     G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Audit Log', '/Settings/audit-log', 'history')]),
     MY_ACCOUNT],
   procurement: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
-  marketing: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT]
+  marketing: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
+  // Housekeeping (17 Nov 2026): like IT to start; pages ticked for them are added by navFor()
+  housekeeping: [TOP, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT]
 };
 
 // Roles made on the Roles page start from this list (Agreements kept, as before); the pages they were ticked for are added by navFor().

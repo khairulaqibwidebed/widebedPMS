@@ -1,4 +1,14 @@
 rules_version = '2';
+// Draft 0.78, 17 Nov 2026: Housekeeping.
+//   - New built-in role 'housekeeping' (users/{uid}.role). It signs in like any role (a username HR sets; the sign-in
+//     address is <username>@housekeeping.widebed.com). Its usual pages: presetFor('housekeeping') = none beyond the
+//     always-open ones; the Director changes them on Roles, HR/Director per person. KEEP IN STEP WITH PRESETS in lib/access.js.
+//     Issues tag 'Housekeeping' (myIssueTag); notifications may go to the role 'housekeeping'.
+//   - cohAssignments/{quarterId} { pairs: { evaluatorUid: [evaluateeUid] }, updatedBy, updatedByName, updatedAt }:
+//     HR and Directors write, every staff member reads (to see whom they rate).
+//   - cohEvaluations create: when the evaluator or the person rated is a housekeeper, the pair must be listed in
+//     cohAssignments for that quarter (hkPairOk). Every other pair works as before.
+//   - Setting a housekeeper's password is done by api/hk-password.js (service account), not by these rules.
 // Draft 0.77, 17 Nov 2026 (Khairul): Directors delete or switch off properties (Portfolio > Properties).
 //   - properties: delete is Directors only (before, `allow write` let every portfolioEditor delete one). Changing
 //     `active` (switch off / on) is Directors only; editors still create and edit everything else as before.
@@ -321,6 +331,7 @@ service cloud.firestore {
         : r == 'procurement' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
         : r == 'marketing' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
         : r == 'ai' ? ['portfolio.view', 'split.v2']
+        : r == 'housekeeping' ? ['split.v2']   // Draft 0.78
         : [];
     }
     // Draft 0.17: the Director can change a role's usual pages and make new roles on the Roles page, saved in roles/{id}.
@@ -454,7 +465,7 @@ service cloud.firestore {
 
     // ---- Issues: the tag each role answers to ('Admin' has no sign-in role yet) ----
     function myIssueTag() {
-      return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing' }
+      return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing', 'housekeeping': 'Housekeeping' }
         .get(role(), exists(roleDoc(role())) ? get(roleDoc(role())).data.get('name', '-') : '-');   // a role made on the Roles page is tagged by its name
     }
     function canSeeIssue(d) { return anyStaff() && (isDirector() || myIssueTag() in d.tags || d.raisedByUid == request.auth.uid); }
@@ -1220,7 +1231,7 @@ service cloud.firestore {
         && request.resource.data.link is string && request.resource.data.link.matches('/.*')
         && ((request.resource.data.recipientUid is string && request.resource.data.recipientRole == null)
           || (request.resource.data.recipientUid == null
-            && (request.resource.data.recipientRole in ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing']
+            && (request.resource.data.recipientRole in ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing', 'housekeeping']
               // Draft 0.21: a role made on the Roles page (e.g. Maintenance)
               || (request.resource.data.recipientRole is string && exists(roleDoc(request.resource.data.recipientRole))))));
       // Read, unread, star and hide (Draft 0.22): the recipient adds or removes only their own uid in readBy / starredBy / hiddenBy.
@@ -1480,6 +1491,22 @@ service cloud.firestore {
     // evaluator from rating the same colleague twice under two different documents.
     // The SCORE is not on this document (see private/scores below) — by business rule, the person being rated
     // never sees the mark a specific evaluator gave them, only that the evaluation happened and who gave it.
+    // Draft 0.78: housekeeping rating pairs per quarter (COH Evaluations > Housekeeping). HR and Directors write.
+    match /cohAssignments/{quarterId} {
+      allow read: if anyStaff();
+      allow write: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['pairs', 'updatedBy', 'updatedByName', 'updatedAt'])
+        && request.resource.data.pairs is map && request.resource.data.pairs.size() <= 300
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+    // Draft 0.78: a pair with a housekeeper on either side must be one HR listed. Others: allowed as before.
+    function hkPairOk(quarterId, evaluatorId, evaluateeId) {
+      let other = /databases/$(database)/documents/users/$(evaluateeId);
+      let assign = /databases/$(database)/documents/cohAssignments/$(quarterId);
+      return (role() != 'housekeeping' && !(exists(other) && get(other).data.get('role', '') == 'housekeeping'))
+        || (exists(assign) && evaluateeId in get(assign).data.pairs.get(evaluatorId, []));
+    }
+
     match /cohEvaluations/{id} {
       function evalDoc() { return /databases/$(database)/documents/cohEvaluations/$(id); }
 
@@ -1494,7 +1521,8 @@ service cloud.firestore {
         && request.resource.data.evaluateeId != request.auth.uid
         && id == request.resource.data.quarterId + '_' + request.resource.data.evaluatorId + '_' + request.resource.data.evaluateeId
         && request.resource.data.status == 'submitted'
-        && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data);
+        && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data)
+        && hkPairOk(request.resource.data.quarterId, request.resource.data.evaluatorId, request.resource.data.evaluateeId);   // Draft 0.78
       // Resubmit: same pair, saved back as 'submitted'. Draft 0.34: also allowed from 'approved', so an evaluator can
       // answer questions added after they submitted; it then goes back to 'submitted' for HR/Director to review again.
       // The marks themselves are protected in private/scores below (earlier answers can't be dropped once approved).
