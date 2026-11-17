@@ -19,8 +19,9 @@ export const listFiles = (kind, recordId, label = '') => call({ action: 'list', 
 
 // Sends one file straight from the browser to Drive. onProgress gets 0..1.
 const parse = t => { try { return JSON.parse(t); } catch { return {}; } };
-export async function uploadFile(kind, recordId, file, onProgress = () => {}, label = '') {
-  const { uploadUrl, folderLink } = await call({ action: 'session', kind, recordId, name: file.name, mimeType: file.type, label });
+// extra (17 Nov 2026, Issues): { propertyId, unit, date } so the file goes to the unit's Maintenance folder in Owner Files
+export async function uploadFile(kind, recordId, file, onProgress = () => {}, label = '', extra = {}) {
+  const { uploadUrl, folderLink, note } = await call({ ...extra, action: 'session', kind, recordId, name: file.name, mimeType: file.type, label });
   const file_ = await new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open('PUT', uploadUrl);
@@ -29,7 +30,7 @@ export async function uploadFile(kind, recordId, file, onProgress = () => {}, la
     x.onerror = () => reject(new Error('Upload failed. Check your connection.'));
     x.send(file);
   });
-  return Object.assign(new String(folderLink), { file: file_ });
+  return Object.assign(new String(folderLink), { file: file_, note: note || '' });
 }
 
 // The file as a blob URL for the in-site viewer (images, PDFs and small videos; the server refuses files over 4 MB)
@@ -43,10 +44,12 @@ export async function fileBlob(kind, fileId, recordId = '') {
 }
 
 // Uploads files into this month's folder of this kind (inside a record folder when recordId is given) and gives back [{ name, url }] for pages that keep links.
-export async function uploadForLink(kind, files, onProgress = () => {}, recordId = '', label = '') {
+// out.note: why the files went to Widebed PMS Files instead of Owner Files ('' when they didn't)
+export async function uploadForLink(kind, files, onProgress = () => {}, recordId = '', label = '', extra = {}) {
   const out = [];
   for (const [i, f] of files.entries()) {
-    const r = await uploadFile(kind, recordId, f, p => onProgress((i + p) / files.length), label);
+    const r = await uploadFile(kind, recordId, f, p => onProgress((i + p) / files.length), label, extra);
+    out.note = r.note;
     out.push({ name: r.file?.name || f.name, url: r.file?.webViewLink || String(r), id: r.file?.id || '', mimeType: r.file?.mimeType || f.type });
   }
   return out;
@@ -60,3 +63,18 @@ export async function downloadFile(kind, fileId, name, recordId = '') {
   a.href = u; a.download = name || 'file'; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(u), 10000);
 }
+
+// ---------- Owner Files (17 Nov 2026) ----------
+// The folder id in a Drive link (https://drive.google.com/drive/folders/<id>?usp=... or ...?id=<id>), or a bare id
+export const folderIdOf = v => {
+  const s = String(v || '').trim();
+  return (/\/folders\/([A-Za-z0-9_-]{10,})/.exec(s) || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(s) || /^([A-Za-z0-9_-]{10,})$/.exec(s) || [])[1] || '';
+};
+// Is this a folder the PMS's Drive account can add to? { id, name, link }
+export const checkFolder = folderId => call({ action: 'checkFolder', folderId });
+// A property's folder: { link, why } (why: 'state' no state folder, 'folder' not found, 'property'). make: create it with Owner.
+export const propertyFolder = (propertyId, make = false) => call({ action: 'propertyFolder', propertyId, make });
+// A unit's folder under <property>/Owner: { link }
+export const unitFolder = (propertyId, unit) => call({ action: 'unitFolder', propertyId, unit });
+// Read-only check of a state's properties: [{ id, name, units: [codes] }] -> { properties: [{ id, link, folderName, ownerLink, units: { code: link } }] }
+export const linkCheck = (state, properties) => call({ action: 'linkCheck', state, properties });

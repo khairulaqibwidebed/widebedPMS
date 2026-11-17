@@ -21,6 +21,8 @@
         <div>
           <div class="kv"><span>eZee account number</span><span>{{ info.ezeeAccount || '—' }}</span></div>
           <div class="kv"><span>Name in the eZee report</span><span>{{ info.ezeeName || '—' }}</span></div>
+          <!-- 17 Nov 2026: the property's folder in its state's Drive folder (Settings > States). Read-only. -->
+          <div class="kv"><span>Google Drive folder</span><span><a v-if="driveLink" :href="driveLink" target="_blank" rel="noopener">Open folder</a><template v-else>{{ driveMsg }}</template></span></div>
           <p class="help">{{ acc.viewOnly ? 'Each unit\'s owner, type and rooms are on the Units tab.' : 'Unit details (owner, type, rooms, size, car parks, bill accounts, JMB) are on each unit: Units tab, Edit.' }}</p>
         </div>
       </div>
@@ -32,6 +34,7 @@
 // A property's Overview tab: summary cards (each opens the Units tab with a filter) and the property's details.
 import { amt } from '@/lib/format.js';
 import { mixText, typeText, monthOnly, isFixedTerms } from '@/lib/portfolio-data.js';
+import { propertyFolder } from '@/lib/drive.js';
 
 export default {
   props: {
@@ -42,10 +45,22 @@ export default {
     acc: { type: Object, required: true }
   },
   emits: ['units', 'tab', 'edit'],
+  data() { return { driveLink: '', driveMsg: 'Checking…' }; },
+  watch: { 'property.id': { immediate: true, handler() { this.findDrive(); } } },
   computed: {
     info() { return this.property.info || {}; },
     fixedTotal() { return this.units.filter(x => isFixedTerms(x.terms)).reduce((s, x) => s + (Number(x.terms.fixedRentAmount) || 0), 0); }
   },
-  methods: { amt, mixText, typeText, monthOnly, isFixedTerms }
+  methods: {
+    amt, mixText, typeText, monthOnly, isFixedTerms,
+    async findDrive() {
+      this.driveLink = ''; this.driveMsg = 'Checking…';
+      try {
+        const f = await propertyFolder(this.property.id);
+        this.driveLink = f.link || '';
+        this.driveMsg = f.link ? '' : f.why === 'state' ? `${this.info.state || 'Its state'} has no Drive folder yet (Settings > States)` : 'Not found in Drive';
+      } catch (e) { this.driveMsg = 'Could not check'; }
+    }
+  }
 };
 </script>

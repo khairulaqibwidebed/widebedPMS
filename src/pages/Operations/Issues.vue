@@ -107,7 +107,7 @@
               </div>
               <div class="notice error" v-show="draft.error">{{ draft.error }}</div>
               <div class="composer-row">
-                <UploadFile kind="issues" :record-id="ticket.id" :folder-label="ticket.title" @done="f => addUploaded(draft, f)" />
+                <UploadFile kind="issues" :record-id="ticket.driveRid || ticket.id" :folder-label="ticket.title" :extra="ticketDrive(ticket)" @done="f => addUploaded(draft, f)" />
                 <button class="btn" type="button" @click="draft.adding = !draft.adding">🔗 Add Drive link</button>
                 <span class="help">Upload a photo, PDF or video, or paste a Drive link</span>
                 <button class="btn btn-primary" @click="postComment()" :disabled="busy || (!draft.text.trim() && !draft.links.length)">Post comment</button>
@@ -186,7 +186,8 @@
               <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
               <input class="input" v-model="raise.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(raise)">
               <button class="btn" type="button" @click="addLink(raise)">Add</button>
-              <UploadFile kind="issues" :record-id="raise.rid" :folder-label="raise.title" @done="f => addUploaded(raise, f)" />
+              <UploadFile v-if="raise.type !== 'customer' || (raise.property.trim() && raise.unit.trim())" kind="issues" :record-id="raise.rid" :folder-label="raise.title" :extra="raiseDrive()" @done="f => addUploaded(raise, f)" />
+              <span class="help" v-else>Choose the property and unit first to upload, so files go to the unit's folder.</span>
             </div>
             <div class="help">Files stay in the company Google Drive; the ticket keeps only the link.</div></div>
           <div class="files" v-show="raise.links.length"><template v-for="(l, i) in raise.links" :key="l.url + i"><span class="file-chip"><span>{{ icon(l.name) + ' ' + l.name }}</span><button type="button" @click="raise.links.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
@@ -538,6 +539,18 @@ export default {
       this.units4raise();
       this.loadBoards();
     },
+    // Owner Files (17 Nov 2026): where an issue upload goes. Customer ticket: the unit's Maintenance folder, found by
+    // property and unit; the ticket folder is matched by the last 5 of driveRid (the id the raise form uploads under).
+    raiseDrive() {
+      const r = this.raise;
+      if (!r || r.type !== 'customer') return {};
+      const code = r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
+      return { propertyId: unit?.propertyId || this.propertyIdOf(r.property.trim()) || '', unit: unit?.unitCode || code, date: new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10) };
+    },
+    ticketDrive(t) {
+      if (!t || t.type !== 'customer' || !t.propertyId || !t.unit) return {};
+      return { propertyId: t.propertyId, unit: t.unit, date: (t.raisedAt || '').slice(0, 10) };   // raisedAt is local time
+    },
     async saveRaise() {
       const r = this.raise;
       if (!TYPE_LABEL[r.type]) return r.error = 'Choose Customer or In-house.';
@@ -569,7 +582,7 @@ export default {
 
           tx.set(ref, { type: r.type, title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
             property: propertyName, propertyId, ...(state ? { state } : {}), tags, status: 'open',
-            raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
+            raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, driveRid: r.rid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
             audit: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
           audit(tx, me, { action: 'issue.create', entity: `issues/${id}`, propertyId, changes: [{ field: 'tags', old: null, new: tags.join(', ') }] });
           return id;

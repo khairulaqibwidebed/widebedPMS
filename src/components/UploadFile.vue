@@ -3,6 +3,7 @@
     <label class="btn up-btn" :class="{ off: busy, 'is-done': done }"><span class="up-bar" v-if="busy" :style="{ width: pct + '%' }"></span><ProgressRing class="up-ring" v-if="busy" :value="pct" :spinning="pct === 0" /><span class="up-txt">{{ done ? 'Uploaded' : busy ? `Uploading ${pct}%` : label }}</span>
       <input type="file" :multiple="multiple" hidden :disabled="busy" :accept="accept" @change="pick"></label>
     <span class="up-err" v-if="error">{{ error }}</span>
+    <span class="up-note" v-if="note && !error">{{ note }}</span>
   </span>
 </template>
 
@@ -12,17 +13,20 @@ import { ensureFolders, uploadForLink } from '@/lib/drive.js';
 // An Upload button for pages that keep links. Sends the files to the company Google Drive and emits 'done' with [{ name, url }].
 //   <UploadFile kind="issues" @done="files => ..." />
 export default {
-  props: { kind: { type: String, required: true }, label: { type: String, default: '⬆ Upload file' }, recordId: { type: String, default: '' }, folderLabel: { type: String, default: '' }, multiple: { type: Boolean, default: true }, accept: { type: String, default: 'image/*,application/pdf,video/*' } },
+  props: { kind: { type: String, required: true }, label: { type: String, default: '⬆ Upload file' }, recordId: { type: String, default: '' }, folderLabel: { type: String, default: '' }, extra: { type: Object, default: () => ({}) }, multiple: { type: Boolean, default: true }, accept: { type: String, default: 'image/*,application/pdf,video/*' } },
   emits: ['done'],
-  data() { return { busy: false, pct: 0, error: '', done: false }; },
+  data() { return { busy: false, pct: 0, error: '', done: false, note: '' }; },
   mounted() { ensureFolders(); },
   methods: {
     async pick(e) {
       const list = [...e.target.files]; e.target.value = '';
       if (!list.length) return;
-      this.busy = true; this.error = '';
+      this.busy = true; this.error = ''; this.note = '';
       try {
-        this.$emit('done', await uploadForLink(this.kind, list, p => { this.pct = Math.round(p * 100); }, this.recordId, this.folderLabel));
+        // extra (Issues, 17 Nov 2026): { propertyId, unit, date } for the unit's Maintenance folder in Owner Files
+        const got = await uploadForLink(this.kind, list, p => { this.pct = Math.round(p * 100); }, this.recordId, this.folderLabel, this.extra);
+        this.note = got.note || '';
+        this.$emit('done', got);
         this.done = true; setTimeout(() => { this.done = false; }, 1400);   // green "Uploaded" tick for a moment
       }
       catch (err) { this.error = err.message; }
@@ -38,5 +42,6 @@ export default {
 .up-bar { position: absolute; inset: 0 auto 0 0; background: var(--accent-soft); transition: width .2s; }
 .up-txt, .up-ring { position: relative; }
 .up-ring { color: var(--accent); }
+.up-note { color: var(--muted, #777); font-size: 12px; margin-left: 8px; }
 .up-err { color: var(--danger, #c0392b); font-size: 12px; margin-left: 8px; }
 </style>

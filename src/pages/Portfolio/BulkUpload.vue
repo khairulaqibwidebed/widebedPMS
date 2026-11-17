@@ -193,6 +193,7 @@ import { ALL_MONTHS } from '@/lib/summaries.js';
 import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { normState, stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, shortState, stateTag } from '@/lib/states.js';
+import { loadDriveStates, setUpStates } from '@/lib/drive-states.js';
 import { refreshOwnerStates, freshOwnerNumber, loadOwners, loadUnitTypes, addUnitType, BANK, contactOf } from '@/lib/portfolio-data.js';
 import { guestContact } from '@/lib/offline.js';
 import { matchUnitType, newUnitType, sectionHeading } from '@/lib/bulk-templates.js';
@@ -396,12 +397,13 @@ export default {
   components: { PropertyPicker, OptionPicker },
   data() {
     return { base: import.meta.env.BASE_URL, kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
-      properties: [], propertyId: '', newProp: { name: '', code: '', state: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null, bankFixes: {}, bankDraft: {}, bankErr: {} };
+      properties: [], driveStates: {}, propertyId: '', newProp: { name: '', code: '', state: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null, bankFixes: {}, bankDraft: {}, bankErr: {} };
   },
   computed: {
     previewCols() { return COLS[this.kind]; },
     // States a new property can get: every state for a Director, else my own
-    myStateChoices() { return stateChoices(me); },
+    // 17 Nov 2026: only states set up on Settings > States (with their Drive folder)
+    myStateChoices() { const ok = setUpStates(this.driveStates); return stateChoices(me).filter(s => ok.includes(s)); },
     // Unit owners for every property at once: each sheet (or CSV file) goes to its own property
     allMode() { return this.kind === 'owners' && this.propertyId === '__all'; },
     newOwners() { return this.rows.filter(r => r.status === 'ok' && r.newOwner).length; },
@@ -413,9 +415,12 @@ export default {
     blocker() {
       if (this.kind !== 'owners' || !this.rows.length) return '';
       if (!this.propertyId) return 'Choose the property these units belong to.';
+      // 17 Nov 2026: units only go to a property whose state is set up on Settings > States
+      const notSetUp = pid => { const p = this.properties.find(x => x.id === pid), st = p && stateOf(p); return p && !this.driveStates[st]?.folderId ? `${p.name} is in ${st || 'no state'}, which is not set up yet. Set it up on Settings > States first.` : ''; };
       if (this.allMode) {
         const used = this.sheets.map(n => [n, this.sheetMap[n]]).filter(([, m]) => m && m.pid !== '__skip');
         if (!used.length) return 'Every file is left out. Choose a property for at least one.';
+        for (const [n, m] of used) if (m.pid !== '__new') { const why = notSetUp(m.pid); if (why) return `${n}: ${why}`; }
         const fresh = used.filter(([, m]) => m.pid === '__new');
         for (const [n, m] of fresh) {
           if (!m.name.trim() || !m.code.trim() || !m.state) return `Enter a name, short code and state for the new property from ${n}.`;
@@ -432,12 +437,15 @@ export default {
         if (!name || !code || !this.newProp.state) return 'Enter the new property\'s name, short code and state.';
         const clash = clashIn(this.properties, { name, code, state: this.newProp.state });
         if (clash) return clash;
+        if (!this.driveStates[this.newProp.state]?.folderId) return `${this.newProp.state} is not set up yet. Set it up on Settings > States first.`;
+        return '';
       }
-      return '';
+      return notSetUp(this.propertyId);
     }
   },
   async mounted() {
     try { this.properties = await loadProperties(); } catch (e) { this.error = friendlyError(e, 'load the properties'); }
+    this.driveStates = await loadDriveStates(true);
   },
   methods: {
     // Choices for the property picker. `top` = the main picker (with "All properties"); otherwise the per-sheet one ("Leave out").
@@ -541,7 +549,7 @@ export default {
       // My properties only (lib/property-scope.js); a new id that belongs to a property I can't see counts as taken
       const snap = await getScoped(scoped(collection(db, 'properties'), '__id'));
       const existing = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const mine = stateChoices(me), seen = new Set(), taken = new Set();
+      const mine = stateChoices(me), seen = new Set(), taken = new Set(), ready = this.driveStates;
       const rows = lines.map(({ r, line }) => ({ line, data: mapPropertyRow(r) })).filter(x => x.data);
       const out = [];
       for (const { data, line } of rows) {
@@ -553,6 +561,7 @@ export default {
         else if (!slug(data.name)) [status, note] = ['error', 'The name has no letters or numbers.'];
         else if (!data.state) [status, note] = ['error', typed ? `"${typed}" is not a state. Write it like Johor, Selangor, Kuala Lumpur, Labuan or Putrajaya.` : 'Needs a state.'];
         else if (!mine.includes(data.state)) [status, note] = ['error', `You can only add properties in ${mine.join(', ') || 'your states (none set yet)'}.`];
+        else if (!ready[data.state]?.folderId) [status, note] = ['error', `${data.state} is not set up yet. Set it up on Settings > States first.`];
         else {
           const clash = clashIn(existing, { name: data.name, code: data.code, state: data.state });
           if (clash) [status, note] = ['skip', clash];

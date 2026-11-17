@@ -12,7 +12,9 @@
           <input class="input" id="uCode" v-model="u.unitCode" :readonly="!u.isNew && !acc.isDirector" :placeholder="`${property.code || 'DM'} 1615`">
           <span class="help" v-if="u.isNew">{{ property.code ? `e.g. ${property.code} 0719` : 'Type it as Accounting writes it.' }}</span>
           <span class="help" v-else-if="renamed">{{ `Same unit, new code: its history stays. ${u.original.unitCode} is added to Other eZee names so eZee files that still use it match this unit; remove it there if eZee doesn't.` }}</span>
-          <span class="help" v-else-if="acc.isDirector">Directors can change the code. The unit keeps its history.</span></div>
+          <span class="help" v-else-if="acc.isDirector">Directors can change the code. The unit keeps its history.</span>
+          <!-- 17 Nov 2026: the unit's folder in its state's Drive folder (<property>/Owner/<unit>) -->
+          <span class="help" v-if="!u.isNew">Drive folder: <a v-if="driveLink" :href="driveLink" target="_blank" rel="noopener">Open</a><template v-else>{{ driveMsg }}</template></span></div>
         <div class="field"><label for="uAlias">Other eZee names for this unit</label>
           <input class="input" id="uAlias" v-model="u.aliases" placeholder="e.g. DM 1509-2"><span class="help">Separate with commas.</span></div>
         </div>
@@ -109,6 +111,7 @@ import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { askConfirm, showNotice } from '@/lib/confirm.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import { unitFolder } from '@/lib/drive.js';
 import FormulaInfo from '@/components/FormulaInfo.vue';
 import { UNIT_INFO, UNIT_TYPES, pctIn, pctOut, msOf, arrLabel, arrangementOptions, ownerLabel, hasRefs, noteOnListing, forgetUnits,
   addUnitType, saveUnit, deleteUnit, loadRates } from '@/lib/portfolio-data.js';
@@ -132,7 +135,7 @@ export default {
   data() {
     const unit = this.unit, t = unit?.terms || {};
     return {
-      FEE_TYPES, busy: false, arrangements: arrangementsOf(null),   // the built-in list until this property's list is read
+      FEE_TYPES, busy: false, driveLink: '', driveMsg: 'checking…', arrangements: arrangementsOf(null),   // the built-in list until this property's list is read
       u: {
         isNew: !unit, id: unit?.id || null, original: unit, unitCode: unit?.unitCode || `${this.property.code || ''} `,
         aliases: (unit?.aliases || []).join(', '), ownerId: unit?.ownerId || '', active: unit ? unit.active !== false : true,
@@ -147,7 +150,10 @@ export default {
     };
   },
   // This property's fee arrangements (Fees & rates) for the month the change applies from
-  async created() { if (!this.acc.viewOnly) await this.loadArrangements(); },
+  async created() {
+    if (this.unit) this.findDrive();
+    if (!this.acc.viewOnly) await this.loadArrangements();
+  },
   watch: { 'u.effectiveFrom'() { if (!this.acc.viewOnly) this.loadArrangements(); } },
   computed: {
     renamed() { const u = this.u; return !u.isNew && u.original && u.unitCode.trim().replace(/\s+/g, ' ') !== u.original.unitCode; },
@@ -169,6 +175,14 @@ export default {
   },
   methods: {
     amt, monthName, arrLabel, pctOut,
+    // Read-only: is there a folder for this unit under <property>/Owner in Drive? Not found is left as is.
+    async findDrive() {
+      try {
+        const f = await unitFolder(this.property.id, this.unit.unitCode);
+        this.driveLink = f.link || '';
+        this.driveMsg = f.link ? '' : f.why === 'state' ? 'the state has no Drive folder yet' : 'not found';
+      } catch (e) { this.driveMsg = 'could not check'; }
+    },
     // Roles that can't read owner names (PDPA) saw "Owner linked" on every row (12 Nov 2026): they now see the owner's
     // code and their units in this property, so the rows can be told apart. Others see the name as before.
     ownerPickLabel(o) {
