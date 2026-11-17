@@ -9,7 +9,8 @@ import { collection, doc, getDoc, getDocs, setDoc, updateDoc, serverTimestamp } 
 import { db, ROLE_LABEL } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { listParticipants } from './quarters.js';
-import { listQuestions, listAllForQuarter } from './coh.js';
+import { listQuestions, listAllForQuarter, loadPairs } from './coh.js';
+import { ratersOf } from '@/lib/housekeeping.js';
 
 export const COMPANY = '1 World Short Stay Sdn Bhd';
 export const TOPIC = 'Performance Evaluation / Confirmation';
@@ -34,11 +35,12 @@ export function cohAverages(questions, evaluations) {
 }
 
 // The staff list of a quarter: every active participant, with how many colleagues have rated them out of those who
-// should (the other active participants).
-export function sessionRows(participants, evaluations, people = {}) {
+// should (the other active participants; for housekeeping pairs, only the ones HR assigned: pairs, 17 Nov 2026).
+export function sessionRows(participants, evaluations, people = {}, pairs = null) {
   const active = participants.filter(p => p.participationStatus === 'active');
-  const expected = Math.max(0, active.length - 1);
+  const uids = active.map(p => p.employeeId), roleOf = uid => people[uid]?.role || active.find(p => p.employeeId === uid)?.role || '';
   return active.map(p => {
+    const expected = pairs ? ratersOf(p.employeeId, uids, roleOf, pairs).length : Math.max(0, active.length - 1);
     const mine = evaluations.filter(e => e.evaluateeId === p.employeeId);
     const done = mine.filter(isValid).length;
     const u = people[p.employeeId] || {};
@@ -92,8 +94,8 @@ const positionOf = (u, hr) => String(hr?.position || '').trim() || `${ROLE_LABEL
 
 // Everything the page shows for a quarter: its questions and one row per active participant.
 export async function loadSession(quarterId) {
-  const [participants, questions, evaluations, usersSnap] = await Promise.all([
-    listParticipants(quarterId), listQuestions(quarterId), listAllForQuarter(quarterId), getDocs(collection(db, 'users'))]);
+  const [participants, questions, evaluations, usersSnap, pairs] = await Promise.all([
+    listParticipants(quarterId), listQuestions(quarterId), listAllForQuarter(quarterId), getDocs(collection(db, 'users')), loadPairs(quarterId)]);
   const users = Object.fromEntries(usersSnap.docs.map(d => [d.id, d.data()]));
   // Positions HR saved (staffHR). Not everyone who opens this page may read them: then the role name is used.
   let hr = {};
@@ -101,7 +103,7 @@ export async function loadSession(quarterId) {
   const people = {};
   for (const [uid, u] of Object.entries(users)) people[uid] = { name: u.displayName || u.email || '', role: u.role || '', position: positionOf(u, hr[uid]), joinDate: u.joinDate || '',
     ic: String(hr[uid]?.ic || '').trim() };   // IC from Staff accounts › HR details (17 Nov 2026)
-  return { questions, rows: sessionRows(participants, evaluations, people), unreadable: evaluations.filter(e => (e.status === 'submitted' || e.status === 'approved') && !Array.isArray(e.ratings)).length };
+  return { questions, rows: sessionRows(participants, evaluations, people, pairs), unreadable: evaluations.filter(e => (e.status === 'submitted' || e.status === 'approved') && !Array.isArray(e.ratings)).length };
 }
 
 export async function saveJoinDate(uid, date) {

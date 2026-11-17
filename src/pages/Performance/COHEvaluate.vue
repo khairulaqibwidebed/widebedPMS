@@ -6,6 +6,7 @@
       <button class="pill-btn" :class="{ on: tab === 'evaluate' }" @click="tab = 'evaluate'">Evaluate</button>
       <button class="pill-btn" :class="{ on: tab === 'monitor' }" @click="tab = 'monitor'">Team overview</button>
       <button class="pill-btn" :class="{ on: tab === 'questions' }" @click="tab = 'questions'">Manage questions</button>
+      <button class="pill-btn" :class="{ on: tab === 'housekeeping' }" @click="tab = 'housekeeping'">Housekeeping</button>
     </div>
 
     <div class="notice error" v-if="error">{{ error }}</div>
@@ -283,6 +284,49 @@
           Delete removes it from this quarter's list, its new evaluations and its One To One forms; marks already given for it are kept in the evaluations.</p>
       </div>
     </template>
+
+    <!-- Housekeeping (17 Nov 2026): HR picks who rates each housekeeper, and whom each housekeeper rates. Nobody else
+         rates a housekeeper, and a housekeeper rates nobody else (firestore.rules checks the same pairs). -->
+    <template v-else-if="tab === 'housekeeping' && canManageQuestions">
+      <div class="card" style="margin-bottom:16px;">
+        <h3 style="margin-top:0;">Housekeeping raters</h3>
+        <p class="sub" style="margin:0 0 12px;">Housekeepers use the same questions as everyone else. Only the people you pick here rate a housekeeper, and a housekeeper rates only the people you pick for them. Other staff don't see housekeepers on their list.</p>
+        <div class="coh-q-bar">
+          <label for="hkQuarter">Quarter</label>
+          <select id="hkQuarter" class="select" v-model="hk.quarterId" :disabled="hk.saving">
+            <option v-for="q in quartersAll" :key="q.id" :value="q.id">{{ q.name }}</option>
+          </select>
+          <span class="pill amber" v-if="hk.dirty">Not saved yet</span>
+          <span class="push"></span>
+          <button class="btn" :disabled="hk.saving || hk.loading || !hkRows.length || !hkBosses.length" @click="hkAddBosses"
+            :title="'Adds ' + hkBosses.map(p => p.name).join(', ') + ' to every housekeeper\'s raters'">Directors and HR rate every housekeeper</button>
+          <button class="btn btn-primary" :disabled="hk.saving || !hk.dirty" @click="hkSave">{{ hk.saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+        <div class="notice error" v-if="hk.error">{{ hk.error }}</div>
+        <div class="notice ok" v-if="hk.ok">{{ hk.ok }}</div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap" v-if="hkRows.length">
+          <table class="table hk-table">
+            <colgroup><col style="width:22%"><col><col></colgroup>
+            <thead><tr><th>Housekeeper</th><th>Rated by</th><th>Rates</th></tr></thead>
+            <tbody>
+              <tr v-for="r in hkRows" :key="r.uid">
+                <td><b>{{ r.name }}</b><small class="hk-count">{{ r.ratedBy.length }} rater{{ r.ratedBy.length === 1 ? '' : 's' }} · rates {{ r.rates.length }}</small></td>
+                <td><PeoplePicker compact :model-value="r.ratedBy" :staff="hkPeople.filter(p => p.uid !== r.uid)" :disabled="hk.saving" :label="'Add someone who rates ' + r.name"
+                  @update:model-value="list => hkSetRatedBy(r.uid, list)" /></td>
+                <td><PeoplePicker compact :model-value="r.rates" :staff="hkPeople.filter(p => p.uid !== r.uid)" :disabled="hk.saving" :label="'Add someone ' + r.name + ' rates'"
+                  @update:model-value="list => hkSetRates(r.uid, list)" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted" v-else-if="hk.loading">Loading…</p>
+        <p class="muted" v-else>No housekeepers in this quarter. Add them as participants on Quarterly Management first (their role must be Housekeeping on Staff accounts).</p>
+        <p class="note">Only people taking part in this quarter can be picked. A housekeeper with nobody under "Rated by" gets no COH marks.</p>
+      </div>
+    </template>
   </main>
 </template>
 
@@ -296,9 +340,11 @@ import { listQuarters, listParticipants } from '@/lib/performance/quarters.js';
 import { normalizeStatus } from '@/lib/performance/quarterStatus.js';
 import {
   listQuestions, listQuestionsFor, quarterHasEvaluations, ensureOwnSet, copyQuestionsFrom, createQuestion, saveQuestion, deleteQuestion,
-  listEvaluatees, listGiven, listReceived, listAllForQuarter, getEvaluation, submitEvaluation
+  listEvaluatees, listGiven, listReceived, listAllForQuarter, getEvaluation, submitEvaluation, loadRatingRules, savePairs
 } from '@/lib/performance/coh.js';
 import { nextOrder } from '@/lib/performance/cohQuestions.js';
+import PeoplePicker from '@/components/agreements/PeoplePicker.vue';
+import { HK_ROLE, ratersOf, ratedByList, ratesList, setRatedBy, setRates } from '@/lib/housekeeping.js';
 import { dropIndex, moveTo } from '@/lib/agreements/fields.js';
 import { startDragScroll } from '@/lib/agreements/drag-scroll.js';
 
@@ -406,19 +452,22 @@ const formatWhen = ts => ts?.toDate ? ts.toDate().toLocaleDateString() : '—';
 // many employees exist company-wide. received.length never exceeds totalCount since evaluatorId/evaluateeId
 // are both drawn from that same roster.
 const evaluatedMeCount = computed(() => received.value.length);
-const notYetEvaluatedMeCount = computed(() => Math.max(0, totalCount.value - evaluatedMeCount.value));
+// 17 Nov 2026: out of the people who should rate me (for a housekeeper, only the ones HR assigned)
+const myRaterCount = ref(0);
+const notYetEvaluatedMeCount = computed(() => Math.max(0, myRaterCount.value - evaluatedMeCount.value));
 
 // ---- Director/HR: team overview (every employee's received-evaluation count and average, not just your own) ----
 const monitorParticipants = ref([]);
 const allEvaluations = ref([]);
+const rateRules = ref({ roleOf: () => '', pairs: {} });
 const monitorRows = computed(() => {
-  const total = monitorParticipants.value.length;
+  const uids = monitorParticipants.value.map(p => p.employeeId), { roleOf, pairs } = rateRules.value;
   return monitorParticipants.value.map(p => {
     const theirs = allEvaluations.value.filter(e => e.evaluateeId === p.employeeId && (e.status === 'submitted' || e.status === 'approved'));
     return {
       employeeId: p.employeeId, employeeName: p.employeeName,
       evaluatedBy: theirs.length,
-      notYet: Math.max(0, total - 1 - theirs.length),
+      notYet: Math.max(0, ratersOf(p.employeeId, uids, roleOf, pairs).length - theirs.length),
       average: theirs.length ? Math.round((theirs.reduce((s, e) => s + e.averageRating, 0) / theirs.length) * 100) / 100 : null
     };
   }).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
@@ -472,21 +521,63 @@ async function load() {
       if (!manageQuarterId.value) manageQuarterId.value = (quarter.value || quarters[0])?.id || '';   // its watcher loads the questions
     }
     if (!quarter.value) return;
-    const parts = await listParticipants(quarter.value.id);
+    const [parts, rules] = await Promise.all([listParticipants(quarter.value.id), loadRatingRules(quarter.value.id)]);
     const activeParts = parts.filter(p => p.participationStatus === 'active');
+    rateRules.value = rules;
+    myRaterCount.value = ratersOf(session.user.uid, activeParts.map(p => p.employeeId), rules.roleOf, rules.pairs).length;
     if (canManageQuestions.value) {
       monitorParticipants.value = activeParts;
       allEvaluations.value = await listAllForQuarter(quarter.value.id);
     }
     amParticipant.value = activeParts.some(p => p.employeeId === session.user.uid);
     if (!amParticipant.value) return;
-    evaluatees.value = await listEvaluatees(quarter.value.id, session.user.uid);
+    evaluatees.value = await listEvaluatees(quarter.value.id, session.user.uid, rules);
     givenList.value = await listGiven(quarter.value.id, session.user.uid);
     received.value = await listReceived(quarter.value.id, session.user.uid);
     await loadAnswered();
   } catch (e) { error.value = e.message; } finally { loading.value = false; }
 }
 onMounted(load);
+
+// ---- Housekeeping raters (17 Nov 2026), HR and Directors ----
+const hk = reactive({ quarterId: '', parts: [], roleOf: () => '', pairs: {}, dirty: false, loading: false, saving: false, error: '', ok: '' });
+const hkPeople = computed(() => hk.parts.map(p => ({ uid: p.employeeId, name: p.employeeName || 'Staff', role: hk.roleOf(p.employeeId) || p.role || '' })));
+const nameOfUid = uid => hkPeople.value.find(p => p.uid === uid)?.name || 'Staff';
+const asPeople = uids => uids.map(uid => ({ uid, name: nameOfUid(uid) }));
+const hkRows = computed(() => hkPeople.value.filter(p => p.role === HK_ROLE)
+  .map(p => ({ uid: p.uid, name: p.name, ratedBy: asPeople(ratedByList(p.uid, hk.pairs)), rates: asPeople(ratesList(p.uid, hk.pairs)) }))
+  .sort((a, b) => a.name.localeCompare(b.name)));
+// Directors and HR taking part in the quarter
+const hkBosses = computed(() => hkPeople.value.filter(p => p.role === 'director' || p.role === 'hr'));
+async function hkLoad() {
+  const id = hk.quarterId;
+  if (!id) return;
+  hk.loading = true; hk.error = ''; hk.ok = ''; hk.dirty = false;
+  try {
+    const [parts, rules] = await Promise.all([listParticipants(id), loadRatingRules(id)]);
+    if (id !== hk.quarterId) return;
+    hk.parts = parts.filter(p => p.participationStatus === 'active');
+    hk.roleOf = rules.roleOf; hk.pairs = rules.pairs;
+  } catch (e) { hk.error = e.message; }
+  hk.loading = false;
+}
+watch(() => hk.quarterId, hkLoad);
+watch(tab, t => { if (t === 'housekeeping' && !hk.quarterId) hk.quarterId = (quarter.value || quartersAll.value[0])?.id || ''; });
+function hkSetRatedBy(uid, list) { hk.pairs = setRatedBy(hk.pairs, uid, list.map(p => p.uid)); hk.dirty = true; hk.ok = ''; }
+function hkSetRates(uid, list) { hk.pairs = setRates(hk.pairs, uid, list.map(p => p.uid)); hk.dirty = true; hk.ok = ''; }
+function hkAddBosses() {
+  for (const r of hkRows.value) hk.pairs = setRatedBy(hk.pairs, r.uid, [...new Set([...r.ratedBy.map(p => p.uid), ...hkBosses.value.map(p => p.uid)])]);
+  hk.dirty = true; hk.ok = '';
+}
+async function hkSave() {
+  hk.saving = true; hk.error = ''; hk.ok = '';
+  try {
+    hk.pairs = await savePairs(hk.quarterId, hk.pairs, hk.parts.map(p => p.employeeId), hk.roleOf);
+    hk.dirty = false; hk.ok = 'Saved. Each person sees the change the next time they open COH Evaluations.';
+    if (quarter.value?.id === hk.quarterId) load();   // the overview and your own list follow the new pairs
+  } catch (e) { hk.error = e.code === 'permission-denied' ? 'Firestore refused the save. Publish security rules Draft 0.78 first.' : e.message; }
+  hk.saving = false;
+}
 
 async function openEvaluatee(p) {
   error.value = '';
@@ -634,6 +725,10 @@ async function dropRow() {
 </script>
 
 <style scoped>
+.hk-table td { vertical-align: middle; }
+.hk-table td b { display: block; }
+.hk-count { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.coh-q-bar .push { flex: 1; }
 .coh-q-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .coh-q-bar label { font-size: 13px; font-weight: 600; }
 .coh-order { white-space: nowrap; }

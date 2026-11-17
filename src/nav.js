@@ -58,7 +58,9 @@ export const NAV = {
     G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Audit Log', '/Settings/audit-log', 'history')]),
     MY_ACCOUNT],
   procurement: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
-  marketing: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT]
+  marketing: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
+  // Housekeeping (17 Nov 2026): like IT to start; pages ticked for them are added by navFor()
+  housekeeping: [TOP, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT]
 };
 
 // Roles made on the Roles page start from this list (Agreements kept, as before); the pages they were ticked for are added by navFor().

@@ -73,7 +73,9 @@ export const PRESETS = {
   it: [],
   hr: ['playbook.edit', 'sops.edit'],
   procurement: ['portfolio.view', ...both('newOwnerListings')],
-  marketing: ['portfolio.view', ...both('newOwnerListings')]
+  marketing: ['portfolio.view', ...both('newOwnerListings')],
+  // Housekeeping (17 Nov 2026): the always-open pages only to start; HR or the Director add pages per person or on Roles.
+  housekeeping: []
 };
 
 const ALL_PERMS = new Set(PAGES.flatMap(p => p.viewOnly ? [p.key + '.view'] : p.editOnly ? [p.key + '.edit'] : both(p.key)));

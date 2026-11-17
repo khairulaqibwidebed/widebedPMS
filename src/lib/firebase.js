@@ -19,15 +19,15 @@ export const db = initializeFirestore(app, {
 });
 
 // Roles that can sign in. Each sees only the pages in its sidebar (nav.js) and its route list (router.js).
-export const ALLOWED_ROLES = ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing'];   // every role signs in (Khairul 21 Oct)
-export const ROLE_LABEL = { director: 'Director', finance: 'Accounting', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing' };
+export const ALLOWED_ROLES = ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing', 'housekeeping'];   // housekeeping: 17 Nov 2026 (username sign-in, lib/housekeeping.js)   // every role signs in (Khairul 21 Oct)
+export const ROLE_LABEL = { director: 'Director', finance: 'Accounting', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing', housekeeping: 'Housekeeping' };
 // Built-in role names have two layers (4 Nov 2026):
 //   BUILTIN_TAG = the fixed word SAVED for each built-in role (Issues tags, who raised a ticket). The security rules
 //                 (myIssueTag) and every older ticket use these, so they never change.
 //   ROLE_LABEL  = the name SHOWN. The Director can rename a built-in role on the Roles page (roles/{id}.name);
 //                 loadRoleRegistry copies it in. Default names below (Finance is shown as Accounting).
 // Sentences written in the pages keep their wording; only the role's name itself follows a rename.
-export const BUILTIN_TAG = { director: 'Director', finance: 'Finance', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing' };
+export const BUILTIN_TAG = { director: 'Director', finance: 'Finance', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing', housekeeping: 'Housekeeping' };
 export const DEFAULT_LABEL = { ...ROLE_LABEL };
 // The word to save on, or search, tickets for a role
 export const issueTagOf = role => BUILTIN_TAG[role] || ROLE_LABEL[role] || role;
@@ -37,7 +37,7 @@ export const tagLabel = t => { const id = Object.keys(BUILTIN_TAG).find(k => BUI
 // Roles made on the Roles page (Director only), kept in roles/{id}. Built-in roles can also have their usual pages changed there.
 // loadRoleRegistry() copies them into ROLE_LABEL, ALLOWED_ROLES and PRESETS (lib/access.js), so the rest of the app reads them as before.
 // Runs once after sign-in; the Roles page runs it again after a save. If the roles collection can't be read (rules not published yet), the built-in roles work as before.
-export const BUILTIN_ROLES = ['director', 'finance', 'it', 'operations', 'hr', 'procurement', 'marketing'];
+export const BUILTIN_ROLES = ['director', 'finance', 'it', 'operations', 'hr', 'procurement', 'marketing', 'housekeeping'];
 export const CUSTOM_ROLES = {};   // id -> { name, description, color, active }
 const ORIGINAL_PRESETS = JSON.parse(JSON.stringify(PRESETS));
 let registry = null;
