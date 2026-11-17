@@ -48,11 +48,11 @@ const MY_ACCOUNT = G('My Account', 'userCircle', [P('Profile & Appearance', '/Se
 export const NAV = {
   finance: [TOP, PORTFOLIO, LEADS, ACCOUNTING, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   director: [TOP, PORTFOLIO, LEADS_DIR, ACCOUNTING_DIR, PERFORMANCE_ADMIN, PLAYBOOK, HR_DIR,
-    G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'userCog'), P('States', '/Settings/states', 'files'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
+    G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'userCog'), P('Google Drive Folders', '/Settings/states', 'files'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
     MY_ACCOUNT],
   // Portfolio is view-only for Operations, Procurement and Marketing (no fees, payouts or owner contact details).
-  // 17 Nov 2026: Operations set up each state's Drive folder (Settings > States)
-  operations: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, G('Company Settings', 'settings', [P('States', '/Settings/states', 'files')]), MY_ACCOUNT],
+  // 17 Nov 2026: Google Drive Folders follows its access tick (Operations have it by default); navFor() adds it under Company Settings
+  operations: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   // IT and HR: no Agreements (6 Nov 2026).
   it: [TOP, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   hr: [TOP, PERFORMANCE_ADMIN, PLAYBOOK, HR_HR,

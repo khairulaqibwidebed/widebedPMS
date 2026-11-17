@@ -128,6 +128,13 @@
 
           <div class="coh-legend">
             <span v-for="l in LEGEND" :key="l.n" class="coh-legend-item"><b>{{ l.n }}</b> {{ l.label }}</span>
+            <!-- 17 Nov 2026: one click gives 5 (Excellent) on every question still open; Undo puts the earlier marks back -->
+            <span class="coh-all5" v-if="!readOnly && editableIdx.length">
+              <button type="button" class="coh-all5-btn" :class="{ on: allFive }" :disabled="allFive" @click="giveAllFive">
+                <span aria-hidden="true">★</span> {{ allFive ? 'All 5 stars' : 'Give all 5 stars' }}
+              </button>
+              <button type="button" class="coh-all5-undo" v-if="beforeAllFive" @click="undoAllFive">Undo</button>
+            </span>
           </div>
 
           <div class="coh-card" v-if="!questions.length">
@@ -608,8 +615,29 @@ async function openEvaluatee(p) {
 function selectScore(i, n) {
   if (readOnly.value || lockedIds.value.has(questions.value[i]?.id)) return;
   scores.value[i] = n;
+  beforeAllFive.value = null;   // a mark changed by hand: Undo no longer applies
   saveDraft(activeEvaluatee.value.employeeId);
 }
+
+// ---- Give all 5 stars (17 Nov 2026) ----
+// Questions that can still be rated (not locked from an earlier submission)
+const editableIdx = computed(() => questions.value.map((q, i) => i).filter(i => !lockedIds.value.has(questions.value[i].id)));
+const allFive = computed(() => editableIdx.value.length > 0 && editableIdx.value.every(i => scores.value[i] === 5));
+const beforeAllFive = ref(null);   // the marks before the click, for Undo
+function giveAllFive() {
+  if (readOnly.value || !editableIdx.value.length) return;
+  const before = [...scores.value];
+  for (const i of editableIdx.value) scores.value[i] = 5;
+  beforeAllFive.value = before;
+  saveDraft(activeEvaluatee.value.employeeId);
+}
+function undoAllFive() {
+  if (!beforeAllFive.value) return;
+  scores.value = [...beforeAllFive.value];
+  beforeAllFive.value = null;
+  saveDraft(activeEvaluatee.value.employeeId);
+}
+watch(activeEvaluatee, () => { beforeAllFive.value = null; });
 
 function backToDashboard() { activeEvaluatee.value = null; }
 
@@ -807,6 +835,17 @@ tr.coh-after td { box-shadow: inset 0 -3px 0 var(--accent); }
 
 .coh-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin-bottom: 16px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
 .coh-legend-item b { color: var(--accent); margin-right: 4px; }
+.coh-legend { align-items: center; }
+.coh-all5 { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.coh-all5-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 999px;
+  background: var(--surface); color: var(--accent); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: background .2s ease, color .2s ease, transform .1s ease; }
+.coh-all5-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.coh-all5-btn:active:not(:disabled) { transform: scale(.97); }
+.coh-all5-btn.on { background: var(--accent); color: #fff; cursor: default; }
+.coh-all5-btn span { font-size: 14px; line-height: 1; }
+.coh-all5-undo { border: 0; background: none; padding: 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--text-2); text-decoration: underline; cursor: pointer; }
+@media (max-width: 600px) { .coh-all5 { margin-left: 0; width: 100%; } }
 
 .coh-questions { display: flex; flex-direction: column; gap: 10px; padding-bottom: 90px; }
 .coh-q-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; transition: border-color .18s ease; }

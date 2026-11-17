@@ -14,7 +14,13 @@
           <span class="help" v-else-if="renamed">{{ `Same unit, new code: its history stays. ${u.original.unitCode} is added to Other eZee names so eZee files that still use it match this unit; remove it there if eZee doesn't.` }}</span>
           <span class="help" v-else-if="acc.isDirector">Directors can change the code. The unit keeps its history.</span>
           <!-- 17 Nov 2026: the unit's folder in its state's Drive folder (<property>/Owner/<unit>) -->
-          <span class="help" v-if="!u.isNew">Drive folder: <a v-if="driveLink" :href="driveLink" target="_blank" rel="noopener">Open</a><template v-else>{{ driveMsg }}</template></span></div>
+          <span class="help" v-if="!u.isNew">Drive folder: <a v-if="driveLink" :href="driveLink" target="_blank" rel="noopener">Open</a><template v-else>{{ driveMsg }}</template></span>
+          <!-- 17 Nov 2026: Add unit shows the Drive folder that saving will make (in the property's own folder style) -->
+          <span class="help drive-plan" v-else-if="drivePlan">
+            <template v-if="drivePlan.create">Drive folder to be made:
+              <template v-for="(seg, i) in drivePlan.path" :key="i"><span :class="{ 'seg-new': seg.new }">{{ seg.name }}<small v-if="seg.new"> new</small></span> / </template><b class="seg-make">{{ drivePlan.create.name }}</b></template>
+            <template v-else>{{ drivePlan.msg }}</template>
+          </span></div>
         <div class="field"><label for="uAlias">Other eZee names for this unit</label>
           <input class="input" id="uAlias" v-model="u.aliases" placeholder="e.g. DM 1509-2"><span class="help">Separate with commas.</span></div>
         </div>
@@ -111,7 +117,7 @@ import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { askConfirm, showNotice } from '@/lib/confirm.js';
 import OptionPicker from '@/components/OptionPicker.vue';
-import { unitFolder } from '@/lib/drive.js';
+import { unitFolder, unitPlan, makeUnitFolders } from '@/lib/drive.js';
 import FormulaInfo from '@/components/FormulaInfo.vue';
 import { UNIT_INFO, UNIT_TYPES, pctIn, pctOut, msOf, arrLabel, arrangementOptions, ownerLabel, hasRefs, noteOnListing, forgetUnits,
   addUnitType, saveUnit, deleteUnit, loadRates } from '@/lib/portfolio-data.js';
@@ -135,7 +141,7 @@ export default {
   data() {
     const unit = this.unit, t = unit?.terms || {};
     return {
-      FEE_TYPES, busy: false, driveLink: '', driveMsg: 'checking…', arrangements: arrangementsOf(null),   // the built-in list until this property's list is read
+      FEE_TYPES, busy: false, driveLink: '', driveMsg: 'checking…', drivePlan: null, arrangements: arrangementsOf(null),   // the built-in list until this property's list is read
       u: {
         isNew: !unit, id: unit?.id || null, original: unit, unitCode: unit?.unitCode || `${this.property.code || ''} `,
         aliases: (unit?.aliases || []).join(', '), ownerId: unit?.ownerId || '', active: unit ? unit.active !== false : true,
@@ -154,7 +160,15 @@ export default {
     if (this.unit) this.findDrive();
     if (!this.acc.viewOnly) await this.loadArrangements();
   },
-  watch: { 'u.effectiveFrom'() { if (!this.acc.viewOnly) this.loadArrangements(); } },
+  watch: {
+    'u.effectiveFrom'() { if (!this.acc.viewOnly) this.loadArrangements(); },
+    // Add unit: the folder preview follows the code as it is typed (read once typing stops)
+    'u.unitCode'() {
+      if (!this.u.isNew) return;
+      clearTimeout(this.planTimer);
+      this.planTimer = setTimeout(() => this.previewDrive(), 600);
+    }
+  },
   computed: {
     renamed() { const u = this.u; return !u.isNew && u.original && u.unitCode.trim().replace(/\s+/g, ' ') !== u.original.unitCode; },
     monthOptions() { return this.months.map(m => ({ value: m, label: monthName(m) })); },
@@ -182,6 +196,24 @@ export default {
         this.driveLink = f.link || '';
         this.driveMsg = f.link ? '' : f.why === 'state' ? 'the state has no Drive folder yet' : 'not found';
       } catch (e) { this.driveMsg = 'could not check'; }
+    },
+    // Add unit: what saving will make in Drive (nothing is made here). Hidden when the code has no number yet.
+    async previewDrive() {
+      const code = this.u.unitCode.trim().replace(/\s+/g, ' ');
+      if (!/\d/.test(code)) { this.drivePlan = null; return; }
+      try {
+        const r = ((await unitPlan([{ id: this.property.id, units: [...this.units.map(x => x.unitCode).filter(Boolean), code], only: [code] }])).properties || [])[0] || {};
+        if (code !== this.u.unitCode.trim().replace(/\s+/g, ' ')) return;   // typed on meanwhile
+        this.drivePlan = r.skip ? { msg: r.skip === 'state' ? 'Drive folder: the state has no Drive folder yet, so none is made.' : '' }
+          : r.create?.length ? { path: r.path || [], create: r.create[0] } : { msg: 'Drive folder: one already matches this unit.' };
+      } catch (e) { this.drivePlan = null; }
+    },
+    // After a new unit is saved: make its Drive folder. Never stops the save; the result is added to the saved message.
+    async makeDrive(code) {
+      try {
+        const made = (await makeUnitFolders([{ id: this.property.id, units: [...this.units.map(x => x.unitCode).filter(Boolean), code], only: [code] }])).made || [];
+        return made.length ? ` Drive folder ${made[0].name} created.` : '';
+      } catch (e) { return ` Drive folder not made (${e.message}).`; }
     },
     // Roles that can't read owner names (PDPA) saw "Owner linked" on every row (12 Nov 2026): they now see the owner's
     // code and their units in this property, so the rows can be told apart. Others see the name as before.
@@ -260,8 +292,9 @@ export default {
           ...(this.acc.viewOnly ? {} : { purchasePrice: price, autocountAcc: ac, remarks: rem }),
           terms, termsChanged, effectiveFrom: u.effectiveFrom, reason: u.reason.trim(), changes: [...unitChanges, ...termChanges] });
         const noted = u.isNew ? await noteOnListing(me, u.fromListing, 'unitId', id, 'unit') : '';
+        const drive = u.isNew ? await this.makeDrive(code) : '';
         await forgetUnits(pid);
-        this.$emit('saved', `${code} saved` + (termsChanged ? `, settings apply from ${monthName(u.effectiveFrom)}.` : '.') + noted);
+        this.$emit('saved', `${code} saved` + (termsChanged ? `, settings apply from ${monthName(u.effectiveFrom)}.` : '.') + noted + drive);
       } catch (e) { u.error = friendlyError(e, 'save the unit'); }
       this.setBusy(false);
     },
@@ -286,6 +319,10 @@ export default {
 </script>
 
 <style scoped>
+.drive-plan { overflow-wrap: anywhere; }
+.drive-plan .seg-new { color: var(--accent); }
+.drive-plan .seg-new small { font-size: 10px; font-weight: 600; text-transform: uppercase; }
+.drive-plan .seg-make { color: var(--accent); }
 /* 16 Nov 2026: wider centred popup, fields side by side (one column on phones) */
 .ud-2, .ud-3, .ud-4 { display: grid; gap: 0 14px; }
 .ud-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -80,3 +80,8 @@ export const propertyLinks = properties => call({ action: 'propertyLinks', prope
 export const unitFolder = (propertyId, unit) => call({ action: 'unitFolder', propertyId, unit });
 // Read-only check of a state's properties: [{ id, name, units: [codes] }] -> { properties: [{ id, link, folderName, ownerLink, units: { code: link } }] }
 export const linkCheck = (state, properties) => call({ action: 'linkCheck', state, properties });
+// Unit folders in each property's own style (17 Nov 2026). properties = [{ id, units: [every unit code], only: [codes to make] }]
+// unitPlan: the preview, nothing made: { properties: [{ id, name, path: [{ name, new }], style: { example }, create: [{ unit, name }], skip }] }
+// makeUnitFolders: makes them: { made: [{ id, unit, name, link }] }
+export const unitPlan = properties => call({ action: 'unitPlan', properties });
+export const makeUnitFolders = properties => call({ action: 'makeUnitFolders', properties });
