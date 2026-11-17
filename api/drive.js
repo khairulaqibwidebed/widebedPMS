@@ -167,6 +167,15 @@ async function propertyOf(user, propertyId) {
   if (!f) return null;
   return { name: f.name?.stringValue || '', state: f.state?.stringValue || f.info?.mapValue?.fields?.state?.stringValue || '' };
 }
+// 17 Nov 2026: a property whose unit folders sit somewhere else than <property>/Owner (e.g. D Majestic: "Profit Sharing").
+// Set on the property's Overview (Directors, Operations), saved in config/driveUnits { props: { propertyId: { folderId, ... } } }.
+// Used for issue uploads, the unit folder link and the States link check. { propertyId: folderId }
+async function unitsFolders(user) {
+  const f = await readDoc(user, 'config/driveUnits');
+  const props = f?.props?.mapValue?.fields || {}, out = {};
+  for (const [pid, v] of Object.entries(props)) { const id = v?.mapValue?.fields?.folderId?.stringValue; if (id) out[pid] = id; }
+  return out;
+}
 // Every folder directly inside a folder: [{ id, name }]
 async function subfolders(tok, parent) {
   const out = []; let page = '';
@@ -180,8 +189,16 @@ async function subfolders(tok, parent) {
 // 17 Nov 2026 (Khairul): Drive folders may carry a note the PMS code can't, e.g. "TR G-01 (Duplex)" for unit TR G-01.
 // An exact match wins; otherwise the folder name is matched with anything in brackets left out.
 const bareKey = s => nameKey(String(s || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' '));
-const findByKey = (list, name) => (nameKey(name)
-  ? list.find(f => nameKey(f.name) === nameKey(name)) || list.find(f => bareKey(f.name) === nameKey(name)) || null : null);
+// 17 Nov 2026: when two folders match (e.g. "DM 15-13 (Mr Bobby)" and "DM 15-13 (Old owner)"), one whose note says
+// old or terminated loses to the other. If every match is old, the first is still used (nothing new is made).
+const OLD_NOTE = /\((?=[^)]*\b(old|terminat|ended|former|previous))[^)]*\)/i;
+const findByKey = (list, name) => {
+  if (!nameKey(name)) return null;
+  const exact = list.find(f => nameKey(f.name) === nameKey(name));
+  if (exact) return exact;
+  const bare = list.filter(f => bareKey(f.name) === nameKey(name));
+  return bare.find(f => !OLD_NOTE.test(f.name)) || bare[0] || null;
+};
 async function makeFolder(tok, parent, name) {
   const r = await g(`${API}/files?supportsAllDrives=true&fields=id`, tok, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, mimeType: FOLDER, parents: [parent] }) });
@@ -220,15 +237,26 @@ async function propertyFolder(tok, user, propertyId, make = false) {
   await makeFolder(tok, id, OWNER_SUB);
   return { id, name: p.name, made: true };
 }
+// The folder that holds a property's unit folders: its own units folder when set, else <property>/Owner.
+// make: create the property folder and Owner when missing. { id, why }
+async function unitsParent(tok, user, propertyId, make = false) {
+  const own = (await unitsFolders(user))[propertyId];
+  if (own) return { id: own, own: true };
+  const pf = await propertyFolder(tok, user, propertyId, make);
+  if (!pf.id) return { id: '', why: pf.why };
+  if (make) return { id: await findOrMake(tok, pf.id, OWNER_SUB) };
+  const owner = findByKey(await subfolders(tok, pf.id), OWNER_SUB);
+  return owner ? { id: owner.id } : { id: '', why: 'unit' };
+}
 // Issues: <property>/Owner/<unit>/Maintenance/"<title> <date> (<tag>)". '' when the ticket has no property or unit,
 // or its state has no Drive folder (the upload then goes to Widebed PMS Files/Issues).
 async function issueFolder(tok, user, b) {
   const unit = String(b.unit || '').trim().slice(0, 40);
   if (!b.propertyId || !unit || !SAFE.test(b.recordId || '')) return '';
-  const pf = await propertyFolder(tok, user, b.propertyId, true);
-  if (!pf.id) return '';
-  const owner = await findOrMake(tok, pf.id, OWNER_SUB);
-  const unitId = await findOrMake(tok, owner, unit, driveUnitName(unit), findUnit);
+  // (or <units folder>/<unit>/Maintenance/... for a property with its own units folder, 17 Nov 2026)
+  const parent = await unitsParent(tok, user, b.propertyId, true);
+  if (!parent.id) return '';
+  const unitId = await findOrMake(tok, parent.id, unit, driveUnitName(unit), findUnit);
   const maint = await findOrMake(tok, unitId, MAINT);
   const tag = b.recordId.slice(-5);
   // Drive's "name contains" only matches word starts, so the "(tag)" ending is checked here instead
@@ -298,11 +326,12 @@ export default async function handler(req, res) {
       const root = await stateFolder(user, String(b.state || ''));
       if (!root) throw new HttpError(400, 'This state has no Drive folder yet.');
       const list = (Array.isArray(b.properties) ? b.properties : []).slice(0, 300);
-      const folders = await subfolders(tok, root);
+      const folders = await subfolders(tok, root), own = await unitsFolders(user);
       const one = async p => {
         const hit = findByKey(folders, p.name), row = { id: String(p.id || ''), link: hit ? link(hit.id) : '', folderName: hit?.name || '', ownerLink: '', units: {} };
-        if (hit) {
-          const owner = findByKey(await subfolders(tok, hit.id), OWNER_SUB);
+        if (hit || own[row.id]) {
+          // The property's own units folder when set (17 Nov 2026), else its Owner folder
+          const owner = own[row.id] ? { id: own[row.id] } : findByKey(await subfolders(tok, hit.id), OWNER_SUB);
           if (owner) {
             row.ownerLink = link(owner.id);
             const unitFolders = await subfolders(tok, owner.id);
@@ -334,11 +363,10 @@ export default async function handler(req, res) {
       return res.status(200).json(pf.id ? { link: link(pf.id), made: !!pf.made } : { link: '', why: pf.why, state: pf.state || '' });
     }
     if (b.action === 'unitFolder') {
-      // A unit's folder link (Unit view): <property>/Owner/<unit>. Read-only.
-      const pf = await propertyFolder(tok, user, b.propertyId, false);
-      if (!pf.id) return res.status(200).json({ link: '', why: pf.why });
-      const owner = findByKey(await subfolders(tok, pf.id), OWNER_SUB);
-      const u = owner && findUnit(await subfolders(tok, owner.id), b.unit);
+      // A unit's folder link (Unit view): <property>/Owner/<unit>, or <units folder>/<unit>. Read-only.
+      const parent = await unitsParent(tok, user, b.propertyId, false);
+      if (!parent.id) return res.status(200).json({ link: '', why: parent.why });
+      const u = findUnit(await subfolders(tok, parent.id), b.unit);
       return res.status(200).json({ link: u ? link(u.id) : '', why: u ? '' : 'unit' });
     }
     if (b.action === 'remove') {

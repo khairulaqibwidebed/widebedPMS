@@ -1,4 +1,9 @@
 rules_version = '2';
+// Draft 0.79, 17 Nov 2026 (Khairul): config/driveUnits, a property's own Google Drive units folder (Property > Overview).
+//   - For a property whose unit folders are not in <property>/Owner (e.g. D Majestic: "Profit Sharing"). Issue uploads,
+//     the unit folder link and the Settings > States check use it. { props: { propertyId: { folderId, folderName, link,
+//     by, byName, at } }, updatedBy, updatedAt }. Every staff member reads; Directors and Operations write (as driveStates).
+//   - HR may read the properties list again (Draft 0.65, lost in a later merge): Staff accounts > Properties was empty for HR.
 // Draft 0.78, 17 Nov 2026: Housekeeping.
 //   - New built-in role 'housekeeping' (users/{uid}.role). It signs in like any role (a username HR sets; the sign-in
 //     address is <username>@housekeeping.widebed.com). Its usual pages: presetFor('housekeeping') = none beyond the
@@ -557,6 +562,14 @@ service cloud.firestore {
         && request.resource.data.states is map && request.resource.data.states.size() <= 20
         && request.resource.data.updatedBy == request.auth.uid;
     }
+    // Draft 0.79: a property's own units folder (Property > Overview)
+    match /config/driveUnits {
+      allow read: if anyStaff();
+      allow write: if (isDirector() || role() == 'operations')
+        && request.resource.data.keys().hasOnly(['props', 'updatedBy', 'updatedAt'])
+        && request.resource.data.props is map && request.resource.data.props.size() <= 500
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
     match /config/driveSeen {
       allow read: if anyStaff();
       allow write: if (isDirector() || role() == 'operations')
@@ -713,7 +726,7 @@ service cloud.firestore {
     // Version documents are add-only: a change is a new document.
 
     match /properties/{propertyId} {
-      allow read: if staff() || portfolioViewer();   // Draft 0.74: the AI Agent with Properties Base (portfolioViewer)
+      allow read: if staff() || portfolioViewer() || isHR();   // Draft 0.74: the AI Agent with Properties Base (portfolioViewer). Draft 0.79: HR again (0.65, lost in a merge)
       // Draft 0.77: was `allow write: if portfolioEditor()`, which also let every Portfolio/Accounting editor delete a
       // property. Now only Directors delete a property or switch it off/on (`active`); editors still add and edit.
       allow create: if portfolioEditor();
