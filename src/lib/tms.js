@@ -32,6 +32,11 @@ export async function sendToTasks(action, body = {}) {
 
 // Director only. data: { title, details, assigneeUids: [uid], dueDate: 'YYYY-MM-DD', departmentId, priority,
 // subtasks: ['text'], pmsLink: { type: 'newOwnerListing', id } }. Resolves with the TMS task ID.
+// Director or HR, after a save on Staff accounts (17 Nov 2026): the TMS copies these people's name, role, department and
+// switched-off state from their PMS staff records now (a switched-off person is signed out of the TMS). People who
+// never signed in to the TMS are skipped. Resolves { updated, switchedOff, unchanged, skipped }.
+export const syncStaff = uids => sendToTasks('syncStaff', { data: { uids } });
+
 export const createTask = async data => (await sendToTasks('create', { data })).taskId;
 
 // Director, an assignee, or a Procurement user on a Procurement task. data: { text, completed: true/false,
