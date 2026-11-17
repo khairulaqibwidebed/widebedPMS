@@ -26,7 +26,7 @@ export default {
         // extra (Issues, 17 Nov 2026): { propertyId, unit, date } for the unit's Maintenance folder in Owner Files
         const got = await uploadForLink(this.kind, list, p => { this.pct = Math.round(p * 100); }, this.recordId, this.folderLabel, this.extra);
         this.note = got.note || '';
-        this.$emit('done', got);
+        this.$emit('done', got, list);   // list: the files as picked (for previews on the page)
         this.done = true; setTimeout(() => { this.done = false; }, 1400);   // green "Uploaded" tick for a moment
       }
       catch (err) { this.error = err.message; }

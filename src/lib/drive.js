@@ -74,6 +74,8 @@ export const folderIdOf = v => {
 export const checkFolder = folderId => call({ action: 'checkFolder', folderId });
 // A property's folder: { link, why } (why: 'state' no state folder, 'folder' not found, 'property'). make: create it with Owner.
 export const propertyFolder = (propertyId, make = false) => call({ action: 'propertyFolder', propertyId, make });
+// Properties list: { status: { id: 'linked' | 'missing' | 'state' }, links } for [{ id, name, state }]
+export const propertyLinks = properties => call({ action: 'propertyLinks', properties });
 // A unit's folder under <property>/Owner: { link }
 export const unitFolder = (propertyId, unit) => call({ action: 'unitFolder', propertyId, unit });
 // Read-only check of a state's properties: [{ id, name, units: [codes] }] -> { properties: [{ id, link, folderName, ownerLink, units: { code: link } }] }

@@ -87,34 +87,47 @@
             <div class="post orig">
               <div class="post-head"><Avatar :uid="ticket.raisedByUid" :name="ticket.raisedBy" :role="ticket.raisedRole" :size="24" /><b>{{ ticket.raisedBy }}</b><span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ tagLabel(ticket.raisedRole) }}</span><span class="when">{{ stamp(ticket.raisedAt) }}</span><span class="tag">Original issue</span></div>
               <p>{{ ticket.body }}</p>
-              <div class="files" v-show="ticket.links.length"><template v-for="l in ticket.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
+              <!-- 17 Nov 2026: posted files as preview cards (photos show a thumbnail); click opens the viewer -->
+              <div class="previews posted" v-show="ticket.links.length"><template v-for="l in ticket.links" :key="l.url"><button type="button" class="pv" :title="'Open ' + l.name" @click="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })"><span class="pv-open"><img v-if="thumbs[l.url] && thumbs[l.url] !== 'none'" :src="thumbs[l.url]" alt=""><span class="pv-ico" v-else>{{ fileIcon(l.name) }}</span></span><span class="pv-name">{{ l.name }}</span></button></template></div>
             </div>
-            <template v-for="c in replies" :key="c.id">
-              <div class="post">
-                <div class="post-head"><Avatar :uid="c.byUid" :name="c.by" :role="c.byRole" :size="24" /><b>{{ c.by }}</b><span class="tag role-tint" :style="roleTint(c.byRole)" v-if="showRole(c.by, c.byRole)">{{ tagLabel(c.byRole) }}</span><span class="when">{{ stamp(c.at) }}</span></div>
-                <p>{{ c.text }}</p>
-                <div class="files" v-show="c.links.length"><template v-for="l in c.links" :key="l.url"><a class="file-chip" :href="l.url" target="_blank" rel="noopener" @click.prevent="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })">{{ icon(l.name) + ' ' + l.name }}</a></template></div>
-              </div>
-            </template>
-
-            <div class="post composer" v-show="ticket.status !== 'done' && canComment()">
-              <textarea class="input" placeholder="Write a comment..." v-model="draft.text" aria-label="Comment"></textarea>
-              <div class="files" v-show="draft.links.length"><template v-for="(l, i) in draft.links" :key="l.url + i"><span class="file-chip"><span>{{ icon(l.name) + ' ' + l.name }}</span><button @click="draft.links.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
-              <div class="link-add" v-show="draft.adding">
-                <input class="input" v-model="draft.linkName" placeholder="Name, e.g. Vendor quote" aria-label="Link name">
-                <input class="input" v-model="draft.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(draft)">
-                <button class="btn" type="button" @click="addLink(draft)">Add</button>
+            <!-- 17 Nov 2026: comment box under the original issue, newest comments first -->
+            <!-- 17 Nov 2026: files picked, pasted (Ctrl+V) or dropped stay on this device until Post comment, which uploads
+                 them to the ticket's Drive folder and then posts. Removing one before posting never touches Drive. -->
+            <div class="post composer" :class="{ dropping }" v-show="ticket.status !== 'done' && canComment()"
+              @dragover.prevent="dragOver($event)" @dragleave="e => { if (!e.currentTarget.contains(e.relatedTarget)) dropping = false; }" @drop.prevent="onDrop($event)">
+              <div class="drop-hint" v-if="dropping">Drop to attach</div>
+              <textarea class="input" placeholder="Write a comment... (paste with Ctrl+V or drop files here)" v-model="draft.text" aria-label="Comment" @paste="onPaste($event)"></textarea>
+              <!-- Previews of what will be posted: click to open, × to take it off -->
+              <div class="previews" v-show="draft.files.length">
+                <template v-for="(l, i) in draft.files" :key="l.key">
+                  <div class="pv" :title="l.name">
+                    <button type="button" class="pv-open" @click="openLocal(l)" :aria-label="'Preview ' + l.name">
+                      <img v-if="l.preview && l.kind === 'image'" :src="l.preview" alt="">
+                      <video v-else-if="l.preview && l.kind === 'video'" :src="l.preview" muted preload="metadata"></video>
+                      <span class="pv-ico" v-else>{{ l.kind === 'video' ? '🎬' : icon(l.name) }}</span>
+                    </button>
+                    <span class="pv-name">{{ l.name }}</span>
+                    <button type="button" class="pv-x" @click="dropFile(i)" :disabled="draft.sending !== null" aria-label="Remove">×</button>
+                  </div>
+                </template>
               </div>
               <div class="notice error" v-show="draft.error">{{ draft.error }}</div>
               <div class="composer-row">
-                <UploadFile kind="issues" :record-id="ticket.driveRid || ticket.id" :folder-label="ticket.title" :extra="ticketDrive(ticket)" @done="f => addUploaded(draft, f)" />
-                <button class="btn" type="button" @click="draft.adding = !draft.adding">🔗 Add Drive link</button>
-                <span class="help">Upload a photo, PDF or video, or paste a Drive link</span>
-                <button class="btn btn-primary" @click="postComment()" :disabled="busy || (!draft.text.trim() && !draft.links.length)">Post comment</button>
+                <label class="btn" :class="{ off: draft.sending !== null }">⬆ Attach file<input type="file" multiple hidden accept="image/*,application/pdf,video/*" :disabled="draft.sending !== null" @change="e => { attachFiles([...e.target.files]); e.target.value = ''; }"></label>
+                <span class="help">Attach, paste (Ctrl+V) or drop a photo, PDF or video. Saved to Drive when you post.</span>
+                <button class="btn btn-primary" @click="postComment()" :disabled="busy || (!draft.text.trim() && !draft.files.length)">{{ draft.sending !== null ? `Uploading ${draft.sending}%` : 'Post comment' }}</button>
               </div>
             </div>
             <div class="locked" v-show="ticket.status === 'done'">{{ 'Completed on ' + stamp(ticket.doneAt) + ' by ' + ticket.doneBy + '. This ticket is locked: no edits, tag changes, comments or links.' }}</div>
             <div class="locked" v-show="ticket.status !== 'done' && !canComment()">View only. Your role can read this ticket but not comment on it.</div>
+            <template v-for="c in newestFirst" :key="c.id">
+              <div class="post">
+                <div class="post-head"><Avatar :uid="c.byUid" :name="c.by" :role="c.byRole" :size="24" /><b>{{ c.by }}</b><span class="tag role-tint" :style="roleTint(c.byRole)" v-if="showRole(c.by, c.byRole)">{{ tagLabel(c.byRole) }}</span><span class="when">{{ stamp(c.at) }}</span></div>
+                <p>{{ c.text }}</p>
+                <div class="previews posted" v-show="c.links.length"><template v-for="l in c.links" :key="l.url"><button type="button" class="pv" :title="'Open ' + l.name" @click="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })"><span class="pv-open"><img v-if="thumbs[l.url] && thumbs[l.url] !== 'none'" :src="thumbs[l.url]" alt=""><span class="pv-ico" v-else>{{ fileIcon(l.name) }}</span></span><span class="pv-name">{{ l.name }}</span></button></template></div>
+              </div>
+            </template>
+
           </div>
 
           <div class="stack" style="gap:16px">
@@ -291,6 +304,8 @@ import { scoped, getScoped, canSee, isDirectorMe } from '@/lib/property-scope.js
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
+import { uploadForLink, fileBlob, driveId } from '@/lib/drive.js';
+import { toast } from '@/lib/toast.js';
 import FileViewer from '@/components/FileViewer.vue';
 import TicketQuote from '@/components/TicketQuote.vue';
 import { NAV_ICONS } from '@/components/NavIcons.js';
@@ -356,7 +371,7 @@ export default {
       // The dashboard links here with ?tag= (one team's tickets) and ?filter= (e.g. active = open or in progress).
       filter: FILTERS.some(f => f.key === this.$route.query.filter) ? this.$route.query.filter : (this.$route.query.tag ? 'active' : 'all'),
       tagFilter: TAGS.includes(this.$route.query.tag) ? this.$route.query.tag : '', okMsg: '', error: '', doneError: '',
-      loading: true, busy: false, raise: null, tagEdit: null, confirmDone: false, draft: this.newDraft()
+      dropping: false, thumbs: {}, loading: true, busy: false, raise: null, tagEdit: null, confirmDone: false, draft: this.newDraft()
     };
   },
   // ?id= opens a ticket. Opening one or going back changes the address, which remounts the page
@@ -365,12 +380,20 @@ export default {
     await this.route();
     this.loading = false;
   },
+  computed: {
+    // 17 Nov 2026: the thread shows the newest comment first, right under the comment box
+    newestFirst() { return [...this.replies].reverse(); }
+  },
+  watch: {
+    replies() { this.loadThumbs(); },
+    'ticket.links'() { this.loadThumbs(); }
+  },
   methods: {
     tagLabel,   // saved tag word -> what is shown ("Finance" shows as Accounting)
     // Summary cards: set the list's filter (if any) and scroll to it.
     kpiGo(key, ref = 'list') { if (key) this.filter = key; this.$nextTick(() => this.$refs[ref]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); },
     roleTint,
-    newDraft() { return { text: '', links: [], adding: false, linkName: '', linkUrl: '', error: '' }; },
+    newDraft() { return { text: '', links: [], files: [], adding: false, linkName: '', linkUrl: '', error: '', sending: null }; },
     async route() {
       const id = this.$route.query.id;
       try {
@@ -476,9 +499,70 @@ export default {
     stamp(iso) { return iso ? `${this.day(iso)}, ${iso.slice(11, 16)}` : ''; },
     icon(fn) { return /\.(jpe?g|png|gif|webp|heic)$/i.test(fn) || /photo|image|picture/i.test(fn) ? '🖼' : /\.(xlsx?|csv)$/i.test(fn) || /sheet/i.test(fn) ? '📊' : '📄'; },
     // Add Drive link: a name and a Google Drive URL (nothing is uploaded to the PMS).
-    addUploaded(target, files) {
-      for (const f of files) if (target.links.length < 10 && !target.links.some(l => l.url === f.url)) target.links.push({ name: f.name.slice(0, 80), url: f.url });
+    // picked: the files as chosen on this device, for a preview before posting (never saved; links keep name and url only)
+    addUploaded(target, files, picked = []) {
+      files.forEach((f, i) => {
+        if (target.links.length >= 10 || target.links.some(l => l.url === f.url)) return;
+        const local = picked[i], type = local?.type || f.mimeType || '';
+        const kind = type.startsWith('image/') ? 'image' : type.startsWith('video/') ? 'video' : '';
+        target.links.push({ name: f.name.slice(0, 80), url: f.url, kind, preview: local && kind ? URL.createObjectURL(local) : '' });
+      });
     },
+    dropLink(target, i) {
+      const [l] = target.links.splice(i, 1);
+      if (l?.preview) URL.revokeObjectURL(l.preview);
+    },
+    // Ctrl+V in the comment box: pasted screenshots or copied files are uploaded to the ticket's folder. Plain text pastes as usual.
+    // Posted files (17 Nov 2026): a thumbnail for each photo, read through /api/drive (photos up to 4 MB), 3 at a time.
+    // thumbs[url] = blob URL, or 'none' when it can't be shown (the card then shows an icon).
+    fileIcon(n) { return /\.(mp4|mov|m4v|webm|avi|3gp)$/i.test(n) ? '🎬' : /\.pdf$/i.test(n) ? '📕' : this.icon(n); },
+    async loadThumbs() {
+      const all = [...(this.ticket?.links || []), ...this.replies.flatMap(c => c.links || [])];
+      const todo = all.filter(l => l.url && !(l.url in this.thumbs) && /\.(jpe?g|png|gif|webp)$/i.test(l.name || ''));
+      for (const l of todo) this.thumbs[l.url] = 'none';
+      const one = async l => {
+        const id = driveId(l.url);
+        if (!id) return;
+        try { this.thumbs[l.url] = await fileBlob('issues', id); } catch { /* left as an icon */ }
+      };
+      for (let i = 0; i < todo.length; i += 3) await Promise.all(todo.slice(i, i + 3).map(one));
+    },
+    async onPaste(e) {
+      const files = [...(e.clipboardData?.files || [])];
+      if (!files.length || !this.ticket) return;   // plain text pastes as usual
+      e.preventDefault();
+      this.attachFiles(files, 'Pasted');
+    },
+    // Drag and drop: only file drags light the box up (dragging text inside it does nothing special)
+    dragOver(e) { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.dataTransfer.dropEffect = 'copy'; this.dropping = true; } },
+    onDrop(e) {
+      this.dropping = false;
+      const files = [...(e.dataTransfer?.files || [])];
+      if (files.length && this.ticket) this.attachFiles(files, 'Dropped');
+    },
+    // Picked, pasted or dropped files: kept on this device with a preview until Post comment uploads them
+    attachFiles(files, how = '') {
+      const d = this.draft;
+      if (d.sending !== null) return;
+      const stamp = new Date().toTimeString().slice(0, 8).replace(/:/g, '');
+      const room = 10 - d.files.length;
+      if (room <= 0) { d.error = 'Up to 10 files per comment.'; return; }
+      d.error = '';
+      files.slice(0, room).forEach((f, i) => {
+        // A screenshot comes in as "image.png": give it a name that tells pastes apart
+        const file = how && (/^image\.\w+$/i.test(f.name) || !f.name)
+          ? new File([f], `${how} ${stamp}${i ? '-' + (i + 1) : ''}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: f.type }) : f;
+        const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : '';
+        d.files.push({ key: `${Date.now()}-${i}-${file.name}`, file, name: file.name.slice(0, 80), kind, preview: kind ? URL.createObjectURL(file) : '' });
+      });
+      if (files.length > room) d.error = 'Up to 10 files per comment; the rest were left out.';
+    },
+    dropFile(i) {
+      const [l] = this.draft.files.splice(i, 1);
+      if (l?.preview) URL.revokeObjectURL(l.preview);
+    },
+    // A file not posted yet opens from this device (nothing in Drive yet)
+    openLocal(l) { window.open(l.preview || URL.createObjectURL(l.file), '_blank', 'noopener'); },
     addLink(target) {
       target.error = '';
       let url;
@@ -612,8 +696,19 @@ export default {
     async postComment() {
       const t = this.ticket, d = this.draft; if (t.status === 'done' || !canWrite) return;
       if (d.linkUrl.trim()) { this.addLink(d); if (d.error) return; }
-      const text = d.text.trim(), links = [...d.links];
-      if (!text && !links.length) return;
+      const text = d.text.trim();
+      if (!text && !d.links.length && !d.files.length) return;
+      // 17 Nov 2026: attached files go to the ticket's Drive folder now, on Post. If that fails nothing is posted.
+      let links = d.links.map(l => ({ name: l.name, url: l.url }));
+      if (d.files.length) {
+        this.busy = true; d.error = ''; d.sending = 0;
+        try {
+          const got = await uploadForLink('issues', d.files.map(f => f.file), p => { d.sending = Math.round(p * 100); }, t.driveRid || t.id, t.title, this.ticketDrive(t));
+          links = [...links, ...got.map(f => ({ name: f.name.slice(0, 80), url: f.url }))];
+          if (got.note) toast(got.note);
+        } catch (e) { d.error = `Upload failed, nothing was posted: ${e.message}`; this.busy = false; d.sending = null; return; }
+        d.sending = null;
+      }
       // Plain comments are already in the thread; only added Drive links go in the audit log
       const h = links.length ? this.entry(`added ${links.length} Drive link${links.length > 1 ? 's' : ''}`) : null;
       this.busy = true; d.error = '';
@@ -625,6 +720,7 @@ export default {
         await b.commit();
         t.replyCount = (t.replyCount || 0) + 1; t.linkCount = (t.linkCount || 0) + links.length; t.lastBy = myLabel; if (h) t.audit.push(h);
         this.notify(t, { title: `New comment on ${t.id}`, message: `${myLabel} commented on "${t.title}".` });
+        for (const f of d.files) if (f.preview) URL.revokeObjectURL(f.preview);
         this.draft = this.newDraft();
         await this.loadReplies();
       } catch (e) { d.error = friendlyError(e, 'post the comment'); }
@@ -906,6 +1002,25 @@ export default {
     .audit-list b + .tag { margin: 0 2px 0 6px; }
     .post p { margin: 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
     .files { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    /* Drag and drop on the comment box (17 Nov 2026) */
+    .composer { position: relative; }
+    .composer.dropping { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+    .drop-hint { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 600; color: var(--accent); pointer-events: none; z-index: 1; }
+    /* Posted files as cards (17 Nov 2026) */
+    .previews.posted { margin-top: 10px; }
+    .previews.posted .pv { padding: 0; cursor: pointer; text-align: left; font: inherit; color: var(--text); }
+    .previews.posted .pv:hover { border-color: var(--accent); }
+    .previews.posted .pv-open { display: grid; place-items: center; height: 80px; background: var(--bg, #f4f5f7); }
+    .previews.posted .pv-open img { width: 100%; height: 80px; object-fit: cover; display: block; }
+    /* Comment previews (17 Nov 2026) */
+    .previews { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .pv { position: relative; width: 120px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; display: flex; flex-direction: column; }
+    .pv-open { border: 0; padding: 0; background: var(--bg, #f4f5f7); height: 80px; display: grid; place-items: center; cursor: pointer; }
+    .pv-open img, .pv-open video { width: 100%; height: 80px; object-fit: cover; display: block; }
+    .pv-ico { font-size: 26px; }
+    .pv-busy { height: 106px; align-items: center; justify-content: center; gap: 6px; }
+    .pv-name { font-size: 11px; padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pv-x { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; line-height: 20px; padding: 0; cursor: pointer; }
     .file-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px; background: var(--surface); }
     .file-chip button { border: 0; background: none; color: var(--muted); padding: 0 0 0 2px; }
     .thread { display: grid; gap: 12px; }

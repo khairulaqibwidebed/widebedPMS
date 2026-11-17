@@ -48,7 +48,7 @@
       @close="unitDrawer = null" @busy="busy = $event" @saved="onSaved" @type-added="t => customTypes = [...customTypes, t]" />
 
     <PropertyDrawer v-if="propDrawer && (!acc.viewOnly || acc.canEdit)" :property="property" :properties="properties" :acc="acc"
-      @close="propDrawer = false" @busy="busy = $event" @saved="onSaved" />
+      @close="propDrawer = false" @busy="busy = $event" @saved="onSaved" @removed="propDrawer = false; toList()" />
 
     <OwnerDrawer v-if="ownerDrawer" :owner="ownerDrawer.owner" :owners="owners" :units="units" :properties="properties" :bf-lines="bfLines"
       :as-of="asOf" :property-id="property.id || 'all'" :acc="acc" @close="ownerDrawer = null" @busy="busy = $event" @saved="onSaved" />

@@ -177,14 +177,26 @@ async function subfolders(tok, parent) {
   } while (page);
   return out;
 }
-const findByKey = (list, name) => (nameKey(name) ? list.find(f => nameKey(f.name) === nameKey(name)) : null);
+// 17 Nov 2026 (Khairul): Drive folders may carry a note the PMS code can't, e.g. "TR G-01 (Duplex)" for unit TR G-01.
+// An exact match wins; otherwise the folder name is matched with anything in brackets left out.
+const bareKey = s => nameKey(String(s || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' '));
+const findByKey = (list, name) => (nameKey(name)
+  ? list.find(f => nameKey(f.name) === nameKey(name)) || list.find(f => bareKey(f.name) === nameKey(name)) || null : null);
 async function makeFolder(tok, parent, name) {
   const r = await g(`${API}/files?supportsAllDrives=true&fields=id`, tok, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, mimeType: FOLDER, parents: [parent] }) });
   return (await r.json()).id;
 }
-async function findOrMake(tok, parent, name, newName = name) {
-  const hit = findByKey(await subfolders(tok, parent), name);
+// A unit folder: as findByKey, then (17 Nov 2026, Khairul) without the property code in front, since some folders leave
+// it out, e.g. unit "LK A1-25-07" in folder "A1-25-07". Never shorter than 3 letters/digits, so "01" can't match.
+function findUnit(list, code) {
+  const hit = findByKey(list, code);
+  if (hit) return hit;
+  const parts = String(code || '').trim().split(/\s+/), rest = parts.slice(1).join(' ');
+  return parts.length > 1 && nameKey(rest).length >= 3 ? findByKey(list, rest) : null;
+}
+async function findOrMake(tok, parent, name, newName = name, find = findByKey) {
+  const hit = find(await subfolders(tok, parent), name);
   return hit ? hit.id : makeFolder(tok, parent, newName);
 }
 // A new unit folder in the Drive's style: "DM 1311" -> "DM 13-11", "DM 13A08" -> "DM 13A-08"; otherwise as written
@@ -216,11 +228,11 @@ async function issueFolder(tok, user, b) {
   const pf = await propertyFolder(tok, user, b.propertyId, true);
   if (!pf.id) return '';
   const owner = await findOrMake(tok, pf.id, OWNER_SUB);
-  const unitId = await findOrMake(tok, owner, unit, driveUnitName(unit));
+  const unitId = await findOrMake(tok, owner, unit, driveUnitName(unit), findUnit);
   const maint = await findOrMake(tok, unitId, MAINT);
   const tag = b.recordId.slice(-5);
-  const url = `${API}/files?q=${encodeURIComponent(`'${maint}' in parents and name contains '(${q(tag)})' and mimeType='${FOLDER}' and trashed=false`)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-  const found = (await (await g(url, tok)).json()).files?.[0];
+  // Drive's "name contains" only matches word starts, so the "(tag)" ending is checked here instead
+  const found = (await subfolders(tok, maint)).find(f => String(f.name || '').endsWith(`(${tag})`));
   if (found) return found.id;
   const day = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
   const title = String(b.label || '').replace(/[\\/'"]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Issue';
@@ -294,7 +306,7 @@ export default async function handler(req, res) {
           if (owner) {
             row.ownerLink = link(owner.id);
             const unitFolders = await subfolders(tok, owner.id);
-            for (const code of (Array.isArray(p.units) ? p.units : []).slice(0, 1000)) { const u = findByKey(unitFolders, code); row.units[code] = u ? link(u.id) : ''; }
+            for (const code of (Array.isArray(p.units) ? p.units : []).slice(0, 1000)) { const u = findUnit(unitFolders, code); row.units[code] = u ? link(u.id) : ''; }
           }
         }
         return row;
@@ -302,6 +314,19 @@ export default async function handler(req, res) {
       const out = [];
       for (let i = 0; i < list.length; i += 8) out.push(...await Promise.all(list.slice(i, i + 8).map(one)));   // 8 at a time
       return res.status(200).json({ properties: out });
+    }
+    if (b.action === 'propertyLinks') {
+      // Properties list (17 Nov 2026): which properties have a folder. One folder listing per state; read-only.
+      // [{ id, name, state }] -> { status: { id: 'linked' | 'missing' | 'state' }, links: { id: link } }
+      const list = (Array.isArray(b.properties) ? b.properties : []).slice(0, 500), status = {}, links = {}, byState = {};
+      for (const p of list) (byState[String(p.state || '')] ||= []).push(p);
+      for (const [st, ps] of Object.entries(byState)) {
+        const root = await stateFolder(user, st);
+        if (!root) { for (const p of ps) status[p.id] = 'state'; continue; }
+        const folders = await subfolders(tok, root);
+        for (const p of ps) { const hit = findByKey(folders, p.name); status[p.id] = hit ? 'linked' : 'missing'; if (hit) links[p.id] = link(hit.id); }
+      }
+      return res.status(200).json({ status, links });
     }
     if (b.action === 'propertyFolder') {
       // A property's folder link (Overview); make: create it with Owner inside when missing (Add property)
@@ -313,7 +338,7 @@ export default async function handler(req, res) {
       const pf = await propertyFolder(tok, user, b.propertyId, false);
       if (!pf.id) return res.status(200).json({ link: '', why: pf.why });
       const owner = findByKey(await subfolders(tok, pf.id), OWNER_SUB);
-      const u = owner && findByKey(await subfolders(tok, owner.id), b.unit);
+      const u = owner && findUnit(await subfolders(tok, owner.id), b.unit);
       return res.status(200).json({ link: u ? link(u.id) : '', why: u ? '' : 'unit' });
     }
     if (b.action === 'remove') {
@@ -356,7 +381,7 @@ export default async function handler(req, res) {
     let folderId = '', note = '';
     if (b.action === 'session' && b.kind === 'issues' && b.propertyId) {
       try { folderId = await issueFolder(tok, user, b); }
-      catch (e) { note = 'Could not reach the unit\'s folder in Owner Files, so this went to Widebed PMS Files.'; }
+      catch (e) { console.error('[drive] issue folder:', e.message); note = `Could not reach the unit's folder in Owner Files (${String(e.message || e).slice(0, 160)}), so this went to Widebed PMS Files.`; }
       if (!folderId && !note) note = 'This property\'s state or unit has no Owner Files folder, so this went to Widebed PMS Files.';
     }
     if (!folderId) folderId = await recordFolder(tok, b.kind, b.recordId, b.label);

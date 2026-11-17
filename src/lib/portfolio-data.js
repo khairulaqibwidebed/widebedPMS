@@ -2,7 +2,7 @@
 // constants and small helpers they share. The pages and drawers keep only screen logic and form checks.
 // Moved out of the old single pages/Portfolio/Portfolio.vue on 4 Nov 2026; the reads and writes are unchanged.
 import { markRaw } from 'vue';
-import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, serverTimestamp, deleteField } from 'firebase/firestore';
+import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, arrayRemove, serverTimestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { listen } from '@/lib/use-live.js';
 import { DEFAULT_OTA, DM_STARTER } from '@/lib/engine.js';
@@ -83,7 +83,7 @@ export function arrangementOptions(list) {
   const order = { short: 0, mid: 1, long: 2 };
   return [{ value: '', label: 'Not set up' }, ...Object.entries(list || {})
     .sort((a, b) => (order[a[1].section] ?? 3) - (order[b[1].section] ?? 3) || String(a[1].name).localeCompare(String(b[1].name)))
-    .map(([k, a]) => { const t = FEE_TYPES[a.type]?.label || a.type; return { value: k, label: a.name === t ? a.name : `${a.name} · ${t}` }; })];
+    .map(([k, a]) => ({ value: k, label: a.name || FEE_TYPES[a.type]?.label || a.type }))];   // 17 Nov 2026: name only, no " · type"
 }
 // "3 fixed · 2 sharing · 1 not set up"
 export function mixText(list) {
@@ -738,4 +738,65 @@ export async function setPropertyState(me, p, state, reason) {
   audit(b, me, { action: 'property.state', entity: `properties/${p.id}`, propertyId: p.id, changes: [{ field: 'state', old, new: st }], reason });
   await b.commit();
   rememberStates([{ id: p.id, state: st }]);
+}
+
+// ---------- switch off and delete a property (Directors only, 17 Nov 2026, rules Draft 0.77) ----------
+// Switched-off properties (active: false) drop out of every property list and drop-down (loadProperties keeps active
+// ones only). Portfolio > Properties lists them under "Switched off" for Directors, to switch back on or delete.
+export async function loadSwitchedOff() {
+  const snap = await getDocs(query(collection(db, 'properties'), where('active', '==', false)));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+export async function setPropertyActive(me, p, active, reason) {
+  const b = writeBatch(db);
+  b.set(doc(db, 'properties', p.id), { active, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+  audit(b, me, { action: active ? 'property.on' : 'property.off', entity: `properties/${p.id}`, propertyId: p.id,
+    changes: [{ field: 'active', old: !active, new: active }], reason });
+  await b.commit();
+  clearCache('properties');
+}
+// What still points at a property, as a short list of names ('' = nothing, safe to delete). Lists of properties
+// (owners, tenants, staff access) do not count: the delete takes the property off staff lists itself.
+const PROPERTY_REFS = [['units', 'units'], ['bookings', 'eZee bookings'], ['statements', 'statements'], ['payoutHistory', 'payouts'],
+  ['expenses', 'expenses'], ['approvals', 'approvals'],
+  ['offlineBookings', 'offline bookings'], ['offlinePayments', 'offline payments'], ['utilityBills', 'utility bills'],
+  ['issues', 'issues']];   // issueQuotes left out: its rule refuses any search, and a quote's id is its issue's id
+export async function propertyRefs(id) {
+  const found = [];
+  for (const [coll, label] of PROPERTY_REFS) {
+    const snap = await getDocs(query(collection(db, coll), where('propertyId', '==', id), limit(1)));
+    if (!snap.empty) found.push(label);
+  }
+  const ups = await getDocs(query(collection(db, 'importBatches'), where('propertyIds', 'array-contains', id), limit(1)));
+  if (!ups.empty) found.push('eZee uploads');
+  return found.join(', ');
+}
+// Deletes the property and its fee and rate history, and takes it off staff access lists. Only when propertyRefs()
+// finds nothing (the page checks first). The Google Drive folder is never touched.
+export async function deleteProperty(me, p, reason) {
+  const refs = (await getDocs(collection(db, 'properties', p.id, 'rateVersions'))).docs.map(d => d.ref);
+  const staff = (await getDocs(query(collection(db, 'users'), where('properties', 'array-contains', p.id)))).docs.map(d => d.ref);
+  // Sub-records and staff lists first, then the property with its audit line, so a failure leaves the property findable
+  const CHUNK = 450, all = [...refs.map(r => ['del', r]), ...staff.map(r => ['staff', r])];
+  for (let i = 0; i < all.length; i += CHUNK) {
+    const cb = writeBatch(db);
+    all.slice(i, i + CHUNK).forEach(([k, r]) => (k === 'del' ? cb.delete(r) : cb.update(r, { properties: arrayRemove(p.id) })));
+    await cb.commit();
+  }
+  const b = writeBatch(db);
+  b.delete(doc(db, 'properties', p.id));
+  audit(b, me, { action: 'property.delete', entity: `properties/${p.id}`, propertyId: p.id,
+    changes: [{ field: 'property', old: `${p.name || p.id} (${p.code || '-'})`, new: null }], reason });
+  await b.commit();
+  clearCache('properties');
+  // Its month summaries (months/{id}_{YYYY-MM}): the Properties list writes one each month even with no units. The rules
+  // allow this only once the property is gone. Never throws: leftovers are harmless.
+  try {
+    const months = (await getDocs(query(collection(db, 'months'), where('propertyId', '==', p.id)))).docs.map(d => d.ref);
+    for (let i = 0; i < months.length; i += CHUNK) {
+      const mb = writeBatch(db);
+      months.slice(i, i + CHUNK).forEach(r => mb.delete(r));
+      await mb.commit();
+    }
+  } catch (e) { console.error('Month summaries of the deleted property:', e); }
 }

@@ -3,7 +3,7 @@
 //   { states: { 'W.P. Kuala Lumpur': { folderId, folderName, link, by, byName, at } }, updatedBy, updatedByName, updatedAt }
 // A property can only be added in a set-up state (Add property, Bulk Upload). api/drive.js reads the same record.
 // Directors and Operations edit it; everyone signed in reads it.
-import { doc, getDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { audit } from '@/lib/finance-data.js';
 import { STATES } from '@/lib/states.js';
@@ -34,3 +34,11 @@ export async function saveDriveState(me, state, folder) {
   cache = states;
   return states;
 }
+
+// Properties once linked to a Drive folder (config/driveSeen { props: { propertyId: { link, folderName, at } } }), so
+// Settings > States can show orange when one is no longer found. Written by the States page (Directors, Operations).
+export async function loadDriveSeen() {
+  try { const s = await getDoc(doc(db, 'config', 'driveSeen')); return (s.exists() && s.data().props) || {}; }
+  catch (e) { console.error('Drive seen:', e); return {}; }
+}
+export const saveDriveSeen = (me, props) => setDoc(doc(db, 'config', 'driveSeen'), { props, updatedBy: me.user.uid, updatedAt: serverTimestamp() }, { merge: true });

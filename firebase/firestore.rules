@@ -1,4 +1,9 @@
 rules_version = '2';
+// Draft 0.77, 17 Nov 2026 (Khairul): Directors delete or switch off properties (Portfolio > Properties).
+//   - properties: delete is Directors only (before, `allow write` let every portfolioEditor delete one). Changing
+//     `active` (switch off / on) is Directors only; editors still create and edit everything else as before.
+//   - properties/{id}/rateVersions: Directors may delete (only when the property itself is deleted).
+//   - months: Directors may delete a month summary whose property no longer exists (cleared after a property delete).
 // Draft 0.76, 17 Nov 2026 (Khairul): Operations "Firestore refused this" on Portfolio > Owners. No new access, two fixes:
 //   - Since 0.73 every rule asked the staff record and the role's preset list many times over, so Operations requests went
 //     past Firestore's limit of 1000 checks per request and were refused (even reading an owner). The page-access helpers
@@ -10,6 +15,7 @@ rules_version = '2';
 // Draft 0.75, 17 Nov 2026 (Khairul): config/driveStates (Settings > States: each state's Google Drive folder).
 //   - Read by every signed-in staff member (Add property, Bulk Upload and api/drive.js read it). Written by Directors
 //     and Operations; holds only states, updatedBy, updatedByName and updatedAt, with updatedBy = the writer.
+//   - config/driveSeen: properties once linked to a Drive folder (orange dot when no longer found). Same readers and writers.
 // Draft 0.74, 17 Nov 2026 (Khairul): the AI Agent's pages are set on Settings > Roles (roles/ai), Base (view) only.
 //   - roles/ai: a Director saves it; its perms may only hold aiViewPerms() (Owners, Properties, Bookings, Owner Leads and
 //     the AI-only Issues, Announcements, Playbook/SOP rows). The AI's own staff record ticks are ignored.
@@ -540,6 +546,12 @@ service cloud.firestore {
         && request.resource.data.states is map && request.resource.data.states.size() <= 20
         && request.resource.data.updatedBy == request.auth.uid;
     }
+    match /config/driveSeen {
+      allow read: if anyStaff();
+      allow write: if (isDirector() || role() == 'operations')
+        && request.resource.data.keys().hasOnly(['props', 'updatedBy', 'updatedAt'])
+        && request.resource.data.props is map && request.resource.data.updatedBy == request.auth.uid;
+    }
 
     // Booking invoice defaults (Draft 0.71): read by whoever makes a booking; written by Directors only.
     match /config/invoiceDefaults {
@@ -691,7 +703,11 @@ service cloud.firestore {
 
     match /properties/{propertyId} {
       allow read: if staff() || portfolioViewer();   // Draft 0.74: the AI Agent with Properties Base (portfolioViewer)
-      allow write: if portfolioEditor();
+      // Draft 0.77: was `allow write: if portfolioEditor()`, which also let every Portfolio/Accounting editor delete a
+      // property. Now only Directors delete a property or switch it off/on (`active`); editors still add and edit.
+      allow create: if portfolioEditor();
+      allow update: if portfolioEditor() && (!changed().hasAny(['active']) || isDirector());
+      allow delete: if isDirector();   // the page only offers it for properties with no units and no history
       allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'state', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.name is string && request.resource.data.code is string
@@ -708,7 +724,8 @@ service cloud.firestore {
         allow create: if portfolioAdder() && v == '2000-01_default' && createdNow('properties', propertyId)
           && request.resource.data.effectiveFrom == '2000-01' && request.resource.data.createdBy == request.auth.uid
           && newKeysOnly(['effectiveFrom', 'ota', 'earlyCheckInToOwner', 'tourismTaxPerNight', 'reason', 'createdBy', 'createdByName', 'createdAt']);
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isDirector();   // Draft 0.77: only when the property itself is deleted
       }
     }
 
@@ -848,7 +865,10 @@ service cloud.firestore {
         && request.resource.data.status in ['open', 'partial', 'completed'];
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
-      allow delete: if false;
+      // Draft 0.77: a deleted property's month summaries (the Properties list writes one per property each month, even
+      // with no units). Directors only, and only once the property itself is gone.
+      allow delete: if isDirector() && resource.data.get('propertyId', '') is string && resource.data.get('propertyId', '') != ''
+        && !exists(docPath('properties', resource.data.get('propertyId', '')));
     }
 
     // ===== Month summaries (scale): unitMonths/{unitId}_{month}, worked out once by lib/summaries.js. Never deleted.
