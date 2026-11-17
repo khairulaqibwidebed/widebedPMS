@@ -3,7 +3,9 @@
 // Competencies and Action (page 2). Filled in: Date & Venue, Staff Name, Join Date, Position, Topic, and the Code of Honor marks
 // (one line per COH question) with their average. Everything else is left empty to write in at the session.
 //
-// data: { company, topic, date, venue, staffName, joinDate, position, questions: [{ title, mark }], average, raters, expected }
+// data: { company, topic, date, venue, staffName, ic, joinDate, leaveYear, leave: { cells: [{ label, days }], total }, position,
+//         questions: [{ title, mark }], average, raters, expected }
+// 17 Nov 2026: IC No. under Staff Name, and a small "Leave taken" table under Join Date.
 // opts: { logoBytes (JPG, optional), fallbackFontBytes (a TTF for names the built-in fonts can't print, optional) }
 const A4 = [595.28, 841.89];
 const X0 = 28, WIDTH = 546;                        // the tables' left edge and width (the template's margins)
@@ -80,12 +82,28 @@ export async function buildOneToOnePdf(data, opts = {}) {
   const nameW = text('Staff Name: ', X0, 86, info);
   text(data.staffName, X0 + nameW, 86, { ...info, maxW: 398 - nameW - 8 });
   text(`(Join Date : ${data.joinDate || '                    '} )`, X0 + 398, 86, info);
-  const posW = text('Position: ', X0, 108, info);
-  text(data.position, X0 + posW, 108, { ...info, maxW: WIDTH - posW });
-  text(`Topic: ${data.topic}`, X0, 130, info);
+  const leftW = 398 - 8;                           // the left column stops before the Join Date / leave table on the right
+  const icW = text('IC No: ', X0, 106, info);
+  text(data.ic || '', X0 + icW, 106, { ...info, maxW: leftW - icW });
+  const posW = text('Position: ', X0, 126, info);
+  text(data.position, X0 + posW, 126, { ...info, maxW: leftW - posW });
+  text(`Topic: ${data.topic}`, X0, 146, { ...info, maxW: leftW });
+
+  // Leave taken this year: under Join Date, one column per type and a total (days; blank = not filled in)
+  const lv = data.leave || { cells: [], total: '' };
+  const lcols = [...lv.cells, { label: 'Total', days: lv.total }];
+  const lx = X0 + 398, lw = WIDTH - 398, ltop = 116, lrow = 14, colW = lw / lcols.length;
+  text(`Leave taken${data.leaveYear ? ` in ${data.leaveYear}` : ''} (days):`, lx, 102, { font: F.b, size: 8.5 });
+  box(lx, ltop, lw, lrow * 2); hline(lx, lx + lw, ltop + lrow);
+  lcols.forEach((c, k) => {
+    if (k) vline(lx + k * colW, ltop, ltop + lrow * 2);
+    const cx = lx + k * colW + colW / 2;
+    text(c.label, cx, ltop + 3.5, { font: F.b, size: 7.5, align: 'center', maxW: colW - 4 });
+    if (c.days !== '') text(c.days, cx, ltop + lrow + 3.5, { font: k === lcols.length - 1 ? F.b : F.n, size: 8.5, align: 'center' });
+  });
 
   // The big table: Code of Honor | ratings | what is working | what is not working
-  const T = 146, B = 794, H = B - T;
+  const T = 162, B = 794, H = B - T;
   const cw = [2376, 1701, 3148, 3543].map(w => w * WIDTH / 10768);
   const cx = [X0, X0 + cw[0], X0 + cw[0] + cw[1], X0 + cw[0] + cw[1] + cw[2]];
   box(X0, T, WIDTH, H); cx.slice(1).forEach(x => vline(x, T, B));

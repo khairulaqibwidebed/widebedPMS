@@ -42,7 +42,7 @@ export function sessionRows(participants, evaluations, people = {}) {
     const mine = evaluations.filter(e => e.evaluateeId === p.employeeId);
     const done = mine.filter(isValid).length;
     const u = people[p.employeeId] || {};
-    return { uid: p.employeeId, name: u.name || p.employeeName || 'Staff', role: u.role || p.role || '', position: u.position || '', joinDate: u.joinDate || '',
+    return { uid: p.employeeId, name: u.name || p.employeeName || 'Staff', role: u.role || p.role || '', position: u.position || '', joinDate: u.joinDate || '', ic: u.ic || '',
       done, expected, complete: expected > 0 && done >= expected, evaluations: mine };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -60,15 +60,29 @@ export function cleanVenues(list) {
   }
   return out.slice(0, MAX_VENUES);
 }
+// Leave taken this year (17 Nov 2026), typed in by HR for this form only (not saved anywhere).
+export const LEAVE_TYPES = [{ key: 'mc', label: 'MC' }, { key: 'unpaid', label: 'Unpaid' }, { key: 'annual', label: 'Annual' }, { key: 'other', label: 'Others' }];
+export const emptyLeave = () => Object.fromEntries(LEAVE_TYPES.map(t => [t.key, '']));
+// "2.5" -> 2.5; empty, negative or not a number -> null (the cell is left blank). Half days are allowed.
+export const leaveDays = v => { const t = String(v ?? '').trim(); if (!t) return null; const n = Number(t); return Number.isFinite(n) && n >= 0 && n <= 366 ? Math.round(n * 2) / 2 : null; };
+// For the form: each type as text ('' when blank) and the total ('' when nothing was typed).
+export function leaveSummary(leave = {}) {
+  const days = LEAVE_TYPES.map(t => leaveDays(leave[t.key]));
+  const fmt = n => (n == null ? '' : String(n));
+  const typed = days.filter(n => n != null);
+  return { cells: LEAVE_TYPES.map((t, k) => ({ label: t.label, days: fmt(days[k]) })), total: typed.length ? fmt(typed.reduce((a, n) => a + n, 0)) : '' };
+}
+
 // The downloaded file's name, as HR names them: "One To One - Aina Sofea (Q4 2026).pdf"
 export const fileName = (staffName, quarterName) => `One To One - ${String(staffName || 'Staff').replace(/[\\/:*?"<>|]+/g, ' ').trim()} (${String(quarterName || '').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Quarter'}).pdf`;
-// Everything the PDF needs for one person. Filled in from the records; `edits` ({ staffName, position, topic }) are what
+// Everything the PDF needs for one person. Filled in from the records; `edits` ({ staffName, position, ic, topic, leave }) are what
 // HR typed over them on the page for this form (an empty or missing one keeps the record's value; the topic's default is TOPIC).
 export function formData({ row, questions, date, venue, edits = {} }) {
   const coh = cohAverages(questions, row.evaluations);
   const typed = (v, fallback) => (typeof v === 'string' && v.trim() ? v.trim().replace(/\s+/g, ' ').slice(0, 120) : fallback);
   return { company: COMPANY, topic: typed(edits.topic, TOPIC), date: shortDate(date), venue: String(venue || '').trim(), staffName: typed(edits.staffName, row.name),
-    joinDate: longDate(row.joinDate), position: typed(edits.position, row.position),
+    joinDate: longDate(row.joinDate), position: typed(edits.position, row.position), ic: typed(edits.ic, row.ic || ''),
+    leaveYear: /^\d{4}/.test(date || '') ? String(date).slice(0, 4) : '', leave: leaveSummary(edits.leave),
     questions: coh.lines.map(l => ({ title: l.title, mark: l.average == null ? '' : l.average.toFixed(1) })), average: coh.average == null ? '' : coh.average.toFixed(2),
     raters: coh.raters, expected: row.expected };
 }
@@ -85,7 +99,8 @@ export async function loadSession(quarterId) {
   let hr = {};
   try { hr = Object.fromEntries((await getDocs(collection(db, 'staffHR'))).docs.map(d => [d.id, d.data()])); } catch (_) { hr = {}; }
   const people = {};
-  for (const [uid, u] of Object.entries(users)) people[uid] = { name: u.displayName || u.email || '', role: u.role || '', position: positionOf(u, hr[uid]), joinDate: u.joinDate || '' };
+  for (const [uid, u] of Object.entries(users)) people[uid] = { name: u.displayName || u.email || '', role: u.role || '', position: positionOf(u, hr[uid]), joinDate: u.joinDate || '',
+    ic: String(hr[uid]?.ic || '').trim() };   // IC from Staff accounts › HR details (17 Nov 2026)
   return { questions, rows: sessionRows(participants, evaluations, people), unreadable: evaluations.filter(e => (e.status === 'submitted' || e.status === 'approved') && !Array.isArray(e.ratings)).length };
 }
 
