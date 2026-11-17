@@ -27,7 +27,7 @@ const LEADS_DIR = G('Leads & Agreements', 'handshake', [...LEADS.items, P('Agree
 const ACCOUNTING = G('Accounting', 'calculator', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'),
   P('Month-End Payout', '/Finance/month-end', 'banknote'), P('Invoices & Receipts', '/Finance/invoices', 'files'), P('Reports', '/Reports', 'pieChart')]);
 const ACCOUNTING_DIR = G('Accounting', 'calculator', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'),
-  P('Statement Approvals', '/Finance/statement-approvals', 'fileCheck'), P('Month-End Payout', '/Finance/month-end', 'banknote'),
+  P('Month-End Payout', '/Finance/month-end', 'banknote'), P('Statement Approvals', '/Finance/statement-approvals', 'fileCheck'),
   P('Invoices & Receipts', '/Finance/invoices', 'files'), P('Reports', '/Reports', 'pieChart')]);
 // Everyone evaluates and is evaluated; only Director/HR (performance tick) also get Quarterly Management.
 const PERFORMANCE = G('Performance', 'chart', [P('My Performance', '/Performance/my', 'trendingUp'), P('COH Evaluations', '/Performance/coh', 'userCheck'), P('KPI Management', '/Performance/kpi', 'target'), P('TMS Performance', '/Performance/tms', 'listChecks')]);
