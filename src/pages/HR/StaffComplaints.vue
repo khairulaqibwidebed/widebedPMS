@@ -3,7 +3,6 @@
     <div class="page-head">
       <div><h1>Staff complaints</h1><div class="sub">Complaints sent to HR by staff</div></div>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
     <!-- The list sits in a coloured card like the Directors' inbox, with search and the status drop-down (4 Nov 2026) -->
     <section class="card">
       <div class="card-head"><h2>HRs' Inbox</h2><span class="help">{{ `${list.filter(c => c.status === 'new').length} new` }}</span></div>

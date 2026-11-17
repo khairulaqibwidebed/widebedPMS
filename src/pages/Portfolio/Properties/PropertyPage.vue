@@ -21,8 +21,6 @@
       <template v-for="t in acc.PTABS" :key="t.key"><button :class="{ on: ptab === t.key }" @click="setPtab(t.key)">{{ t.label }}</button></template>
     </nav>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <template v-if="property.id">
       <OverviewTab v-show="ptab === 'overview'" :property="property" :units="units" :as-of="asOf" :done="monthDocs[property.id]?.status === 'completed'" :acc="acc"
@@ -50,7 +48,7 @@
       @close="unitDrawer = null" @busy="busy = $event" @saved="onSaved" @type-added="t => customTypes = [...customTypes, t]" />
 
     <PropertyDrawer v-if="propDrawer && (!acc.viewOnly || acc.canEdit)" :property="property" :properties="properties" :acc="acc"
-      @close="propDrawer = false" @busy="busy = $event" @saved="onSaved" />
+      @close="propDrawer = false" @busy="busy = $event" @saved="onSaved" @removed="propDrawer = false; toList()" />
 
     <OwnerDrawer v-if="ownerDrawer" :owner="ownerDrawer.owner" :owners="owners" :units="units" :properties="properties" :bf-lines="bfLines"
       :as-of="asOf" :property-id="property.id || 'all'" :acc="acc" @close="ownerDrawer = null" @busy="busy = $event" @saved="onSaved" />
@@ -86,6 +84,7 @@ import AuditTab from './tabs/AuditTab.vue';
 const me = useSession();
 
 export default {
+  popups: true,   // 16 Nov 2026: shown inside PropertiesRoute, so it opts in to the corner popups (lib/page-popups.js)
   components: { PropertyPicker, OptionPicker, MonthPicker, RefreshButton, OwnersList, OwnerDrawer, PropertyDrawer, UnitDrawer, OverviewTab, UnitsTab, RatesTab, AuditTab },
   data() {
     const q = this.$route.query, acc = portfolioAccess(me.role, me);
@@ -193,7 +192,7 @@ export default {
       this.okMsg = '';
       // View-only roles open an owner only to add one (or Marketing, to edit)
       if (!own && !this.acc.canAdd) return;
-      if (own && this.acc.viewOnly && !this.acc.canEdit) return;
+      if (own && this.acc.ownerLevel === 'none') return;   // 16 Nov 2026: Owners Base open an owner read-only
       this.ownerDrawer = { owner: own };
     },
     async onSaved(msg) {

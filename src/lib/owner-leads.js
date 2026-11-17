@@ -190,7 +190,14 @@ export const PAY_TYPES = [
 ];
 export const payTypeLabel = k => PAY_TYPES.find(t => t.key === k)?.label || 'Full payment';
 const PART = () => ({ proofUrl: '', received: false, receivedByUid: null, receivedByName: '', receivedAt: '' });
-const MK_DEFAULT = ['Logo & Branding', 'Website', 'IG', 'FB', 'TikTok', 'Google Business', 'Flyer', 'Social media content'];
+export const MK_DEFAULT = ['Logo & Branding', 'Website', 'IG', 'FB', 'TikTok', 'Google Business', 'Flyer', 'Social media content'];
+// Marketing groups (16 Nov 2026, Khairul): the checklist is shown in folding sections. A row's group is set on Owner Leads >
+// Defaults; rows without one use the hint below, else "Other".
+const MK_HINT = { 'logo & branding': 'Branding', website: 'Online', 'google business': 'Online', ig: 'Social media', fb: 'Social media',
+  tiktok: 'Social media', 'social media content': 'Social media', flyer: 'Print' };
+export const mkGroupOf = m => String(m?.group || '').trim() || MK_HINT[String(m?.title || '').trim().toLowerCase()] || 'Other';
+// A defaults row: older saves are plain titles, newer ones { title, group }
+const mkDef = x => (typeof x === 'string' ? { title: x.trim(), group: '' } : { title: String(x?.title || '').trim(), group: String(x?.group || '').trim() });
 // Operations Setup (13 Nov 2026): Operations tick each row; rows can be added and removed like Marketing. kind 'wifi' keeps
 // the Wifi name in note and the password in the private part (wifiPassword); kind 'link' keeps an https link.
 export const SETUP_DEFAULT = [
@@ -201,6 +208,30 @@ export const SETUP_DEFAULT = [
   { key: 'whatsapp', title: 'Owner\'s WhatsApp Group' }
 ];
 const setupRow = x => ({ key: x.key || lineId(), title: x.title, kind: x.kind || '', on: false, note: '', link: '' });
+// Defaults for new listings (16 Nov 2026): Directors set them on Owner Leads > Defaults, saved in config/ownerLeadDefaults
+// as { setup: [{ key, title, kind }], marketing: [{ title, group }] } (older saves: marketing: ['title', ...]). No doc yet = the lists above. Existing listings keep their own rows.
+let defaultsCache = null;
+export async function loadLeadDefaults(fresh = false) {
+  if (defaultsCache && !fresh) return defaultsCache;
+  let d = {};
+  try { const s = await getDoc(doc(db, 'config', 'ownerLeadDefaults')); d = s.exists() ? s.data() : {}; } catch { d = {}; }
+  const setup = Array.isArray(d.setup) && d.setup.length ? d.setup.filter(x => x && String(x.title || '').trim()).map(x => ({ key: x.key || lineId(), title: String(x.title).trim(), kind: x.kind || '' })) : SETUP_DEFAULT.map(x => ({ ...x, kind: x.kind || '' }));
+  const marketing = (Array.isArray(d.marketing) && d.marketing.length ? d.marketing : MK_DEFAULT).map(mkDef).filter(x => x.title).map(x => ({ ...x, group: mkGroupOf(x) }));
+  defaultsCache = { setup, marketing, saved: !!(d.setup || d.marketing), updatedByName: d.updatedByName || '', updatedAt: d.updatedAt || null };
+  return defaultsCache;
+}
+export async function saveLeadDefaults({ setup, marketing }) {
+  const me = useSession();
+  const clean = { setup: setup.map(x => ({ key: x.key || lineId(), title: String(x.title || '').trim(), kind: x.kind || '' })).filter(x => x.title),
+    marketing: marketing.map(mkDef).filter(x => x.title) };
+  if (!clean.setup.length || !clean.marketing.length) throw stop('Keep at least one row in each list.');
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'config', 'ownerLeadDefaults'), { ...clean, updatedByUid: me.user.uid, updatedByName: me.name, updatedAt: serverTimestamp() });
+  audit(batch, me, { action: 'ownerLeadDefaults.update', entity: 'config/ownerLeadDefaults', reason: 'Owner Leads defaults changed',
+    changes: [{ field: 'setup', old: null, new: clean.setup.map(x => x.title).join(', ') }, { field: 'marketing', old: null, new: clean.marketing.map(x => `${x.title}${x.group ? ` (${x.group})` : ''}`).join(', ') }] });
+  await batch.commit();
+  defaultsCache = null;
+}
 export const DETAILS = [['property', 'property'], ['unit', 'unit'], ['ownerName', 'owner name'], ['title', 'title'], ['description', 'description'], ['dueDate', 'due date'],
   ['unitType', 'unit type'], ['sizeSqft', 'size'], ['source', 'source'], ['remarks', 'remarks'], ['state', 'state']];
 // The listing's private part (newOwnerListings/{id}/private/main): Directors, Procurement and Operations.
@@ -741,6 +772,7 @@ export async function createListing(fields, contact, task) {
   // State security (12 Nov 2026): every new listing is for one state; only staff in that state see it
   if (!fields.state) throw stop('Choose the state the listing is for.');
   const h = entry(task ? `Started from the task system task "${task.title}".` : 'Started the listing.');
+  const defs = await loadLeadDefaults(true);   // Owner Leads > Defaults
   return runTransaction(db, async tx => {
     const cRef = doc(db, 'counters', 'newOwnerListings');
     const cs = await tx.get(cRef);
@@ -750,6 +782,8 @@ export async function createListing(fields, contact, task) {
     const data = { ...blank(), ...fields, ...(first ? { remarks: first, remarksLog: [remarkEntry(first)] } : {}), stage: 1, status: 'progress', startedOn: nowIso().slice(0, 10),
       tmsTaskId: task?.id || null, tmsSync: task ? { linked: false, pending: true, pendingNote: '', error: '', at: '' } : null,
       createdByUid: me.user.uid, createdByName: me.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), history: [h] };
+    data.setup = { ...data.setup, items: defs.setup.map(setupRow) };
+    data.marketing = { ...data.marketing, items: defs.marketing.map(x => ({ title: x.title, group: x.group || '', on: false, note: '' })) };
     tx.set(cRef, { next: n + 1 });
     tx.set(ref, data);
     if (contact.ownerPhone || contact.ownerEmail) tx.set(doc(ref, 'private', 'main'), contact);

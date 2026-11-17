@@ -1,10 +1,11 @@
 <template>
   <section class="card">
     <div class="card-head"><h2>{{ `Owners · ${shownOwners.length}` }}</h2>
-      <div class="pills"><button class="pill-btn" :class="{ on: !showInactive }" @click="showInactive = false">Active</button><button class="pill-btn" :class="{ on: showInactive }" @click="showInactive = true">Deactivated</button></div></div>
-    <p class="card-intro" v-if="acc.canEdit">Owner names and contact details are personal data (PDPA): Accounting, Directors and Marketing see them. Click an owner to edit. Bank details stay with Accounting.</p>
-    <p class="card-intro" v-else-if="acc.viewOnly && acc.ownerNames">Owner contact and bank details are personal data (PDPA), seen only by Accounting and Directors. This list shows each owner's name and units.</p>
-    <p class="card-intro" v-else-if="acc.viewOnly">Owner names, contact and bank details are personal data (PDPA), seen only by Accounting and Directors. This list shows each owner's units only.</p>
+      <!-- 16 Nov 2026: the same switch as Table / Cards on Bookings -->
+      <div class="seg slide st-seg" role="radiogroup" aria-label="Show owners"><button type="button" role="radio" :aria-checked="String(!showInactive)" :class="{ on: !showInactive }" @click="showInactive = false">Active</button><button type="button" role="radio" :aria-checked="String(showInactive)" :class="{ on: showInactive }" @click="showInactive = true">Deactivated</button></div></div>
+    <p class="card-intro" v-if="acc.canEdit && !acc.ownerFull">Owner names and contact details are personal data (PDPA). Click an owner to change their name and contact. IC, date of birth, address and bank details need Owners Full access.</p>
+    <p class="card-intro" v-else-if="acc.viewOnly && acc.ownerNames && !acc.ownerFull">Owner details are personal data (PDPA). Click an owner to see their contact details. IC, date of birth, address and bank details need Owners Full access.</p>
+    <p class="card-intro" v-else-if="acc.viewOnly && !acc.ownerNames">Owner names, contact and bank details are personal data (PDPA). This list shows each owner's units only.</p>
     <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Accounting and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.
       Owner details can later come from the Google Sheet staff already keep (cached copy plus Sync now).</p>
     <div class="toolbar tb-split"><input class="input" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"><button class="btn btn-primary" @click="$emit('add')" v-if="acc.canAdd">+ Add owner</button></div>
@@ -15,7 +16,7 @@
         <thead v-else><tr><th>Owner</th><th>Units</th><th>Arrangement</th><th>Paid to</th><th class="num">Carried forward (RM)</th><th></th></tr></thead>
         <tbody>
           <template v-for="own in pageRows" :key="own.id">
-            <tr v-if="acc.viewOnly" :class="{ clickable: acc.canEdit }" @click="acc.canEdit && $emit('open', own)">
+            <tr v-if="acc.viewOnly" :class="{ clickable: acc.ownerLevel !== 'none' }" @click="acc.ownerLevel !== 'none' && $emit('open', own)">
               <td class="strong" v-if="acc.ownerNames">{{ nameOf(own.id) || 'No name saved' }}</td>
               <td>{{ unitsOf(own.id).map(x => propertyId === 'all' ? `${x.unitCode} · ${propertyNameOf(x.propertyId)}` : x.unitCode).join(', ') || '—' }}</td>
               <td><span class="pill" :class="own.active === false ? 'grey' : 'green'">{{ own.active === false ? 'Deactivated' : 'Active' }}</span></td>
@@ -76,3 +77,7 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+.st-seg { margin: 0; width: 220px; flex: none; }
+</style>

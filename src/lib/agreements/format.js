@@ -99,6 +99,6 @@ export function parseInput(field, raw) {
     if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
     return undefined;
   }
-  if (['signature', 'image', 'file', 'formula', 'section'].includes(t)) return undefined;
+  if (['signature', 'image', 'file', 'formula', 'section', 'note'].includes(t)) return undefined;
   return String(raw);
 }

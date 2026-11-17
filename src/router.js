@@ -23,9 +23,15 @@ const routes = [
   ticked('/Reports', () => import('./pages/Reports/Reports.vue'), 'Reports', 'reports'),
 
   // Portfolio: three separate pages (4 Nov 2026, Phase A). /Portfolio/properties?property=<id> is one property.
-  ticked('/Portfolio/owners', () => import('./pages/Portfolio/Owners/OwnersPage.vue'), 'Owners', 'portfolio'),
+  ticked('/Portfolio/owners', () => import('./pages/Portfolio/Owners/OwnersPage.vue'), 'Owners', 'owners'),
   ticked('/Portfolio/properties', () => import('./pages/Portfolio/Properties/PropertiesRoute.vue'), 'Properties', 'portfolio'),
-  ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'portfolio'),
+  ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'bookings'),
+  // New booking (Reservation Lodgment Form), moved off Booking forms 16 Nov 2026. Still the Booking Forms tick for now.
+  // Invoice settings (16 Nov 2026): header, T&Cs and bank details on booking invoices; Directors only
+  page('/Portfolio/bookings/invoice-settings', () => import('./pages/Portfolio/Bookings/InvoiceSettings.vue'), 'Invoice settings', D, { navLabel: 'Bookings' }),
+  ticked('/Portfolio/bookings/new', () => import('./pages/Portfolio/Bookings/NewBooking.vue'), 'New booking', 'bookingForms', { navLabel: 'Bookings' }),
+  // Fees & Rates (12 Nov 2026): one set for every property. Opens with Portfolio View (the page shows a notice); the sidebar item needs Edit (access.js editTo).
+  ticked('/Portfolio/fees-rates', () => import('./pages/Portfolio/FeesRates/FeesRatesPage.vue'), 'Fees & Rates', 'portfolio'),
   ticked('/Portfolio/bulk-upload', () => import('./pages/Portfolio/BulkUpload.vue'), 'Bulk Upload', 'bulkUpload'),
   // Converter (13 Nov 2026): any Excel/CSV -> the Bulk Upload template layout. Same tick as Bulk Upload; nothing is saved to the database.
   ticked('/Portfolio/bulk-upload/converter', () => import('./pages/Portfolio/BulkConverter.vue'), 'Bulk Upload', 'bulkUpload'),
@@ -41,12 +47,15 @@ const routes = [
   page('/Operations/issues', () => import('./pages/Operations/Issues.vue'), 'Issues', ALL),
   ticked('/Operations/offline-inquiries', () => import('./pages/Operations/SalesLeads.vue'), 'Tenant Leads', 'offlineInquiries'),
   { path: '/Operations/sales-leads', redirect: to => ({ path: '/Operations/offline-inquiries', query: to.query }) },
-  // One address per form (tabs); the old /Operations/booking-forms opens the Reservation tab
-  ticked('/Operations/booking-forms/:form(reservation|utility|property)?', () => import('./pages/Operations/BookingForms.vue'), 'Booking Forms', 'bookingForms'),
+  // One address per form (tabs); the old /Operations/booking-forms opens the Utility tab. The old Reservation address goes to New booking.
+  { path: '/Operations/booking-forms/reservation', redirect: to => ({ path: '/Portfolio/bookings/new', query: to.query }) },
+  ticked('/Operations/booking-forms/:form(utility|property)?', () => import('./pages/Operations/BookingForms.vue'), 'Utility Lodgment Form', 'bookingForms'),
 
   // Owner Leads (13 Nov 2026: one page). Nothing open = every owner lead as a table or cards; one listing stage by stage:
   // /Procurement/listing-flow/new, /Procurement/listing-flow/NL-0001, /Procurement/listing-flow/NL-0001/payment.
   // Opens with the Owner Leads View tick. The old overview address goes to the same page.
+  // Owner Leads > Defaults (16 Nov 2026): Directors only. A fixed address, so it wins over :id below.
+  page('/Procurement/listing-flow/defaults', () => import('./pages/Procurement/OwnerLeads/LeadDefaults.vue'), 'Owner Leads', D),
   ticked('/Procurement/listing-flow/:id?/:stage(agreement|services|renovation|furniture|payment|setup|marketing|live)?', () => import('./pages/Procurement/OwnerLeads/ListingFlow.vue'), 'Owner Leads', 'newOwnerListings'),
   { path: '/Procurement/owner-leads', redirect: '/Procurement/listing-flow' },
   // Old addresses (notifications and bookmarks): ?id=NL-0001 opens that listing, ?new the new-listing form, else the list.
@@ -80,6 +89,7 @@ const routes = [
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),
   page('/Settings/staff-hr', () => import('./pages/Settings/StaffHR.vue'), 'Staff Accounts', DH, { title: 'HR details' }),
   page('/Settings/roles', () => import('./pages/Settings/Roles.vue'), 'Roles', D),   // Director only, never tickable
+  page('/Settings/states', () => import('./pages/Settings/DriveStates.vue'), 'States', ['director', 'operations']),   // 17 Nov 2026: each state's Drive folder
   page('/Settings/brand-logos', () => import('./pages/Settings/BrandLogos.vue'), 'Brand Logos', D),
   page('/Settings/audit-log', () => import('./pages/Settings/AuditLog.vue'), 'Audit Log', DH),
   page('/Settings/appearance', () => import('./pages/Settings/Appearance.vue'), 'Profile & Appearance', ALLOWED_ROLES),
@@ -122,7 +132,7 @@ router.beforeEach(async to => {
   if (!canOpen(to.meta, me, ALLOWED_ROLES)) {
     if (ALLOWED_ROLES.includes(me.role)) return { path: homeFor(me.role) };
     await signOut(auth);
-    location.replace('/?noaccess=1');
+    location.replace(me.role === 'ai' ? '/?noaccess=ai' : '/?noaccess=1');   // AI Agent: its own message (17 Nov 2026)
     return false;
   }
   return true;

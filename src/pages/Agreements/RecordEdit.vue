@@ -2,7 +2,6 @@
   <main class="content">
     <div class="loading-bar" v-show="loading"></div>
     <div class="ag-crumb"><button class="link" @click="back">← {{ form ? form.name : 'Agreements' }}</button></div>
-    <div class="notice error" v-if="error">{{ error }}</div>
 
     <!-- New record: step by step, then a thank-you page -->
     <template v-if="form && isNew">
@@ -51,7 +50,6 @@
         </div>
       </div>
 
-      <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
       <div class="notice warn" v-if="errorCount">{{ errorCount }} field{{ errorCount > 1 ? 's need' : ' needs' }} attention before this can be completed.
         <button type="button" class="link" @click="toFirstError">Show me</button></div>
       <div class="notice info rec-ext" v-if="record.source === 'external'">

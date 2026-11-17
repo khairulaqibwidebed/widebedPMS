@@ -5,13 +5,25 @@
       <div class="drawer-head"><h2>{{ `Booking ${bk.bookingNo || bk.id}` }}</h2><button class="icon-btn" @click="$emit('close')" aria-label="Close">×</button></div>
       <form class="drawer-body" id="bkForm" @submit.prevent="save()">
         <p class="help">{{ `${bk.propertyName || ''} · ${bk.unitCode || bk.unitId || ''} · ${bk.source === 'import' ? 'Imported from Willow' : bk.source === 'direct' ? 'Direct booking' : 'From Tenant leads'}` }}</p>
+        <!-- 16 Nov 2026: saved as Awaiting payment on New booking; finish it there once paid -->
+        <div class="notice await-note" v-if="pending">
+          <span><b>Awaiting payment.</b> The unit is held for these dates. Send the invoice; once they pay, continue to the Payment step to finish the booking.</span>
+          <span class="await-acts">
+            <button type="button" class="btn" @click="openInvoice()" :disabled="!bk.loaded || invBusy">{{ invBusy ? 'Loading…' : 'Download invoice' }}</button>
+            <RouterLink v-if="canForms" class="btn btn-primary" :to="{ path: '/Portfolio/bookings/new', query: { resume: bk.id } }">Continue to payment</RouterLink>
+          </span>
+        </div>
         <div class="notice warn" v-if="cancelled">{{ `Cancelled${bk.cancelledReason ? ': ' + bk.cancelledReason : ''}. It is left out of the lists, the Dashboard and the forms. Restore it, or delete it for good.` }}</div>
         <p class="help" v-if="bk.inquiryId && acc.canOpenInquiry"><RouterLink class="navlink" :to="`/Operations/offline-inquiries?id=${bk.inquiryId}`">{{ `Open inquiry ${bk.inquiryId}` }}</RouterLink></p>
-        <div class="form-sec">Guest <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· private, Accounting, Directors and Operations only</span></div>
+        <!-- 16 Nov 2026: guest details (tenant personal data) only with Bookings Full -->
+        <template v-if="acc.guestNames">
+        <div class="form-sec">Guest <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· private, Bookings Full only</span></div>
         <div class="field"><label>Name</label><input class="input" v-model="bk.f.name" :disabled="!guestEditable"></div>
         <div class="field"><label>Phone</label><input class="input" v-model="bk.f.phone" :disabled="!guestEditable"></div>
         <div class="field"><label>Email</label><input class="input" id="bkEmail" v-model="bk.f.email" :disabled="!guestEditable"></div>
         <div class="field"><label>IC / Passport</label><input class="input" v-model="bk.f.icPassport" :disabled="!guestEditable"></div>
+        </template>
+        <p class="help" v-else>Guest details are private: seen only with Bookings Full access.</p>
         <div class="form-sec">Stay</div>
         <div class="field"><label>Check in</label><input class="input" id="bkIn" type="date" v-model="bk.f.arrival" :disabled="!editable"></div>
         <div class="field"><label>Check out</label><input class="input" id="bkOut" type="date" v-model="bk.f.departure" :disabled="!editable"></div>
@@ -47,7 +59,7 @@
           <p class="help">{{ isLong ? 'Long-term: each month is rent against payments dated in that month.' : 'Short stay: the rental is due in the check-in month; payments count in the month they are dated.' }}</p>
         </template>
         <div class="form-sec">Utility bill</div>
-        <p class="help" v-if="!bk.bill">No utility bill saved yet. Add it on Portfolio > Booking Forms > Utility Lodgment Form.</p>
+        <p class="help" v-if="!bk.bill">No utility bill saved yet. Add it on Portfolio > Utility Lodgment Form.</p>
         <template v-else>
           <!-- Each bill has its own period since 13 Nov 2026; older bills fall back to the one shared period -->
           <div class="cal-row" v-for="u in billRows(bk.bill)" :key="u.label"><span>{{ `${u.label} · ${u.period}` }}</span><b>{{ `RM ${amt(u.v)}` }}</b></div>
@@ -73,6 +85,7 @@
         <button class="btn btn-primary" type="submit" form="bkForm" v-if="editable" :disabled="bk.busy">{{ bk.busy ? 'Saving…' : 'Save booking' }}</button>
       </div>
     </aside>
+    <InvoiceDialog v-if="invoice" :invoice="invoice" :booking-no="bk.bookingNo || ''" @close="invoice = null" />
   </div>
 </template>
 
@@ -85,28 +98,35 @@ import { useSession } from '@/stores/session.js';
 import { toast } from '@/lib/toast.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking, setBookingCancelled, deleteOfflineBooking } from '@/lib/portfolio-data.js';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase.js';
+import { can } from '@/lib/access.js';
+import { invoiceOf } from '@/lib/booking-invoice.js';
+import InvoiceDialog from '@/components/InvoiceDialog.vue';
 
 const me = useSession();
 const PRIV = ['name', 'phone', 'email', 'icPassport', 'mainDoorPasscode', 'currentExpiryDate', 'nextDoorPasscode', 'nextExpiryDate'];
 const GUEST = ['name', 'phone', 'email', 'icPassport'];
-const CHARGES = [['securityDeposit', 'Security deposit'], ['utilityDeposit', 'Utility deposit'], ['internetFee', 'Internet fees'], ['carparkFee', 'Carpark fees'], ['cleaningFee', 'Cleaning fees'], ['taFee', 'Tenancy agreement fees'], ['taStampFee', 'Tenancy agreement stamping fees'], ['othersFee', 'Others']];
+const CHARGES = [['securityDeposit', 'Security deposit'], ['utilityDeposit', 'Utility deposit'], ['internetFee', 'Internet fees'], ['carparkFee', 'Carpark fees'], ['cleaningFee', 'Cleaning fees'], ['taFee', 'Tenancy agreement fees'], ['taStampFee', 'Tenancy agreement stamping fees'], ['gatewayFee', 'Payment gateway charges'], ['cardFee', 'Credit card charges'], ['othersFee', 'Others']];
 
 export default {
   props: {
     booking: { type: Object, required: true },   // the row from the bookings list
     acc: { type: Object, required: true }
   },
+  components: { InvoiceDialog },
   emits: ['close', 'saved', 'deleted'],
   data() {
     const r = this.booking, rm = c => (c ? Number(c).toFixed(2) : '');
     const f = { name: '', phone: '', email: '', icPassport: '', mainDoorPasscode: '', currentExpiryDate: '', nextDoorPasscode: '', nextExpiryDate: '',
       arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : ''), deposit: rm(r.deposit),
       bookingSource: r.bookingSource || '', rentalStatus: r.rentalStatus || '', ezeeReservationNo: r.ezeeReservationNo || '', remark: r.remark || '' };
-    return { MONTH_PAY, cancelling: false, cancelReason: '', bk: { ...r, f, hasPrivate: false, bill: null, reason: '', error: '', busy: false, loaded: false } };
+    return { MONTH_PAY, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '', bk: { ...r, f, hasPrivate: false, bill: null, reason: '', error: '', busy: false, loaded: false } };
   },
   computed: {
     // Guest details on a tenant record can only be changed by Accounting and Directors; on an imported booking Operations can too
     cancelled() { return this.bk.status === 'cancelled'; },
+    pending() { return this.bk.status === 'pending'; },
     // A cancelled booking is read-only until it is restored
     editable() { return this.acc.bkEdit && !this.cancelled; },
     // Delete for good only when no payment is recorded on it (and only by someone who can see its payments)
@@ -162,6 +182,16 @@ export default {
         const a = b[k + 'From'] || b.periodFrom, z = b[k + 'To'] || b.periodTo;
         return { label, v: b[k], period: a && z ? `${dmy(a)} to ${dmy(z)}` : 'no period' };
       });
+    },
+    // The invoice for an Awaiting payment booking: guest from the tenant record, unit type from the unit (16 Nov 2026)
+    async openInvoice() {
+      const b = this.bk, f = b.f;
+      this.invBusy = true;
+      let unitType = '';
+      try { const u = b.unitId ? await getDoc(doc(db, 'units', b.unitId)) : null; unitType = u?.exists() ? u.data().info?.type || '' : ''; } catch { /* left out */ }
+      this.invoice = invoiceOf({ ...b, arrival: f.arrival, departure: f.departure, monthlyRent: f.rent || b.monthlyRent, securityDeposit: b.securityDeposit || f.deposit },
+        { name: f.name, email: f.email, phone: f.phone }, { propertyName: b.propertyName, unitCode: b.unitCode || b.unitId, unitType });
+      this.invBusy = false;
     },
     startCancel() {
       this.cancelling = true;
@@ -227,3 +257,8 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+.await-note { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-left: 3px solid #d08a00; }
+.await-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+</style>

@@ -1,8 +1,6 @@
 <template>
   <main class="content">
     <div class="loading-bar" v-show="loading || busy"></div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <!-- List (Figma 254:6983) -->
     <template v-if="view === 'list'">
@@ -15,7 +13,7 @@
         </div>
         <div class="pills-row" style="margin-bottom:16px">
         <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: `${f.label} · ${count(f.key)}` }))" label="Status" />
-        <button class="btn btn-primary" v-if="canLog" @click="go('new')">+ Log inquiry</button>
+        <button class="btn btn-primary" v-if="canLog" @click="openNew()">+ Log inquiry</button>
         </div>
         <section class="card">
           <Paged :items="shown()" v-slot="{ pageRows }">
@@ -59,39 +57,37 @@
       </div>
     </template>
 
-    <!-- Log inquiry (Figma 254:7235) -->
-    <template v-if="view === 'new'">
-      <div>
-        <button class="back" @click="go('list')">← Back to Tenant leads</button>
-        <div class="page-head">
-          <div>
-            <h1>Log inquiry</h1>
-            <div class="sub">{{ canAssign ? 'Record an offline inquiry and assign it to an Operations member to follow up.' : 'Record an offline inquiry. A Director assigns it to an Operations member.' }}</div>
-          </div>
+    <!-- Log inquiry (Figma 254:7235). 16 Nov 2026: a centred popup over the list instead of its own page -->
+    <template v-if="newOpen">
+      <div class="drawer-back" @click="closeNew()"></div>
+      <aside class="drawer wide" role="dialog" aria-label="Log inquiry" v-esc="() => !nextOpen && closeNew()">
+        <div class="drawer-head">
+          <div><h2>Log inquiry</h2>
+            <div class="help" style="margin-top:2px">{{ canAssign ? 'Record an offline inquiry and assign it to an Operations member.' : 'Record an offline inquiry. A Director assigns it.' }}</div></div>
           <div class="head-tools">
             <button class="btn info-btn" type="button" @click="nextOpen = true" aria-label="What happens next" title="What happens next">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
             </button>
-            <button class="btn" @click="go('list')">Cancel</button>
-            <button class="btn btn-primary" @click="saveNew()" :disabled="busy">{{ canAssign ? 'Save and assign' : 'Save' }}</button>
+            <button type="button" class="icon-btn" @click="closeNew()" aria-label="Close">×</button>
           </div>
         </div>
+        <div class="drawer-body">
         <div class="notice error" v-show="formError">{{ formError }}</div>
         <div>
-          <div class="form-card">
-            <section class="card">
+          <div class="form-card in-pop">
+            <section>
               <h2>Inquiry</h2>
               <div class="grid-fields">
                 <FormField id="lLooking" label="Looking for" req v-model="form.lookingFor" placeholder="e.g. Monthly rental, 2 bedrooms, Ampang" />
-                <div class="field"><label for="lState">State</label>
-                  <OptionPicker class="fld-pick" v-model="form.state" :options="[{ value: '', label: 'Any state (optional)' }, ...stateList.map(x => ({ value: x, label: x }))]" label="State" /></div>
+                <div class="field"><label>Property</label>
+                  <PropertyPicker block class="fld-pick" v-model="form.propertyId" :properties="properties" :before="[{ value: '', label: 'Any property (optional)' }]" /></div>
                 <div class="field"><label for="lSource">Source</label>
                   <OptionPicker class="fld-pick" v-model="form.source" :options="SOURCES.map(x => ({ value: x, label: x }))" label="Source" /></div>
                 <FormField id="lBudget" label="Budget" v-model="form.budget" placeholder="e.g. RM 2,200 a month" />
                 <FormField id="lView" label="Preferred viewing" type="date" v-model="form.viewing" />
               </div>
             </section>
-            <section class="card">
+            <section>
               <h2>Customer</h2>
               <div class="grid-fields">
                 <FormField id="lName" label="Name" req v-model="form.contactName" placeholder="e.g. Prospect A" />
@@ -100,13 +96,14 @@
               </div>
               <p class="help" v-if="known">{{ `This phone number belongs to existing tenant ${known.id}. The inquiry will be linked to them.` }}</p>
             </section>
-            <section class="card" v-if="canAssign">
+            <section v-if="canAssign">
               <h2>Assign to</h2>
-              <div class="field" style="max-width:340px;margin:0"><label for="lAssign">Operations member</label>
-                <OptionPicker class="fld-pick" v-model="form.assignedTo" :options="[{ value: '', label: 'Assign later' }, ...staff.map(x => ({ value: x.uid, label: x.name }))]" label="Operations member" />
+              <div class="field" style="max-width:340px;margin:0"><label for="lAssign" :class="{ req: staff.length }">Operations member</label>
+                <!-- 16 Nov 2026: no one is picked for you; choosing someone is required (unless there are no Operations staff yet) -->
+                <OptionPicker class="fld-pick" v-model="form.assignedTo" :options="staff.map(x => ({ value: x.uid, label: x.name }))" label="Operations member" placeholder="Select one" searchable />
                 <span class="help" v-show="!staff.length">No Operations staff yet. Save it unassigned and assign it later.</span></div>
             </section>
-            <section class="card">
+            <section>
               <h2>Status</h2>
               <div class="status-opts">
                 <template v-for="k in PICKABLE" :key="k">
@@ -114,13 +111,18 @@
                 </template>
               </div>
             </section>
-            <section class="card">
+            <section>
               <h2>Note</h2>
               <textarea class="input" style="height:80px" v-model="form.note" placeholder="e.g. Walked in, wants to view this weekend" aria-label="Note"></textarea>
             </section>
           </div>
         </div>
-      </div>
+        </div>
+        <div class="drawer-foot">
+          <button class="btn" @click="closeNew()">Cancel</button>
+          <button class="btn btn-primary" @click="saveNew()" :disabled="busy">{{ busy ? 'Saving…' : canAssign ? 'Save and assign' : 'Save' }}</button>
+        </div>
+      </aside>
     <div class="modal-back" v-if="nextOpen" @click.self="nextOpen = false" v-esc="() => { nextOpen = false }">
       <div class="modal" role="dialog" aria-label="What happens next" style="max-width:520px;width:calc(100% - 32px)">
         <h2>What happens next</h2>
@@ -146,7 +148,7 @@
           </div>
           <div class="head-tools">
             <span class="pill" :class="STATUS[lead.status][1]">{{ STATUS[lead.status][0] }}</span>
-            <button class="btn btn-primary" v-if="canBook(lead)" @click="$router.push({ path: '/Operations/booking-forms/reservation', query: { lead: lead.id } })">Create booking</button>
+            <button class="btn btn-primary" v-if="canBook(lead)" @click="$router.push({ path: '/Portfolio/bookings/new', query: { lead: lead.id } })">Create booking</button>
           </div>
         </div>
         <div class="side-grid">
@@ -154,6 +156,8 @@
             <section class="card" v-if="lead.bookingId && !booking"><div class="card-head"><h2>Booking</h2><span class="muted">{{ lead.bookingId }}</span></div><p class="muted">This booking was deleted (cancelled, then deleted for good on Portfolio › Bookings).</p></section>
             <section class="card" v-if="booking">
               <div class="card-head"><h2>Booking</h2><span class="muted">{{ booking.id }}</span></div>
+              <!-- 16 Nov 2026: saved before payment; finished from New booking -->
+              <div class="notice warn" v-if="booking.status === 'pending'" style="margin-bottom:10px">Awaiting payment: the unit is held. Once paid, <RouterLink :to="{ path: '/Portfolio/bookings/new', query: { resume: booking.id } }">continue to payment</RouterLink> to finish the booking.</div>
               <div class="kv" v-if="booking.status === 'cancelled'"><span>Status</span><span>{{ `Cancelled${booking.cancelledReason ? ': ' + booking.cancelledReason : ''}` }}</span></div>
               <div class="kv"><span>Unit</span><span>{{ `${booking.propertyName} · ${booking.unitCode}` }}</span></div>
               <div class="kv"><span>Stay</span><span>{{ `${full(booking.arrival)} to ${full(booking.departure)} · ${booking.nights} nights` }}</span></div>
@@ -225,6 +229,7 @@
                 <p class="help">Only the staff member who logged it, the assigned staff member, Accounting and the Directors see contact details.</p>
               </div>
             </template>
+            <div class="kv"><span>Property</span><span>{{ lead.propertyName || 'Any' }}</span></div>
             <div class="kv"><span>Budget</span><span>{{ lead.budget || '—' }}</span></div>
             <div class="kv"><span>Preferred viewing</span><span>{{ lead.viewing ? short(lead.viewing) : '—' }}</span></div>
             <button class="btn" style="width:100%;margin-top:12px" @click="histOpen = true">{{ `History (${lead.history.length})` }}</button>
@@ -253,17 +258,19 @@
 //   offlineInquiries/{id}/private/main    contact name, phone, phoneKey, email (PDPA: never on the parent)
 //   tenants/{TEN-0001} + private/main     made by Create booking; a returning tenant is found by phoneKey
 //   offlineBookings/{offline_LD-0001}     the stay. Not in bookings: month-end reads bookings and pays from eZee.
-// Create booking opens Operations > Booking forms > Reservation (pages/Operations/booking-forms/ReservationForm.vue, since 4 Nov 2026).
+// Create booking opens Portfolio > Bookings > New booking (/Portfolio/bookings/new, since 16 Nov 2026; the form is pages/Operations/booking-forms/ReservationForm.vue).
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, runTransaction,
   arrayUnion, serverTimestamp, getCountFromServer } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
+import PropertyPicker from '@/components/PropertyPicker.vue';
 import FormField from '@/components/FormField.vue';
-import { audit, friendlyError } from '@/lib/finance-data.js';
-import { stateChoices, statesOf } from '@/lib/states.js';
+import { askConfirm } from '@/lib/confirm.js';
+import { audit, friendlyError, loadProperties } from '@/lib/finance-data.js';
+import { stateChoices, statesOf, stateOf } from '@/lib/states.js';
 import { scoped, countScoped } from '@/lib/property-scope.js';
-import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf } from '@/lib/offline.js';
+import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf, guestContact } from '@/lib/offline.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
 
@@ -283,21 +290,22 @@ const errText = (e, what) => (e.plain ? e.message : friendlyError(e, what));
 const piiChanges = fields => fields.map(f => ({ field: f, old: null, new: '(changed)' }));
 
 export default {
-  components: { OptionPicker, FormField },
+  components: { OptionPicker, PropertyPicker, FormField },
   data() {
     return {
       nextOpen: false, histOpen: false, STATUS, FILTERS, SOURCES, PICKABLE,
-      leads: [], staff: [], tenant: null, booking: null, tenantStays: 0, known: null,
-      view: 'list', lead: null, filter: 'all', okMsg: '', formError: '', error: '', loading: true, busy: false,
+      leads: [], staff: [], properties: [], tenant: null, booking: null, tenantStays: 0, known: null,
+      view: 'list', lead: null, newOpen: false, newStart: '', filter: 'all', okMsg: '', formError: '', error: '', loading: true, busy: false,
       form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}
     };
   },
   async mounted() {
     const q = this.$route.query;
-    if ('new' in q) await this.show('new');
+    // ?new=1 (old links, dashboard): the list with the Log inquiry popup open
+    if ('new' in q) { await this.show('list'); this.openNew(); }
     // Old links: bookings are made on Booking forms > Reservation now
-    else if ('newBooking' in q) { this.$router.replace({ path: '/Operations/booking-forms/reservation' }); return; }
-    else if (q.id && 'book' in q) { this.$router.replace({ path: '/Operations/booking-forms/reservation', query: { lead: q.id } }); return; }
+    else if ('newBooking' in q) { this.$router.replace({ path: '/Portfolio/bookings/new' }); return; }
+    else if (q.id && 'book' in q) { this.$router.replace({ path: '/Portfolio/bookings/new', query: { lead: q.id } }); return; }
     else if (q.id) await this.show('lead', q.id);
     else { this.okMsg = history.state?.okMsg || ''; await this.show('list'); }
     this.loading = false;
@@ -350,6 +358,23 @@ export default {
       });
     },
 
+    // Log inquiry popup (16 Nov 2026)
+    async openNew() {
+      if (!this.canLog) return;
+      this.formError = ''; this.known = null;
+      if (!this.staff.length) await this.loadStaff().catch(() => {});
+      if (!this.properties.length) this.properties = await loadProperties().catch(() => []);
+      this.form = { state: statesOf(me).length === 1 ? statesOf(me)[0] : '', propertyId: '', lookingFor: '', source: 'Walk-in', contactName: '', phone: '', email: '', budget: '', viewing: '', assignedTo: '', status: 'new', note: '' };
+      this.newStart = JSON.stringify(this.form);
+      this.newOpen = true;
+    },
+    async closeNew() {
+      if (this.busy) return;
+      if (JSON.stringify(this.form) !== this.newStart
+        && !(await askConfirm({ title: 'Discard this inquiry?', message: "What you've entered will be lost.", confirmText: 'Discard', danger: true }))) return;
+      this.newOpen = false; this.formError = '';
+      if ('new' in this.$route.query) this.$router.replace({ query: {} });
+    },
     go(view, id = null) {
       const query = view === 'new' ? { new: '1' } : view === 'lead' ? { id } : {};
       this.$router.push({ query, state: { okMsg: this.okMsg } });
@@ -362,7 +387,7 @@ export default {
           if (!this.canLog) view = 'list';
           else {
             await this.loadStaff();
-            this.form = { state: statesOf(me).length === 1 ? statesOf(me)[0] : '', lookingFor: '', source: 'Walk-in', contactName: '', phone: '', email: '', budget: '', viewing: '', assignedTo: this.canAssign ? this.staff[0]?.uid || '' : '', status: 'new', note: '' };
+            this.form = { state: statesOf(me).length === 1 ? statesOf(me)[0] : '', propertyId: '', lookingFor: '', source: 'Walk-in', contactName: '', phone: '', email: '', budget: '', viewing: '', assignedTo: this.canAssign ? this.staff[0]?.uid || '' : '', status: 'new', note: '' };
           }
           if (view === 'list') await this.loadList();
         }
@@ -456,19 +481,21 @@ export default {
       // State is optional since 12 Nov 2026 (access is by property; a lead has none until it is booked)
       if (!f.contactName.trim() && !f.phone.trim()) return this.formError = 'Add a name or phone number so Operations can follow up.';
       if (!emailOk(f.email.trim())) return this.formError = 'That email address doesn\'t look right. Check it or leave it empty.';
+      if (this.canAssign && this.staff.length && !f.assignedTo) return this.formError = 'Choose the Operations member to assign it to.';
       this.busy = true; this.formError = '';
       try {
         const known = await findTenant(f.phone);
         const who = this.canAssign ? this.staff.find(s => s.uid === f.assignedTo) || null : null;
         const h = this.entry(`Logged the inquiry${who ? `, assigned to ${who.name}` : ''}${known ? `, linked to existing tenant ${known.id}` : ''}.${f.note.trim() ? ' ' + f.note.trim() : ''}`);
         
+        const prop = f.propertyId ? this.properties.find(x => x.id === f.propertyId) : null;
         const id = await runTransaction(db, async tx => {
           const cRef = doc(db, 'counters', 'offlineInquiries');
           const c = await tx.get(cRef);
           const n = c.exists() ? c.data().next || 1 : 1, id = num('LD', n), ref = doc(db, 'offlineInquiries', id);
           if ((await tx.get(ref)).exists()) throw stop(`${id} already exists. Ask a Director to check counters/offlineInquiries.`);
           tx.set(cRef, { next: n + 1 });
-          tx.set(ref, { ...(f.state ? { state: f.state } : {}), lookingFor: f.lookingFor.trim(), source: f.source, budget: f.budget.trim(), viewing: f.viewing, status: f.status,
+          tx.set(ref, { ...(prop ? { propertyId: prop.id, propertyName: prop.name, state: stateOf(prop) || f.state || null } : f.state ? { state: f.state } : {}), lookingFor: f.lookingFor.trim(), source: f.source, budget: f.budget.trim(), viewing: f.viewing, status: f.status,
             assignedToUid: who?.uid || null, assignedToName: who?.name || null, loggedByUid: me.user.uid, loggedByName: me.name,
             tenantId: known?.id || null, bookingId: null, history: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
           tx.set(doc(ref, 'private', 'main'), { contactName: f.contactName.trim(), phone: f.phone.trim(), phoneKey: phoneKey(f.phone), email: f.email.trim() });
@@ -501,7 +528,10 @@ export default {
         });
 
         this.okMsg = `${id} logged${who ? ` and assigned to ${who.name}` : ''}.`;
-        this.go('list');
+        // Popup: close it and refresh the list (an old ?new=1 link goes back to the plain list, which reloads)
+        this.newOpen = false; this.newStart = '';
+        if ('new' in this.$route.query) this.go('list');
+        else await this.loadList().catch(() => {});
       } catch (e) { this.formError = errText(e, 'save the inquiry'); }
       this.busy = false;
     },
@@ -595,6 +625,7 @@ export default {
         if (t) {
           b.set(doc(db, 'tenants', t.id, 'private', 'main'), { kind: 'tenant', name: e.name, phone: e.phone, phoneKey: key, email: e.email,
             icPassport: e.icPassport, nationality: e.nationality, searchWords: searchWords(e.name) }, { merge: true });
+          b.set(doc(db, 'tenants', t.id, 'private', 'contact'), guestContact(e), { merge: true });   // name, phone, email only (17 Nov 2026)
           b.update(doc(db, 'tenants', t.id), { updatedAt: serverTimestamp(), updatedBy: me.user.uid });
         }
         b.set(doc(lRef, 'private', 'main'), { contactName: e.name, phone: e.phone, phoneKey: key, email: e.email }, { merge: true });
@@ -614,11 +645,16 @@ export default {
 </script>
 
 <style scoped>
+/* Log inquiry popup (16 Nov 2026): sections split by a line instead of cards */
+.form-card.in-pop { gap: 0; background: none; }
+.form-card.in-pop > section { padding: 16px 0; border-top: 1px solid var(--border); }
+.form-card.in-pop > section:first-child { padding-top: 0; border-top: 0; }
     .pills-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .info-btn { padding: 8px 10px; color: var(--accent); border: 1.5px solid var(--accent); }
     .info-btn:hover { background: var(--accent-soft); }
     .next-list p { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
     .fld-pick { display: block; width: 100%; }
+    .fld-pick :deep(.op) { display: block; width: 100%; }   /* the property picker wraps its own picker: stretch it too */
     .fld-pick :deep(.op-btn) { width: 100%; min-height: 40px; }
     .fld-pick :deep(.op-pop) { max-width: none; width: 100%; }
     .count-pills .pill-btn { height: 26px; font-size: 12px; padding: 0 10px; }

@@ -14,8 +14,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-if="error">{{ error }}</div>
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
     <!-- ===== Everyone: my own TMS score and the tasks it's based on ===== -->
     <div class="card" style="margin-bottom:16px;" v-if="!loading">

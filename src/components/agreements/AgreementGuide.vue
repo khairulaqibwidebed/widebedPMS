@@ -82,22 +82,23 @@ onMounted(() => {
 .ag-guide-btn { width: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); border-color: var(--accent); background: var(--surface); flex: none; }
 .ag-guide-btn:hover { background: var(--accent-soft); }
 .ag-guide-btn.sm { width: 32px; height: 32px; }
-.ag-guide { width: 480px; outline: 0; }
+.ag-guide { width: 1040px; outline: 0; }   /* 16 Nov 2026: wide, steps as cards in columns */
 .ag-guide h3 { font-size: 14px; margin: 22px 0 10px; }
 .ag-guide h3 small { font-weight: 400; color: var(--text-2); margin-left: 6px; }
 .ag-guide-here { background: var(--accent-soft); border-radius: 12px; padding: 14px 16px; display: grid; gap: 2px; }
 .ag-guide-here small { color: var(--text-2); font-size: 12px; }
 .ag-guide-here b { font-size: 16px; }
-.ag-guide-here ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; line-height: 1.45; }
-.ag-guide-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.ag-guide-steps li { display: flex; gap: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
+.ag-guide-here ul { margin: 8px 0 0; padding-left: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px 28px; font-size: 13px; line-height: 1.45; }
+.ag-guide-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+.ag-guide-steps li { display: flex; gap: 12px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
 .ag-guide-steps li.here { border-color: var(--accent); background: var(--surface); }
 .ag-guide-num { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--chip); color: var(--text); font-size: 13px; font-weight: 700; display: grid; place-items: center; }
 .ag-guide-steps li.here .ag-guide-num { background: var(--accent); color: #fff; }
 .ag-guide-steps b { font-size: 14px; }
 .ag-guide-steps p { margin: 4px 0 4px; font-size: 13px; line-height: 1.5; color: var(--text-2); }
 .ag-guide-steps .link { font-size: 13px; }
-.ag-guide-words { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 13px; }
+.ag-guide-words { margin: 0; display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 8px 14px; font-size: 13px; }
+@media (max-width: 860px) { .ag-guide-words { grid-template-columns: max-content 1fr; } }
 .ag-guide-words dt { font-weight: 600; }
 .ag-guide-words dd { margin: 0; color: var(--text-2); }
 </style>

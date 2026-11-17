@@ -17,8 +17,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <!-- States (12 Nov 2026): every property needs one before data is locked by state. Directors set them here. -->
     <div class="notice error no-state-note" v-if="isDirector && noState.length">
       <span>{{ `${noState.length} ${noState.length === 1 ? 'property has' : 'properties have'} no state.` }}</span>
@@ -49,14 +47,14 @@
           <tbody>
             <template v-for="p in pageRows" :key="p.id">
               <tr class="clickable" @click="openPropertyPage(p.id)" v-if="acc.viewOnly">
-                <td class="strong">{{ p.name }}</td>
+                <td class="strong"><span class="dl-dot" :class="driveStatus[p.id]" v-if="driveStatus[p.id]" :title="dotTitle(p)"></span>{{ p.name }}</td>
                 <td>{{ p.code || '—' }}</td>
                 <td class="num">{{ unitsOf(p.id).length }}</td>
                 <td>{{ [p.info?.city, stateOf(p)].filter(Boolean).join(' · ') || '—' }}</td>
                 <td class="num"><button class="navlink" @click.stop="openPropertyPage(p.id)">Open →</button></td>
               </tr>
               <tr class="clickable" @click="openPropertyPage(p.id)" v-else>
-                <td class="strong">{{ p.name }}<div class="p-state" :class="{ none: !stateOf(p) }">{{ stateOf(p) || 'No state' }}</div></td>
+                <td class="strong"><span class="dl-dot" :class="driveStatus[p.id]" v-if="driveStatus[p.id]" :title="dotTitle(p)"></span>{{ p.name }}<div class="p-state" :class="{ none: !stateOf(p) }">{{ stateOf(p) || 'No state' }}</div></td>
                 <td class="num">{{ unitsOf(p.id).length }}</td>
                 <td>{{ mixText(unitsOf(p.id)) }}</td>
                 <td>{{ !unitsOf(p.id).length ? 'Not started' : `${isDone(p.id) ? unitsOf(p.id).length : (monthDocs[p.id]?.completedUnits || 0)} of ${unitsOf(p.id).length} completed` }}</td>
@@ -73,6 +71,44 @@
       </Paged>
       <div class="card-foot"><span>{{ `Click a property to open its tabs (${acc.PTABS.map(t => t.label).join(', ')}).` }}</span></div>
     </section>
+
+    <!-- Switched-off properties (Directors, 17 Nov 2026): hidden everywhere else; switch back on or delete here -->
+    <section class="card" v-if="isDirector && switchedOff.length">
+      <h2 class="t">{{ `Switched off (${switchedOff.length})` }}</h2>
+      <p class="card-intro">Hidden from every list and drop-down. Switch one back on, or delete one that has no units and no history.</p>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Property</th><th>Short code</th><th>State</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="p in switchedOff" :key="p.id">
+              <td class="strong">{{ p.name || p.id }}</td>
+              <td>{{ p.code || '—' }}</td>
+              <td>{{ stateOf(p) || '—' }}</td>
+              <td class="num off-acts">
+                <button class="btn btn-sm" type="button" @click="openOffAct(p, 'on')">Switch on</button>
+                <button class="btn btn-sm off-del" type="button" @click="openOffAct(p, 'delete')">Delete</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Switch on / Delete a switched-off property: asks the reason (audit log) -->
+    <div class="modal-back" v-if="offAct" @click.self="closeOffAct()" v-esc="() => closeOffAct()">
+      <div class="modal" role="dialog" :aria-label="offAct.kind === 'on' ? 'Switch property on' : 'Delete property'" style="max-width:480px;width:calc(100% - 32px)">
+        <h2>{{ offAct.kind === 'on' ? `Switch on ${offAct.p.name || offAct.p.id}?` : `Delete property ${offAct.p.name || offAct.p.id}?` }}</h2>
+        <p class="help" style="margin:0 0 12px">{{ offAct.kind === 'on' ? 'It shows again in every property list and drop-down.'
+          : 'It will be removed from the system for good, with its fee and rate history. This cannot be undone. Its Google Drive folder is not touched.' }}</p>
+        <div class="notice error" v-show="offAct.error">{{ offAct.error }}</div>
+        <div class="field"><label for="offWhy" class="req">Reason (audit log)</label><input class="input" id="offWhy" v-model="offAct.reason" placeholder="e.g. Contract ended"></div>
+        <div class="modal-foot">
+          <button class="btn" type="button" :disabled="offAct.busy" @click="closeOffAct()">Cancel</button>
+          <button class="btn btn-primary" type="button" :class="{ 'off-del-main': offAct.kind === 'delete' }" :disabled="offAct.busy" @click="runOffAct()">
+            {{ offAct.busy ? 'Working…' : offAct.kind === 'on' ? 'Switch on' : 'Delete property' }}</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Set the state of every property that has none (Directors). One audit line per property. -->
     <div class="modal-back" v-if="statesOpen" @click.self="closeStates()" v-esc="() => closeStates()">
@@ -128,11 +164,16 @@ import RefreshButton from '@/components/RefreshButton.vue';
 import PropertyDrawer from './PropertyDrawer.vue';
 import StampStates from '@/components/StampStates.vue';
 import { STATES, stateOf, normState } from '@/lib/states.js';
-import { setPropertyState, forgetProperties } from '@/lib/portfolio-data.js';
+import { setPropertyState, forgetProperties, loadSwitchedOff, setPropertyActive, propertyRefs, deleteProperty } from '@/lib/portfolio-data.js';
+import { propertyLinks } from '@/lib/drive.js';
+
+// 17 Nov 2026: each property's Drive folder status for the dot before its name, kept 10 minutes
+let driveCache = null;
 
 const me = useSession();
 
 export default {
+  popups: true,   // 16 Nov 2026: shown inside PropertiesRoute, so it opts in to the corner popups (lib/page-popups.js)
   mixins: [liveMixin],
   components: { MonthPicker, RefreshButton, PropertyDrawer, StampStates },
   data() {
@@ -146,7 +187,9 @@ export default {
       STATES, isDirector: me.role === 'director',
       // Set property states popup: the list is fixed when it opens, so saved rows stay on screen as "Saved"
       statesOpen: false, statesList: [], statePick: {}, stateSaved: {}, stateBusy: '', statesErr: '',
-      stampOpen: false
+      stampOpen: false,
+      switchedOff: [], offAct: null,   // Directors: switched-off properties; { p, kind: 'on' | 'delete', reason, busy, error }
+      driveStatus: {}   // id -> 'linked' | 'missing' | 'state' (green dot = has a Drive folder)
     };
   },
   computed: {
@@ -165,17 +208,33 @@ export default {
   async mounted() {
     await this.go();
     this.pickUpHandoff();
+    this.loadDrive();
     // Live (6 Nov 2026): properties added, renamed or switched off elsewhere show without a refresh. The unit counts
     // and month status are read again only when a property is added or removed (they are many reads).
     const ids = list => list.map(p => p.id).sort().join('|');
     this.liveUse('props', watchProperties(rows => {
       const added = ids(rows) !== ids(this.properties);
       this.properties = rows;
-      if (added) this.loadSummary().catch(e => { this.error = friendlyError(e, 'load the portfolio'); });
+      if (added) { this.loadSummary().catch(e => { this.error = friendlyError(e, 'load the portfolio'); }); this.loadDrive(true); this.loadOff(); }
     }, e => { this.error = e.friendly || friendlyError(e, 'load the properties'); }));
   },
   methods: {
     monthName, monthOnly, mixText, stateOf,
+    // Green dot: the property has a folder in its state's Drive folder (Settings > States). Read-only.
+    async loadDrive(fresh = false) {
+      const key = this.properties.map(p => `${p.id}:${p.name}:${stateOf(p)}`).sort().join('|');
+      if (!fresh && driveCache && driveCache.key === key && Date.now() - driveCache.at < 600000) { this.driveStatus = driveCache.status; return; }
+      if (!this.properties.length) return;
+      try {
+        const got = await propertyLinks(this.properties.map(p => ({ id: p.id, name: p.name, state: stateOf(p) })));
+        this.driveStatus = got.status || {};
+        driveCache = { key, at: Date.now(), status: this.driveStatus };
+      } catch (e) { console.error('Drive links:', e); }
+    },
+    dotTitle(p) {
+      const s = this.driveStatus[p.id];
+      return s === 'linked' ? 'Linked to its Google Drive folder' : s === 'missing' ? 'No Google Drive folder found with this name' : `${stateOf(p) || 'No state'}: no Drive folder set up (Settings > States)`;
+    },
     // A property that has info.state but no top-level state starts with it picked (one click to confirm)
     openStates() {
       this.statesList = [...this.noState];
@@ -216,8 +275,35 @@ export default {
         const url = this.url();
         if (url !== location.pathname + location.search) history.replaceState(history.state, '', url);
         await this.loadSummary();
+        await this.loadOff();
       } catch (e) { this.error = friendlyError(e, 'load the portfolio'); }
       this.loading = false;
+    },
+    // ---- switched-off properties (Directors only, 17 Nov 2026) ----
+    async loadOff() {
+      if (!this.isDirector) return;
+      try { this.switchedOff = await loadSwitchedOff(); } catch (e) { console.error('Switched-off properties:', e); }
+    },
+    openOffAct(p, kind) { this.okMsg = ''; this.offAct = { p, kind, reason: '', busy: false, error: '' }; },
+    closeOffAct() { if (!this.offAct?.busy) this.offAct = null; },
+    async runOffAct() {
+      const a = this.offAct, name = a.p.name || a.p.id;
+      a.error = '';
+      if (!a.reason.trim()) return a.error = 'Add a short reason. It goes in the audit log.';
+      a.busy = true;
+      try {
+        if (a.kind === 'on') {
+          await setPropertyActive(me, a.p, true, a.reason.trim());
+        } else {
+          const used = await propertyRefs(a.p.id);
+          if (used) { a.busy = false; a.error = `${name} can't be deleted: it still has ${used}. Leave it switched off so the history stays.`; return; }
+          await deleteProperty(me, a.p, a.reason.trim());
+        }
+        await forgetProperties();
+        this.offAct = null;
+        this.okMsg = a.kind === 'on' ? `${name} switched back on.` : `${name} deleted.`;
+        await this.go();
+      } catch (e) { a.error = friendlyError(e, a.kind === 'on' ? 'switch the property on' : 'delete the property'); a.busy = false; }
     },
     async loadSummary() {
       if (this.acc.viewOnly) {
@@ -269,8 +355,14 @@ export default {
 
 <style scoped>
 .no-state-note { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.dl-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; border: 1.5px solid var(--muted, #999); }
+.dl-dot.linked { background: var(--success, #2e9e5b); border-color: var(--success, #2e9e5b); }
 .p-state { font-size: 11px; font-weight: 500; color: var(--muted); }
 .p-state.none { color: var(--danger, #c0392b); font-weight: 600; }
 .st-wrap { max-height: 55vh; overflow: auto; }
 .st-sel { height: 34px; min-width: 170px; }
+.off-acts { white-space: nowrap; }
+.off-acts .btn + .btn { margin-left: 6px; }
+.off-del { color: var(--red, #c0392b); border-color: currentColor; }
+.off-del-main { background: var(--red, #c0392b); border-color: var(--red, #c0392b); }
 </style>

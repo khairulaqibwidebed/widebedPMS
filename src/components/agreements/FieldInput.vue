@@ -1,6 +1,24 @@
 <template>
   <h3 v-if="field.type === 'section'" class="ag-section">{{ field.label }}</h3>
 
+  <!-- Text block: read only, no answer. Shown in full, or as a link that opens the text. -->
+  <div v-else-if="field.type === 'note'" class="ag-note wide" :class="{ link: field.display === 'link' }">
+    <template v-if="field.display === 'link'">
+      <button type="button" class="ag-note-link" :aria-expanded="String(noteOpen)" :aria-controls="id" @click="noteOpen = !noteOpen">
+        <span aria-hidden="true">📄</span> {{ noteOpen ? 'Hide' : 'Read' }} {{ field.label }}
+      </button>
+      <div v-if="noteOpen" :id="id" class="ag-note-body">
+        <div class="ag-note-text">{{ field.content || '(No text yet)' }}</div>
+        <button type="button" class="btn btn-sm" @click="noteOpen = false">Close</button>
+      </div>
+    </template>
+    <template v-else>
+      <div class="ag-note-title">{{ field.label }}</div>
+      <div class="ag-note-text" :id="id">{{ field.content || '(No text yet)' }}</div>
+    </template>
+    <span class="help" v-if="field.help">{{ field.help }}</span>
+  </div>
+
   <div v-else class="field ag-field" :class="{ 'has-error': error, wide: wide }">
     <label v-if="field.type !== 'checkbox'" :for="id">{{ field.label }}<span class="req" v-if="field.required" aria-hidden="true"> *</span></label>
 
@@ -41,7 +59,7 @@
 
     <label v-else-if="field.type === 'checkbox'" class="ag-check">
       <input type="checkbox" :id="id" :checked="modelValue === true || modelValue === 'true'" :disabled="disabled" @change="set($event.target.checked)">
-      <span>{{ field.label }}<span class="req" v-if="field.required" aria-hidden="true"> *</span></span>
+      <span>{{ field.checkText || field.label }}<span class="req" v-if="field.required" aria-hidden="true"> *</span></span>
     </label>
 
     <SignaturePad v-else-if="field.type === 'signature'" :model-value="modelValue || ''" :label="field.label" :disabled="disabled" @update:model-value="set" />
@@ -91,6 +109,7 @@ const id = computed(() => 'fld-' + props.field.id);
 const wide = computed(() => ['textarea', 'signature', 'radio'].includes(props.field.type));
 const shown = computed(() => formatValue(props.field, props.modelValue));
 const set = v => emit('update:modelValue', v);
+const noteOpen = ref(false);   // text block shown as a link: opened or not
 
 // Property/unit pickers: the real Portfolio list, loaded once per page (cached in portfolio-options.js).
 const propertyOptions = ref([]), unitOptions = ref([]);

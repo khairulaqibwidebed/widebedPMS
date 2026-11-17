@@ -6,7 +6,6 @@
         <input type="file" multiple hidden :disabled="busy" accept="image/*,application/pdf,video/*" @change="pick"></label>
     </div>
     <div class="d-prog" v-if="busy"><span :style="{ width: pct + '%' }"></span></div>
-    <div class="notice error" v-show="error">{{ error }}</div>
     <p class="help loading-line" v-if="loading">Loading files…</p>
     <ul class="d-list" v-else-if="files.length">
       <li v-for="f in files" :key="f.id"><span class="d-ico">{{ icon(f) }}</span><span class="d-name">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
@@ -39,6 +38,7 @@ import { askConfirm } from '@/lib/confirm.js';
 
 // Lists a record's Drive folder and uploads into it. The folder is created on the first upload.
 export default {
+  popups: true,   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   props: { kind: { type: String, required: true }, recordId: { type: String, required: true }, label: { type: String, default: '' }, listOnLoad: { type: Boolean, default: true }, readonly: { type: Boolean, default: false } },
   emits: ['folder', 'removed'],
   data() { return { drag: false, files: [], folderLink: '', loading: false, viewing: null, url: '', vLoading: false, vError: '', busy: false, pct: 0, error: '' }; },

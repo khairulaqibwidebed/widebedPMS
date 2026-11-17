@@ -5,7 +5,8 @@
       <h2>{{ title }}</h2>
       <p>{{ message }}</p>
       <slot></slot>
-      <div class="fs-actions"><button type="button" class="btn btn-primary" @click="$emit('again')">{{ againText }}</button></div>
+      <!-- 16 Nov 2026: the page's own buttons (slot "actions") sit in one row with Start another, which is then a plain button -->
+      <div class="fs-actions"><slot name="actions"></slot><button type="button" class="btn" :class="{ 'btn-primary': !$slots.actions }" @click="$emit('again')">{{ againText }}</button></div>
     </div>
   </section>
 </template>

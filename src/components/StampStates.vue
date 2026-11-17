@@ -6,8 +6,6 @@
         Links owners and tenants to the properties of their units and bookings, so staff see the owners and tenants of their own properties.
         Check first changes nothing. Running it again is safe: records already linked are skipped, so a stopped run just carries on.
       </p>
-      <div class="notice error" v-show="error">{{ error }}</div>
-      <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
       <div v-if="busy" class="st-busy">
         <div>{{ step }}</div>
@@ -100,6 +98,7 @@ import { dryRun, stamp, setStateByHand, saveStampResult, LABEL, DAILY_CAP } from
 const me = useSession();
 
 export default {
+  popups: true,   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   emits: ['close'],
   data() {
     return { STATES, LABEL, DAILY_CAP, plan: null, busy: false, stamping: false, stopAsked: false, step: '', done: 0, total: 0,

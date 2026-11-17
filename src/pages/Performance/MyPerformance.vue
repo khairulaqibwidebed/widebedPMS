@@ -13,7 +13,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-if="error">{{ error }}</div>
 
     <div class="card" v-if="!loading && quarter && !amParticipant">
       <p><b>You are not included in this quarter's performance evaluation.</b></p>

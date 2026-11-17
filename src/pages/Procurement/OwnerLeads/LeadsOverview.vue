@@ -1,8 +1,6 @@
 <template>
   <main class="content">
     <div class="loading-bar" v-show="loading || busy"></div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice warn" v-show="leadsError">{{ leadsError }}</div>
     <div class="notice warn" v-if="syncNotes.length"><template v-for="(n, i) in syncNotes" :key="i"><div>{{ n }}</div></template></div>
     <div class="page-head">
@@ -26,7 +24,7 @@
     </section>
 
     <div class="toolbar ov-tools" ref="list">
-      <input class="input" type="search" placeholder="Search NL no., subject, property, unit, owner or remarks" v-model="search" aria-label="Search owner leads">
+      <input class="input" type="search" placeholder="Search leads, units or owners" title="Searches NL no., subject, property, unit, owner and remarks" v-model="search" aria-label="Search owner leads">
       <OptionPicker v-model="status" :options="[{ value: 'all', label: `All statuses · ${rows.length}` }, ...LEAD_KEYS.map(k => ({ value: k, label: `${LEAD_STATUS[k].label} · ${count(k)}` }))]" label="Status" />
       <OptionPicker v-model="source" :options="[{ value: 'all', label: 'All sources' }, ...SOURCES.map(s => ({ value: s, label: s }))]" label="Source" />
       <OptionPicker v-model="property" :options="[{ value: 'all', label: 'All properties' }, ...propertyList.map(p => ({ value: p, label: p }))]" label="Property" searchable />
@@ -100,6 +98,7 @@ import LiveStatus from '@/components/LiveStatus.vue';
 const HINTS = { new: 'On the board, not started', progress: 'Owner interested', signed: 'Agreement signed', live: 'Handed over to Operations', cancelled: 'Owner not going ahead' };
 
 export default {
+  popups: true,   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { OptionPicker, LiveStatus },
   mixins: [liveMixin],
   data() {

@@ -1,9 +1,10 @@
 <template>
-  <!-- One property drop-down for every page (data access by property, 12 Nov 2026).
-       Lists only the properties passed in (pages load "my properties" through lib/property-scope.js; Directors get all).
-       Labels "Name (CODE)", plus " · State" when the same code is used in another state.
-       13 Nov 2026 (Khairul): the state chips (Johor, KL...) are removed; access by property already narrows the list. -->
   <span class="pp" :class="{ 'pp-block': block }">
+    <!-- One property drop-down for every page (data access by property, 12 Nov 2026).
+         Lists only the properties passed in (pages load "my properties" through lib/property-scope.js; Directors get all).
+         Labels "Name (CODE)", plus " · State" when the same code is used in another state.
+         13 Nov 2026 (Khairul): the state chips (Johor, KL...) are removed; access by property already narrows the list. -->
+    <!-- 16 Nov 2026: this note sits inside the span, so the span is the only root and a class from the page (e.g. fld-pick) reaches it -->
     <OptionPicker :class="pickerClass" :model-value="modelValue" :options="options" :label="label" :disabled="disabled" :placeholder="placeholder" searchable
       @update:model-value="v => $emit('update:modelValue', v)" @change="v => $emit('change', v)" />
   </span>

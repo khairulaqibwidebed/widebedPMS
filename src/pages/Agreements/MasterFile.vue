@@ -2,8 +2,6 @@
   <main class="content">
     <div class="loading-bar" v-show="loading || busy"></div>
     <div class="ag-crumb"><RouterLink to="/Agreements/setup">← Agreement Setup</RouterLink></div>
-    <div class="notice error" v-if="error">{{ error }}</div>
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
     <template v-if="m">
       <div class="page-head">

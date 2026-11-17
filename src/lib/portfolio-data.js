@@ -2,7 +2,7 @@
 // constants and small helpers they share. The pages and drawers keep only screen logic and form checks.
 // Moved out of the old single pages/Portfolio/Portfolio.vue on 4 Nov 2026; the reads and writes are unchanged.
 import { markRaw } from 'vue';
-import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, serverTimestamp, deleteField } from 'firebase/firestore';
+import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, arrayRemove, serverTimestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { listen } from '@/lib/use-live.js';
 import { DEFAULT_OTA, DM_STARTER } from '@/lib/engine.js';
@@ -15,12 +15,46 @@ import { cached, clearCache, patchCache, TTL } from '@/lib/cache.js';
 import { propertyFields, normState, stateFor, rememberStates } from '@/lib/states.js';
 import { scoped, scopedOrBlank, getScoped, myProperties, giveMeProperties } from '@/lib/property-scope.js';
 import { useSession } from '@/stores/session.js';
+import { can } from '@/lib/access.js';
+import { guestContact } from '@/lib/offline.js';
+import { ownersFull } from '@/lib/portfolio-access.js';
 import { loadSharedVersions, forgetShared, mergeVersions, sharedList } from '@/lib/shared-rates.js';
 
 // ---------- constants ----------
 export const MONTH_PAY = { paid: { label: 'Paid', cls: 'green' }, part: { label: 'Part paid', cls: 'amber' }, unpaid: { label: 'Unpaid', cls: 'red' } };
 export const PRIVATE = ['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'bankName', 'accountHolder', 'bankAccount'];
 export const BANK = ['bankName', 'accountHolder', 'bankAccount'];
+// 16 Nov 2026 (Khairul): owner personal data in two parts. private/contact = name and contact (Owners Base and up);
+// private/main = everything, IC, date of birth, address and bank details included (Owners Full only).
+export const CONTACT = ['fullName', 'email', 'phone', 'whatsapp', 'wechat'];
+export const CO_CONTACT = ['fullName', 'email', 'phone'];
+export const SENSITIVE = PRIVATE.filter(k => !CONTACT.includes(k));
+// The contact part of a private record (joint owners without their IC).
+export function contactOf(priv) {
+  const out = {};
+  for (const k of CONTACT) if (k in priv) out[k] = String(priv[k] ?? '');
+  if (Array.isArray(priv.coOwners)) out.coOwners = priv.coOwners.map(c => Object.fromEntries(CO_CONTACT.map(k => [k, String(c?.[k] || '')])));
+  return out;
+}
+// Full readers: private/main with the contact part on top (Marketing may have changed names or contact since).
+export function mergeOwnerPriv(main, contact) {
+  if (!contact || !Object.keys(contact).length) return main || {};
+  const out = { ...(main || {}), ...contact };
+  if (Array.isArray(contact.coOwners)) out.coOwners = contact.coOwners.map((c, i) => ({ ...((main?.coOwners || [])[i] || {}), ...c }));
+  return out;
+}
+// Which part this person reads: 'main' (Full), 'contact' (Base) or null (no Owners access).
+export function ownerPrivLevel() {
+  const me = useSession();
+  return ownersFull(me) ? 'main' : can(me, 'owners.view') ? 'contact' : null;
+}
+async function readOwnerPriv(id, lvl = ownerPrivLevel()) {
+  if (!lvl) return {};
+  const ref = doc(db, 'owners', id), get = d => getDoc(doc(ref, 'private', d)).then(x => (x.exists() ? x.data() : {})).catch(() => ({}));
+  if (lvl === 'contact') return get('contact');
+  const [m, c] = await Promise.all([get('main'), get('contact')]);
+  return mergeOwnerPriv(m, c);
+}
 export const PROP_INFO = ['address', 'city', 'state', 'ezeeAccount', 'ezeeName'];
 export const UNIT_INFO = ['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb'];
 export { STATES } from '@/lib/states.js';   // the list moved to lib/states.js (12 Nov 2026)
@@ -49,7 +83,7 @@ export function arrangementOptions(list) {
   const order = { short: 0, mid: 1, long: 2 };
   return [{ value: '', label: 'Not set up' }, ...Object.entries(list || {})
     .sort((a, b) => (order[a[1].section] ?? 3) - (order[b[1].section] ?? 3) || String(a[1].name).localeCompare(String(b[1].name)))
-    .map(([k, a]) => { const t = FEE_TYPES[a.type]?.label || a.type; return { value: k, label: a.name === t ? a.name : `${a.name} · ${t}` }; })];
+    .map(([k, a]) => ({ value: k, label: a.name || FEE_TYPES[a.type]?.label || a.type }))];   // 17 Nov 2026: name only, no " · type"
 }
 // "3 fixed · 2 sharing · 1 not set up"
 export function mixText(list) {
@@ -72,7 +106,7 @@ export function changeList(a) {
   const v = x => (x == null || x === '' ? '—' : Array.isArray(x) ? (x.join(', ') || '—') : knownArrangement(String(x))?.name || String(x));
   const names = { ownerId: 'Owner', aliases: 'eZee names', active: 'Active', arrangement: 'Arrangement', units: 'Units', status: 'Status',
     fullName: 'Full name', coOwners: 'Co-owners', dob: 'Date of birth', bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account',
-    ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID', autocountAcc: 'Autocount account no.' };
+    ic: 'IC / Passport', email: 'Email', phone: 'Phone', address: 'Address', whatsapp: 'WhatsApp', wechat: 'WeChat ID', autocountAcc: 'Autocount account no.', remarks: 'Remarks' };
   const nice = f => names[f] || f.replace(/([A-Z])/g, ' $1').replace(/^./, m => m.toUpperCase());
   const out = (a.changes || []).map(c => c.new === '(changed)' ? `${nice(c.field)} updated` : `${nice(c.field)}: ${v(c.old)} → ${v(c.new)}`);
   return out.length ? out : ['—'];
@@ -119,7 +153,7 @@ export const freshOwnerCode = async owners => ownerCodeOf(await freshOwnerNumber
 export const nextOwnerCode = owners => `OWN-${String(Math.max(0, ...owners.map(x => Number(String(x.code || x.id).replace(/\D/g, '')) || 0)) + 1).padStart(3, '0')}`;
 
 // ---------- reads ----------
-const ownersKey = (viewOnly, canEdit) => `owners:${viewOnly}:${canEdit}:${(myProperties() || ['all']).join(',')}`;
+const ownersKey = (viewOnly, canEdit) => `owners:${ownerPrivLevel()}:${(myProperties() || ['all']).join(',')}`;   // 16 Nov 2026: by Owners level (viewOnly, canEdit kept for the callers)
 // The owners I may see (12 Nov 2026, lib/property-scope.js): owners of units in my properties (owners.propertyIds),
 // plus owners I added myself that have no unit yet. Directors: every owner.
 function ownerQueries(extra = []) {
@@ -128,13 +162,14 @@ function ownerQueries(extra = []) {
   const uid = useSession().user?.uid;
   return myProperties() && uid ? [...list, query(col, where('createdBy', '==', uid), ...extra)] : list;
 }
-// Every owner, by name. Names live in private/main (PDPA); older owners kept the name on the main record.
-// View-only roles (except Marketing) don't read the private part.
+// Every owner, by name. Names live in the private part (PDPA); older owners kept the name on the main record.
+// Owners Full read private/main (+ contact), Owners Base private/contact, no Owners access nothing (16 Nov 2026).
 export async function loadOwners(viewOnly, canEdit) {
   const list = await cached(ownersKey(viewOnly, canEdit), TTL.mid, async () => {
     const rows = (await getScoped(ownerQueries())).docs.map(d => ({ id: d.id, ...d.data() }));
-    const privs = viewOnly && !canEdit ? [] : await Promise.all(rows.map(x => getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null)));
-    rows.forEach((x, i) => { x.private = privs[i]?.exists?.() ? privs[i].data() : {}; });
+    const lvl = ownerPrivLevel();
+    const privs = lvl ? await Promise.all(rows.map(x => readOwnerPriv(x.id, lvl))) : [];
+    rows.forEach((x, i) => { x.private = privs[i] || {}; });
     return rows;
   });
   return [...list].sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id));
@@ -150,11 +185,9 @@ export function watchOwners(viewOnly, canEdit, onRows, onError, seed = []) {
   let turn = 0;
   return listen(ownerQueries([limit(1000)]), async rows => {
     const mine = ++turn;
-    const todo = viewOnly && !canEdit ? [] : rows.filter(x => !(x.id in privs) || seenAt[x.id] !== stamp(x));
-    await Promise.all(todo.map(async x => {
-      const d = await getDoc(doc(db, 'owners', x.id, 'private', 'main')).catch(() => null);
-      privs[x.id] = d?.exists?.() ? d.data() : {}; seenAt[x.id] = stamp(x);
-    }));
+    const lvl = ownerPrivLevel();
+    const todo = lvl ? rows.filter(x => !(x.id in privs) || seenAt[x.id] !== stamp(x)) : [];
+    await Promise.all(todo.map(async x => { privs[x.id] = await readOwnerPriv(x.id, lvl); seenAt[x.id] = stamp(x); }));
     if (mine !== turn) return;
     clearCache('owners:');
     onRows(rows.map(x => ({ ...x, private: privs[x.id] || {} }))
@@ -334,6 +367,10 @@ export async function saveOfflineBooking(me, b, main, changes, privData, guestDa
   batch.update(ref, { ...main, ...(st ? { state: st } : {}), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
   if (privData) batch.set(doc(ref, 'private', 'main'), privData, { merge: true });
   if (guestData) batch.set(doc(db, 'tenants', b.tenantId, 'private', 'main'), guestData, { merge: true });
+  // The guest's name, phone and email also in private/contact (17 Nov 2026)
+  const pc = guestContact(privData), gc = guestContact(guestData);
+  if (Object.keys(pc).length) batch.set(doc(ref, 'private', 'contact'), pc, { merge: true });
+  if (Object.keys(gc).length) batch.set(doc(db, 'tenants', b.tenantId, 'private', 'contact'), gc, { merge: true });
   audit(batch, me, { action: 'offlineBooking.update', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
     changes: [...changes, ...Object.keys({ ...(privData || {}), ...(guestData || {}) }).map(k => ({ field: `private.${k}`, old: null, new: null }))], reason: b.reason.trim() });
   await batch.commit();
@@ -355,6 +392,7 @@ export async function setBookingCancelled(me, b, cancel, reason) {
 export async function deleteOfflineBooking(me, b, reason) {
   const batch = writeBatch(db), ref = doc(db, 'offlineBookings', b.id);
   batch.delete(doc(ref, 'private', 'main'));
+  batch.delete(doc(ref, 'private', 'contact'));
   batch.delete(doc(db, 'utilityBills', b.id));
   batch.delete(ref);
   audit(batch, me, { action: 'offlineBooking.delete', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
@@ -368,8 +406,8 @@ export async function deleteOfflineBooking(me, b, reason) {
 export async function refreshOwner(id, viewOnly, canEdit, removed = false) {
   let owner = null;
   if (!removed) {
-    const [m, pr] = await Promise.all([getDoc(doc(db, 'owners', id)), getDoc(doc(db, 'owners', id, 'private', 'main')).catch(() => null)]);
-    if (m.exists()) owner = { id, ...m.data(), private: pr?.exists?.() ? pr.data() : {} };
+    const [m, pr] = await Promise.all([getDoc(doc(db, 'owners', id)), readOwnerPriv(id)]);
+    if (m.exists()) owner = { id, ...m.data(), private: pr };
   }
   const ok = await patchCache(ownersKey(viewOnly, canEdit), list => [...list.filter(x => x.id !== id), ...(owner ? [owner] : [])]);
   if (!ok) await clearCache('owners:');
@@ -401,7 +439,9 @@ export function handoffProperty(h, properties) {
 
 // ---------- writes: owners ----------
 // keepMain: Marketing editing an owner leave the code, status and bank digits as they are.
-export async function saveOwner(me, { id, isNew, keepMain, active, bankLast4, priv, changed, reason, propertyId }) {
+// full: Owners Full (writes private/main and private/contact). Otherwise a new owner (Operations, Marketing) writes both
+// once and never reads private/main back; Marketing editing an owner write private/contact only (16 Nov 2026).
+export async function saveOwner(me, { id, isNew, keepMain, active, bankLast4, priv, changed, reason, propertyId, full = true }) {
   const b = writeBatch(db);
   const main = keepMain ? { updatedAt: serverTimestamp(), updatedBy: me.user.uid }
     : { code: id, active, bankLast4, updatedAt: serverTimestamp(), updatedBy: me.user.uid };
@@ -412,7 +452,9 @@ export async function saveOwner(me, { id, isNew, keepMain, active, bankLast4, pr
     main.states = st ? [st] : (me.role === 'director' ? [] : (me.states || []));
   }
   b.set(doc(db, 'owners', id), main, { merge: true });
-  b.set(doc(db, 'owners', id, 'private', 'main'), { ...priv, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+  const stamp = { updatedAt: serverTimestamp(), updatedBy: me.user.uid };
+  if (full || isNew) b.set(doc(db, 'owners', id, 'private', 'main'), { ...priv, ...stamp }, { merge: true });
+  b.set(doc(db, 'owners', id, 'private', 'contact'), { ...contactOf(priv), ...stamp }, { merge: true });
   // Audit names the fields changed, never the personal values.
   audit(b, me, { action: isNew ? 'owner.create' : 'owner.update', entity: `owners/${id}`, propertyId,
     changes: changed.map(k => ({ field: k, old: null, new: '(changed)' })), reason });
@@ -421,9 +463,43 @@ export async function saveOwner(me, { id, isNew, keepMain, active, bankLast4, pr
   // may add propertyIds from rules Draft 0.59; until then a refusal is ignored (they still see owners they added).
   if (isNew && propertyId) await setDoc(doc(db, 'owners', id), { propertyIds: arrayUnion(propertyId) }, { merge: true }).catch(e => console.warn('Owner propertyIds not saved:', e.code || e.message));
 }
+// One-off move (16-17 Nov 2026), Directors: copy names and contact details from private/main into private/contact for
+// owners (name, email, phone, WhatsApp, WeChat), tenants and offline bookings (name, phone, email), so Owners Base and the
+// AI Agent can read them without IC, passport, address, bank details or passcodes. A contact part that already has a
+// name is left alone; one with only a few fields keeps them and gets the rest. Notes the run in config/contactSplit so
+// the button goes away. Returns the counts copied.
+export const contactSplitDone = async () => (await getDoc(doc(db, 'config', 'contactSplit')).catch(() => null))?.exists?.() || false;
+export async function copyContacts(me) {
+  let b = writeBatch(db), n = 0;
+  const put = async (ref, data) => { b.set(ref, data); if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; } };
+  const stamp = { updatedAt: serverTimestamp(), updatedBy: me.user.uid };
+  const part = async (col, pick, nameKey) => {
+    const ids = (await getDocs(collection(db, col))).docs.map(d => d.id);
+    let copied = 0;
+    for (const id of ids) {
+      const [m, c] = await Promise.all([getDoc(doc(db, col, id, 'private', 'main')), getDoc(doc(db, col, id, 'private', 'contact'))]);
+      if (!m.exists() || (c.exists() && c.data()[nameKey])) continue;
+      const data = pick(m.data());
+      if (!data[nameKey] && !data.phone && !data.email) continue;   // nothing to copy (e.g. passcodes only)
+      await put(doc(db, col, id, 'private', 'contact'), { ...data, ...(c.exists() ? c.data() : {}), ...stamp });
+      copied++;
+    }
+    return copied;
+  };
+  const counts = { owners: await part('owners', contactOf, 'fullName'), tenants: await part('tenants', guestContact, 'name'),
+    offlineBookings: await part('offlineBookings', guestContact, 'name') };
+  b.set(doc(db, 'config', 'contactSplit'), { doneAt: serverTimestamp(), by: me.user.uid, byName: me.name, ...counts });
+  audit(b, me, { action: 'contactSplit', entity: 'config/contactSplit',
+    changes: [{ field: 'private/contact', old: null, new: `${counts.owners} owners, ${counts.tenants} tenants, ${counts.offlineBookings} bookings` }],
+    reason: 'Names and contact details copied for Owners Base and the AI Agent' });
+  await b.commit();
+  clearCache('owners:');
+  return counts;
+}
 export async function deleteOwner(me, o, propertyId) {
   const b = writeBatch(db);
   b.delete(doc(db, 'owners', o.id, 'private', 'main'));
+  b.delete(doc(db, 'owners', o.id, 'private', 'contact'));
   b.delete(doc(db, 'owners', o.id));
   audit(b, me, { action: 'owner.delete', entity: `owners/${o.id}`, propertyId, changes: [{ field: 'owner', old: o.fullName || o.code || o.id, new: null }], reason: 'Deleted, no units linked' });
   await b.commit();
@@ -446,13 +522,14 @@ export async function reactivateOwner(me, id, reason) {
 // purchasePrice (Accounting / Directors): used by Pool Sharing; undefined = left as it is.
 // autocountAcc (13 Nov 2026): the unit's account no. in Autocount; undefined = left as it is. Only sent by people with an
 // Edit tick: the rules don't let Operations or Marketing save it yet.
-export async function saveUnit(me, { id, isNew, detailsOnly, propertyId, code, aliases, ownerId, info, active, purchasePrice, autocountAcc, terms, termsChanged, effectiveFrom, reason, changes }) {
+// remarks (16 Nov 2026): free notes on the unit; undefined = left as it is. Same people as autocountAcc.
+export async function saveUnit(me, { id, isNew, detailsOnly, propertyId, code, aliases, ownerId, info, active, purchasePrice, autocountAcc, remarks, terms, termsChanged, effectiveFrom, reason, changes }) {
   // The owner before this save, so both the old and the new owner's states are worked out again after it
   const before = !isNew && !detailsOnly ? await getDoc(doc(db, 'units', id)).then(s => (s.exists() ? s.data().ownerId || null : null)).catch(() => null) : null;
   const st = await stateFor(propertyId);
   const b = writeBatch(db);
   const unitData = { propertyId, ...(st ? { state: st } : {}), unitCode: code, ezeeRoomMatch: code, aliases, ownerId, info, active, updatedAt: serverTimestamp(), updatedBy: me.user.uid,
-    ...(purchasePrice !== undefined ? { purchasePrice } : {}), ...(autocountAcc !== undefined ? { autocountAcc } : {}) };
+    ...(purchasePrice !== undefined ? { purchasePrice } : {}), ...(autocountAcc !== undefined ? { autocountAcc } : {}), ...(remarks !== undefined ? { remarks } : {}) };
   if (isNew) unitData.createdAt = serverTimestamp(), unitData.createdBy = me.user.uid;
   b.set(doc(db, 'units', id), detailsOnly ? { aliases, info, updatedAt: serverTimestamp(), updatedBy: me.user.uid } : unitData, { merge: true });
   markFrom(b, propertyId, ALL_MONTHS, id);   // this unit's month summaries are worked out again (owner, status, settings)
@@ -661,4 +738,65 @@ export async function setPropertyState(me, p, state, reason) {
   audit(b, me, { action: 'property.state', entity: `properties/${p.id}`, propertyId: p.id, changes: [{ field: 'state', old, new: st }], reason });
   await b.commit();
   rememberStates([{ id: p.id, state: st }]);
+}
+
+// ---------- switch off and delete a property (Directors only, 17 Nov 2026, rules Draft 0.77) ----------
+// Switched-off properties (active: false) drop out of every property list and drop-down (loadProperties keeps active
+// ones only). Portfolio > Properties lists them under "Switched off" for Directors, to switch back on or delete.
+export async function loadSwitchedOff() {
+  const snap = await getDocs(query(collection(db, 'properties'), where('active', '==', false)));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+export async function setPropertyActive(me, p, active, reason) {
+  const b = writeBatch(db);
+  b.set(doc(db, 'properties', p.id), { active, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+  audit(b, me, { action: active ? 'property.on' : 'property.off', entity: `properties/${p.id}`, propertyId: p.id,
+    changes: [{ field: 'active', old: !active, new: active }], reason });
+  await b.commit();
+  clearCache('properties');
+}
+// What still points at a property, as a short list of names ('' = nothing, safe to delete). Lists of properties
+// (owners, tenants, staff access) do not count: the delete takes the property off staff lists itself.
+const PROPERTY_REFS = [['units', 'units'], ['bookings', 'eZee bookings'], ['statements', 'statements'], ['payoutHistory', 'payouts'],
+  ['expenses', 'expenses'], ['approvals', 'approvals'],
+  ['offlineBookings', 'offline bookings'], ['offlinePayments', 'offline payments'], ['utilityBills', 'utility bills'],
+  ['issues', 'issues']];   // issueQuotes left out: its rule refuses any search, and a quote's id is its issue's id
+export async function propertyRefs(id) {
+  const found = [];
+  for (const [coll, label] of PROPERTY_REFS) {
+    const snap = await getDocs(query(collection(db, coll), where('propertyId', '==', id), limit(1)));
+    if (!snap.empty) found.push(label);
+  }
+  const ups = await getDocs(query(collection(db, 'importBatches'), where('propertyIds', 'array-contains', id), limit(1)));
+  if (!ups.empty) found.push('eZee uploads');
+  return found.join(', ');
+}
+// Deletes the property and its fee and rate history, and takes it off staff access lists. Only when propertyRefs()
+// finds nothing (the page checks first). The Google Drive folder is never touched.
+export async function deleteProperty(me, p, reason) {
+  const refs = (await getDocs(collection(db, 'properties', p.id, 'rateVersions'))).docs.map(d => d.ref);
+  const staff = (await getDocs(query(collection(db, 'users'), where('properties', 'array-contains', p.id)))).docs.map(d => d.ref);
+  // Sub-records and staff lists first, then the property with its audit line, so a failure leaves the property findable
+  const CHUNK = 450, all = [...refs.map(r => ['del', r]), ...staff.map(r => ['staff', r])];
+  for (let i = 0; i < all.length; i += CHUNK) {
+    const cb = writeBatch(db);
+    all.slice(i, i + CHUNK).forEach(([k, r]) => (k === 'del' ? cb.delete(r) : cb.update(r, { properties: arrayRemove(p.id) })));
+    await cb.commit();
+  }
+  const b = writeBatch(db);
+  b.delete(doc(db, 'properties', p.id));
+  audit(b, me, { action: 'property.delete', entity: `properties/${p.id}`, propertyId: p.id,
+    changes: [{ field: 'property', old: `${p.name || p.id} (${p.code || '-'})`, new: null }], reason });
+  await b.commit();
+  clearCache('properties');
+  // Its month summaries (months/{id}_{YYYY-MM}): the Properties list writes one each month even with no units. The rules
+  // allow this only once the property is gone. Never throws: leftovers are harmless.
+  try {
+    const months = (await getDocs(query(collection(db, 'months'), where('propertyId', '==', p.id)))).docs.map(d => d.ref);
+    for (let i = 0; i < months.length; i += CHUNK) {
+      const mb = writeBatch(db);
+      months.slice(i, i + CHUNK).forEach(r => mb.delete(r));
+      await mb.commit();
+    }
+  } catch (e) { console.error('Month summaries of the deleted property:', e); }
 }

@@ -10,6 +10,11 @@
 // HR's Drive (11 Nov 2026): kind 'complaints' (documents on staff complaints) goes to HR's own Google account through a
 // second copy of the same script: DRIVE_HR_SCRIPT_URL + DRIVE_HR_SCRIPT_KEY. Only people who can read that complaint in
 // Firestore (HR, and its sender) may upload, list or open its files; folders are named by the complaint ref only.
+// Owner Files (17 Nov 2026): each state set up on Settings > States (config/driveStates) has a Drive folder (e.g. "Owner Files
+// (SA, Statements)" for KL). Issue uploads on a customer ticket go to <state folder>/<property>/Owner/<unit>/Maintenance/
+// "<title> <date> (<tag>)"; missing pieces are made, names matched without spaces, dashes or capitals. No state link, no
+// property or unit: the old Widebed PMS Files/Issues folder. Every upload is tagged (appProperties.pms = its kind); the
+// PMS opens or removes a file only when it carries that tag or sits in its own <root>/<kind>/ folder.
 // Older options: GOOGLE_SERVICE_ACCOUNT_JSON (company: Shared Drive) or GOOGLE_OAUTH_CLIENT_ID/_SECRET/_REFRESH_TOKEN (testing on one person's Drive), DRIVE_ROOT_FOLDER_ID, FIREBASE_API_KEY. The folder must sit in a Shared Drive
 // the service account is a member of. Anyone with a PMS login may use it; the files themselves stay inside the Shared Drive.
 import { createSign } from 'node:crypto';
@@ -139,6 +144,110 @@ async function recordFolder(tok, kind, recordId, label = '') {
   return folder(tok, monthId, `${clean || kind} (${tag})`);
 }
 
+// ---------- Owner Files (17 Nov 2026) ----------
+const OWNER_SUB = 'Owner', MAINT = 'Maintenance', SETUP_ROLES = ['director', 'operations'];
+const FOLDER = 'application/vnd.google-apps.folder';
+// "DM 13-11", "dm1311" and "DM 1311" are the same name
+const nameKey = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const projectId = () => process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'widebed-pmsdashboard';
+// A Firestore record read with the person's own sign-in (the rules decide); null when missing or refused
+async function readDoc(user, path) {
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId()}/databases/(default)/documents/${path}`, { headers: { Authorization: `Bearer ${user.idToken}` } });
+  return r.ok ? (await r.json()).fields || {} : null;
+}
+// The Drive folder set up for a state on Settings > States, '' when none
+async function stateFolder(user, state) {
+  if (!state) return '';
+  const f = await readDoc(user, 'config/driveStates');
+  return f?.states?.mapValue?.fields?.[state]?.mapValue?.fields?.folderId?.stringValue || '';
+}
+async function propertyOf(user, propertyId) {
+  if (!SAFE.test(propertyId || '')) return null;
+  const f = await readDoc(user, `properties/${propertyId}`);
+  if (!f) return null;
+  return { name: f.name?.stringValue || '', state: f.state?.stringValue || f.info?.mapValue?.fields?.state?.stringValue || '' };
+}
+// Every folder directly inside a folder: [{ id, name }]
+async function subfolders(tok, parent) {
+  const out = []; let page = '';
+  do {
+    const url = `${API}/files?q=${encodeURIComponent(`'${parent}' in parents and mimeType='${FOLDER}' and trashed=false`)}&fields=nextPageToken,files(id,name)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true${page ? `&pageToken=${encodeURIComponent(page)}` : ''}`;
+    const j = await (await g(url, tok)).json();
+    out.push(...(j.files || [])); page = j.nextPageToken || '';
+  } while (page);
+  return out;
+}
+// 17 Nov 2026 (Khairul): Drive folders may carry a note the PMS code can't, e.g. "TR G-01 (Duplex)" for unit TR G-01.
+// An exact match wins; otherwise the folder name is matched with anything in brackets left out.
+const bareKey = s => nameKey(String(s || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' '));
+const findByKey = (list, name) => (nameKey(name)
+  ? list.find(f => nameKey(f.name) === nameKey(name)) || list.find(f => bareKey(f.name) === nameKey(name)) || null : null);
+async function makeFolder(tok, parent, name) {
+  const r = await g(`${API}/files?supportsAllDrives=true&fields=id`, tok, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: FOLDER, parents: [parent] }) });
+  return (await r.json()).id;
+}
+// A unit folder: as findByKey, then (17 Nov 2026, Khairul) without the property code in front, since some folders leave
+// it out, e.g. unit "LK A1-25-07" in folder "A1-25-07". Never shorter than 3 letters/digits, so "01" can't match.
+function findUnit(list, code) {
+  const hit = findByKey(list, code);
+  if (hit) return hit;
+  const parts = String(code || '').trim().split(/\s+/), rest = parts.slice(1).join(' ');
+  return parts.length > 1 && nameKey(rest).length >= 3 ? findByKey(list, rest) : null;
+}
+async function findOrMake(tok, parent, name, newName = name, find = findByKey) {
+  const hit = find(await subfolders(tok, parent), name);
+  return hit ? hit.id : makeFolder(tok, parent, newName);
+}
+// A new unit folder in the Drive's style: "DM 1311" -> "DM 13-11", "DM 13A08" -> "DM 13A-08"; otherwise as written
+function driveUnitName(code) {
+  const parts = String(code || '').trim().replace(/\s+/g, ' ').split(' '), last = parts.pop() || '';
+  const m = /^(\d+[A-Za-z]?)(\d{2})$/.exec(last);
+  return [...parts, m ? `${m[1]}-${m[2]}` : last].join(' ').trim();
+}
+const link = id => `https://drive.google.com/drive/folders/${id}`;
+// A property's folder under its state's folder. make: create it (with Owner inside) when missing.
+// { id, made } or { id: '', why } when it can't be found
+async function propertyFolder(tok, user, propertyId, make = false) {
+  const p = await propertyOf(user, propertyId);
+  if (!p?.name) return { id: '', why: 'property' };
+  const root = await stateFolder(user, p.state);
+  if (!root) return { id: '', why: 'state', state: p.state };
+  const hit = findByKey(await subfolders(tok, root), p.name);
+  if (hit) return { id: hit.id, name: hit.name };
+  if (!make) return { id: '', why: 'folder' };
+  const id = await makeFolder(tok, root, p.name.replace(/[\\/]/g, ' ').trim());
+  await makeFolder(tok, id, OWNER_SUB);
+  return { id, name: p.name, made: true };
+}
+// Issues: <property>/Owner/<unit>/Maintenance/"<title> <date> (<tag>)". '' when the ticket has no property or unit,
+// or its state has no Drive folder (the upload then goes to Widebed PMS Files/Issues).
+async function issueFolder(tok, user, b) {
+  const unit = String(b.unit || '').trim().slice(0, 40);
+  if (!b.propertyId || !unit || !SAFE.test(b.recordId || '')) return '';
+  const pf = await propertyFolder(tok, user, b.propertyId, true);
+  if (!pf.id) return '';
+  const owner = await findOrMake(tok, pf.id, OWNER_SUB);
+  const unitId = await findOrMake(tok, owner, unit, driveUnitName(unit), findUnit);
+  const maint = await findOrMake(tok, unitId, MAINT);
+  const tag = b.recordId.slice(-5);
+  // Drive's "name contains" only matches word starts, so the "(tag)" ending is checked here instead
+  const found = (await subfolders(tok, maint)).find(f => String(f.name || '').endsWith(`(${tag})`));
+  if (found) return found.id;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  const title = String(b.label || '').replace(/[\\/'"]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Issue';
+  return makeFolder(tok, maint, `${title} ${day} (${tag})`);
+}
+// The file sits in <root>/<kind>/ (up to 3 folders down)
+async function insideKind(tok, parents, kindId) {
+  let ids = parents || [];
+  for (let depth = 0; depth < 3 && ids.length; depth++) {
+    if (ids.includes(kindId)) return true;
+    ids = (await (await g(`${API}/files/${ids[0]}?fields=parents&supportsAllDrives=true`, tok)).json()).parents || [];
+  }
+  return false;
+}
+
 // Staff complaint files: the person must be able to read complaints/{recordId} under the Firestore rules (HR, or the
 // complaint's sender), and it must be a staff complaint. Read with their own sign-in, so the rules decide.
 // Director complaints (11 Nov 2026): the Directors and the HR person who sent it. Closed: only HR (staff) or the
@@ -171,16 +280,75 @@ export default async function handler(req, res) {
       b.label = COMPLAINT[b.kind].ref.test(String(b.label || '')) ? b.label : '';
     }
     const tok = await driveToken(acct);
+    // ---- Owner Files (17 Nov 2026) ----
+    if (['checkFolder', 'linkCheck'].includes(b.action) && !SETUP_ROLES.includes(await roleOf(user)))
+      throw new HttpError(403, 'Only Directors and Operations can set up state folders.');
+    if (b.action === 'checkFolder') {
+      // A link pasted on Settings > States: is it a folder this Drive account can open?
+      if (!SAFE.test(b.folderId || '')) throw new HttpError(400, 'That is not a Google Drive folder link.');
+      const r = await fetch(`${API}/files/${b.folderId}?fields=id,name,mimeType,capabilities(canAddChildren)&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${tok}` } });
+      if (!r.ok) throw new HttpError(404, 'The PMS cannot open that folder. Share it with support@widebed.com as Editor, then try again.');
+      const f = await r.json();
+      if (f.mimeType !== FOLDER) throw new HttpError(400, 'That link is a file, not a folder.');
+      if (f.capabilities && f.capabilities.canAddChildren === false) throw new HttpError(403, `The PMS can see "${f.name}" but cannot add to it. Give support@widebed.com Editor access.`);
+      return res.status(200).json({ id: f.id, name: f.name, link: link(f.id) });
+    }
+    if (b.action === 'linkCheck') {
+      // Read-only: which of a state's properties (and their units) have a folder. Nothing is made.
+      const root = await stateFolder(user, String(b.state || ''));
+      if (!root) throw new HttpError(400, 'This state has no Drive folder yet.');
+      const list = (Array.isArray(b.properties) ? b.properties : []).slice(0, 300);
+      const folders = await subfolders(tok, root);
+      const one = async p => {
+        const hit = findByKey(folders, p.name), row = { id: String(p.id || ''), link: hit ? link(hit.id) : '', folderName: hit?.name || '', ownerLink: '', units: {} };
+        if (hit) {
+          const owner = findByKey(await subfolders(tok, hit.id), OWNER_SUB);
+          if (owner) {
+            row.ownerLink = link(owner.id);
+            const unitFolders = await subfolders(tok, owner.id);
+            for (const code of (Array.isArray(p.units) ? p.units : []).slice(0, 1000)) { const u = findUnit(unitFolders, code); row.units[code] = u ? link(u.id) : ''; }
+          }
+        }
+        return row;
+      };
+      const out = [];
+      for (let i = 0; i < list.length; i += 8) out.push(...await Promise.all(list.slice(i, i + 8).map(one)));   // 8 at a time
+      return res.status(200).json({ properties: out });
+    }
+    if (b.action === 'propertyLinks') {
+      // Properties list (17 Nov 2026): which properties have a folder. One folder listing per state; read-only.
+      // [{ id, name, state }] -> { status: { id: 'linked' | 'missing' | 'state' }, links: { id: link } }
+      const list = (Array.isArray(b.properties) ? b.properties : []).slice(0, 500), status = {}, links = {}, byState = {};
+      for (const p of list) (byState[String(p.state || '')] ||= []).push(p);
+      for (const [st, ps] of Object.entries(byState)) {
+        const root = await stateFolder(user, st);
+        if (!root) { for (const p of ps) status[p.id] = 'state'; continue; }
+        const folders = await subfolders(tok, root);
+        for (const p of ps) { const hit = findByKey(folders, p.name); status[p.id] = hit ? 'linked' : 'missing'; if (hit) links[p.id] = link(hit.id); }
+      }
+      return res.status(200).json({ status, links });
+    }
+    if (b.action === 'propertyFolder') {
+      // A property's folder link (Overview); make: create it with Owner inside when missing (Add property)
+      const pf = await propertyFolder(tok, user, b.propertyId, !!b.make);
+      return res.status(200).json(pf.id ? { link: link(pf.id), made: !!pf.made } : { link: '', why: pf.why, state: pf.state || '' });
+    }
+    if (b.action === 'unitFolder') {
+      // A unit's folder link (Unit view): <property>/Owner/<unit>. Read-only.
+      const pf = await propertyFolder(tok, user, b.propertyId, false);
+      if (!pf.id) return res.status(200).json({ link: '', why: pf.why });
+      const owner = findByKey(await subfolders(tok, pf.id), OWNER_SUB);
+      const u = owner && findUnit(await subfolders(tok, owner.id), b.unit);
+      return res.status(200).json({ link: u ? link(u.id) : '', why: u ? '' : 'unit' });
+    }
     if (b.action === 'remove') {
-      // Moves one file to the Drive trash (restorable there). Only files inside <root>/<kind>/ can be removed.
+      // Moves one file to the Drive trash (restorable there). Only a file the PMS uploaded to this area (tagged), or
+      // one inside <root>/<kind>/, can be removed.
       if (!KINDS[b.kind] || !SAFE.test(b.fileId || '')) throw new HttpError(400, 'Bad request.');
       const root = rootId(acct);
       const kindId = await folder(tok, root, KINDS[b.kind]);
-      let ok = false, ids = (await (await g(`${API}/files/${b.fileId}?fields=parents&supportsAllDrives=true`, tok)).json()).parents || [];
-      for (let depth = 0; depth < 3 && !ok && ids.length; depth++) {
-        ok = ids.includes(kindId);
-        if (!ok) ids = (await (await g(`${API}/files/${ids[0]}?fields=parents&supportsAllDrives=true`, tok)).json()).parents || [];
-      }
+      const meta = await (await g(`${API}/files/${b.fileId}?fields=parents,appProperties&supportsAllDrives=true`, tok)).json();
+      const ok = meta.appProperties?.pms === b.kind || await insideKind(tok, meta.parents, kindId);
       if (!ok) throw new HttpError(403, 'That file is not in this area.');
       await g(`${API}/files/${b.fileId}?supportsAllDrives=true`, tok, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) });
       return res.status(200).json({ ok: true });
@@ -190,17 +358,14 @@ export default async function handler(req, res) {
       if (!KINDS[b.kind] || !SAFE.test(b.fileId || '')) throw new HttpError(400, 'Bad request.');
       const root = rootId(acct);
       const kindId = await folder(tok, root, KINDS[b.kind]);
-      const meta = await (await g(`${API}/files/${b.fileId}?fields=name,mimeType,size,parents&supportsAllDrives=true`, tok)).json();
+      const meta = await (await g(`${API}/files/${b.fileId}?fields=name,mimeType,size,parents,appProperties&supportsAllDrives=true`, tok)).json();
       // A complaint file must sit in that complaint's own folder ("SC-0013 (<last 5 of its id>)")
       if (acct === 'hr') {
         const p = meta.parents?.[0] && await (await g(`${API}/files/${meta.parents[0]}?fields=name&supportsAllDrives=true`, tok)).json();
         if (!p || !String(p.name || '').endsWith(`(${b.recordId.slice(-5)})`)) throw new HttpError(403, 'That file is not on this complaint.');
       }
-      let ok = false, ids = meta.parents || [];
-      for (let depth = 0; depth < 3 && !ok && ids.length; depth++) {
-        ok = ids.includes(kindId);
-        if (!ok) ids = (await (await g(`${API}/files/${ids[0]}?fields=parents&supportsAllDrives=true`, tok)).json()).parents || [];
-      }
+      // A file the PMS uploaded to this area (tagged, e.g. issue photos in Owner Files), or one inside <root>/<kind>/
+      const ok = (acct !== 'hr' && meta.appProperties?.pms === b.kind) || await insideKind(tok, meta.parents, kindId);
       if (!ok) throw new HttpError(403, 'That file is not in this area.');
       if (+meta.size > 4 * 1024 * 1024) throw new HttpError(413, 'Too large to preview here. Open it in Drive.');
       const data = Buffer.from(await (await g(`${API}/files/${b.fileId}?alt=media&supportsAllDrives=true`, tok)).arrayBuffer());
@@ -212,14 +377,21 @@ export default async function handler(req, res) {
       for (const [k, name] of Object.entries(KINDS)) if (acctOf(k) === 'main') await folder(tok, await folder(tok, root, name), monthName());
       return res.status(200).json({ ok: true });
     }
-    const folderId = await recordFolder(tok, b.kind, b.recordId, b.label);
+    // Issue uploads on a customer ticket: the unit's Maintenance folder in Owner Files when it can be reached (17 Nov 2026)
+    let folderId = '', note = '';
+    if (b.action === 'session' && b.kind === 'issues' && b.propertyId) {
+      try { folderId = await issueFolder(tok, user, b); }
+      catch (e) { console.error('[drive] issue folder:', e.message); note = `Could not reach the unit's folder in Owner Files (${String(e.message || e).slice(0, 160)}), so this went to Widebed PMS Files.`; }
+      if (!folderId && !note) note = 'This property\'s state or unit has no Owner Files folder, so this went to Widebed PMS Files.';
+    }
+    if (!folderId) folderId = await recordFolder(tok, b.kind, b.recordId, b.label);
     const folderLink = `https://drive.google.com/drive/folders/${folderId}`;
     if (b.action === 'session') {
       const name = String(b.name || 'file').replace(/[\\/]/g, '_').slice(0, 200);
       const r = await g(`${UPLOAD}/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink`, tok, { method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': b.mimeType || 'application/octet-stream', ...(req.headers.origin ? { Origin: req.headers.origin } : {}) },
-        body: JSON.stringify({ name, parents: [folderId] }) });
-      return res.status(200).json({ uploadUrl: r.headers.get('location'), folderId, folderLink });
+        body: JSON.stringify({ name, parents: [folderId], appProperties: { pms: b.kind } }) });
+      return res.status(200).json({ uploadUrl: r.headers.get('location'), folderId, folderLink, note });
     }
     if (b.action === 'list') {
       const url = `${API}/files?q=${encodeURIComponent(`'${folderId}' in parents and trashed=false`)}&fields=files(id,name,mimeType,size,webViewLink,createdTime)&orderBy=createdTime desc&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`;

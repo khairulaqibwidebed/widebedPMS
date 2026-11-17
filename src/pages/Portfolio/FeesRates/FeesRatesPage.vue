@@ -23,8 +23,6 @@
         <button :class="{ on: tab === 'ota' }" @click="setTab('ota')">OTA commissions</button>
       </nav>
 
-      <div class="notice error" v-show="error">{{ error }}</div>
-      <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
       <!-- The same screens as a property's Fees & rates and OTA commissions tabs, for the shared set (no property) -->
       <RatesTab :key="`${tab}:${loadNo}`" :mode="tab" :property-id="null" :units="units" :pool="pool" :as-of="asOf" :months="months"

@@ -19,7 +19,8 @@
               <template v-for="st in stateOptions" :key="st"><option :value="st" :selected="st === np.info.state">{{ st }}</option></template></select>
             <span class="help" v-if="stateLocked">{{ np.id && oldState ? 'Only a Director can move a property to another state.' : 'A Director sets the state of this property.' }}</span>
             <span class="help" v-else-if="np.id && oldState && np.info.state !== oldState">{{ `Moves ${np.name || 'this property'} from ${oldState} to ${np.info.state}. Staff in ${oldState} stop seeing it.` }}</span>
-            <span class="help" v-else-if="!np.id && !stateOptions.length">Your account has no state yet. Ask HR or a Director to set one on Staff accounts.</span></div>
+            <span class="help" v-else-if="!np.id && statesLoaded && !stateOptions.length">No state is set up yet. A Director or Operations sets one up on Settings > States (with its Drive folder) first.</span>
+            <span class="help" v-else-if="!np.id">Only states set up on Settings > States. Saving makes the property's folder (with Owner inside) in that state's Drive folder.</span></div>
         </div>
         <div class="form-sec">eZee link</div>
         <p class="help" style="margin:-4px 0 10px">Tells the upload which eZee rows belong to this property.</p>
@@ -28,7 +29,17 @@
             <span class="help">Several buildings can share one eZee account.</span></div>
           <div class="field"><label for="pEzName">Name in the eZee report</label><input class="input" id="pEzName" v-model="np.info.ezeeName" placeholder="As it appears in the export"></div>
         </div>
-        <div class="field" v-show="np.id"><label for="pWhy" class="req">Reason (audit log)</label><input class="input" id="pWhy" v-model="np.reason" placeholder="e.g. New TNB account number"></div>
+        <div class="field" v-show="np.id"><label for="pWhy" class="req">Reason (audit log)</label><input class="input" id="pWhy" v-model="np.reason" placeholder="e.g. New TNB account number">
+          <span class="help" v-if="np.id && isDirector">Also used for Switch off and Delete property below.</span></div>
+        <!-- 17 Nov 2026: Directors switch a property off (hidden everywhere, restorable) or delete one that has no history -->
+        <template v-if="np.id && isDirector">
+          <div class="form-sec">Switch off or delete</div>
+          <p class="help" style="margin:-4px 0 10px">Switch off hides the property from every list and drop-down; switch it back on from Portfolio > Properties > Switched off. Delete works only when the property has no units and no history. Neither touches its Google Drive folder.</p>
+          <div class="prop-danger">
+            <button type="button" class="btn" @click="switchOff()" :disabled="busy">Switch off</button>
+            <button type="button" class="btn btn-danger-outline" @click="remove()" :disabled="busy">Delete property</button>
+          </div>
+        </template>
         <p class="help" v-show="!np.id">{{ acc.viewOnly ? 'After saving, add its units from the Units tab. It starts with the standard OTA rates; Accounting or a Director can change them. The change is recorded in the audit log.'
           : 'After saving, add its units from the Units tab. It starts with the standard OTA rates (change them under OTA commissions). The change is recorded in the audit log.' }}</p>
       </form>
@@ -42,9 +53,13 @@
 // (edited) or "created" with the new property's id, plus the message to show.
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
-import { PROP_INFO, noteOnListing, updateProperty, createProperty, forgetProperties, forgetUnits } from '@/lib/portfolio-data.js';
+import { PROP_INFO, noteOnListing, updateProperty, createProperty, forgetProperties, forgetUnits,
+  setPropertyActive, propertyRefs, deleteProperty } from '@/lib/portfolio-data.js';
+import { askConfirm, showNotice } from '@/lib/confirm.js';
 import { normState, stateOf, stateChoices, clashIn, newPropertyId } from '@/lib/states.js';
 import { stampProperty, STAMP_STATES } from '@/lib/state-stamp.js';
+import { loadDriveStates, setUpStates } from '@/lib/drive-states.js';
+import { propertyFolder } from '@/lib/drive.js';
 
 const me = useSession();
 
@@ -55,29 +70,67 @@ export default {
     properties: { type: Array, required: true },   // to stop a second property with the same name or code in the same state
     acc: { type: Object, required: true }
   },
-  emits: ['close', 'saved', 'created', 'busy'],
+  emits: ['close', 'saved', 'created', 'busy', 'removed'],
   data() {
     const p = this.property, i = p?.info || {}, mine = stateChoices(me);
     // A new property starts in my state when I have only one
     const start = p ? stateOf(p) : (mine.length === 1 ? mine[0] : '');
     return {
-      busy: false, oldState: p ? stateOf(p) : '',
+      busy: false, oldState: p ? stateOf(p) : '', driveStates: {}, statesLoaded: false,
       np: { id: p?.id || null, name: p?.name || '', code: p?.code || '', reason: '', error: '', original: p,
         info: { address: '', city: '', ezeeAccount: '', ezeeName: '', ...i, state: start }, ...(this.prefill || {}) }
     };
+  },
+  async mounted() {
+    // 17 Nov 2026: a new property only in a state set up on Settings > States
+    this.driveStates = await loadDriveStates(true);
+    this.statesLoaded = true;
+    if (!this.np.id && this.np.info.state && !this.driveStates[this.np.info.state]?.folderId) this.np.info.state = '';
   },
   computed: {
     isDirector() { return me.role === 'director'; },
     // Editing: only a Director sets or changes the state. Adding: anyone, from their own states.
     stateLocked() { return !!this.np.id && !this.isDirector; },
     stateOptions() {
-      const list = [...stateChoices(me)];
+      // Adding: only set-up states (Settings > States). Editing: the same, plus the property's own state.
+      const ok = setUpStates(this.driveStates), list = stateChoices(me).filter(s => ok.includes(s));
       if (this.np.info.state && !list.includes(this.np.info.state)) list.push(this.np.info.state);
       return list;
     }
   },
   methods: {
     setBusy(v) { this.busy = v; this.$emit('busy', v); },
+    // Switch off / delete (Directors only; the rules check too). Both need the reason above and a confirm step.
+    async switchOff() {
+      const p = this.np; p.error = '';
+      if (this.busy) return;
+      if (!p.reason.trim()) return p.error = 'Add a short reason first (Reason, above). It goes in the audit log.';
+      if (!await askConfirm({ title: `Switch off ${p.original.name}?`, message: 'It disappears from every property list and drop-down, for everyone. Its units and history stay. A Director can switch it back on from Portfolio > Properties > Switched off.', confirmText: 'Switch off' })) return;
+      this.setBusy(true);
+      try {
+        await setPropertyActive(me, p.original, false, p.reason.trim());
+        await forgetProperties();
+        this.$emit('removed', `${p.original.name} switched off.`);
+      } catch (e) { p.error = friendlyError(e, 'switch off the property'); }
+      this.setBusy(false);
+    },
+    async remove() {
+      const p = this.np; p.error = '';
+      if (this.busy) return;
+      if (!p.reason.trim()) return p.error = 'Add a short reason first (Reason, above). It goes in the audit log.';
+      this.setBusy(true);
+      try {
+        const used = await propertyRefs(p.id);
+        if (used) { this.setBusy(false); await showNotice(`${p.original.name} can't be deleted`, `It still has ${used}. Delete those first, or switch the property off instead so the history stays.`); return; }
+        this.setBusy(false);
+        if (!await askConfirm({ title: `Delete property ${p.original.name}?`, message: 'It will be removed from the system for good, with its fee and rate history. This cannot be undone. Its Google Drive folder is not touched.', confirmText: 'Delete property', danger: true })) return;
+        this.setBusy(true);
+        await deleteProperty(me, p.original, p.reason.trim());
+        await forgetProperties();
+        this.$emit('removed', `${p.original.name} deleted.`);
+      } catch (e) { p.error = friendlyError(e, 'delete the property'); }
+      this.setBusy(false);
+    },
     async save() {
       const p = this.np; p.error = '';
       const name = p.name.trim(), code = p.code.trim().toUpperCase();
@@ -87,6 +140,7 @@ export default {
       for (const k of PROP_INFO) info[k] = String(p.info[k] || '').trim();
       info.state = normState(info.state);
       if (!info.state && !(p.id && !this.isDirector)) return p.error = 'Choose the state.';
+      if (!p.id && !this.driveStates[info.state]?.folderId) return p.error = `${info.state} is not set up yet. Set it up on Settings > States first.`;
       if (p.id && !this.isDirector) info.state = this.oldState;   // the rules refuse anyone else's change anyway
       const clash = clashIn(this.properties, { name, code, state: info.state }, p.id);
       if (clash && (!p.id || name !== p.original.name || info.state !== this.oldState)) return p.error = clash;
@@ -120,10 +174,21 @@ export default {
         await createProperty(me, id, { name, code, info });
         const noted = await noteOnListing(me, p.fromListing, 'propertyId', id, 'property');
         await forgetProperties();
-        this.$emit('created', id, `${name} added. Upload its eZee report to bring in units, or add them here.${noted}`);
+        // Its Drive folder (with Owner inside) in the state's folder; an existing folder of the same name is reused
+        let drive = '';
+        try {
+          const f = await propertyFolder(id, true);
+          drive = f.link ? (f.made ? ' Its Drive folder was made.' : ' It is linked to its existing Drive folder.') : ' Its Drive folder was not made (the state has no folder).';
+        } catch (e) { drive = ` Its Drive folder was not made (${e.message}). It is made with the first issue upload instead.`; }
+        this.$emit('created', id, `${name} added.${drive} Upload its eZee report to bring in units, or add them here.${noted}`);
       } catch (e) { p.error = friendlyError(e, 'add the property'); }
       this.setBusy(false);
     }
   }
 };
 </script>
+
+<style scoped>
+.prop-danger { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn-danger-outline { color: var(--red, #c0392b); border-color: currentColor; }
+</style>

@@ -16,8 +16,6 @@
       <button type="button" role="tab" :aria-selected="String(tab === 'settings')" :class="{ on: tab === 'settings' }" @click="tab = 'settings'">Office settings</button>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <!-- ================= Records ================= -->
     <template v-if="tab === 'records'">

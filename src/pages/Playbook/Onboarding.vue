@@ -22,7 +22,6 @@
         <!-- Checklist -->
         <template v-if="tab === 'checklist'">
           <div class="stack" style="gap:16px">
-            <div class="notice error" v-show="error">{{ error }}</div>
             <div class="card">
               <div class="prog-head"><h2>{{ `Your progress · ${doneCount()} of ${total()} done` }}</h2><span class="tag" v-show="intern">Intern</span></div>
               <div class="bar"><div :style="`width:${total() ? doneCount() / total() * 100 : 0}%`"></div></div>

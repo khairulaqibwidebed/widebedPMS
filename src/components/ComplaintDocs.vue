@@ -15,7 +15,6 @@
       <label v-else class="btn btn-sm cd-add"><input type="file" hidden multiple :accept="DOC_ACCEPT" @change="pick">+ Add document</label>
       <span class="help cd-hint">{{ `PDF, Word, Excel or images, up to ${DOC_MAX_MB} MB each.` }}</span>
     </template>
-    <div class="notice error" v-show="err">{{ err }}</div>
     <FileViewer ref="viewer" />
   </section>
 </template>
@@ -32,6 +31,7 @@ import { toast } from '@/lib/toast.js';
 const WHO = { hr: 'Added by HR', sender: 'Added by the sender', anon: 'Added by the sender', director: 'Added by a Director' };
 
 export default {
+  popups: { error: 'err' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { FileViewer },
   props: { complaint: { type: Object, required: true }, side: { type: String, default: 'sender' }, canAdd: Boolean },
   data() { return { WHO, DOC_ACCEPT, DOC_MAX_MB, docs: [], loading: true, busy: false, pct: 0, err: '', dl: '', stop: null }; },

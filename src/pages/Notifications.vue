@@ -115,7 +115,6 @@ async function clearRead() {
       <OptionPicker class="nf-area-pick" v-model="area" :options="areaOptions" label="Area" />
     </div>
 
-    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
     <div class="notice error" v-if="error || actionError">{{ error || actionError }}</div>
     <p class="help loading-line" v-else-if="loading">Loading…</p>
     <div class="card nf-empty" v-else-if="!sections.length">

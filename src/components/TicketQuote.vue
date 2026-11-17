@@ -4,7 +4,6 @@
       <h2>Quote & invoice</h2>
       <span class="pill" :class="q ? STATUS[q.status].cls : 'grey'">{{ q ? STATUS[q.status].label : 'No quote' }}</span>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="loading-bar" v-show="loading"></div>
 
     <template v-if="!loading && !ticket.unitId">
@@ -145,6 +144,7 @@ const pad = n => String(n).padStart(2, '0');
 const nowIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
 export default {
+  popups: true,   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   props: { ticket: { type: Object, required: true } },
   emits: ['view'],
   components: { FormField, OptionPicker, UploadFile, ConfirmReason },

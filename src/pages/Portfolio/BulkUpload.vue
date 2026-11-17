@@ -88,8 +88,6 @@
       </div>
     </section>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="done">{{ done }}</div>
 
     <!-- Drop zone -->
     <label class="dropzone" :class="{ over: dragging }" v-show="!rows.length && !loading"
@@ -143,6 +141,12 @@
             </dl>
             <p class="bu-card-note" v-show="r.note">{{ r.note }}</p>
             <button type="button" class="btn btn-sm fix-btn" v-if="r.fixable && !saving" @click="openFix(r)">Fix this</button>
+            <!-- 16 Nov 2026: the account no. came in as 1.12317E+11 (Excel number format): type the real one here -->
+            <form class="bank-fix" v-if="r.bankRetype && !saving" @submit.prevent="retypeBank(r)">
+              <input class="input" v-model.trim="bankDraft[r.line]" inputmode="numeric" autocomplete="off" placeholder="Type the full bank account no.">
+              <button type="submit" class="btn btn-sm" :disabled="loading">Use this no.</button>
+              <span class="help bank-fix-err" v-if="bankErr[r.line]">{{ bankErr[r.line] }}</span>
+            </form>
           </article>
         </template>
       </div>
@@ -189,7 +193,9 @@ import { ALL_MONTHS } from '@/lib/summaries.js';
 import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { normState, stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, shortState, stateTag } from '@/lib/states.js';
-import { refreshOwnerStates, freshOwnerNumber, loadOwners, loadUnitTypes, addUnitType, BANK } from '@/lib/portfolio-data.js';
+import { loadDriveStates, setUpStates } from '@/lib/drive-states.js';
+import { refreshOwnerStates, freshOwnerNumber, loadOwners, loadUnitTypes, addUnitType, BANK, contactOf } from '@/lib/portfolio-data.js';
+import { guestContact } from '@/lib/offline.js';
 import { matchUnitType, newUnitType, sectionHeading } from '@/lib/bulk-templates.js';
 import { can } from '@/lib/access.js';
 import { scoped, getScoped, giveMeProperties } from '@/lib/property-scope.js';
@@ -360,6 +366,8 @@ const firstEmail = v => (String(v).match(/[^\s\/,;]+@[^\s\/,;]+\.[^\s\/,;]+/) ||
 const last4 = v => String(v || '').replace(/\D/g, '').slice(-4);
 const sameBank = (k, a, b) => (k === 'bankAccount' ? String(a).replace(/\D/g, '') === String(b).replace(/\D/g, '') : norm(a) === norm(b));
 const BANK_LABEL = { bankName: 'Bank name', accountHolder: 'Account holder', bankAccount: 'Bank account' };
+// A long number Excel turned into 1.12317E+11 (digits lost)
+const isEplus = v => /^\s*\d+(\.\d+)?e\+?\d+\s*$/i.test(String(v || ''));
 const bankShow = (k, v) => (k === 'bankAccount' ? `…${last4(v)}` : v);
 // Who may save bank details: Accounting, Directors, and anyone with the Bulk Upload Edit or Portfolio Edit tick
 // (Operations too, Khairul 12 Nov). The rules allow private/main bank fields for the same people (portfolioEditor()).
@@ -376,24 +384,26 @@ function col(row, ...names) {
 }
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '');   // same as Portfolio, so ids match
 const icKey = s => String(s || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
-const ROWS_PER_BATCH = 50;   // up to 8 writes per unit-owner row (owner, private, unit, fee, summary mark, 2 audits) stays under Firestore's 500 per batch
+const ROWS_PER_BATCH = 50;   // up to 9 writes per unit-owner row (owner, private, contact, unit, fee, summary mark, 2 audits) stays under Firestore's 500 per batch
 
 const COLS = {
   properties: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }],
-  owners: [{ key: 'unit', label: 'Unit' }, { key: 'typeLabel', label: 'Unit type' }, { key: 'fullName', label: 'Full name' }, { key: 'coLabel', label: 'Joint owner' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'bankLabel', label: 'Bank' }, { key: 'feeLabel', label: 'Fee' }, { key: 'autocount', label: 'Autocount' }],
+  owners: [{ key: 'unit', label: 'Unit' }, { key: 'typeLabel', label: 'Unit type' }, { key: 'fullName', label: 'Full name' }, { key: 'coLabel', label: 'Joint owner' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'bankLabel', label: 'Bank' }, { key: 'feeLabel', label: 'Fee' }, { key: 'autocount', label: 'Autocount' }, { key: 'remark', label: 'Remark' }],
   bookings: [{ key: 'name', label: 'Name' }, { key: 'propertyName', label: 'Property' }, { key: 'unitNumber', label: 'Unit' }, { key: 'checkIn', label: 'Check in' }, { key: 'checkOut', label: 'Check out' }, { key: 'rentalAmount', label: 'Rental' }]
 };
 
 export default {
+  popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { PropertyPicker, OptionPicker },
   data() {
     return { base: import.meta.env.BASE_URL, kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
-      properties: [], propertyId: '', newProp: { name: '', code: '', state: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null };
+      properties: [], driveStates: {}, propertyId: '', newProp: { name: '', code: '', state: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null, bankFixes: {}, bankDraft: {}, bankErr: {} };
   },
   computed: {
     previewCols() { return COLS[this.kind]; },
     // States a new property can get: every state for a Director, else my own
-    myStateChoices() { return stateChoices(me); },
+    // 17 Nov 2026: only states set up on Settings > States (with their Drive folder)
+    myStateChoices() { const ok = setUpStates(this.driveStates); return stateChoices(me).filter(s => ok.includes(s)); },
     // Unit owners for every property at once: each sheet (or CSV file) goes to its own property
     allMode() { return this.kind === 'owners' && this.propertyId === '__all'; },
     newOwners() { return this.rows.filter(r => r.status === 'ok' && r.newOwner).length; },
@@ -405,9 +415,12 @@ export default {
     blocker() {
       if (this.kind !== 'owners' || !this.rows.length) return '';
       if (!this.propertyId) return 'Choose the property these units belong to.';
+      // 17 Nov 2026: units only go to a property whose state is set up on Settings > States
+      const notSetUp = pid => { const p = this.properties.find(x => x.id === pid), st = p && stateOf(p); return p && !this.driveStates[st]?.folderId ? `${p.name} is in ${st || 'no state'}, which is not set up yet. Set it up on Settings > States first.` : ''; };
       if (this.allMode) {
         const used = this.sheets.map(n => [n, this.sheetMap[n]]).filter(([, m]) => m && m.pid !== '__skip');
         if (!used.length) return 'Every file is left out. Choose a property for at least one.';
+        for (const [n, m] of used) if (m.pid !== '__new') { const why = notSetUp(m.pid); if (why) return `${n}: ${why}`; }
         const fresh = used.filter(([, m]) => m.pid === '__new');
         for (const [n, m] of fresh) {
           if (!m.name.trim() || !m.code.trim() || !m.state) return `Enter a name, short code and state for the new property from ${n}.`;
@@ -424,12 +437,15 @@ export default {
         if (!name || !code || !this.newProp.state) return 'Enter the new property\'s name, short code and state.';
         const clash = clashIn(this.properties, { name, code, state: this.newProp.state });
         if (clash) return clash;
+        if (!this.driveStates[this.newProp.state]?.folderId) return `${this.newProp.state} is not set up yet. Set it up on Settings > States first.`;
+        return '';
       }
-      return '';
+      return notSetUp(this.propertyId);
     }
   },
   async mounted() {
     try { this.properties = await loadProperties(); } catch (e) { this.error = friendlyError(e, 'load the properties'); }
+    this.driveStates = await loadDriveStates(true);
   },
   methods: {
     // Choices for the property picker. `top` = the main picker (with "All properties"); otherwise the per-sheet one ("Leave out").
@@ -507,6 +523,7 @@ export default {
         this.columns = [...cols];
         this.sheetsNote = many || unused.length ? `Read ${used.length} ${used.length === 1 ? 'sheet' : 'sheets'}: ${used.join(', ')}.` + (unused.length ? ` Left out (no "${headerHas}" column): ${unused.join(', ')}.` : '') : '';
         if (!lines.length) throw new Error('The file has no rows under the header row.');
+        this.bankFixes = {}; this.bankDraft = {}; this.bankErr = {};
         if (this.kind === 'properties') this.rows = await this.checkProperties(lines);
         else if (this.kind === 'bookings') this.rows = await this.checkBookings(lines);
         else if (this.allMode) {
@@ -532,7 +549,7 @@ export default {
       // My properties only (lib/property-scope.js); a new id that belongs to a property I can't see counts as taken
       const snap = await getScoped(scoped(collection(db, 'properties'), '__id'));
       const existing = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const mine = stateChoices(me), seen = new Set(), taken = new Set();
+      const mine = stateChoices(me), seen = new Set(), taken = new Set(), ready = this.driveStates;
       const rows = lines.map(({ r, line }) => ({ line, data: mapPropertyRow(r) })).filter(x => x.data);
       const out = [];
       for (const { data, line } of rows) {
@@ -544,6 +561,7 @@ export default {
         else if (!slug(data.name)) [status, note] = ['error', 'The name has no letters or numbers.'];
         else if (!data.state) [status, note] = ['error', typed ? `"${typed}" is not a state. Write it like Johor, Selangor, Kuala Lumpur, Labuan or Putrajaya.` : 'Needs a state.'];
         else if (!mine.includes(data.state)) [status, note] = ['error', `You can only add properties in ${mine.join(', ') || 'your states (none set yet)'}.`];
+        else if (!ready[data.state]?.folderId) [status, note] = ['error', `${data.state} is not set up yet. Set it up on Settings > States first.`];
         else {
           const clash = clashIn(existing, { name: data.name, code: data.code, state: data.state });
           if (clash) [status, note] = ['skip', clash];
@@ -673,6 +691,15 @@ export default {
       if (this.propertyId === '__new') return this.newProp.code.trim().toUpperCase();
       return (this.properties.find(p => p.id === this.propertyId)?.code || '').toUpperCase();
     },
+    // 16 Nov 2026: an account no. that came in as 1.12317E+11 is typed again on its card; the preview is checked again
+    async retypeBank(r) {
+      const v = String(this.bankDraft[r.line] || '').replace(/\s+/g, '');
+      const err = !v ? 'Type the account no.' : !/^[0-9-]+$/.test(v) ? 'Numbers and dashes only.' : v.replace(/-/g, '').length < 6 ? 'That looks too short.' : '';
+      this.bankErr = { ...this.bankErr, [r.line]: err };
+      if (err) return;
+      this.bankFixes = { ...this.bankFixes, [r.line]: v };
+      await this.recheck();
+    },
     // Build (or rebuild, when the property or sheet changes) the unit-owner preview
     async recheck() {
       if (this.kind !== 'owners' || !this.sheet || this.loading) return;
@@ -726,7 +753,10 @@ export default {
       const canBank = bankAllowed(), bankOf = {}, bankFrom = {};
       // Joint owners each owner already has (private.coOwners). Only added to an owner with none; never changed here.
       const coOf = {};
+      // 16 Nov 2026: the saved IC and phone, so a value that reads like 9.00101E+11 can be replaced from the file
+      const idOf = {};
       privs.forEach((p, i) => { const v = p?.data?.() || {}, o = { id: snap.docs[i].id, where: 'in the PMS' }; nameOf[o.id] = v.fullName || '';
+        idOf[o.id] = { ic: String(v.ic || '').trim(), phone: String(v.phone || '').trim() };
         if (v.ic) ics.set(icKey(v.ic), o); if (v.email) emails.set(v.email.toLowerCase(), o); if (v.fullName) names.set(norm(v.fullName), o);
         bankOf[o.id] = Object.fromEntries(BANK.map(k => [k, String(v[k] || '').trim()])); bankFrom[o.id] = 'PMS';
         coOf[o.id] = (v.coOwners || []).filter(c => String(c?.fullName || '').trim()); });
@@ -749,9 +779,10 @@ export default {
       // Row label: "DM 13" when several files or sheets are saved together
       return lines.map(({ r, line }) => ({ line: groups.length > 1 ? `${sheet} ${line}` : line, data: mapOwnerRow(r) })).filter(x => x.data).map(({ data, line }) => {
         data.email = data.email.toLowerCase();
+        if (this.bankFixes[line]) data.bankAccount = this.bankFixes[line];   // retyped on the card (E+ account no.)
         const ic = icKey(data.ic);
         const row = { line, sheet, data, status: 'ok', note: '', ownerId: '', newOwner: false, unitId: '', newUnit: false, linkOwner: true, terms: null, bankFill: null, bankOnly: false, bankLeftOut: false,
-          unitType: '', newType: false, typeFill: '', coFill: null, acNew: '', acFill: '' };
+          bankRetype: false, idFill: null, unitType: '', newType: false, typeFill: '', coFill: null, acNew: '', acFill: '', remNew: '', remFill: '' };
         const fee = feeTerms(data);
         data.feeLabel = fee.label;
         // Unit type: matched to the list ("2BR" -> "2 bedrooms"); a type not on the list yet ("Double Room") is kept as
@@ -772,27 +803,46 @@ export default {
         if (seenUnits.has(norm(data.unit))) return fail(`Unit ${data.unit} is listed twice (also row ${seenUnits.get(norm(data.unit))}).`);
         seenUnits.set(norm(data.unit), line);
         // Owner: reuse when the IC or email is known, else a new code
-        const known = (ic && ics.get(ic)) || (data.email && emails.get(data.email)) || (!ic && !data.email && names.get(norm(data.fullName))) || null;
+        let known = (ic && ics.get(ic)) || (data.email && emails.get(data.email)) || (!ic && !data.email && names.get(norm(data.fullName))) || null;
         const notes = [];
+        // 16 Nov 2026: an owner in the PMS with the same name whose saved IC reads like 9.00101E+11 (or is empty) can't be
+        // matched by IC: taken as the same owner, so the IC is fixed instead of a second owner being made.
+        const byName = !known ? names.get(norm(data.fullName)) : null;
+        if (byName && byName.where === 'in the PMS' && ic && (isEplus(idOf[byName.id]?.ic) || !idOf[byName.id]?.ic)) { known = byName; ics.set(ic, byName); notes.push(`Matched by name (the saved IC is ${idOf[byName.id]?.ic ? 'unreadable' : 'empty'}).`); }
+        else if (byName && byName.where === 'in the PMS') notes.push(`Check: an owner named ${nameOf[byName.id] || data.fullName} is already in the PMS with a different IC or email; this row makes a new owner.`);
         if (known) { row.ownerId = known.id; notes.push(known.where === 'in the PMS' ? `Owner already in the PMS${nameOf[known.id] ? ` (${nameOf[known.id]})` : ''}.` : `Same owner as row ${known.where}.`); }
         else {
           row.ownerId = `OWN-${String(++n).padStart(3, '0')}`; row.newOwner = true; nameOf[row.ownerId] = data.fullName;
           const o = { id: row.ownerId, where: line }; if (ic) ics.set(ic, o); if (data.email) emails.set(data.email, o); names.set(norm(data.fullName), o);
+          idOf[row.ownerId] = { ic: data.ic, phone: data.phone };
         }
         // Bank details (Accounting and Directors only): fill the owner's EMPTY fields; a different value is shown, never saved over
         const bankNotes = [];
         if (hasBank && !canBank) row.bankLeftOut = true;
-        else if (hasBank && /e\+?\d/i.test(data.bankAccount)) bankNotes.push(`Bank details left out: the account no. reads "${data.bankAccount}" (format the column as Text and type it again).`);
+        else if (hasBank && /e\+?\d/i.test(data.bankAccount)) { row.bankRetype = true; data.bankLabel = 'Needs the account no.'; bankNotes.push(`Bank details left out: the account no. reads "${data.bankAccount}". Type the full number below, or format the column as Text in the file.`); }
         else if (hasBank) {
           const cur = bankOf[row.ownerId] ||= { bankName: '', accountHolder: '', bankAccount: '' };
           const from = bankFrom[row.ownerId] ||= `row ${line}`, fill = {};
           for (const k of BANK) {
             if (!data[k]) continue;
-            if (!cur[k]) { fill[k] = data[k]; cur[k] = data[k]; }
+            // 16 Nov 2026: a saved account no. that reads like 1.12317E+11 (lost digits) is replaced by the file's number
+            if (k === 'bankAccount' && isEplus(cur[k])) { bankNotes.push(`Bank account replaced: ${from} had "${cur[k]}", the file has ${bankShow(k, data[k])}.`); fill[k] = data[k]; cur[k] = data[k]; }
+            else if (!cur[k]) { fill[k] = data[k]; cur[k] = data[k]; }
             else if (!sameBank(k, cur[k], data[k])) bankNotes.push(`${BANK_LABEL[k]} differs: file ${bankShow(k, data[k])} / ${from} ${bankShow(k, cur[k])} (left as it is).`);
           }
           if (Object.keys(fill).length) row.bankFill = fill;
           if (row.bankFill && !row.newOwner) bankNotes.push(`Bank details added (${Object.keys(fill).map(k => BANK_LABEL[k].toLowerCase()).join(', ')}).`);
+        }
+        // IC and phone (16 Nov 2026): an empty one is filled, and one that reads like 9.00101E+11 is replaced, from the file
+        // (same people as bank details). A different readable value is left as it is.
+        if (!row.newOwner && canBank) {
+          const cur = idOf[row.ownerId] ||= { ic: '', phone: '' }, fill = {};
+          for (const [k, label] of [['ic', 'IC'], ['phone', 'Phone']]) {
+            if (!data[k] || (cur[k] && !isEplus(cur[k]))) continue;
+            if (isEplus(data[k])) { bankNotes.push(`${label} left out: the file has "${data[k]}" (format the column as Text in the file).`); continue; }
+            fill[k] = data[k]; bankNotes.push(cur[k] ? `${label} replaced: the PMS had "${cur[k]}", the file has ${data[k]}.` : `${label} added (${data[k]}).`); cur[k] = data[k];
+          }
+          if (Object.keys(fill).length) row.idFill = fill;
         }
         // Joint owner (13 Nov 2026): added to an owner who has none yet. New owners always; an owner already in the PMS (or
         // made by an earlier row) only when the uploader may edit owners, the same people as bank details. A different
@@ -803,6 +853,17 @@ export default {
             if (row.newOwner || canBank) { row.coFill = co; coOf[row.ownerId] = co; if (!row.newOwner) bankNotes.push(`Joint owner ${co[0].fullName} added.`); }
             else bankNotes.push('Joint owner left out (needs the Bulk Upload Edit tick for an owner already saved).');
           } else if (!cur.some(c => norm(c.fullName) === norm(co[0].fullName))) bankNotes.push(`Joint owner differs: file ${co[0].fullName} / saved ${cur.map(c => c.fullName).join(' & ')} (left as it is).`);
+          else if (canBank && !row.coFill) {
+            // 16 Nov 2026: the same joint owner with an IC or phone saved like 9.00101E+11: replaced by the file's
+            const done = [];
+            const next = cur.map(c => {
+              if (norm(c.fullName) !== norm(co[0].fullName)) return c;
+              const d = { ...c };
+              for (const [k, label] of [['ic', 'IC'], ['phone', 'phone']]) if (isEplus(c[k]) && co[0][k] && !isEplus(co[0][k])) { d[k] = co[0][k]; done.push(`${label} (was "${c[k]}")`); }
+              return d;
+            });
+            if (done.length) { row.coFill = next; coOf[row.ownerId] = next; bankNotes.push(`Joint owner ${co[0].fullName}: ${done.join(', ')} replaced from the file.`); }
+          }
         }
         // Unit: existing one under this property, or a new unit
         const u = units.get(norm(data.unit));
@@ -818,9 +879,18 @@ export default {
             if (canBank) { row.acFill = data.autocount; bankNotes.push(`Autocount no. set to ${data.autocount}.`); }
             else bankNotes.push('Autocount no. left out (needs the Bulk Upload Edit tick).');
           } else if (data.autocount && norm(u.autocountAcc) !== norm(data.autocount)) { bankNotes.push(`Autocount no. stays ${u.autocountAcc} (file says ${data.autocount}).`); data.autocount = `${u.autocountAcc} (kept)`; }
+          // Remark (16 Nov 2026): the whole text kept on the unit as remarks, only when the unit has none yet (same people as the Autocount no.)
+          if (data.remark && !String(u.remarks || '').trim()) {
+            if (canBank) { row.remFill = data.remark; bankNotes.push('Remark added to the unit.'); }
+            else bankNotes.push('Remark left out (needs the Bulk Upload Edit tick).');
+          } else if (data.remark && !norm(u.remarks).includes(norm(data.remark))) {
+            // 16 Nov 2026 (Khairul): a different remark is added under the one the unit already has, not left out
+            if (canBank) { row.remFill = `${String(u.remarks).trim()}\n${data.remark}`; bankNotes.push('Remark added under the unit\'s existing remark.'); }
+            else bankNotes.push('Remark left out (needs the Bulk Upload Edit tick).');
+          }
           if (u.ownerId === row.ownerId) {
-            // Nothing to change on the unit: skipped, unless the owner's empty bank details, a joint owner, the unit type or the Autocount no. are filled from this row
-            if (!row.terms && !row.bankFill && !row.coFill && !row.typeFill && !row.acFill) return Object.assign(row, { status: 'skip', note: [`${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.`, ...bankNotes].join(' ') });
+            // Nothing to change on the unit: skipped, unless the owner's empty bank details, a joint owner, the unit type, the Autocount no. or the remark are filled from this row
+            if (!row.terms && !row.bankFill && !row.idFill && !row.coFill && !row.typeFill && !row.acFill && !row.remFill) return Object.assign(row, { status: 'skip', note: [`${u.unitCode} is already linked to this owner${u.hasTerms ? ' and has its fee set up' : ''}.`, ...bankNotes].join(' ') });
             if (!row.terms) return Object.assign(row, { linkOwner: false, bankOnly: true, note: [`${u.unitCode}: already linked to this owner.`, ...bankNotes].join(' ') });
             row.linkOwner = false; notes.length = 0; notes.push(`${u.unitCode}: owner already linked, fee added.`);
           } else notes.push(u.ownerId ? `${u.unitCode}: owner changes from ${nameOf[u.ownerId] || 'another owner'}.` : `${u.unitCode}: linked to this owner.`);
@@ -829,6 +899,8 @@ export default {
           // Autocount no. on a new unit: the rules let only people with an Edit tick save it (Operations adding units can't yet)
           if (data.autocount && canBank) row.acNew = data.autocount;
           else if (data.autocount) bankNotes.push('Autocount no. left out (needs the Bulk Upload Edit tick).');
+          if (data.remark && canBank) row.remNew = data.remark;
+          else if (data.remark) bankNotes.push('Remark left out (needs the Bulk Upload Edit tick).');
         }
         row.note = [...notes, ...bankNotes].join(' ');
         return row;
@@ -907,6 +979,7 @@ export default {
         createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
       b.set(doc(ref, 'private', 'main'), { name: d.name, icPassport: d.icPassport, phone: d.phone, email: d.email,
         mainDoorPasscode: d.mainDoorPasscode, currentExpiryDate: d.currentExpiryDate, nextDoorPasscode: d.nextDoorPasscode, nextExpiryDate: d.nextExpiryDate });
+      b.set(doc(ref, 'private', 'contact'), guestContact(d));   // name, phone, email only (17 Nov 2026)
       audit(b, me, { action: 'offlineBooking.create', entity: `offlineBookings/${id}`, propertyId: r.pid, reason: `Bulk upload (${this.fileName})` });
     },
     writeBill(b, r) {
@@ -978,21 +1051,28 @@ export default {
         // Joint owner (Owner Name 2) in private.coOwners, the same place Portfolio's "Add joint owner" saves it
         const coPart = r.coFill ? { coOwners: r.coFill } : {};
         b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { fullName: d.fullName, email: d.email, phone: d.phone, ic: d.ic, ...bank, ...coPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+        // 16 Nov 2026: names and contact also in private/contact (what Owners Base read)
+        b.set(doc(db, 'owners', r.ownerId, 'private', 'contact'), { ...contactOf({ fullName: d.fullName, email: d.email, phone: d.phone, ...coPart }), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
         // Audit names the owner code only, never the personal values (bank: the bank name and the account's last 4 digits)
         audit(b, me, { action: 'owner.create', entity: `owners/${r.ownerId}`, propertyId: pid, changes: [...this.bankChanges(bank), ...(r.coFill ? [{ field: 'coOwners', old: null, new: '(set)' }] : [])], reason: why });
-      } else if (r.bankFill || r.coFill) {
-        // Existing owner: fill only the bank fields that were empty and a joint owner when there was none (checked in the preview); nothing is overwritten
-        const bank = r.bankFill || {}, l4 = last4(bank.bankAccount);
-        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { ...bank, ...(r.coFill ? { coOwners: r.coFill } : {}), updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+      } else if (r.bankFill || r.coFill || r.idFill) {
+        // Existing owner: fill only the bank fields that were empty and a joint owner when there was none (checked in the preview);
+        // nothing is overwritten except values saved like 1.12317E+11 (16 Nov 2026: bank account no., IC, phone, joint owner's IC/phone)
+        const bank = r.bankFill || {}, l4 = last4(bank.bankAccount), ids = r.idFill || {};
+        b.set(doc(db, 'owners', r.ownerId, 'private', 'main'), { ...bank, ...ids, ...(r.coFill ? { coOwners: r.coFill } : {}), updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        // A fixed phone or a new joint owner also goes in private/contact (16 Nov 2026)
+        const cPart = contactOf({ ...('phone' in ids ? { phone: ids.phone } : {}), ...(r.coFill ? { coOwners: r.coFill } : {}) });
+        if (Object.keys(cPart).length) b.set(doc(db, 'owners', r.ownerId, 'private', 'contact'), { ...cPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
         if (l4) b.set(doc(db, 'owners', r.ownerId), { bankLast4: l4, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
-        audit(b, me, { action: 'owner.update', entity: `owners/${r.ownerId}`, propertyId: pid, changes: [...this.bankChanges(bank), ...(r.coFill ? [{ field: 'coOwners', old: null, new: '(set)' }] : [])], reason: why });
+        audit(b, me, { action: 'owner.update', entity: `owners/${r.ownerId}`, propertyId: pid, changes: [...this.bankChanges(bank), ...Object.keys(ids).map(k => ({ field: k, old: null, new: '(set)' })), ...(r.coFill ? [{ field: 'coOwners', old: null, new: '(set)' }] : [])], reason: why });
       }
       const unitId = r.unitId || unitIdOf(pid, d.unit);
       // Unit type for a unit that had none (13 Nov 2026). info is merged, so the unit's other details stay.
       const typePart = r.typeFill ? { info: { type: r.typeFill } } : {};
       // Autocount account no. for a unit that had none (top-level autocountAcc, as the unit panel saves it)
-      const acPart = r.acFill ? { autocountAcc: r.acFill } : {};
-      const fills = [...(r.typeFill ? [{ field: 'type', old: null, new: r.typeFill }] : []), ...(r.acFill ? [{ field: 'autocountAcc', old: null, new: r.acFill }] : [])];
+      const acPart = { ...(r.acFill ? { autocountAcc: r.acFill } : {}), ...(r.remFill ? { remarks: r.remFill } : {}) };   // and the remark (top-level remarks)
+      const fills = [...(r.typeFill ? [{ field: 'type', old: null, new: r.typeFill }] : []), ...(r.acFill ? [{ field: 'autocountAcc', old: null, new: r.acFill }] : []),
+        ...(r.remFill ? [{ field: 'remarks', old: null, new: '(set)' }] : [])];
       if (r.bankOnly) {
         // Unit already linked with its fee: only the owner's details (above) and maybe the unit type / Autocount no. are saved
         if (fills.length) {
@@ -1002,7 +1082,7 @@ export default {
         return;
       }
       if (r.newUnit) b.set(doc(db, 'units', unitId), { propertyId: pid, unitCode: d.unit, ezeeRoomMatch: d.unit, aliases: [], ownerId: r.ownerId, active: true, ...stateTag(pid),
-        ...(r.unitType ? { info: { type: r.unitType } } : {}), ...(r.acNew ? { autocountAcc: r.acNew } : {}), createdAt: serverTimestamp(), createdBy: me.user.uid });
+        ...(r.unitType ? { info: { type: r.unitType } } : {}), ...(r.acNew ? { autocountAcc: r.acNew } : {}), ...(r.remNew ? { remarks: r.remNew } : {}), createdAt: serverTimestamp(), createdBy: me.user.uid });
       else if (r.linkOwner || fills.length) b.set(doc(db, 'units', unitId), { ...(r.linkOwner ? { ownerId: r.ownerId } : {}), ...typePart, ...acPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
       // Fee from the Owner List, for a unit with none yet. 2000-01 = applies to every month until a later version is added on Portfolio.
       if (r.terms) b.set(doc(db, 'units', unitId, 'terms', `2000-01_${Date.now()}`), { ...r.terms, otaOverrides: null, effectiveFrom: '2000-01',
@@ -1013,6 +1093,7 @@ export default {
       if (r.terms) changes.push({ field: 'arrangement', old: null, new: r.terms.arrangement });
       if (r.typeFill || (r.newUnit && r.unitType)) changes.push({ field: 'type', old: null, new: r.typeFill || r.unitType });
       if (r.acFill || r.acNew) changes.push({ field: 'autocountAcc', old: null, new: r.acFill || r.acNew });
+      if (r.remFill || r.remNew) changes.push({ field: 'remarks', old: null, new: '(set)' });
       audit(b, me, { action: r.newUnit ? 'unit.create' : 'unit.update', entity: `units/${unitId}`, propertyId: pid, changes, reason: why });
     }
   }
@@ -1086,4 +1167,7 @@ export default {
     .fix-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
     .fix-grid :deep(.op), .fix-grid :deep(.op-btn) { display: block; width: 100%; }
     .actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+.bank-fix { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.bank-fix .input { flex: 1 1 180px; min-width: 0; }
+.bank-fix-err { width: 100%; color: var(--red); margin: 0; }
 </style>

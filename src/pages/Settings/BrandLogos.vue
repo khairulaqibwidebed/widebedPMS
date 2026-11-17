@@ -7,8 +7,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="loading-bar" v-show="loading" style="margin-bottom:12px"></div>
 
     <div class="logo-grid">

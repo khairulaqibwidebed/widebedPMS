@@ -7,7 +7,7 @@
         <div class="notice error" v-show="o.error">{{ o.error }}</div>
         <p class="help from-listing" v-if="o.fromListing">{{ `Filled in from new owner listing ${o.fromListing.listingId}. Check the details, then Add owner.` }}</p>
         <div class="notice warn" v-show="o.active === false">{{ `Deactivated${o.deactivatedReason ? ': ' + o.deactivatedReason : ''}. Their history stays; they can't be linked to new units.` }}</div>
-        <template v-if="!o.isNew && !acc.viewOnly">
+        <template v-if="!o.isNew && full && !acc.viewOnly">
           <div>
             <div class="summary-grid">
               <div><b>{{ myUnits.length }}</b><span>Units</span></div>
@@ -26,41 +26,44 @@
             </div>
           </div>
         </template>
-        <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ acc.canEdit ? '· private, Accounting, Directors and Marketing only' : acc.viewOnly ? '· private: once saved, only Accounting and Directors see them' : '· private, Accounting and Directors only' }}</span></div>
+        <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ full ? '· private: IC, date of birth, address and bank details are Owners Full only' : o.isNew ? '· private: once saved, IC, date of birth and address are seen only with Owners Full' : '· names and contact only (Owners Base)' }}</span></div>
+        <!-- 16 Nov 2026: Owners Base see names and contact only, read only; Marketing still edit names and contact -->
+        <fieldset style="display:contents" :disabled="readOnly">
         <div class="grid-fields">
-          <div class="field"><label for="oName" class="req">{{ o.coOwners.length ? 'Full name (owner 1)' : 'Full name' }}</label><input class="input" id="oName" v-model="o.fullName" placeholder="e.g. Owner A"></div>
-          <div class="field"><label for="oIc">IC / passport</label><input class="input" id="oIc" v-model="o.ic"></div>
-          <div class="field"><label for="oEmail">Email</label><input class="input" id="oEmail" type="email" v-model="o.email"></div>
-          <div class="field"><label for="oPhone">Phone number</label><input class="input" id="oPhone" v-model="o.phone"></div>
-          <div class="field"><label for="oDob">Date of birth</label><input class="input" id="oDob" type="date" v-model="o.dob"></div>
-          <div class="field"><label for="oWa">WhatsApp</label><input class="input" id="oWa" v-model="o.whatsapp"></div>
-          <div class="field"><label for="oWc">WeChat ID</label><input class="input" id="oWc" v-model="o.wechat"></div>
+          <div class="field"><label for="oName" class="req">{{ o.coOwners.length ? 'Full name (owner 1)' : 'Full name' }}</label><input class="input" id="oName" v-model="o.fullName" placeholder="Full name as on IC / passport"></div>
+          <div class="field" v-if="showSensitive"><label for="oIc">IC / passport</label><input class="input" id="oIc" v-model="o.ic" placeholder="e.g. 900101-14-5678 or A12345678"></div>
+          <div class="field"><label for="oEmail">Email</label><input class="input" id="oEmail" type="email" v-model="o.email" placeholder="name@email.com"></div>
+          <div class="field"><label for="oPhone">Phone number</label><input class="input" id="oPhone" v-model="o.phone" placeholder="e.g. 012-345 6789"></div>
+          <div class="field" v-if="showSensitive"><label for="oDob">Date of birth</label><input class="input" id="oDob" type="date" v-model="o.dob"></div>
+          <div class="field"><label for="oWa">WhatsApp</label><input class="input" id="oWa" v-model="o.whatsapp" placeholder="e.g. 012-345 6789"></div>
+          <div class="field"><label for="oWc">WeChat ID</label><input class="input" id="oWc" v-model="o.wechat" placeholder="WeChat ID"></div>
           <div></div>
-          <div class="field" style="grid-column:1/-1"><label for="oAddr">Correspondence address</label><textarea class="input" id="oAddr" v-model="o.address"></textarea></div>
+          <div class="field" style="grid-column:1/-1" v-if="showSensitive"><label for="oAddr">Correspondence address</label><textarea class="input" id="oAddr" v-model="o.address" placeholder="Street, postcode, city, state"></textarea></div>
         </div>
         <!-- Joint owners: same owner code, bank and units; each extra person has their own name and contact -->
         <template v-for="(c, i) in o.coOwners" :key="c.key">
-          <div class="co-owner-head"><span class="form-sec" style="margin:0">{{ `Owner ${i + 2}` }}</span><button type="button" class="btn btn-sm" @click="removeCoOwner(i)">Remove</button></div>
+          <div class="co-owner-head"><span class="form-sec" style="margin:0">{{ `Owner ${i + 2}` }}</span><button type="button" class="btn btn-sm" v-if="coEditable" @click="removeCoOwner(i)">Remove</button></div>
           <div class="grid-fields">
-            <div class="field"><label :for="`coName${i}`" class="req">Full name</label><input class="input" :id="`coName${i}`" v-model="c.fullName" placeholder="e.g. Owner B"></div>
-            <div class="field"><label :for="`coIc${i}`">IC / passport</label><input class="input" :id="`coIc${i}`" v-model="c.ic"></div>
-            <div class="field"><label :for="`coEmail${i}`">Email</label><input class="input" :id="`coEmail${i}`" type="email" v-model="c.email"></div>
-            <div class="field"><label :for="`coPhone${i}`">Phone number</label><input class="input" :id="`coPhone${i}`" v-model="c.phone"></div>
+            <div class="field"><label :for="`coName${i}`" class="req">Full name</label><input class="input" :id="`coName${i}`" v-model="c.fullName" placeholder="Full name as on IC / passport"></div>
+            <div class="field" v-if="showSensitive"><label :for="`coIc${i}`">IC / passport</label><input class="input" :id="`coIc${i}`" v-model="c.ic" placeholder="e.g. 900101-14-5678 or A12345678"></div>
+            <div class="field"><label :for="`coEmail${i}`">Email</label><input class="input" :id="`coEmail${i}`" type="email" v-model="c.email" placeholder="name@email.com"></div>
+            <div class="field"><label :for="`coPhone${i}`">Phone number</label><input class="input" :id="`coPhone${i}`" v-model="c.phone" placeholder="e.g. 012-345 6789"></div>
           </div>
         </template>
-        <div><button type="button" class="btn" @click="addCoOwner()">+ Add another owner</button>
+        <div><button type="button" class="btn" v-if="coEditable" @click="addCoOwner()">+ Add another owner</button>
           <p class="help" style="margin-top:6px" v-if="o.coOwners.length">Joint owners share this owner code, bank account and units. Lists show the names joined with "&amp;".</p></div>
-        <template v-if="!acc.viewOnly">
+        </fieldset>
+        <template v-if="full">
           <div class="form-sec">Bank</div>
           <div class="grid-3">
-            <div class="field"><label for="oBank">Bank name</label><input class="input" id="oBank" v-model="o.bankName"></div>
-            <div class="field"><label for="oHolder">Account holder name</label><input class="input" id="oHolder" v-model="o.accountHolder"></div>
-            <div class="field"><label for="oAcc">Bank account</label><input class="input" id="oAcc" v-model="o.bankAccount" inputmode="numeric"></div>
+            <div class="field"><label for="oBank">Bank name</label><input class="input" id="oBank" v-model="o.bankName" placeholder="e.g. Maybank"></div>
+            <div class="field"><label for="oHolder">Account holder name</label><input class="input" id="oHolder" v-model="o.accountHolder" placeholder="Name as on the bank account"></div>
+            <div class="field"><label for="oAcc">Bank account</label><input class="input" id="oAcc" v-model="o.bankAccount" inputmode="numeric" placeholder="Account number"></div>
           </div>
         </template>
-        <p class="help" v-else>Bank details are added by Accounting or a Director.</p>
-        <div class="field" v-show="!o.isNew"><label for="oWhy" class="req">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
-        <template v-if="!o.isNew && o.active !== false && !acc.viewOnly">
+        <p class="help" v-else>IC, date of birth, address and bank details are seen and changed only with Owners Full access.</p>
+        <div class="field" v-show="!o.isNew && !readOnly"><label for="oWhy" class="req">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
+        <template v-if="!o.isNew && o.active !== false && full">
           <div class="confirm-box" v-show="o.deactivating">
             <div class="field" style="margin-bottom:10px"><label for="oDeact" class="req">Why deactivate this owner?</label><input class="input" id="oDeact" v-model="o.deactivateReason" placeholder="e.g. Sold the unit"></div>
             <button type="button" class="btn btn-primary" @click="deactivate()" :disabled="busy || !o.deactivateReason.trim()">Deactivate owner</button> <button type="button" class="btn" @click="o.deactivating = false">Keep active</button>
@@ -69,10 +72,10 @@
       </form>
       <div class="drawer-foot">
         <button class="icon-btn trash" style="margin-right:auto" v-if="acc.isDirector && !o.isNew" @click="remove()" :disabled="busy" title="Delete this owner from the system" aria-label="Delete owner">🗑</button>
-        <button class="btn" v-show="!acc.viewOnly && !o.isNew && o.active !== false && !o.deactivating" @click="startDeactivate()">Deactivate</button>
-        <button class="btn btn-primary" v-show="!acc.viewOnly && !o.isNew && o.active === false" @click="reactivate()" :disabled="busy">Reactivate</button>
-        <button class="btn" @click="$emit('close')">Cancel</button>
-        <button class="btn btn-primary" type="submit" form="ownerForm" :disabled="busy">{{ o.isNew ? 'Add owner' : 'Save owner' }}</button>
+        <button class="btn" v-show="full && !o.isNew && o.active !== false && !o.deactivating" @click="startDeactivate()">Deactivate</button>
+        <button class="btn btn-primary" v-show="full && !o.isNew && o.active === false" @click="reactivate()" :disabled="busy">Reactivate</button>
+        <button class="btn" @click="$emit('close')">{{ readOnly ? 'Close' : 'Cancel' }}</button>
+        <button class="btn btn-primary" type="submit" form="ownerForm" v-if="!readOnly" :disabled="busy">{{ o.isNew ? 'Add owner' : 'Save owner' }}</button>
       </div>
     </aside>
   </div>
@@ -86,7 +89,7 @@ import { amt } from '@/lib/format.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { askConfirm, showNotice } from '@/lib/confirm.js';
-import { PRIVATE, BANK, CO_OWNER_FIELDS, jointName, shortName, arrLabel, ownerUnits, carried, nextOwnerCode, freshOwnerCode, loadPayouts, hasRefs, refreshOwner, noteOnListing,
+import { PRIVATE, BANK, CONTACT, CO_OWNER_FIELDS, jointName, shortName, arrLabel, ownerUnits, carried, nextOwnerCode, freshOwnerCode, loadPayouts, hasRefs, refreshOwner, noteOnListing,
   saveOwner, deleteOwner, deactivateOwner, reactivateOwner } from '@/lib/portfolio-data.js';
 
 const me = useSession();
@@ -120,11 +123,17 @@ export default {
   computed: {
     myUnits() { return this.o.id ? ownerUnits(this.units, this.o.id) : []; },
     carriedAmt() { return this.o.id ? carried(this.units, this.bfLines, this.o.id) : 0; },
-    pagePropertyId() { return this.propertyId === 'all' ? null : this.propertyId; }
+    pagePropertyId() { return this.propertyId === 'all' ? null : this.propertyId; },
+    // Access levels (16 Nov 2026): Owners Full see and change everything; Owners Base only read names and contact.
+    // Marketing (canEdit) still change names and contact. Anyone adding an owner fills in every field once (no bank).
+    full() { return this.acc.ownerFull; },
+    readOnly() { return !this.o.isNew && !this.full && !this.acc.canEdit; },
+    showSensitive() { return this.full || this.o.isNew; },
+    coEditable() { return this.full || this.o.isNew; }
   },
   async created() {
     // Accounting and Directors see the owner's payouts
-    if (this.owner && !this.acc.viewOnly) this.o.payouts = await loadPayouts(this.myUnits.map(x => x.id));
+    if (this.owner && this.full && !this.acc.viewOnly) this.o.payouts = await loadPayouts(this.myUnits.map(x => x.id));
   },
   methods: {
     amt, shortName, arrLabel, jointName,
@@ -147,8 +156,10 @@ export default {
       const co = cleanCo(o.coOwners);
       if (co.some(c => !c.fullName)) return o.error = 'Enter a full name for every extra owner, or remove the empty one.';
       if (co.some(c => c.email && !/^\S+@\S+\.\S+$/.test(c.email))) return o.error = "One of the extra owners' emails doesn't look right.";
-      // Operations add contact details only; bank details are Accounting's and Directors'.
-      const priv = Object.fromEntries(PRIVATE.filter(k => !this.acc.viewOnly || !BANK.includes(k)).map(k => [k, String(o[k] || '').trim()]));
+      if (this.readOnly) return;
+      // Owners Full: everything. Adding without Full: no bank details. Marketing editing: names and contact only.
+      const keys = this.full ? PRIVATE : o.isNew ? PRIVATE.filter(k => !BANK.includes(k)) : CONTACT;
+      const priv = Object.fromEntries(keys.map(k => [k, String(o[k] || '').trim()]));
       const before = o.original?.private || {};
       const changed = Object.keys(priv).filter(k => (before[k] ?? (k === 'fullName' ? o.original?.name || '' : '')) !== priv[k]);
       // Joint owners are written only when there are some (or there were), so single owners save exactly as before.
@@ -164,7 +175,7 @@ export default {
       const digits = (priv.bankAccount || '').replace(/\D/g, '');
       this.setBusy(true);
       try {
-        await saveOwner(me, { id, isNew: o.isNew, keepMain: this.acc.viewOnly && !o.isNew, active: o.active, bankLast4: digits ? digits.slice(-4) : null,
+        await saveOwner(me, { id, isNew: o.isNew, keepMain: !this.full && !o.isNew, full: this.full, active: o.active, bankLast4: digits ? digits.slice(-4) : null,
           priv, changed, reason: o.reason.trim() || 'Added on Portfolio', propertyId: this.pagePropertyId });
         const noted = o.isNew ? await noteOnListing(me, o.fromListing, 'ownerId', id, 'owner') : '';
         o.id = id;

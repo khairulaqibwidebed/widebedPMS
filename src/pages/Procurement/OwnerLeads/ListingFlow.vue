@@ -1,8 +1,6 @@
 <template>
   <main class="content ol-flow">
     <div class="loading-bar" v-show="loading || busy"></div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice warn" v-if="syncNotes.length"><template v-for="(n, i) in syncNotes" :key="i"><div>{{ n }}</div></template></div>
 
     <!-- Back to the Owner Leads list (13 Nov 2026: replaces the Listings panel button); with a listing open it sits in its header instead -->
@@ -14,9 +12,10 @@
       <span class="ol-bar-fill"></span>
     </div>
 
-    <NewLead v-if="mode === 'new'" :properties="properties" @cancel="$router.push('/Procurement/listing-flow')" @saved="onNewSaved" @dirty="v => newDirty = v" />
+    <!-- + New listing: a popup over the list (16 Nov 2026). The old /Procurement/listing-flow/new address opens it too. -->
+    <NewLead v-if="newOpen" :properties="properties" @cancel="closeNew" @saved="onNewSaved" @dirty="v => newDirty = v" />
 
-    <template v-else-if="mode === 'listing' && l && d">
+    <template v-if="mode === 'listing' && l && d">
       <div class="ol-head">
         <div class="ol-head-main">
           <router-link class="ol-back" to="/Procurement/listing-flow">
@@ -130,8 +129,17 @@
           <div class="ov-live"><LiveStatus :status="liveStatus.list?.status" :last-updated="liveStatus.list?.lastUpdated" />
             <LiveStatus v-if="readsLeads" :status="liveStatus.leads?.status" :last-updated="liveStatus.leads?.lastUpdated" time /></div></div>
         <div class="head-tools">
-          <button class="btn" v-if="isDirector && plan.length" @click="migrateOpen = true">{{ `Update older listings (${plan.length})` }}</button>
-          <router-link class="btn btn-primary" v-if="canEdit" :to="listingLink('new')">+ New listing</router-link>
+          <!-- 16 Nov 2026: for Directors a Manage listings drop-down (New listing, Set defaults, Update older listings); others get + New listing -->
+          <div class="nl-menu" v-if="canEdit" v-esc="() => { nlMenu = false }">
+            <button type="button" class="btn btn-primary" :aria-expanded="String(nlMenu)" aria-haspopup="menu" @click="isDirector ? (nlMenu = !nlMenu) : openNewListing()">
+              {{ isDirector ? 'Manage listings' : '+ New listing' }}<svg v-if="isDirector" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg></button>
+            <div class="nl-back" v-if="nlMenu" @click="nlMenu = false"></div>
+            <div class="nl-pop" v-if="nlMenu" role="menu">
+              <button type="button" role="menuitem" @click="nlMenu = false; openNewListing()"><b>New listing</b><small>For a unit with no task in the task system</small></button>
+              <button type="button" role="menuitem" @click="nlMenu = false; $router.push('/Procurement/listing-flow/defaults')"><b>Set defaults</b><small>Operations Setup and Marketing rows for new listings</small></button>
+              <button type="button" role="menuitem" v-if="plan.length" @click="nlMenu = false; migrateOpen = true"><b>{{ `Update older listings (${plan.length})` }}</b><small>Bring listings made before the latest changes up to date</small></button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="notice warn" v-show="leadsError">{{ leadsError }}</div>
@@ -338,7 +346,7 @@ export default {
       listings: [], listLoading: true, properties: [], owners: [], migrateOpen: false,
       moreOpen: false,     // the header's ⋯ menu (Not proceeding, Reopen)
       tmsSending: false,   // a save or Send now is on its way to the task system (progress bar instead of "Not sent")
-      mode: '', l: null, saved: null, d: null, c: blankContact(), c0: blankContact(), tab: 'agreement', wantStage: '', notFound: false, remoteChanged: false, newDirty: false,
+      mode: '', l: null, saved: null, d: null, c: blankContact(), c0: blankContact(), tab: 'agreement', wantStage: '', notFound: false, remoteChanged: false, newDirty: false, newOpen: false, nlMenu: false,
       linked: [], tasksLoading: false, tasksError: '', showDetails: false, histOpen: false,
       formError: '', okMsg: '', error: '', loading: false, busy: false, pdfBusy: false
     };
@@ -425,7 +433,7 @@ export default {
   methods: {
     stageDoneOf, stagePartOf, stageNote, stageText, agingOf, placeOf, tmsState, full, stamp, listingLink,
     numberOf(k) { return this.stageKeys.indexOf(k) + 1; },
-    unsaved() { return this.mode === 'new' ? this.newDirty : this.editable && this.dirty; },
+    unsaved() { return (this.newOpen && this.newDirty) || (this.editable && this.dirty); },
     async pollLeads() {
       this.leads = await ownerLeads(); this.leadsError = ''; this.leadsLoaded = true; this.leadsIn = true; this.now = Date.now();
       await this.sync();
@@ -446,7 +454,8 @@ export default {
       const id = route.params.id ? String(route.params.id) : '';
       if (id === 'new') {
         if (!this.canEdit) { this.$router.replace(BASE); return; }
-        this.closeListing(); this.mode = 'new'; this.newDirty = false;
+        // The list, with the New listing popup open
+        this.closeListing(); this.mode = ''; this.newDirty = false; this.newOpen = true;
         return;
       }
       if (!id) { this.closeListing(); this.mode = ''; return; }
@@ -736,8 +745,15 @@ export default {
         this.okMsg = message;
       } catch (e) { this.error = errText(e, 'start the listing'); this.busy = false; }
     },
+    openNewListing() { this.newOpen = true; this.newDirty = false; },
+    // Closing the New listing popup: ask first if something was typed. On the old /new address, back to the plain list.
+    async closeNew() {
+      if (this.newDirty && !(await askConfirm({ title: 'Discard this listing?', message: "What you've entered will be lost.", confirmText: 'Discard', danger: true }))) return;
+      this.newDirty = false; this.newOpen = false;
+      if (this.$route.params.id === 'new') this.$router.push(BASE);
+    },
     async onNewSaved(id, message) {
-      this.newDirty = false;
+      this.newDirty = false; this.newOpen = false;
       await this.$router.push(listingLink(id));
       this.okMsg = message;
     },
@@ -749,6 +765,17 @@ export default {
 </script>
 
 <style scoped>
+/* + New listing drop-down (16 Nov 2026) */
+.nl-menu { position: relative; }
+.nl-menu .btn-primary { display: inline-flex; align-items: center; gap: 8px; }
+.nl-back { position: fixed; inset: 0; z-index: 29; }
+.nl-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 300px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.12); padding: 6px; display: grid; gap: 2px; }
+.nl-pop button { display: grid; gap: 2px; text-align: left; border: 0; background: none; padding: 10px 12px; border-radius: 8px; font: inherit; cursor: pointer; color: var(--text); }
+.nl-pop button:hover { background: var(--accent-soft); }
+.nl-pop button:hover b { color: var(--accent); }
+.nl-pop b { font-size: 14px; }
+.nl-pop small { font-size: 12px; color: var(--muted); }
 /* Redesign 11 Nov 2026: top buttons, a panel from the right (the app sidebar is on the left), full-width listing */
 .ol-flow { display: flex; flex-direction: column; gap: 16px; }
 .ol-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

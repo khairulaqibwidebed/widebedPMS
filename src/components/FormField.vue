@@ -1,7 +1,8 @@
 <template>
   <div class="field">
     <label :class="{ req }" :for="id">{{ label }}</label>
-    <input class="input" :id="id" v-bind="inputAttrs()" :value="modelValue" @input="onInput">
+    <!-- 16 Nov 2026: an empty date shows its dd/mm/yyyy in grey, like a placeholder -->
+    <input class="input" :class="{ 'date-empty': isDate && !modelValue }" :id="id" v-bind="inputAttrs()" :value="modelValue" @input="onInput">
   </div>
 </template>
 
@@ -12,6 +13,7 @@ export default {
   inheritAttrs: false,
   props: { modelValue: { default: '' }, label: { type: String, default: '' }, req: { type: Boolean, default: false }, id: { type: String, default: undefined } },
   emits: ['update:modelValue'],
+  computed: { isDate() { return ['date', 'month', 'time', 'datetime-local'].includes(this.$attrs.type); } },
   methods: {
     // Everything but @input goes straight to the input; the parent's @input runs after the new value is saved
     // (otherwise it would see the previous value, e.g. Owner share worked out from the last digit typed)

@@ -12,25 +12,23 @@
       </div>
       <div class="head-tools">
         <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="reload()" />
-        <MonthPicker :ahead="1" multiple all-label="All months" v-model="monthsModel" v-if="!acc.viewOnly" />
+        <MonthPicker :ahead="1" multiple all-label="All months" v-model="monthsModel" v-if="acc.bkView" />
         <RefreshButton v-if="propertyId === 'all'" @refresh="go()" />
         <LiveStatus v-else :status="liveStatus.bookings?.status || 'live'" />
       </div>
     </div>
 
-    <div class="notice error" v-show="error">{{ error }}</div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
     <section class="kpis">
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ active.length }}</div><div class="hint">Made from Tenant leads</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term tenants</div><div class="value">{{ active.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short stays</div><div class="value">{{ active.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: active.filter(x => !x.ezeeReservationNo).length }">{{ active.filter(x => !x.ezeeReservationNo).length }}</div><div class="hint">No eZee reservation no. linked</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ inView.length }}</div><div class="hint">Made from Tenant leads</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term tenants</div><div class="value">{{ inView.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short stays</div><div class="value">{{ inView.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: notInEzee }">{{ notInEzee }}</div><div class="hint">No eZee reservation no. linked</div></button>
     </section>
     <section class="card">
       <div class="card-head"><h2>Offline bookings</h2>
         <!-- 13 Nov 2026: cards (one full-width card per booking, as a list) or the table; the choice is remembered on this browser -->
-        <div class="seg view-seg" role="radiogroup" aria-label="Show bookings as">
+        <div class="seg slide view-seg" role="radiogroup" aria-label="Show bookings as">
           <button type="button" role="radio" :aria-checked="view === 'table'" :class="{ on: view === 'table' }" @click="setView('table')">Table</button>
           <button type="button" role="radio" :aria-checked="view === 'cards'" :class="{ on: view === 'cards' }" @click="setView('cards')">Cards</button>
         </div></div>
@@ -44,10 +42,12 @@
               <label class="dr-f">Stays to<input class="input" type="date" v-model="bkTo"></label>
               <div class="mm-foot"><button type="button" class="link" @click="bkFrom = ''; bkTo = ''">Clear</button><button type="button" class="btn btn-primary" @click="drOpen = false">Done</button></div>
             </div></template></span>
+        <!-- 16 Nov 2026: bookings saved before payment (status pending) -->
+        <button type="button" class="btn" :class="{ 'btn-primary': bookingKind === 'pending' }" v-if="pendingCount || bookingKind === 'pending'" @click="bookingKind = bookingKind === 'pending' ? 'all' : 'pending'">{{ bookingKind === 'pending' ? 'Show all bookings' : `Awaiting payment (${pendingCount})` }}</button>
         <button type="button" class="btn" :class="{ 'btn-primary': bookingKind === 'cancelled' }" v-if="cancelledCount || bookingKind === 'cancelled'" @click="bookingKind = bookingKind === 'cancelled' ? 'all' : 'cancelled'">{{ bookingKind === 'cancelled' ? 'Back to active bookings' : `Cancelled (${cancelledCount})` }}</button>
         <span class="help" v-if="search.trim()">Searching shows every month and date.</span>
         <!-- 6 Nov 2026: a new booking opens the Reservation Lodgment Form (Booking Forms tick), right-aligned like + Add owner -->
-        <RouterLink class="btn btn-primary new-bk" style="margin-left:auto" v-if="canForms" to="/Operations/booking-forms/reservation" title="Opens the Reservation Lodgment Form">+ New booking</RouterLink>
+        <RouterLink class="btn btn-primary new-bk" style="margin-left:auto" v-if="canForms" to="/Portfolio/bookings/new" title="Opens the Reservation Lodgment Form">+ New booking</RouterLink>
       </div>
       <Paged :items="shown" v-slot="{ pageRows }">
       <div class="bk-list" v-if="view === 'cards'">
@@ -58,13 +58,14 @@
             <div class="bk-name">{{ guestName(row) }}</div>
             <div class="bk-place"><span>{{ [row.propertyName, row.unitCode || row.unitId].filter(Boolean).join(' · ') || 'No unit' }}</span>
               <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span>
+              <span class="pill amber" v-else-if="row.status === 'pending'" title="Saved before payment; open it to download the invoice or finish it">Awaiting payment</span>
               <span class="pill amber" v-else-if="!row.ezeeReservationNo" title="No eZee reservation no. linked">Not in eZee</span></div>
             <div class="bk-stay"><span class="bk-k">Stay</span>{{ `${niceDate(row.arrival) || '—'} to ${niceDate(row.departure) || '—'}` }}</div>
             <div class="bk-meta">{{ [row.longTerm ? 'Long-term lease' : 'Short stay', nights(row) ? `${nights(row)} ${nights(row) === 1 ? 'night' : 'nights'}` : '', row.ezeeReservationNo ? `eZee ${row.ezeeReservationNo}` : ''].filter(Boolean).join(' · ') }}</div>
           </div>
-          <div class="bk-side" v-if="!acc.viewOnly">
+          <div class="bk-side" v-if="acc.bkView">
             <b class="bk-amt">{{ row.longTerm ? `RM ${amt(row.monthlyRent)}` : (paidOf(row) === '—' ? '—' : `RM ${paidOf(row)}`) }}<small>{{ row.longTerm ? ' /month' : ' paid' }}</small></b>
-            <div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template></div>
+            <div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length || wholeYear ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template></div>
           </div>
           <span v-else></span>
           <button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button>
@@ -73,7 +74,7 @@
       </div>
       <div class="table-wrap" v-else>
         <table class="table">
-          <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="!acc.viewOnly">Amount (RM)</th><th v-if="!acc.viewOnly" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
+          <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="acc.bkView">Amount (RM)</th><th v-if="acc.bkView" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
           <tbody>
             <template v-for="row in pageRows" :key="row.id">
               <tr class="clickable" @click="open = row">
@@ -82,18 +83,18 @@
                 <td class="nw">{{ guestName(row) }}</td>
                 <td class="nw">{{ dmy(row.arrival) }}</td>
                 <td class="nw">{{ dmy(row.departure) }}</td>
-                <td class="nw">{{ row.longTerm ? 'Long-term lease' : 'Short stay' }} <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span></td>
-                <td class="num nw" v-if="!acc.viewOnly">{{ row.longTerm ? `${amt(row.monthlyRent)} /M` : paidOf(row) }}</td>
-                <td v-if="!acc.viewOnly"><div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template><span class="muted" v-if="!payMonths.some(m => monthStatus(row, m))">—</span></div></td>
+                <td class="nw">{{ row.longTerm ? 'Long-term lease' : 'Short stay' }} <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span><span class="pill amber" v-else-if="row.status === 'pending'">Awaiting payment</span></td>
+                <td class="num nw" v-if="acc.bkView">{{ row.longTerm ? `${amt(row.monthlyRent)} /M` : paidOf(row) }}</td>
+                <td v-if="acc.bkView"><div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length || wholeYear ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template><span class="muted" v-if="!payMonths.some(m => monthStatus(row, m))">—</span></div></td>
                 <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
               </tr>
             </template>
-            <tr v-show="!shown.length"><td :colspan="9 - (acc.viewOnly ? 2 : 0)" class="muted">{{ emptyMsg }}</td></tr>
+            <tr v-show="!shown.length"><td :colspan="9 - (!acc.bkView ? 2 : 0)" class="muted">{{ emptyMsg }}</td></tr>
           </tbody>
         </table>
       </div>
       </Paged>
-      <div class="card-foot" v-if="!acc.viewOnly"><span>Invoice and receipt PDFs are made from a booking, approved by Accounting, saved to the company Google Drive and listed on Accounting › Invoices & Receipts. Nothing is sent automatically.</span></div>
+      <div class="card-foot" v-if="acc.bkView"><span>Invoice and receipt PDFs are made from a booking, approved by Accounting, saved to the company Google Drive and listed on Accounting › Invoices & Receipts. Nothing is sent automatically.</span></div>
     </section>
 
     <BookingDrawer v-if="open" :key="open.id" :booking="open" :acc="acc" @close="open = null" @saved="onSaved" @deleted="onDeleted" />
@@ -103,6 +104,7 @@
 <script>
 // Portfolio › Bookings: offline bookings (stays made outside eZee), for every property or the one picked, with
 // the month payment status of each and the booking drawer.
+const yearOf = m => Array.from({ length: 12 }, (_, i) => `${m.slice(0, 4)}-${String(i + 1).padStart(2, '0')}`);
 import '../portfolio.css';
 import { amt, dmy, monthName, monthOffset } from '@/lib/format.js';
 import { loadProperties, friendlyError } from '@/lib/finance-data.js';
@@ -148,19 +150,27 @@ export default {
     },
     // Cancelled bookings are kept but left out of the counts and the list (the Cancelled button shows them)
     active() { return this.bookings.filter(x => x.status !== 'cancelled'); },
-    cancelledCount() { return this.bookings.length - this.active.length; },
+    // 16 Nov 2026 (Khairul): the cards and counts follow the months and dates picked: any booking whose stay touches them
+    inView() { return this.active.filter(x => this.inPicked(x)); },
+    cancelledCount() { return this.bookings.filter(x => x.status === 'cancelled' && this.inPicked(x)).length; },
+    // Awaiting payment (16 Nov 2026): held units, not keyed into eZee until paid
+    pendingCount() { return this.inView.filter(x => x.status === 'pending').length; },
+    notInEzee() { return this.inView.filter(x => !x.ezeeReservationNo && x.status !== 'pending').length; },
     propertyOptions() { return [{ value: 'all', label: 'All properties' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))]; },
     // The month picker: several months (none ticked = every month). Left alone it follows the month in the address.
     monthsModel: { get() { return this.selMonths; }, set(v) { this.monthSel = v; } },
-    selMonths() { return this.monthSel === null ? [this.asOf] : this.monthSel; },
-    payMonths() { const s = this.selMonths; return s.length ? [...s].sort() : [this.asOf]; },
+    // 16 Nov 2026 (Khairul): starts on the whole year (the month's year); a link with ?month= starts on that month
+    selMonths() { return this.monthSel !== null ? this.monthSel : this.$route.query.month ? [this.asOf] : yearOf(this.asOf); },
+    wholeYear() { const s = this.selMonths; return s.length === 12 && new Set(s.map(m => m.slice(0, 4))).size === 1; },
+    // Payment pills: the whole year shows the current month only (not 12 pills per long-term tenant)
+    payMonths() { const s = this.selMonths; return this.wholeYear ? [s.includes(monthOffset(0)) ? monthOffset(0) : this.asOf] : s.length ? [...s].sort() : [this.asOf]; },
     dateLabel() { return !this.bkFrom && !this.bkTo ? 'Any dates' : `${this.bkFrom ? dmy(this.bkFrom) : 'Start'} to ${this.bkTo ? dmy(this.bkTo) : 'any'}`; },
     // Typing in the search box ignores the month and date filters, so a unit search shows all of its bookings.
     shown() {
       const q = this.search.trim().toLowerCase();
       const k = this.bookingKind;
       const list = k === 'cancelled' ? this.bookings.filter(x => x.status === 'cancelled') : this.active;
-      return list.filter(x => (q || this.inPicked(x)) && (k === 'all' || k === 'cancelled' || (k === 'long' && x.longTerm) || (k === 'short' && !x.longTerm) || (k === 'noEzee' && !x.ezeeReservationNo))
+      return list.filter(x => (q || this.inPicked(x)) && (k === 'all' || k === 'cancelled' || (k === 'long' && x.longTerm) || (k === 'short' && !x.longTerm) || (k === 'noEzee' && !x.ezeeReservationNo && x.status !== 'pending') || (k === 'pending' && x.status === 'pending'))
         && (!q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo, this.names[x.id]].some(v => (v || '').toLowerCase().includes(q))));
     }
   },

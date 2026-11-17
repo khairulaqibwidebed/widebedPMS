@@ -9,7 +9,13 @@
       <template v-for="(o, i) in list" :key="o.value">
         <li role="option" :aria-selected="String(isOn(o.value))" class="op-item" :class="{ on: isOn(o.value), hot: i === hot && !o.disabled, off: o.disabled }" :aria-disabled="String(!!o.disabled)"
           @mouseenter="hot = i" @click="!o.disabled && pick(o.value)">
-          <span>{{ o.label }}</span>
+          <span class="op-cols" v-if="columns && o.cols" :style="{ gridTemplateColumns: columns }"><template v-for="(c, j) in o.cols" :key="j">
+            <!-- A column can be an icon: { icon: 'fileCheck', title: 'Bill saved' } (title shows on hover) -->
+            <span v-if="c && typeof c === 'object'" class="op-ico" :title="c.title" :aria-label="c.title" role="img">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="m9 15 2 2 4-4" /></svg></span>
+            <span v-else :title="c">{{ c }}</span>
+          </template></span>
+          <span v-else>{{ o.label }}</span>
           <svg v-if="isOn(o.value)" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
         </li>
       </template>
@@ -31,7 +37,9 @@
 // Add `picked-first` (with multiple): each time the list opens, the ticked ones are listed first. While it is open nothing
 // moves, so a row just ticked or unticked stays where it is until the list is opened again.
 export default {
-  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, pickedFirst: { type: Boolean, default: false }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' } },
+  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, pickedFirst: { type: Boolean, default: false }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' },
+    // 16 Nov 2026: columns = a CSS grid-template-columns; an option with cols: [...] is shown as lined-up columns (search and the button still use label)
+    columns: { type: String, default: '' } },
   emits: ['update:modelValue', 'change', 'add'],
   data() { return { open: false, hot: 0, q: '', up: false, adding: false, newText: '', order: null }; },
   computed: {
@@ -132,6 +140,14 @@ export default {
 .op-addform .btn { height: 36px; }
 .op-val.ph { color: var(--muted); font-weight: 400; }
 .op-none { padding: 9px 12px; font-size: 13px; color: var(--muted); }
+.op-cols { flex: 1; min-width: 0; display: grid; gap: 14px; }
+.op-cols > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A thin line between columns, and between rows */
+.op-cols > span + span { border-left: 1px solid var(--border); padding-left: 14px; }
+.op-cols > span:empty { border-left: 0; }
+.op-cols > .op-ico { display: flex; align-items: center; justify-content: center; color: var(--green); overflow: visible; }
+.op-item:has(.op-cols) + .op-item:has(.op-cols) { box-shadow: inset 0 1px 0 var(--border); }
+.op-item.hot:has(.op-cols), .op-item.hot:has(.op-cols) + .op-item { box-shadow: none; }
 .op-item.off { color: var(--muted); opacity: .6; cursor: not-allowed; }
 .op-item.hot { background: var(--accent-soft); color: var(--accent); }
 .op-item.on { color: var(--accent); font-weight: 700; }

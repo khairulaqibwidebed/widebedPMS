@@ -269,7 +269,7 @@ export function toStored(display, fields) {
   return String(display ?? '').replace(REF_OR_TEXT, (all, name) => {
     if (name === undefined || name.trim().startsWith('@')) return all;
     const n = name.trim().toLowerCase();
-    const f = fields.find(x => x.type !== 'section' && String(x.label).trim().toLowerCase() === n);
+    const f = fields.find(x => !['section', 'note'].includes(x.type) && String(x.label).trim().toLowerCase() === n);
     if (!f) fail('#NAME?', `There is no field called [${name.trim()}]`);
     return `[@${f.id}]`;
   });
@@ -363,7 +363,7 @@ export function suggest(before, fields) {
   if (quotes % 2 === 1) return null;   // inside "text"
   if (open > close) {
     const q = before.slice(open + 1).trim().toLowerCase();
-    const items = fields.filter(f => f.type !== 'section' && String(f.label).toLowerCase().includes(q))
+    const items = fields.filter(f => !['section', 'note'].includes(f.type) && String(f.label).toLowerCase().includes(q))
       .slice(0, 12).map(f => ({ label: f.label, insert: `[${f.label}]`, hint: f.type === 'formula' ? 'formula' : f.type }));
     return { from: open, items };
   }

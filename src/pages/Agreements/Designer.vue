@@ -2,7 +2,6 @@
   <main class="content ds">
     <div class="loading-bar" v-show="loading || busy"></div>
     <div class="ag-crumb"><RouterLink to="/Agreements/setup">Agreement Setup</RouterLink><span>›</span><span>Place fields</span></div>
-    <div class="notice error" v-if="error">{{ error }}</div>
 
     <template v-if="tpl && form">
       <!-- Toolbar -->
@@ -166,7 +165,7 @@
       <div class="field">
         <label for="newFieldType">Type</label>
         <select id="newFieldType" class="input select" v-model="ask.type">
-          <option v-for="t in FIELD_TYPES.filter(t => !['section', 'file', 'formula'].includes(t.type))" :key="t.type" :value="t.type">{{ t.label }}</option>
+          <option v-for="t in FIELD_TYPES.filter(t => !['section', 'note', 'file', 'formula'].includes(t.type))" :key="t.type" :value="t.type">{{ t.label }}</option>
         </select>
       </div>
     </NameDialog>

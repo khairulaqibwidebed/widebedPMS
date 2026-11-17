@@ -27,6 +27,17 @@
 .ag-formula small { color: var(--red); font-weight: 400; }
 .ag-formula.err { background: var(--red-soft); color: var(--red); }
 
+/* Text block (read only): house rules, terms. Shown in full or behind a "Read …" link. */
+.ag-form .ag-note { grid-column: 1 / -1; }
+.ag-note { margin: 4px 0 12px; display: grid; gap: 6px; }
+.ag-note:not(.link) { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--hover); }
+.ag-note-title { font-size: 14px; font-weight: 600; }
+.ag-note-text { font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.ag-note-link { justify-self: start; display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit;
+  font-size: 14px; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.ag-note-body { display: grid; gap: 10px; justify-items: start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--hover);
+  max-height: 360px; overflow-y: auto; }
+
 /* ---------- Page chrome ---------- */
 .ag-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ag-bar .grow { flex: 1; }

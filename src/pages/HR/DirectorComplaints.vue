@@ -2,7 +2,6 @@
   <main class="content soft-page">
     <div class="page-head"><div><h1>{{ isHr ? 'Send a complaint to the Directors' : 'Director Complaints' }}</h1><div class="sub">{{ isHr ? 'Sent to all Directors' : 'Complaints sent to the Directors by HR' }}</div></div>
       <button class="btn btn-primary" type="button" v-if="isHr" @click="showSent = true">{{ `Sent before${list.length ? ` (${list.length})` : ''}` }}</button></div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="notice error" v-show="loadErr">{{ loadErr }}</div>
     <!-- HR: the form full width, like Raise a staff complaint; "Sent before" opens the list (4 Nov 2026) -->
     <section class="card" v-if="isHr">

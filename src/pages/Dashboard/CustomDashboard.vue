@@ -6,7 +6,6 @@
         <div class="sub">{{ greeting }}</div>
       </div>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <!-- Top numbers: the main count of each card this role has -->
     <div class="kpis cd-kpis">
@@ -85,6 +84,7 @@ import { loadIssueCard, loadUnknownPayments, loadRenewalsDue } from '@/lib/role-
 const STATUS = { open: ['Open', 'amber'], progress: ['In progress', 'blue'] };
 
 export default {
+  popups: true,   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   data() {
     const me = useSession();
     // Dashboard and My Account are left out: they are one click away in the sidebar.

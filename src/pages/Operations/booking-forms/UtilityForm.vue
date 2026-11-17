@@ -4,7 +4,6 @@
       <h2>Utility Lodgment Form</h2>
       <p class="sub">Log utility invoices to an active booking.</p>
     </div>
-    <div class="notice error" v-show="error">{{ error }}</div>
 
     <FormSaved v-if="saved" :message="done" @again="startAgain()">
       <p class="saved-note" v-if="tenant.email">You can still email the bill to the tenant.</p>
@@ -19,7 +18,7 @@
         <div v-show="step === 0">
           <h3>Booking</h3>
           <div class="field"><label class="req">Booking ID</label>
-            <OptionPicker class="fld-pick" v-model="bookingId" :options="bookingOptions" label="Booking ID" searchable /></div>
+            <OptionPicker class="fld-pick" v-model="bookingId" :options="bookingOptions" label="Booking ID" searchable columns="minmax(0, 1.6fr) minmax(0, 1.2fr) minmax(0, .8fr) minmax(0, 1.5fr) 44px" /></div>
           <p class="help loading-line" v-if="loading">Loading bookings…</p>
           <p class="help" v-else-if="!bookings.length">No bookings found.</p>
           <p class="help ok-note" v-else-if="existing">A bill is already saved for this booking and has been filled in on the Bills step. Change anything and press Save to update it.</p>
@@ -60,7 +59,6 @@
             <ul class="miss"><li v-for="m in missing" :key="m.index"><button type="button" class="editlink" @click="step = m.index">{{ `${m.index + 1}. ${m.label}` }}</button>: {{ m.items.join(', ') }}</li></ul>
           </div>
           <div class="notice ok" v-else-if="!done">Everything needed is filled in. Check the details and press Save.</div>
-          <div class="notice ok" v-show="done">{{ done }}</div>
           <div class="rev">
             <div class="card-head"><h4>1. Booking</h4><button type="button" class="editlink" @click="step = 0">Edit</button></div>
             <div class="kv"><span>Booking ID</span><span>{{ bookingId || '—' }}</span></div>
@@ -118,6 +116,7 @@ const nameCache = reactive({});
 const cents = v => Math.round((+v || 0) * 100) / 100;
 
 export default {
+  popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { FormField, OptionPicker, DriveFiles, StepStrip, FormSaved },
   emits: ['dirty'],
   data() { return { KINDS, f: blank(), start: JSON.stringify(blank()), bookings: [], bills: {}, names: nameCache, bookingId: '', loading: true, tenant: {}, tenantLoaded: false,
@@ -125,8 +124,11 @@ export default {
   computed: {
     // Name | Property | Unit | Date. Property and unit come from the booking, or are looked up when the booking lacks them (load()).
     bookingOptions() {
-      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => ({ value: b.id,
-        label: `${this.names[b.tenantId || b.id] || b.id} | ${b.propertyName || '—'} | ${b.unitCode || '—'} | ${b.arrival || ''} to ${b.departure || ''}${this.bills[b.id] ? ' · bill saved' : ''}` }))];
+      // 16 Nov 2026: shown in lined-up columns in the list (cols); label is still what search and the closed picker use
+      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => {
+        const cols = [this.names[b.tenantId || b.id] || b.id, b.propertyName || '—', b.unitCode || b.unitId || '—', `${b.arrival || ''} to ${b.departure || ''}`, this.bills[b.id] ? { icon: 'fileCheck', title: 'Bill saved' } : ''];
+        return { value: b.id, cols, label: `${cols[0]} | ${cols[1]} | ${cols[2]} | ${cols[3]}${cols[4] ? ' · bill saved' : ''}` };
+      })];
     },
     // The bills that have an amount
     billed() { return KINDS.filter(u => cents(this.f[u.key]) > 0); },
@@ -191,7 +193,8 @@ export default {
         // Only my properties' bookings and bills (lib/property-scope.js)
         const [bs, us] = await Promise.all([getScoped(scoped(query(collection(db, 'offlineBookings'), limit(300)))), getScoped(scoped(query(collection(db, 'utilityBills'), limit(500))))]);
         this.bills = Object.fromEntries(us.docs.map(d => [d.id, d.data()]));
-        this.bookings = bs.docs.filter(d => d.data().status !== 'cancelled').map(d => ({ id: d.id, ...d.data() }))
+        this.bookings = bs.docs.filter(d => d.data().status !== 'cancelled' && d.data().status !== 'pending')   // not Awaiting payment (16 Nov 2026)
+          .map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => String(b.arrival || '').localeCompare(String(a.arrival || '')));
       } catch (e) { this.error = friendlyError(e, 'load the bookings'); }
       this.loading = false;
@@ -218,7 +221,7 @@ export default {
       this.bookings = this.bookings.map(b => {
         if (!need.includes(b)) return b;
         const p = props.find(x => x.id === b.propertyId), u = (unitsBy[b.propertyId] || []).find(x => x.id === b.unitId);
-        return { ...b, propertyName: b.propertyName || p?.name || p?.code || '', unitCode: b.unitCode || u?.unitCode || lone[b.unitId] || '' };
+        return { ...b, propertyName: b.propertyName || p?.name || p?.code || '', unitCode: b.unitCode || u?.unitCode || lone[b.unitId] || b.unitId || '' };   // 16 Nov 2026: the unit ID when no code is found, as on Bookings
       });
     },
     check() {

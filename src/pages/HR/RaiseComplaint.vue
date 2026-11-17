@@ -1,7 +1,6 @@
 <template>
   <main class="content soft-page">
     <div class="page-head"><div><h1>Raise a staff complaint</h1><div class="sub">Sent to HR</div></div><button class="btn btn-primary" type="button" @click="showMine = true">My complaints{{ list.length ? ` (${list.length})` : '' }}</button></div>
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="notice error" v-show="loadErr">{{ loadErr }}</div>
     <div>
       <section class="card">

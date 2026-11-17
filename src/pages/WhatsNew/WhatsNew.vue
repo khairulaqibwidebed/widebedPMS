@@ -42,8 +42,6 @@
         <div class="head-tools" v-if="isDirector"><button class="btn btn-primary" @click="openNew()">+ Post update</button></div>
       </div>
 
-      <div class="notice error" v-show="error">{{ error }}</div>
-      <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
       <div class="pills wn-filter">
         <button type="button" class="pill-btn" :class="{ on: filter === 'mine' }" @click="filter = 'mine'">For me</button>

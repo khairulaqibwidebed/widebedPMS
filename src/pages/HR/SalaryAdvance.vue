@@ -18,7 +18,6 @@
     </div>
     <Advances v-if="staffSide" v-show="tab !== 'mine'" :tab="tab" />
     <div v-show="tab === 'mine'">
-    <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <div class="notice error" v-show="loadErr">{{ loadErr }}</div>
     <div class="loading-bar" v-show="loading"></div>
 

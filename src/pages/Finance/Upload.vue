@@ -11,7 +11,6 @@
       </div>
     </div>
 
-    <div class="notice error" v-show="error"><span>{{ error }}</span> <button class="link" style="margin-left:8px" v-show="suggestMonth" @click="month = suggestMonth; pick(lastFile)">{{ suggestMonth ? `Use ${monthName(suggestMonth)} instead` : '' }}</button></div>
 
     <!-- Drop zone -->
     <label class="dropzone" :class="{ over: dragging }" v-show="stage === 0"
@@ -306,6 +305,11 @@ export default {
     propertyOptions() { return [{ value: '__auto', label: 'Multi-Property' }, ...this.properties.map(p => ({ value: p.id, label: p.name })), ...(this.properties.length ? [] : [{ value: '__new', label: 'New property (from the file)' }])]; }
   },
   methods: {
+    // 16 Nov 2026: the error popup gets a "Use <month> instead" button when the file has another month (lib/page-popups.js)
+    popupAction(kind) {
+      const m = kind === 'error' && this.suggestMonth;
+      return m ? { label: `Use ${monthName(m)} instead`, run: () => { this.month = m; this.pick(this.lastFile); } } : null;
+    },
     property() { return this.properties.find(p => p.id === this.propertyId) || null; },
     // The building name the file uses most for a room code (e.g. "Novo" for N), for matching by eZee name
     buildingOf(records, code) {

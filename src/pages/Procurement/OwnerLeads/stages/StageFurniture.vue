@@ -1,7 +1,6 @@
 <template>
   <section class="card" aria-label="Furniture & Amenities">
     <div class="card-head"><h2>{{ `${n}. Furniture & Amenities` }}</h2><span class="muted">{{ furnUsed(d).length ? `${furnUsed(d).filter(f => subDoneOf(d, f.key)).length} of ${furnUsed(d).length} completed` : 'No items yet' }}</span></div>
-    <div class="notice error" v-show="err">{{ err }}</div>
     <template v-for="f in FURN" :key="f.key">
       <div class="sub-stage" :data-sub="f.key">
         <div class="card-head" style="margin-bottom:8px"><h3>{{ f.label }}</h3>
@@ -49,6 +48,7 @@
 import { FURN, lineId, money, rm, sumLines, furnTotal, furnUsed, subDoneOf } from '@/lib/owner-leads.js';
 
 export default {
+  popups: { error: 'err' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   props: { d: { type: Object, required: true }, canEdit: Boolean, n: { type: Number, default: 3 } },
   emits: ['copy'],
   data() { return { FURN, pasteOpen: '', pasteText: '', err: '' }; },

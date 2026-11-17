@@ -19,8 +19,16 @@ export const SOON_DAYS = 60;
 
 // Fields that can hold the end date: date fields, and formulas that give a date.
 export const endFieldsOf = form => (form?.fields || []).filter(f => valueType(f) === 'date' && f.type !== 'section');
-// Fields that can hold a unit/room number: text and dropdown fields.
-export const unitFieldsOf = form => (form?.fields || []).filter(f => ['text', 'dropdown'].includes(f.type));
+// Fields that can hold a unit/room number: the Portfolio unit picker first, then text, dropdown and choice fields.
+// (17 Nov 2026: "Unit (Portfolio)" was missing here, so a form using it could never show its unit on Renewals.)
+const UNIT_TYPES = ['unit', 'text', 'dropdown', 'radio'];
+export const unitFieldsOf = form => (form?.fields || []).filter(f => UNIT_TYPES.includes(f.type) || (f.type === 'formula' && f.resultType === 'text'))
+  .sort((a, b) => (a.type === 'unit' ? 0 : 1) - (b.type === 'unit' ? 0 : 1));
+// The best guess for the unit field: a Portfolio unit picker, else a field named like Unit / Room / Lot.
+export const guessUnitField = form => {
+  const list = unitFieldsOf(form);
+  return list.find(f => f.type === 'unit') || list.find(f => /unit|room|lot/i.test(f.label)) || null;
+};
 
 export const tracked = form => !!(form?.renewal?.on && form.renewal.endFieldId);
 
@@ -36,12 +44,14 @@ export function endDateOf(form, values) {
   return typeof v === 'string' && ISO_DATE.test(v) ? v : '';
 }
 
-// The record's unit number, if the form has a unit field chosen in Renewal settings. '' if not set.
+// The record's unit number: from the unit field chosen in Renewal settings, or, when none was chosen, the form's
+// Portfolio unit field (or a field named Unit / Room / Lot). '' if the form has none.
 export function unitOf(form, values) {
-  const fieldId = form?.renewal?.unitFieldId;
+  if (form?.renewal?.unitFieldId === 'none') return '';   // turned off on purpose in Renewal settings
+  const fieldId = form?.renewal?.unitFieldId || guessUnitField(form)?.id;
   if (!fieldId) return '';
   const v = computeValues(form.fields, values || {})[fieldId];
-  return typeof v === 'string' ? v.trim() : '';
+  return typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
 }
 
 // Today in Malaysia as YYYY-MM-DD, and whole days from today to a date (negative = already ended).

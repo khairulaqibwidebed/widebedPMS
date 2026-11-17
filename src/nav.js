@@ -16,7 +16,7 @@ const G = (label, icon, items) => ({ label, icon, items });
 const TOP = { items: [P('Dashboard', '/Dashboard', 'dashboard'), P('Issues', '/Operations/issues', 'alert')] };
 // Owners, Properties and Bookings follow the Portfolio tick; Booking Forms, Offline Payments and Bulk Upload their own ticks.
 const PORTFOLIO = G('Portfolio', 'layers', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'),
-  P('Bookings', '/Portfolio/bookings', 'calendar'), P('Booking Forms', '/Operations/booking-forms', 'clipboard'),
+  P('Bookings', '/Portfolio/bookings', 'calendar'), P('Fees & Rates', '/Portfolio/fees-rates', 'percent'), P('Utility Lodgment Form', '/Operations/booking-forms', 'clipboard'),
   P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Bulk Upload', '/Portfolio/bulk-upload', 'table')]);
 // Leads follow their ticks; Agreements and Renewals are for everyone who has this group (not HR or IT).
 // Owner Leads (13 Nov 2026: Owner Leads and Listing Flow are one page) follows the Owner Leads View tick.
@@ -48,10 +48,11 @@ const MY_ACCOUNT = G('My Account', 'userCircle', [P('Profile & Appearance', '/Se
 export const NAV = {
   finance: [TOP, PORTFOLIO, LEADS, ACCOUNTING, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   director: [TOP, PORTFOLIO, LEADS_DIR, ACCOUNTING_DIR, PERFORMANCE_ADMIN, PLAYBOOK, HR_DIR,
-    G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'userCog'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
+    G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'userCog'), P('States', '/Settings/states', 'files'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
     MY_ACCOUNT],
   // Portfolio is view-only for Operations, Procurement and Marketing (no fees, payouts or owner contact details).
-  operations: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
+  // 17 Nov 2026: Operations set up each state's Drive folder (Settings > States)
+  operations: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, G('Company Settings', 'settings', [P('States', '/Settings/states', 'files')]), MY_ACCOUNT],
   // IT and HR: no Agreements (6 Nov 2026).
   it: [TOP, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   hr: [TOP, PERFORMANCE_ADMIN, PLAYBOOK, HR_HR,

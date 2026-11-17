@@ -20,8 +20,8 @@
         <div class="field">
           <label for="rnUnit">Which field is the unit number? (optional)</label>
           <select id="rnUnit" class="input select" v-model="unitFieldId">
-            <option value="">Don't track by unit</option>
-            <option v-for="f in unitFields" :key="f.id" :value="f.id">{{ f.label }}</option>
+            <option value="none">Don't track by unit</option>
+            <option v-for="f in unitFields" :key="f.id" :value="f.id">{{ f.label }}{{ f.type === 'unit' ? ' (Portfolio unit)' : '' }}</option>
           </select>
           <span class="help">Lets the Renewals page group and filter by unit number.</span>
         </div>
@@ -50,7 +50,7 @@
 // Agreement Setup → Forms → Renewal: which date field ends the agreement, and which departments and staff are also reminded.
 import { ref, computed, onMounted } from 'vue';
 import { saveForm, audit, listStaff } from '@/lib/agreements/data.js';
-import { endFieldsOf, unitFieldsOf, rolesOf, peopleOf, REMIND_DAYS } from '@/lib/agreements/renewals.js';
+import { endFieldsOf, unitFieldsOf, guessUnitField, rolesOf, peopleOf, REMIND_DAYS } from '@/lib/agreements/renewals.js';
 import PeoplePicker from './PeoplePicker.vue';
 import { ROLE_LABEL } from '@/lib/firebase.js';
 
@@ -61,9 +61,9 @@ const dateFields = computed(() => endFieldsOf(props.form));
 const unitFields = computed(() => unitFieldsOf(props.form));
 // Guess the end date field the first time: a date field named like "Completion", "End" or "Expiry".
 const guess = () => (dateFields.value.find(f => /complet|end|expir/i.test(f.label)) || {}).id || '';
-const guessUnit = () => (unitFields.value.find(f => /unit|room|lot/i.test(f.label)) || {}).id || '';
+const guessUnit = () => guessUnitField(props.form)?.id || '';
 const on = ref(r.on ?? true), endFieldId = ref(r.endFieldId || guess()), roles = ref([...rolesOf(r)]), people = ref([...peopleOf(r)]);
-const unitFieldId = ref(r.unitFieldId || guessUnit());
+const unitFieldId = ref(r.unitFieldId || guessUnit() || 'none');
 const staff = ref([]);
 onMounted(() => listStaff().then(l => { staff.value = l; }).catch(() => {}));
 const busy = ref(false), error = ref('');

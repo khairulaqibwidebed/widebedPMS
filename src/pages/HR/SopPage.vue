@@ -128,7 +128,7 @@ export default {
         await batch.commit();
         this.data = { ...next, log, editedBy: me.name, editedOn: today() }; this.saved = true;
         return true;
-      } catch (e) { toast(friendlyError(e, 'save the SOP')); return false; }
+      } catch (e) { toast.error(friendlyError(e, 'save the SOP')); return false; }
       finally { this.busy = false; }
     },
     startEdit() { this.draft = [...this.data.steps]; this.reason = ''; this.err = ''; this.editing = true; },
@@ -143,10 +143,10 @@ export default {
     async upload(e) {
       const f = e.target.files[0]; e.target.value = '';
       if (!f || this.busy) return;
-      if (f.size > 4 * 1024 * 1024) return toast('Files must be 4 MB or less.');
+      if (f.size > 4 * 1024 * 1024) return toast.error('Files must be 4 MB or less.');
       this.busy = true; this.up = { on: true, pct: 0, name: f.name, drag: false };
       let up;
-      try { [up] = await uploadForLink('sops', [f], p => { this.up.pct = Math.round(p * 100); }, this.$route.meta.sop, this.cfg.title); } catch (err) { this.busy = false; this.up.on = false; return toast(err.message); }
+      try { [up] = await uploadForLink('sops', [f], p => { this.up.pct = Math.round(p * 100); }, this.$route.meta.sop, this.cfg.title); } catch (err) { this.busy = false; this.up.on = false; return toast.error(err.message); }
       this.up.pct = 100; this.busy = false;
       const docs = [{ name: f.name, on: today(), by: me.name, fileId: up.id, url: up.url }, ...this.data.docs];
       if (await this.save(`Added ${f.name}`, 'sop.docAdd', { steps: this.data.steps, docs })) toast(`${f.name} added.`);

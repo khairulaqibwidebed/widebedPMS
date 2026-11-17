@@ -8,7 +8,6 @@
       <div class="page-head">
         <div><h1>SOPs</h1><div class="sub">How things are done at Widebed. Everyone can read them; HR keeps them up to date.</div></div>
       </div>
-      <div class="notice error" v-show="err">{{ err }}</div>
       <div class="loading-bar" v-show="loading"></div>
       <SopList :sops="sops" :loading="loading" :can-edit="canEdit" @new="newOpen = true" />
       <SopNewModal v-if="newOpen" :taken-keys="new Set(sops.map(s => s.key))" @close="newOpen = false" @created="created" />
@@ -29,6 +28,7 @@ import { useSession } from '@/stores/session.js';
 import { can } from '@/lib/access.js';
 
 export default {
+  popups: { error: 'err' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { SopList, SopNewModal, SopView },
   data() { return { sops: [], loading: false, err: '', newOpen: false, canEdit: can(useSession(), 'sops.edit') }; },
   computed: { key() { return this.$route.params.key || ''; } },
