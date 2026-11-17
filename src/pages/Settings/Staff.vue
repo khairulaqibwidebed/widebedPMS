@@ -36,6 +36,7 @@
       <OptionPicker v-model="roleFilter" :options="roleOptions" label="Filter by role" />
       <div class="head-tools push">
         <button class="btn" @click="openLogs()">Logs</button>
+        <button class="btn" @click="openAdd('hk')">+ Add housekeeper</button>
         <button class="btn btn-primary" @click="openAdd()">+ Invite staff</button>
       </div>
     </div>
@@ -51,7 +52,7 @@
           <template v-for="row in pageRows" :key="row.id">
             <tr>
               <td><button class="name-btn" @click="openEdit(row)">{{ row.displayName || '(no name)' }}</button><span class="you" v-show="row.id === myUid">You</span></td>
-              <td>{{ row.email }}</td>
+              <td><template v-if="usernameOf(row.email)">{{ usernameOf(row.email) }} <span class="tag hk-tag" title="Signs in on the Housekeeping tab with this username">username</span></template><template v-else>{{ row.email }}</template></td>
               <td>
                 {{ roleText(row) }}
                 <span class="tag custom-tag" v-if="isCustom(row)" title="Page access changed from the role's usual pages">Custom access</span>
@@ -114,6 +115,7 @@
         <div><b>HR</b><span>SOP pages, complaints, Playbook, Staff accounts and Audit log, Issues.</span></div>
         <div><b>Procurement</b><span>The Fillout form links, Issues, Playbook and SOPs.</span></div>
         <div><b>Marketing</b><span>Issues, Playbook and SOPs for now. Own pages come later.</span></div>
+        <div><b>Housekeeping</b><span>Signs in with a username and password HR sets (Housekeeping tab on the sign-in page). Dashboard, Issues, Playbook, SOPs, COH and HR pages to start; add more pages per person. In COH they rate, and are rated by, only the people HR assigns.</span></div>
         <div><b>AI Agent</b><span>Login for the AI agent (Grok). Reads only the pages set on Roles > AI Agent; never IC, bank details or payments; no PMS screens. Director only.</span></div>
         <div v-for="r in Object.keys(CUSTOM_ROLES)" :key="r"><b>{{ CUSTOM_ROLES[r].name }}</b><span>{{ CUSTOM_ROLES[r].description || 'Made on the Roles page.' }}{{ CUSTOM_ROLES[r].active ? '' : ' (turned off)' }}</span></div>
         <div><b>Page access</b><span>Each role starts with its usual access. For any page you can pick None, Base (view) or Full (edit) for one person. Statement Approvals, Brand Logos, Staff accounts, Audit log and complaints always follow the role.</span></div>
@@ -128,7 +130,7 @@
         <div class="drawer-back" @click="close()"></div>
         <aside class="drawer sp-fixed" role="dialog" :aria-label="panel.mode === 'add' ? 'Add staff' : 'Edit staff'" v-esc="() => { close() }">
           <div class="drawer-head">
-            <h2>{{ panel.mode === 'add' ? 'Invite staff' : 'Edit staff' }}</h2>
+            <h2>{{ panel.mode === 'add' ? (panel.kind === 'hk' ? 'Add housekeeper' : 'Invite staff') : 'Edit staff' }}</h2>
             <button class="icon-btn" @click="close()" aria-label="Close">×</button>
           </div>
           <!-- 16 Nov 2026: two tabs instead of one long scrolling popup -->
@@ -143,7 +145,24 @@
               <label for="sName">Full name</label>
               <input class="input" id="sName" v-model="panel.displayName" required>
             </div>
-            <div class="field">
+            <!-- Housekeeping (17 Nov 2026): a username and a password HR sets, no email -->
+            <template v-if="panel.kind === 'hk'">
+              <div class="field">
+                <label for="sUser">Username</label>
+                <input class="input" id="sUser" v-model.trim="panel.username" :readonly="panel.mode === 'edit'" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="siti">
+                <span class="help" v-if="panel.mode === 'add'">They type this on the Housekeeping tab of the sign-in page. Lower-case letters, numbers, dot, dash or underscore; 3 to 30 characters.</span>
+                <span class="help" v-else>A username can't be changed. Switch this account off and add a new one instead.</span>
+              </div>
+              <div class="field" v-if="panel.mode === 'add'">
+                <label for="sPw">Password</label>
+                <div class="pw-row">
+                  <input class="input" id="sPw" :type="panel.showPw ? 'text' : 'password'" v-model="panel.password" autocomplete="new-password">
+                  <button type="button" class="btn" @click="panel.showPw = !panel.showPw">{{ panel.showPw ? 'Hide' : 'Show' }}</button>
+                </div>
+                <span class="help">At least 8 characters with letters and a number. Give it to them in person; they can't reset it by email.</span>
+              </div>
+            </template>
+            <div class="field" v-else>
               <label for="sEmail">Work email</label>
               <input class="input" id="sEmail" type="email" v-model="panel.email" :readonly="panel.mode === 'edit'" required>
               <span class="help" v-show="panel.mode === 'add'">They get an email with a link to set their own password.</span>
@@ -157,7 +176,17 @@
                   <span class="help">Saved in the audit log with your name.</span>
                 </div>
                 <hr class="divider">
-                <button type="button" class="btn" @click="sendReset()" :disabled="panel.busy">Send password reset email</button>
+                <!-- Housekeeping: HR sets the new password here (no email to reset with) -->
+                <div class="field" v-if="panel.kind === 'hk'">
+                  <label for="sNewPw">New password</label>
+                  <div class="pw-row">
+                    <input class="input" id="sNewPw" :type="panel.showPw ? 'text' : 'password'" v-model="panel.newPassword" autocomplete="new-password" :disabled="cantEdit">
+                    <button type="button" class="btn" @click="panel.showPw = !panel.showPw">{{ panel.showPw ? 'Hide' : 'Show' }}</button>
+                    <button type="button" class="btn btn-primary" @click="setNewPassword()" :disabled="panel.busy || cantEdit || !panel.newPassword">Set password</button>
+                  </div>
+                  <span class="help">For when they forget it. Works straight away; tell them the new one in person.</span>
+                </div>
+                <button type="button" class="btn" v-else @click="sendReset()" :disabled="panel.busy">Send password reset email</button>
               </div>
             </template>
             <!-- Account status (12 Nov 2026): two clear choices instead of a small tick at the bottom -->
@@ -228,7 +257,6 @@
 
 <script>
 import { notifyUser } from '@/services/notificationService.js';
-import { syncStaff } from '@/lib/tms.js';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, updateProfile, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { collection, doc, getDocs, serverTimestamp, writeBatch, query, where, limit, deleteField } from 'firebase/firestore';
@@ -240,6 +268,7 @@ import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { STATES, statesOf, statesText } from '@/lib/states.js';
 import StaffPropertiesField from '@/components/StaffPropertiesField.vue';
+import { HK_ROLE, hkEmail, usernameOf, usernameOk, cleanUsername, passwordProblem } from '@/lib/housekeeping.js';
 import { PAGES, ACCESS_ROWS, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel, levelsOf, rowLevel, setRowLevel, LEVEL_LABEL, levelLabel, AI_ROLE } from '@/lib/access.js';
 
 const me = useSession();
@@ -261,11 +290,12 @@ function permDiff(oldList, newList) {
 }
 
 // Creates the login on a second, temporary Firebase app so the Director stays signed in.
-async function createLogin(email, displayName) {
+// password: the one HR typed for a housekeeper; otherwise a random one nobody sees (they set their own by email).
+async function createLogin(email, displayName, password = '') {
   const temp = initializeApp(firebaseConfig, 'staff-create-' + Date.now());
   try {
     const tempAuth = getAuth(temp);
-    const pw = crypto.getRandomValues(new Uint32Array(4)).join('-') + 'Wb!';   // never shown; they set their own
+    const pw = password || crypto.getRandomValues(new Uint32Array(4)).join('-') + 'Wb!';
     const cred = await createUserWithEmailAndPassword(tempAuth, email, pw);
     await updateProfile(cred.user, { displayName });
     await signOut(tempAuth);
@@ -289,7 +319,7 @@ export default {
   components: { OptionPicker, StaffPropertiesField },
   data() {
     return {
-      ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, LEVEL_LABEL, AI_ROLE, when, STATES, statesText, noStateOnly: false, allProperties: [],
+      usernameOf, ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, LEVEL_LABEL, AI_ROLE, when, STATES, statesText, noStateOnly: false, allProperties: [],
       myUid: me.user.uid,
       users: [], loading: true, error: '', okMsg: '',
       filter: 'active', roleFilter: '', search: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
@@ -400,6 +430,7 @@ export default {
               c.field === 'active' ? (c.new ? `turned ${who} back on` : `turned off ${who}`)
               : c.field === 'role' ? `changed ${who} from ${ROLE_LABEL[c.old] || 'no role'} to ${ROLE_LABEL[c.new]}`
               : c.field === 'perms' ? `changed ${who}'s page access: ${permDiff(c.old || [], c.new || [])}`
+              : c.field === 'password' ? `set a new password for ${who}`
               : c.field === 'properties' ? `changed ${who}'s properties (${(c.old || []).length} to ${(c.new || []).length})`
               : c.field === 'states' ? `changed ${who}'s states from ${(c.old || []).join(', ') || 'none'} to ${(c.new || []).join(', ') || 'none'}`
               : `renamed ${c.old || who} to ${c.new}`).join(', ');
@@ -409,20 +440,23 @@ export default {
       } catch (e) { console.warn('audit read', e); this.changes = []; this.logsError = friendlyError(e, 'load the logs'); }
       this.logsLoading = false;
     },
-    roleColour(r) { return { director: 'red', finance: 'blue', it: 'grey', operations: 'amber', hr: 'green', procurement: 'grey', marketing: 'amber' }[r] || 'grey'; },
+    roleColour(r) { return { director: 'red', finance: 'blue', it: 'grey', operations: 'amber', hr: 'green', procurement: 'grey', marketing: 'amber', housekeeping: 'blue' }[r] || 'grey'; },
     canSignIn(r) { return ALLOWED_ROLES.includes(r); },
     // HR manages staff accounts too, but can't touch Directors or make anyone a Director (the rules refuse it as well).
     locked(u) { return me.role !== 'director' && u.role === 'director'; },
 
-    openAdd() {
+    // kind 'hk' = a housekeeper: username and password instead of an email (17 Nov 2026)
+    openAdd(kind = 'staff') {
       this.okMsg = '';
       this.panelOpen = true;
-      this.panel = { mode: 'add', displayName: '', email: '', role: 'finance', perms: presetOf('finance'), properties: [], active: true, reason: '', isMe: false, busy: false, error: '', tab: 'account' };
+      const role = kind === 'hk' ? HK_ROLE : 'finance';
+      this.panel = { mode: 'add', kind, displayName: '', email: '', username: '', password: '', showPw: false, role, perms: presetOf(role), properties: [], active: true, reason: '', isMe: false, busy: false, error: '', tab: 'account' };
     },
     openEdit(u) {
       this.okMsg = '';
       this.panelOpen = true;
-      this.panel = { mode: 'edit', id: u.id, original: u, displayName: u.displayName || '', email: u.email, role: u.role || 'finance',
+      this.panel = { mode: 'edit', kind: usernameOf(u.email) ? 'hk' : 'staff', username: usernameOf(u.email), newPassword: '', showPw: false,
+        id: u.id, original: u, displayName: u.displayName || '', email: u.email, role: u.role || 'finance',
         perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '', tab: 'account' };
     },
     close() { if (!this.panel.busy) this.panelOpen = false; },
@@ -430,15 +464,22 @@ export default {
     async save() {
       const p = this.panel;
       p.error = '';
-      const name = p.displayName.trim(), email = p.email.trim().toLowerCase();
+      const hk = p.kind === 'hk', username = cleanUsername(p.username);
+      const name = p.displayName.trim(), email = hk && p.mode === 'add' ? hkEmail(username) : p.email.trim().toLowerCase();
       // Saved only when different from the role's usual pages, so later changes to a role's defaults still reach them.
       const noTicks = p.role === 'director' || p.role === AI_ROLE;   // Directors: everything; AI Agent: locked
       const perms = noTicks ? [] : cleanPerms(p.perms);
       const custom = !noTicks && !samePerms(perms, presetOf(p.role));
       const properties = p.role === 'director' ? [] : [...new Set(p.properties || [])].sort();   // Directors: always every property
       if (!name) { p.tab = 'account'; return p.error = 'Enter their full name.'; }
-      if (p.mode === 'add' && !noTicks && !properties.length) { p.tab = 'perms'; return p.error = 'Choose at least one property.'; }
-      if (p.mode === 'add') {
+      // Housekeepers may start with no properties (17 Nov 2026)
+      if (p.mode === 'add' && !noTicks && !hk && !properties.length) { p.tab = 'perms'; return p.error = 'Choose at least one property.'; }
+      if (p.mode === 'add' && hk) {
+        if (!usernameOk(username)) { p.tab = 'account'; return p.error = 'Pick a username: 3 to 30 lower-case letters or numbers (dot, dash and underscore are fine).'; }
+        if (this.users.some(u => (u.email || '').toLowerCase() === email)) { p.tab = 'account'; return p.error = 'That username is taken. Try another.'; }
+        const pwBad = passwordProblem(p.password);
+        if (pwBad) { p.tab = 'account'; return p.error = 'Password: ' + pwBad; }
+      } else if (p.mode === 'add') {
         if (!email) { p.tab = 'account'; return p.error = 'Enter their work email.'; }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { p.tab = 'account'; return p.error = 'That email address does not look right.'; }
         if (this.users.some(u => (u.email || '').toLowerCase() === email)) { p.tab = 'account'; return p.error = 'Someone on the list already uses this email.'; }
@@ -447,9 +488,9 @@ export default {
       try {
         const batch = writeBatch(db);
         if (p.mode === 'add') {
-          const uid = await createLogin(email, name);
+          const uid = await createLogin(email, name, hk ? p.password : '');
           batch.set(doc(db, 'users', uid), {
-            displayName: name, email, role: p.role, active: true, properties,
+            displayName: name, email, role: p.role, active: true, properties, ...(hk ? { username } : {}),
             ...(custom ? { perms } : {}),
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name
           });
@@ -458,8 +499,11 @@ export default {
           if (properties.length) changes.push({ field: 'properties', old: [], new: properties });
           audit(batch, 'staff.create', uid, changes, 'New staff account');
           await batch.commit();
-          try { await sendPasswordResetEmail(auth, email); } catch (_) {}
-          this.okMsg = `${name} added as ${ROLE_LABEL[p.role]}${custom ? ' with custom page access' : ''}. A set-password email is on its way to ${email}.`;
+          if (hk) this.okMsg = `${name} added as ${ROLE_LABEL[p.role]}. They sign in on the Housekeeping tab with the username "${username}" and the password you set.`;
+          else {
+            try { await sendPasswordResetEmail(auth, email); } catch (_) {}
+            this.okMsg = `${name} added as ${ROLE_LABEL[p.role]}${custom ? ' with custom page access' : ''}. A set-password email is on its way to ${email}.`;
+          }
         } else {
           const o = p.original, changes = [];
           const oldPerms = o.role === 'director' ? [] : cleanPerms(permsOf({ role: o.role, perms: o.perms }));
@@ -477,13 +521,6 @@ export default {
           audit(batch, 'staff.update', p.id, changes, p.reason.trim());
           await batch.commit();
           this.okMsg = `${name} updated. Changes apply the next time they open a page.`;
-          // The task system (TMS) follows straight away: name, role/department, switched off (17 Nov 2026).
-          // A failure never undoes the save here; the TMS then catches up at their next sign-in.
-          if (changes.some(c => ['displayName', 'role', 'active'].includes(c.field)))
-            syncStaff([p.id]).catch(e => {
-              console.warn('Task system not updated:', e.message);
-              this.okMsg = `${name} updated. The task system could not be reached, so it will update at their next sign-in there.`;
-            });
           // The person hears that their role or page access changed (3 Nov 2026). Not for switched-off accounts or yourself.
           const roleChanged = p.role !== o.role, accessChanged = changes.some(c => c.field === 'perms' || c.field === 'properties');
           if ((roleChanged || accessChanged) && p.active && p.id !== me.user.uid)
@@ -504,6 +541,28 @@ export default {
       }
     },
 
+    // Housekeeping: HR sets a new password (api/hk-password.js checks HR / Director on the server). Audited, never saved here.
+    async setNewPassword() {
+      const p = this.panel;
+      const bad = passwordProblem(p.newPassword);
+      if (bad) return p.error = 'New password: ' + bad;
+      p.busy = true; p.error = '';
+      try {
+        const token = await auth.currentUser.getIdToken();
+        const r = await fetch('/api/hk-password', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ uid: p.id, password: p.newPassword }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `The server refused (${r.status}).`);
+        const batch = writeBatch(db);
+        audit(batch, 'staff.update', p.id, [{ field: 'password', old: null, new: 'set' }], 'New password set by ' + me.name);
+        await batch.commit().catch(() => {});
+        this.okMsg = `New password set for ${p.displayName}. Tell them in person.`;
+        p.newPassword = '';
+        this.panelOpen = false;
+      } catch (e) { p.error = 'Could not set the password: ' + (e.message || e); }
+      p.busy = false;
+    },
+
     async sendReset() {
       const p = this.panel;
       p.busy = true; p.error = '';
@@ -519,6 +578,9 @@ export default {
 </script>
 
 <style scoped>
+    .pw-row { display: flex; gap: 8px; align-items: center; }
+    .pw-row .input { flex: 1; min-width: 0; }
+    .hk-tag { font-size: 11px; margin-left: 4px; }
     /* Active / Inactive switch: two equal tabs; the white pill (thumb) slides under the picked one (as on Issues) */
     .staff-seg { --i: 0; position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex: none; width: 240px; height: 40px;
       padding: 3px; border-radius: 10px; background: var(--chip); border: 1px solid var(--border); box-sizing: border-box; }

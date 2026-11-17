@@ -22,6 +22,7 @@ import { useSession } from '@/stores/session.js';
 import { notifyUser } from '@/services/notificationService.js';
 import { listParticipants } from './quarters.js';
 import { cohScoreFromRatings } from './calc.js';
+import { canRate, cleanPairs } from '@/lib/housekeeping.js';
 
 const me = () => useSession();
 const rows = snap => snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -108,10 +109,36 @@ export async function deleteQuestion(id, title = '') {
   audit('performance.coh.question.delete', `cohQuestions/${id}`, title);
 }
 
+// ---- Housekeeping pairs (17 Nov 2026, lib/housekeeping.js) ----
+// cohAssignments/{quarterId} { pairs: { evaluatorUid: [evaluateeUid] }, updatedBy, updatedByName, updatedAt }
+// Each person's current role, from the staff list (the rules read the same users/{uid}.role).
+export async function loadRoles() {
+  const snap = await getDocs(collection(db, 'users'));
+  return Object.fromEntries(snap.docs.map(d => [d.id, d.data().role || '']));   // as the rules read it (switched off or not)
+}
+export async function loadPairs(quarterId) {
+  try { const d = await one(doc(db, 'cohAssignments', quarterId)); return d?.pairs && typeof d.pairs === 'object' ? d.pairs : {}; }
+  catch (e) { console.warn('cohAssignments', e.code || e.message); return {}; }   // rules not published yet: no pairs
+}
+// The quarter's rating rules in one go: roleOf(uid) and pairs.
+export async function loadRatingRules(quarterId) {
+  const [roles, pairs] = await Promise.all([loadRoles(), loadPairs(quarterId)]);
+  return { roleOf: uid => roles[uid] || '', pairs };
+}
+export async function savePairs(quarterId, pairs, uids, roleOf) {
+  const s = me();
+  const clean = cleanPairs(pairs, uids, roleOf);
+  await setDoc(doc(db, 'cohAssignments', quarterId), { pairs: clean, updatedBy: s.user.uid, updatedByName: s.name, updatedAt: serverTimestamp() });
+  const n = Object.values(clean).reduce((a, l) => a + l.length, 0);
+  audit('performance.coh.housekeeping.pairs', `cohAssignments/${quarterId}`, `${n} housekeeping rating pair(s)`);
+  return clean;
+}
+
 // ---- Eligibility: active participants in the quarter, minus myself ----
-export async function listEvaluatees(quarterId, myUid) {
-  const parts = await listParticipants(quarterId);
-  return parts.filter(p => p.participationStatus === 'active' && p.employeeId !== myUid);
+// 17 Nov 2026: a housekeeper only rates, and is only rated by, the people HR paired them with (canRate).
+export async function listEvaluatees(quarterId, myUid, rules = null) {
+  const [parts, r] = await Promise.all([listParticipants(quarterId), rules || loadRatingRules(quarterId)]);
+  return parts.filter(p => p.participationStatus === 'active' && p.employeeId !== myUid && canRate(myUid, p.employeeId, r.roleOf, r.pairs));
 }
 
 const evalId = (quarterId, evaluatorUid, evaluateeUid) => `${quarterId}_${evaluatorUid}_${evaluateeUid}`;

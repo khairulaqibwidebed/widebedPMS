@@ -110,6 +110,8 @@ export const PRESETS = {
   hr: ['playbook.edit', 'sops.edit', SPLIT_MARK],
   procurement: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), SPLIT_MARK],
   marketing: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), SPLIT_MARK],
+  // Housekeeping (17 Nov 2026): the always-open pages only to start; HR or the Director add pages per person or on Roles.
+  housekeeping: [SPLIT_MARK],
   // AI Agent: Properties Base to start; the Director changes it on Roles (Base only). KEEP IN STEP WITH aiViewPerms() in the rules.
   ai: ['portfolio.view', SPLIT_MARK]
 };

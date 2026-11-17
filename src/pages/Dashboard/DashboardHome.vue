@@ -20,7 +20,7 @@ export default {
   data() {
     const role = useSession().role, as = this.$route.query.as;
     const view = role === 'director' && VIEW_AS.includes(as) ? as : role;
-    return { view, builtIn: BUILTIN_ROLES.includes(view) };
+    return { view, builtIn: BUILTIN_ROLES.includes(view) && view !== 'housekeeping' };   // housekeeping (17 Nov 2026): the general dashboard, like a custom role
   }
 };
 </script>
