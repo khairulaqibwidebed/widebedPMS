@@ -7,7 +7,7 @@
     <span class="pp-none" v-if="!modelValue.length && compact">Nobody</span>
     <label class="sr-only" :for="uid">{{ label }}</label>
     <select :id="uid" class="pp-add" :class="compact ? 'select' : 'input select'" :disabled="disabled || !left.length" @change="add($event)">
-      <option value="">{{ left.length ? '+ Add person' : 'Everyone added' }}</option>
+      <option value="">{{ left.length ? (compact ? '+ Add' : '+ Add person') : (compact ? 'All added' : 'Everyone added') }}</option>
       <optgroup v-for="g in groups" :key="g.role" :label="ROLE_LABEL[g.role] || g.role">
         <option v-for="p in g.people" :key="p.uid" :value="p.uid">{{ p.name }}</option>
       </optgroup>

@@ -44,10 +44,12 @@
                 <div class="fb-main">
                   <b>{{ f.label }}</b>
                   <small>
-                    {{ TYPE_LABEL[f.type] }}<template v-if="hasOptions(f)"> · {{ cleanOptions(f.options).length }} choices</template><template v-if="f.required"> · required</template><template v-if="f.onForm === false"> · table only</template>
+                    {{ TYPE_LABEL[f.type] }}<template v-if="f.type === 'note'"> · {{ f.display === 'link' ? 'opens from a link' : 'shown in full' }}</template><template v-if="hasOptions(f)"> · {{ cleanOptions(f.options).length }} choices</template><template v-if="f.required"> · required</template><template v-if="f.onForm === false"> · table only</template>
                     <template v-if="f.internalOnly"> · staff only</template>
                   <template v-if="f.showIf && f.showIf.fieldId"> · shown only when {{ labelOf(f.showIf.fieldId) }} {{ COND[f.showIf.op || 'equals'] }} {{ f.showIf.op === 'filled' ? '' : condText(f.showIf) }}</template>
                   </small>
+                  <span v-if="f.type === 'note' && f.content" class="fb-snip">{{ f.content }}</span>
+                  <span v-if="f.type === 'checkbox' && f.checkText" class="fb-snip">☐ {{ f.checkText }}</span>
                   <code v-if="f.type === 'formula'" class="fb-fx" :class="{ bad: plan.errors.has(f.id) || !!sampleOut[f.id]?.error }">= {{ toDisplay(f.expr, fields) || '(empty)' }}</code>
                 </div>
                 <span class="fb-acts">
@@ -74,17 +76,41 @@
           <h3>{{ TYPE_LABEL[sel.type] }} settings</h3>
           <div class="ag-props">
             <div class="field">
-              <label for="pLabel">{{ sel.type === 'section' ? 'Heading' : 'Field name' }}</label>
+              <label for="pLabel">{{ sel.type === 'section' ? 'Heading' : sel.type === 'note' ? 'Title' : 'Field name' }}</label>
               <input id="pLabel" class="input" :value="sel.label" @input="sel.label = $event.target.value.replace(/[[\]]/g, '')">
               <span class="ag-error" v-if="labelErr">{{ labelErr }}</span>
+              <span class="help" v-else-if="sel.type === 'note'">Shown above the text, or as the link: "Read {{ sel.label }}".</span>
               <span class="help" v-else-if="sel.type !== 'section'">Formulas use this name, e.g. [{{ sel.label }}]. Renaming is safe.</span>
             </div>
-            <div class="field" v-if="sel.type !== 'section'">
+            <div class="field" v-if="!['section', 'note'].includes(sel.type)">
               <label for="pType">Type</label>
               <select id="pType" class="input select" :value="sel.type" @change="changeType($event.target.value)">
-                <option v-for="t in FIELD_TYPES.filter(t => t.type !== 'section')" :key="t.type" :value="t.type">{{ t.label }}</option>
+                <option v-for="t in FIELD_TYPES.filter(t => !['section', 'note'].includes(t.type))" :key="t.type" :value="t.type">{{ t.label }}</option>
               </select>
               <span class="help">Field ID: <code>{{ sel.id }}</code> (never changes)</span>
+            </div>
+
+            <!-- Text block: the words to read, and how they show -->
+            <template v-if="sel.type === 'note'">
+              <div class="field">
+                <label for="pContent">Text</label>
+                <textarea id="pContent" class="input fb-content" rows="8" v-model="sel.content" placeholder="No parties or events. Quiet hours 10pm to 8am. No smoking inside the unit."></textarea>
+                <span class="help">Read only. The tenant or landlord can't type here. Line breaks are kept.</span>
+              </div>
+              <div class="field">
+                <label for="pShow">Show as</label>
+                <select id="pShow" class="input select" :value="sel.display || 'inline'" @change="sel.display = $event.target.value">
+                  <option value="inline">The full text on the form</option>
+                  <option value="link">A link to click and read</option>
+                </select>
+              </div>
+            </template>
+
+            <!-- Tick box: the sentence next to the box -->
+            <div class="field" v-if="sel.type === 'checkbox'">
+              <label for="pCheck">Tick box wording</label>
+              <textarea id="pCheck" class="input" rows="3" :value="sel.checkText || ''" :placeholder="sel.label" @input="sel.checkText = $event.target.value"></textarea>
+              <span class="help">What the person ticks, e.g. "I have read and agree to the house rules". Empty = the field name.</span>
             </div>
 
             <!-- Formula -->
@@ -106,7 +132,7 @@
               <label class="ag-check-row"><input type="checkbox" v-model="sel.allowOther"> Allow "Other" with a typed answer</label>
             </div>
 
-            <template v-if="!['section', 'formula'].includes(sel.type)">
+            <template v-if="!['section', 'note', 'formula'].includes(sel.type)">
               <div class="field" v-if="['text', 'textarea', 'email', 'phone', 'number', 'currency'].includes(sel.type)">
                 <label for="pPh">Placeholder</label>
                 <input id="pPh" class="input" v-model="sel.placeholder">
@@ -119,7 +145,7 @@
               </div>
               <label class="ag-check-row"><input type="checkbox" v-model="sel.required"> Required to complete</label>
             </template>
-            <label class="ag-check-row"><input type="checkbox" :checked="sel.onForm !== false" @change="sel.onForm = $event.target.checked"><span>Show on the form<br><small class="help">Off = a table column only</small></span></label>
+            <label class="ag-check-row" v-if="sel.type !== 'note'"><input type="checkbox" :checked="sel.onForm !== false" @change="sel.onForm = $event.target.checked"><span>Show on the form<br><small class="help">Off = a table column only</small></span></label>
             <label class="ag-check-row" v-if="sel.onForm !== false"><input type="checkbox" v-model="sel.internalOnly"><span>Staff only<br><small class="help">Hidden on fill-in links for tenants and landlords</small></span></label>
 
             <!-- Show only when -->
@@ -341,6 +367,7 @@ function askRemoveChoice(i) {
 function changeType(type) {
   const f = sel.value;
   f.type = type;
+  if (type === 'checkbox' && f.checkText === undefined) f.checkText = '';
   if (hasOptions(f) && !f.options?.length) f.options = ['Option 1', 'Option 2'];
   if (type === 'formula' && !f.resultType) f.resultType = 'number';
 }
@@ -387,6 +414,8 @@ const condText = c => (c.value === 'true' ? 'ticked' : c.value === 'false' ? 'no
 .fb-main small { color: var(--muted); font-size: 12px; }
 .fb-fx { font-size: 12px; color: var(--accent); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fb-fx.bad { color: var(--red); }
+.fb-snip { font-size: 12px; color: var(--text-2, var(--muted)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-content { height: auto; min-height: 160px; line-height: 1.5; }
 .fb-acts { display: flex; gap: 2px; opacity: .35; transition: opacity var(--fast, .15s); }
 .fb-item:hover .fb-acts, .fb-item.on .fb-acts, .fb-acts:focus-within { opacity: 1; }
 .fb-acts .icon-btn { width: 28px; height: 28px; font-size: 14px; }
