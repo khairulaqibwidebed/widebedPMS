@@ -2,6 +2,7 @@
 // meta.label = the sidebar item that lights up; meta.roles = who may open the page.
 // meta.perm = a tickable page (lib/access.js): opening it needs its View tick on Staff accounts, not a role.
 import { createRouter, createWebHistory } from 'vue-router';
+import { SITE_TITLE } from '@/lib/site-title.js';
 import { signOut } from 'firebase/auth';
 import { auth, ALLOWED_ROLES } from './lib/firebase.js';
 import { canOpen } from './lib/access.js';
@@ -137,4 +138,4 @@ router.beforeEach(async to => {
   }
   return true;
 });
-router.afterEach(to => { document.title = `${to.meta.title || 'Widebed'} · Widebed PMS`; });
+router.afterEach(() => { document.title = SITE_TITLE; });   // tab shows only the site name (18 Nov 2026)
