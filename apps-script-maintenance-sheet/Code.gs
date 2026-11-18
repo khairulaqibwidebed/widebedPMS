@@ -30,7 +30,7 @@ var DATETIMES = ['Raise_Date_Time', 'Action_Date_Time'];
 var MONEY = ['Cost (RM)', 'WB Charge (RM)', 'Profit (RM)'];
 var PMS_ID = /^IS-\d+$/;
 
-var VERSION = '18 Nov 2026 (every Customer ticket, PMS Status column; a ticket whose month changed moves tabs)';
+var VERSION = '18 Nov 2026 (every Customer ticket, PMS Status column, month moves, remove for good)';
 // Open the /exec link in a browser to see which version is live and which Sheet it belongs to.
 function doGet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -50,6 +50,11 @@ function doPost(e) {
       lock.waitLock(30000);
       try { var bk = book(year, true); out = { ok: true, url: bk.getUrl(), written: push(bk, body.headers || [], body.synced || [], (body.rows || []).filter(function (r) { return String(r.Month || '').slice(0, 4) === year; })) }; }
       finally { lock.releaseLock(); }
+    } else if (body.action === 'remove') {   // a ticket removed for good in the PMS: its rows go (18 Nov 2026)
+      var lr = LockService.getScriptLock();
+      lr.waitLock(30000);
+      try { var br = book(year, false); out = { ok: true, removed: br ? removeIds(br, year, (body.ids || []).map(String)) : 0 }; }
+      finally { lr.releaseLock(); }
     } else if (body.action === 'year') {   // make that year's file now (Sheet settings > "Make <year> file now")
       var lk = LockService.getScriptLock();
       lk.waitLock(30000);
@@ -329,6 +334,23 @@ function removeElsewhere(ss, year, byMonth) {
       if (PMS_ID.test(id) && want[id] && want[id] !== month) sh.deleteRow(L.row + 1 + i);
     }
   });
+}
+
+// Deletes the rows of these PMS tickets on every month tab of the year. Returns how many rows went.
+function removeIds(ss, year, ids) {
+  var n = 0;
+  ids = ids.filter(function (id) { return PMS_ID.test(id); });
+  if (!ids.length) return 0;
+  ss.getSheets().forEach(function (sh) {
+    if (!monthOfTab(sh.getName(), year)) return;
+    var last = sh.getLastRow();
+    if (last < 2) return;
+    var L = layout(sh, null), idCol = L.byKey['id'];
+    if (!idCol || last <= L.row) return;
+    var got = sh.getRange(L.row + 1, idCol, last - L.row, 1).getValues();
+    for (var i = got.length - 1; i >= 0; i--) if (ids.indexOf(String(got[i][0]).trim()) >= 0) { sh.deleteRow(L.row + 1 + i); n++; }
+  });
+  return n;
 }
 
 // Columns filled by one formula from the header row or the first row (={"Owner's Name"; ARRAYFORMULA(XLOOKUP(F3:F, ...))}):
