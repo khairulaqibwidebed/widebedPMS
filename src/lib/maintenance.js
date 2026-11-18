@@ -80,6 +80,23 @@ export async function loadMaintenance(month, propertyId = '') {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+// Director (18 Nov 2026, rules Draft 0.86): remove a Cancelled (deleted) ticket for good. Its comments go first, then the
+// ticket, with one audit log line (who, ticket, title, place, reason). The Drive folder is kept. Cannot be undone.
+export async function removeTicketForGood(me, t, reason) {
+  if (t.status !== 'deleted') throw Object.assign(new Error('Only cancelled tickets can be removed for good.'), { plain: true });
+  const replies = await getDocs(collection(db, 'issues', t.id, 'replies'));
+  for (let i = 0; i < replies.docs.length; i += 400) {
+    const b = writeBatch(db);
+    replies.docs.slice(i, i + 400).forEach(d => b.delete(d.ref));
+    await b.commit();
+  }
+  const b = writeBatch(db);
+  b.delete(doc(db, 'issues', t.id));
+  audit(b, me, { action: 'issue.removeForGood', entity: `issues/${t.id}`, propertyId: t.propertyId || null, month: ticketMonth(t) || null,
+    changes: [{ field: 'ticket', old: [t.id, t.title, t.property, t.unit].filter(Boolean).join(' · '), new: null }], reason });
+  await b.commit();
+}
+
 // The first month from `month` on where this unit's statement is still open (not completed, not sent to the Director).
 export async function openMonthFor(propertyId, unitId, month) {
   let m = month;

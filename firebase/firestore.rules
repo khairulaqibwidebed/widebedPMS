@@ -1,4 +1,6 @@
 rules_version = '2';
+// Draft 0.86, 18 Nov 2026 (Khairul): Directors remove a Cancelled (deleted) ticket and its comments for good, from
+//   Expenses > Maintenance (Cancelled). Only tickets already marked deleted; an audit log line is kept.
 // Draft 0.85, 18 Nov 2026 (Khairul): Accounting (Expenses Edit tick) and Directors read every Customer ticket, not only
 //   completed ones: Expenses > Maintenance shows In progress and Cancelled tickets too, and they go to the Google Sheet.
 // Draft 0.84, 18 Nov 2026 (Khairul): Maintenance Master Record Google Sheet.
@@ -1274,7 +1276,8 @@ service cloud.firestore {
         && isDirector();
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
-      allow delete: if false;
+      // Draft 0.86: a Director removes a Cancelled (deleted) ticket for good (Expenses > Maintenance, Cancelled)
+      allow delete: if resource.data.status == 'deleted' && isDirector();
       match /replies/{replyId} {
         allow read: if canSeeIssue(get(docPath('issues', id)).data) || (isAI() && can('aiIssues.view'))   // Draft 0.74
           // Draft 0.80: Accounting / Directors on a completed Customer ticket (opened from Expenses > Maintenance)
@@ -1283,7 +1286,9 @@ service cloud.firestore {
         allow create: if anyStaff() && request.resource.data.byUid == request.auth.uid
           && canSeeIssue(get(docPath('issues', id)).data)
           && get(docPath('issues', id)).data.status in ['open', 'progress', 'done'];
-        allow update, delete: if false;
+        allow update: if false;
+        // Draft 0.86: its comments go first when a Director removes a Cancelled ticket for good
+        allow delete: if get(docPath('issues', id)).data.status == 'deleted' && isDirector();
       }
     }
 

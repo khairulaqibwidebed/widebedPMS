@@ -110,6 +110,18 @@
           <button class="btn" @click="remove(detail)" :disabled="busy">Remove charge</button>
           <button class="btn btn-primary" @click="saveEdit(detail)" :disabled="busy">Save change</button>
         </div>
+        <!-- Director, Cancelled ticket: remove it for good (rules Draft 0.86). A reason is required; cannot be undone. -->
+        <div class="mt-purge" v-else-if="purge && purge.id === detail.id">
+          <p class="mt-purge-warn">{{ `${detail.id} and its comments are removed for good: it can't be brought back. Its Google Sheet row goes too; the Drive folder is kept.` }}</p>
+          <textarea class="input mt-reason" rows="3" v-model="purge.reason" placeholder="Reason (kept in the audit log)" aria-label="Reason for removing"></textarea>
+          <div class="notice error" v-show="purge.error">{{ purge.error }}</div>
+          <div class="modal-foot"><button class="btn" @click="purge = null" :disabled="busy">Cancel</button>
+            <button class="btn btn-danger" @click="removeForGood(detail)" :disabled="busy">{{ busy ? 'Removing…' : 'Remove for good' }}</button></div>
+        </div>
+        <div class="modal-foot" v-else-if="st(detail) === 'cancelled'">
+          <router-link class="btn" :to="{ path: '/Operations/issues', query: { id: detail.id } }">Open ticket</router-link>
+          <button class="btn mt-purge-btn" v-if="isDirector" @click="purge = { id: detail.id, reason: '', error: '' }">Remove for good</button>
+        </div>
         <div class="modal-foot" v-else>
           <router-link class="btn" :to="{ path: '/Operations/issues', query: { id: detail.id } }">Open ticket</router-link>
           <template v-if="isCharged(detail)">
@@ -156,8 +168,8 @@ import SkeletonRows from '@/components/SkeletonRows.vue';
 import { amt, dmy, monthName } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { friendlyError, completedUnitIds } from '@/lib/finance-data.js';
-import { loadMaintenance, chargeTicket, editCharge, removeCharge, r2, maintStatus, MAINT_STATUS } from '@/lib/maintenance.js';
-import { loadSheetSettings, saveSheetSettings, syncMonths, syncSheetEdits, yearMonths, makeYearFile } from '@/lib/maintenance-sheet.js';
+import { loadMaintenance, chargeTicket, editCharge, removeCharge, r2, maintStatus, MAINT_STATUS, removeTicketForGood, ticketMonth } from '@/lib/maintenance.js';
+import { loadSheetSettings, saveSheetSettings, syncMonths, syncSheetEdits, yearMonths, makeYearFile, removeSheetRows } from '@/lib/maintenance-sheet.js';
 import { STATES } from '@/lib/states.js';
 // The Sheet is a reference copy (Khairul): checked on open, after each charge, by the button, and every 2 minutes while the tab is in front
 const SHEET_EVERY = 2 * 60 * 1000;
@@ -171,7 +183,7 @@ export default {
   components: { OptionPicker, SkeletonRows },
   props: { propertyId: { type: String, default: '' }, propertyName: { type: String, default: '' }, month: { type: String, required: true } },
   emits: ['charged'],
-  data() { return { me: useSession(), FILTERS, PILL, EMPTY, MAINT_STATUS, filter: 'pending', detail: null, search: '', tickets: [], rows: {}, locked: {}, loading: true, busy: false, error: '', okMsg: '', moreOpen: false, sheetFailed: false, sheetChecked: false,
+  data() { return { me: useSession(), FILTERS, PILL, EMPTY, MAINT_STATUS, filter: 'pending', detail: null, search: '', tickets: [], rows: {}, locked: {}, loading: true, busy: false, error: '', okMsg: '', moreOpen: false, purge: null, sheetFailed: false, sheetChecked: false,
     sheet: null, sheetBusy: '', sheetNote: '', sheetSetup: null, sheetTimer: null, sheetLinks: {}, states: STATES }; },
   computed: { year() { return this.month.slice(0, 4); }, allProps() { return this.propertyId === 'all'; }, isDirector() { return this.me.role === 'director'; }, nextYear() { return String(new Date().getFullYear() + 1); }, sheetLinked() { return !!this.sheet?.scriptUrl && !this.sheetFailed; } },   // 'all': the page's All properties
   watch: { propertyId() { this.load(); }, month() { this.load(); } },
@@ -186,7 +198,7 @@ export default {
     isCharged(t) { return t.billing?.status === 'charged'; },
     st(t) { return maintStatus(t); },
     // Click anywhere on a table row opens the ticket popup (the Pending row's inputs and Save button still work as usual)
-    closeDetail() { const t = this.detail; if (t && this.isCharged(t) && this.rows[t.id]?.editing) delete this.rows[t.id]; this.detail = null; },
+    closeDetail() { this.purge = null; const t = this.detail; if (t && this.isCharged(t) && this.rows[t.id]?.editing) delete this.rows[t.id]; this.detail = null; },
     rowClick(e, t) { if (!e.target.closest('a, button, input, select, textarea, label')) this.detail = t; },
     row(t) { return this.rows[t.id] || (this.rows[t.id] = { wb: '', inv: '', cost: '', reason: '', editing: !this.isCharged(t) }); },
     profitOf(t) { const r = this.row(t), cost = this.isCharged(t) ? Number(r.cost) || 0 : Number(t.completion.cost) || 0; return r2((Number(r.wb) || 0) - cost); },
@@ -254,6 +266,22 @@ export default {
       const f = this.sheetSetup; f.error = ''; this.busy = true;
       try { this.sheet = await saveSheetSettings(this.me, { ...f, states: f.state ? [f.state] : [] }); this.sheetSetup = null; this.busy = false; this.syncYear(); }
       catch (e) { f.error = e.plain ? e.message : friendlyError(e, 'save the Sheet settings'); this.busy = false; }
+    },
+    // Director: a Cancelled ticket removed for good, then its Sheet row (18 Nov 2026)
+    async removeForGood(t) {
+      const p = this.purge; p.error = '';
+      if (!p.reason.trim()) return p.error = 'Give a reason for removing it.';
+      this.busy = true;
+      try { await removeTicketForGood(this.me, t, p.reason.trim()); }
+      catch (e) { p.error = e.plain ? e.message : friendlyError(e, 'remove the ticket'); this.busy = false; return; }
+      this.busy = false;
+      this.tickets = this.tickets.filter(x => x.id !== t.id); this.purge = null; this.detail = null; this.error = '';
+      this.okMsg = `${t.id} removed for good.`;
+      const year = (ticketMonth(t) || this.month).slice(0, 4);
+      if (this.sheet?.scriptUrl) {
+        try { await removeSheetRows(this.sheet.scriptUrl, year, [t.id]); }
+        catch (e) { this.okMsg += ` Its Google Sheet row was not removed (${e.message}): delete it in the Sheet.`; }
+      }
     },
     async charge(t) {
       const r = this.row(t); this.error = ''; this.okMsg = '';
@@ -345,4 +373,7 @@ export default {
 .mt-money .input { height: 34px; width: 100%; background: var(--surface); }
 .neg { color: var(--danger, #c0392b); }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.mt-purge { display: grid; gap: 10px; margin-top: 12px; padding: 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--danger, #c0392b) 40%, transparent); background: color-mix(in srgb, var(--danger, #c0392b) 6%, var(--surface)); }
+.mt-purge-warn { margin: 0; font-size: 13px; color: var(--danger, #c0392b); font-weight: 600; }
+.mt-purge-btn { color: var(--danger, #c0392b); border-color: color-mix(in srgb, var(--danger, #c0392b) 45%, transparent); }
 </style>
