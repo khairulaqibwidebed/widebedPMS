@@ -18,13 +18,16 @@ import { doc, getDoc, setDoc, writeBatch, serverTimestamp, arrayUnion } from 'fi
 import { db, auth } from '@/lib/firebase.js';
 import { audit } from '@/lib/finance-data.js';
 import { normState } from '@/lib/states.js';
-import { loadMaintenance, masterContext, MASTER_HEADERS, r2, myMonth, localNow } from '@/lib/maintenance.js';
+import { loadMaintenance, masterContext, MASTER_HEADERS, r2, myMonth, localNow, ticketMonth, maintStatus, MAINT_STATUS } from '@/lib/maintenance.js';
 
 export const SHEET_EDITABLE = ['Area', 'Action Date', 'Solution/Action Taken', 'Cost Remarks'];
 const TEAM_COLS = ['Status_One', 'Email_Status_One', 'Status_Two', 'Email_Status_Two', 'Update_By', 'Cost On'];
 const EXTRA = ['PMS synced at', 'Sheet edited at'];
-export const SHEET_HEADERS = [...MASTER_HEADERS, ...EXTRA];
-const SYNCED = MASTER_HEADERS.filter(h => !TEAM_COLS.includes(h) && h !== 'Profit (RM)');   // + Month (picks the tab, not written)
+// 18 Nov 2026: every Customer ticket is on the Sheet; "PMS Status" (Pending / Charged / In progress / Cancelled) is added at
+// the end of the header row the first time (the script adds missing synced columns)
+const STATUS_COL = 'PMS Status';
+export const SHEET_HEADERS = [...MASTER_HEADERS, STATUS_COL, ...EXTRA];
+const SYNCED = [...MASTER_HEADERS.filter(h => !TEAM_COLS.includes(h) && h !== 'Profit (RM)'), STATUS_COL];   // + Month (picks the tab, not written)
 const MONEY = ['Cost (RM)', 'WB Charge (RM)', 'Profit (RM)'];
 
 // ---------- settings (maintenanceSheet/settings: Directors write, Accounting and Directors read) ----------
@@ -65,9 +68,9 @@ const ymd = v => { const d = my(v); return d ? d.toISOString().slice(0, 10) : ''
 const dmyHm = v => { const d = my(v); return d ? `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}` : ''; };
 const day = s => (/^\d{4}-\d{2}-\d{2}$/.test(s || '') ? s : '');
 
-// One Sheet row (synced columns only) for a completed ticket
+// One Sheet row (synced columns only). Not completed yet (In progress / Cancelled): the completion and money columns are empty.
 export function sheetRow(t, ctx) {
-  const c = t.completion || {}, bl = t.billing || {}, o = ctx.ownerOf(t), charged = bl.status === 'charged', cost = r2(c.cost);
+  const c = t.completion || {}, bl = t.billing || {}, o = ctx.ownerOf(t), charged = bl.status === 'charged', cost = t.completion ? r2(c.cost) : '';
   return {
     ID: t.id, "Owner's Name": o.name, "Owner's Email Address1": o.email1, "Owner's Email Address2": o.email2,
     Property_Name: t.property || ctx.props[t.propertyId] || '', 'Unit No': t.unit || '', 'Report Date': ymd(t.createdAt),
@@ -76,7 +79,7 @@ export function sheetRow(t, ctx) {
     'Solution/Action Taken': c.solution || '', 'Cost Remarks': c.costRemarks || '', 'Fixed by': c.fixedByName || '',
     Action_Date_Time: dmyHm(c.completedAt), 'Cost (RM)': cost, 'WB Charge (RM)': charged ? r2(bl.wbCharge) : '',
     'Profit (RM)': charged ? r2(r2(bl.wbCharge) - cost) : '', 'Invoice No.': charged ? bl.invoiceNo || '' : '',
-    'Charged owner': charged ? day(bl.chargedAt) : '', Month: c.month || ''
+    'Charged owner': charged ? day(bl.chargedAt) : '', [STATUS_COL]: MAINT_STATUS[maintStatus(t)], Month: ticketMonth(t)
   };
 }
 const norm = (h, v) => (v === '' || v == null ? '' : MONEY.includes(h) ? (Number(v) || 0).toFixed(2) : String(v).trim());

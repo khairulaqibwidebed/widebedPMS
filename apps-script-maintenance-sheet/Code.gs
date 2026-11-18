@@ -30,7 +30,7 @@ var DATETIMES = ['Raise_Date_Time', 'Action_Date_Time'];
 var MONEY = ['Cost (RM)', 'WB Charge (RM)', 'Profit (RM)'];
 var PMS_ID = /^IS-\d+$/;
 
-var VERSION = '18 Nov 2026 3:35 PM (Make next year file button; new-year file keeps the newest layout)';
+var VERSION = '18 Nov 2026 (every Customer ticket, PMS Status column; a ticket whose month changed moves tabs)';
 // Open the /exec link in a browser to see which version is live and which Sheet it belongs to.
 function doGet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -254,6 +254,8 @@ function pull(ss, year, headers, months) {
 function push(ss, headers, synced, rows) {
   var byMonth = {};
   rows.forEach(function (r) { if (PMS_ID.test(String(r.ID || '')) && /^\d{4}-\d{2}$/.test(String(r.Month || ''))) (byMonth[r.Month] = byMonth[r.Month] || []).push(r); });
+  var first0 = Object.keys(byMonth)[0];
+  if (first0) removeElsewhere(ss, first0.slice(0, 4), byMonth);
   var now = new Date().toISOString(), n = 0;
   Object.keys(byMonth).forEach(function (ym) {
     var sh = monthTab(ss, ym, true, headers);
@@ -309,6 +311,26 @@ function push(ss, headers, synced, rows) {
   });
   return n;
 }
+// 18 Nov 2026: a ticket's month can change (raised in Oct = "In progress" on the Oct tab; completed in Nov = the Nov tab).
+// Before writing, its row on any other month tab of the year is deleted, so each ticket has one row.
+function removeElsewhere(ss, year, byMonth) {
+  var want = {};
+  Object.keys(byMonth).forEach(function (ym) { byMonth[ym].forEach(function (r) { want[r.ID] = ym; }); });
+  ss.getSheets().forEach(function (sh) {
+    var month = monthOfTab(sh.getName(), year);
+    if (!month) return;
+    var last = sh.getLastRow();
+    if (last < 2) return;
+    var L = layout(sh, null), idCol = L.byKey['id'];
+    if (!idCol || last <= L.row) return;
+    var ids = sh.getRange(L.row + 1, idCol, last - L.row, 1).getValues();
+    for (var i = ids.length - 1; i >= 0; i--) {   // bottom up, so the row numbers above stay right
+      var id = String(ids[i][0]).trim();
+      if (PMS_ID.test(id) && want[id] && want[id] !== month) sh.deleteRow(L.row + 1 + i);
+    }
+  });
+}
+
 // Columns filled by one formula from the header row or the first row (={"Owner's Name"; ARRAYFORMULA(XLOOKUP(F3:F, ...))}):
 // writing a value into them breaks the whole column (#REF!), so the PMS leaves them to the Sheet.
 var COLUMN_FORMULA = /ARRAYFORMULA|^=\s*\{|\b(MAP|BYROW|QUERY|FILTER|IMPORTRANGE)\s*\(/i;

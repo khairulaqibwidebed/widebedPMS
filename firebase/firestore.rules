@@ -1,4 +1,6 @@
 rules_version = '2';
+// Draft 0.85, 18 Nov 2026 (Khairul): Accounting (Expenses Edit tick) and Directors read every Customer ticket, not only
+//   completed ones: Expenses > Maintenance shows In progress and Cancelled tickets too, and they go to the Google Sheet.
 // Draft 0.84, 18 Nov 2026 (Khairul): Maintenance Master Record Google Sheet.
 //   - maintenanceSheet/settings: the Sheet's Apps Script web app URL and Sheet link. Read by Accounting (Expenses Edit tick)
 //     and Directors (billingWriter); the Apps Script checks a caller can read it before syncing. Written by Directors.
@@ -1175,7 +1177,8 @@ service cloud.firestore {
     match /issues/{id} {
       allow read: if canSeeIssue(resource.data) || (isAI() && can('aiIssues.view'))   // Draft 0.74
         // Draft 0.80: Accounting / Directors read completed Customer tickets (Expenses > Maintenance, Master Record)
-        || (resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && billingWriter());
+        // Draft 0.85: every Customer ticket (In progress and Cancelled too: the Maintenance tab and the Google Sheet)
+        || (resource.data.get('type', '') == 'customer' && billingWriter());
       allow create: if anyStaff()
         && request.resource.data.raisedByUid == request.auth.uid
         && request.resource.data.status == 'open'

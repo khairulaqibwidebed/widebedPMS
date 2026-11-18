@@ -2,18 +2,25 @@
   <section class="card">
     <div class="card-head">
       <h2>{{ `Maintenance · ${monthName(month)} · ${shown().length} ticket${shown().length === 1 ? '' : 's'}` }}</h2>
-      <div class="mt-head-btns">
-        <!-- 18 Nov 2026: Google Sheet copy of the Master Record (lib/maintenance-sheet.js) -->
-        <a class="btn" v-if="sheet && sheetLink()" :href="sheetLink()" target="_blank" rel="noopener">{{ `Open ${year} Sheet` }}</a>
-        <button class="btn" v-if="sheet" @click="syncYear()" :disabled="!!sheetBusy">{{ sheetBusy || 'Sync Google Sheet' }}</button>
-        <button class="btn" v-if="isDirector" @click="openSheetSetup()">Sheet settings</button>
-        <button class="btn" @click="master()" :disabled="!!exporting">{{ exporting || `Download ${year} Master Record` }}</button>
+      <!-- 18 Nov 2026 (Khairul): the Google Sheet buttons in one 3-dots menu: Sync, Settings, Open Sheet (lib/maintenance-sheet.js).
+           The Download Master Record button was removed (lib/maintenance.js downloadMasterRecord is kept, unused). -->
+      <div class="mt-more" v-if="sheet || isDirector" @keydown.esc="moreOpen = false">
+        <span class="mt-busy muted" v-if="sheetBusy">{{ sheetBusy }}</span>
+        <button type="button" class="mt-dots" title="Google Sheet" aria-label="Google Sheet menu" aria-haspopup="menu" :aria-expanded="String(moreOpen)" @click="moreOpen = !moreOpen">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
+        <div class="mt-more-back" v-if="moreOpen" @click="moreOpen = false"></div>
+        <div class="mt-more-menu" v-if="moreOpen" role="menu">
+          <button type="button" role="menuitem" v-if="sheet" :disabled="!!sheetBusy" @click="moreOpen = false; syncYear()">Sync</button>
+          <button type="button" role="menuitem" v-if="isDirector" @click="moreOpen = false; openSheetSetup()">Settings</button>
+          <a role="menuitem" v-if="sheet && sheetLink()" :href="sheetLink()" target="_blank" rel="noopener" @click="moreOpen = false">Open Sheet</a>
+        </div>
       </div>
     </div>
-    <p class="card-intro">Completed Customer tickets of this month (the month they were completed). Enter the WB Charge and the Invoice No. to charge the owner: it adds one Maintenance line to the unit's statement. The owner sees only the WB Charge and the description, never the cost or the profit.</p>
+    <p class="card-intro">Customer tickets of this month: completed ones by the month they were completed, In progress and Cancelled ones by the month they were raised. Enter the WB Charge and the Invoice No. to charge the owner: it adds one Maintenance line to the unit's statement. The owner sees only the WB Charge and the description, never the cost or the profit.</p>
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
-    <p class="mt-sheet muted" v-if="sheet && sheetNote">{{ sheetNote }}</p>
+    <!-- Sheet status: green dot = set up and the last sync worked; red dot = not set up, or the last sync failed (18 Nov 2026) -->
+    <p class="mt-sheet muted" v-if="sheetChecked && ((sheet && sheetNote) || !sheet?.scriptUrl)"><span class="mt-dot" :class="sheetLinked ? 'on' : 'off'" aria-hidden="true"></span>{{ sheet?.scriptUrl ? sheetNote : 'Google Sheet not linked' }}</p>
     <div class="toolbar">
       <OptionPicker v-model="filter" :options="FILTERS" label="Status" />
       <input class="input" type="search" placeholder="Search ticket or unit" v-model="search" aria-label="Search" style="max-width:220px">
@@ -30,9 +37,9 @@
               <td class="nw mt-tid">{{ t.id }}</td>
               <td class="nw">{{ t.unit }}<small class="muted" v-if="allProps"><br>{{ t.property }}</small></td>
               <td>{{ t.area || '—' }}</td>
-              <td class="num">{{ amt(t.completion.cost) }}</td>
+              <td class="num">{{ t.completion ? amt(t.completion.cost) : '—' }}</td>
               <!-- Pending: type WB Charge and Invoice No. here. Charged tickets are edited in the popup (Edit). -->
-              <template v-if="!isCharged(t)">
+              <template v-if="st(t) === 'pending'">
                 <td class="num"><input class="input num-in" type="number" step="0.01" min="0" v-model="row(t).wb" :aria-label="'WB Charge ' + t.id" placeholder="0.00"></td>
                 <td><input class="input inv-in" v-model="row(t).inv" maxlength="40" :aria-label="'Invoice No. ' + t.id" placeholder="Invoice No."></td>
               </template>
@@ -41,10 +48,10 @@
                 <td>{{ isCharged(t) ? t.billing.invoiceNo : '—' }}</td>
               </template>
               <td class="nw">{{ isCharged(t) ? dmy(t.billing.chargedAt) : '—' }}</td>
-              <td class="nw"><span class="pill" :class="isCharged(t) ? 'green' : 'amber'">{{ isCharged(t) ? 'Charged' : 'Pending' }}</span>
+              <td class="nw"><span class="pill" :class="PILL[st(t)]">{{ MAINT_STATUS[st(t)] }}</span>
                 <small class="muted" v-if="isCharged(t) && t.billing.expenseMonth !== t.completion.month"><br>{{ 'on ' + monthName(t.billing.expenseMonth) }}</small></td>
               <td class="row-end">
-                <button class="btn btn-primary btn-sm" v-if="!isCharged(t)" @click="charge(t)" :disabled="busy">Save</button>
+                <button class="btn btn-primary btn-sm" v-if="st(t) === 'pending'" @click="charge(t)" :disabled="busy">Save</button>
                 <!-- Eye: opens the ticket popup (same as clicking the row) -->
                 <button type="button" class="icon-btn mt-eye" :title="'View ' + t.id" :aria-label="'View ' + t.id" @click="detail = t">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -53,10 +60,10 @@
             </tr>
           </template>
           <SkeletonRows v-if="loading && !shown().length" table :cols="9" />
-          <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">{{ filter === 'pending' ? 'Nothing waiting to be charged this month.' : 'No completed Customer tickets this month.' }}</td></tr>
+          <tr v-show="!loading && !shown().length"><td colspan="9" class="muted">{{ EMPTY[filter] }}</td></tr>
         </tbody>
         <tfoot v-show="shown().length">
-          <tr><td colspan="3">Totals</td><td class="num">{{ amt(sum(t => t.completion.cost)) }}</td><td class="num">{{ amt(sum(t => isCharged(t) ? t.billing.wbCharge : 0)) }}</td>
+          <tr><td colspan="3">Totals</td><td class="num">{{ amt(sum(t => t.completion?.cost)) }}</td><td class="num">{{ amt(sum(t => isCharged(t) ? t.billing.wbCharge : 0)) }}</td>
             <td colspan="4" class="nw"><span :class="{ neg: sum(t => isCharged(t) ? t.billing.profit : 0) < 0 }">{{ 'Profit RM ' + amt(sum(t => isCharged(t) ? t.billing.profit : 0)) }}</span></td></tr>
         </tfoot>
       </table>
@@ -65,11 +72,18 @@
     <div class="modal-back mt-back" v-if="detail" @click.self="closeDetail()">
       <div class="modal mt-pop" role="dialog" aria-modal="true" :aria-label="detail.id + ' details'" v-esc="() => closeDetail()">
         <div class="mt-pop-head">
-          <h2>{{ detail.id }}<span class="pill mt-pill" :class="isCharged(detail) ? 'green' : 'amber'">{{ isCharged(detail) ? 'Charged' : 'Pending' }}</span></h2>
+          <h2>{{ detail.id }}<span class="pill mt-pill" :class="PILL[st(detail)]">{{ MAINT_STATUS[st(detail)] }}</span></h2>
           <button type="button" class="icon-btn" aria-label="Close" title="Close (Esc)" @click="closeDetail()">×</button>
         </div>
         <div class="kv"><span>Unit</span><span>{{ detail.unit + (detail.property ? ' · ' + detail.property : '') }}</span></div>
         <div class="kv"><span>Area</span><span>{{ detail.area || '—' }}</span></div>
+        <!-- In progress / Cancelled (18 Nov 2026): what was reported; nothing to charge yet -->
+        <template v-if="!detail.completion">
+          <div class="kv"><span>Raised by</span><span>{{ detail.raisedBy || '—' }}</span></div>
+          <div class="kv" v-if="st(detail) === 'cancelled'"><span>Cancel reason</span><span>{{ detail.deleteReason || '—' }}</span></div>
+          <div class="mt-pop-sol"><span>What happened</span><p>{{ detail.body || detail.title || '—' }}</p></div>
+        </template>
+        <template v-else>
         <div class="kv"><span>Action date</span><span>{{ dmy(detail.completion.actionDate) }}</span></div>
         <div class="kv"><span>Fixed by</span><span>{{ detail.completion.fixedByName || '—' }}</span></div>
         <div class="mt-pop-sol"><span>Solution</span><p>{{ detail.completion.solution || '—' }}</p></div>
@@ -88,6 +102,7 @@
         </div>
         <div class="kv" v-if="detail.completion.costRemarks"><span>Cost remarks</span><span>{{ detail.completion.costRemarks }}</span></div>
         <div class="kv"><span>Charged owner</span><span>{{ isCharged(detail) ? dmy(detail.billing.chargedAt) + (detail.billing.expenseMonth !== detail.completion.month ? ' (on ' + monthName(detail.billing.expenseMonth) + ')' : '') : 'Not charged yet' }}</span></div>
+        </template>
         <div class="notice error" v-show="error && isCharged(detail) && row(detail).editing">{{ error }}</div>
         <div class="modal-foot mt-pop-foot" v-if="isCharged(detail) && row(detail).editing">
           <textarea class="input mt-reason" rows="4" v-model="row(detail).reason" placeholder="Reason for the change (audit log)" aria-label="Reason"></textarea>
@@ -141,23 +156,27 @@ import SkeletonRows from '@/components/SkeletonRows.vue';
 import { amt, dmy, monthName } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { friendlyError, completedUnitIds } from '@/lib/finance-data.js';
-import { loadMaintenance, chargeTicket, editCharge, removeCharge, downloadMasterRecord, r2 } from '@/lib/maintenance.js';
+import { loadMaintenance, chargeTicket, editCharge, removeCharge, r2, maintStatus, MAINT_STATUS } from '@/lib/maintenance.js';
 import { loadSheetSettings, saveSheetSettings, syncMonths, syncSheetEdits, yearMonths, makeYearFile } from '@/lib/maintenance-sheet.js';
 import { STATES } from '@/lib/states.js';
 // The Sheet is a reference copy (Khairul): checked on open, after each charge, by the button, and every 2 minutes while the tab is in front
 const SHEET_EVERY = 2 * 60 * 1000;
 
-const FILTERS = [{ value: 'pending', label: 'Pending' }, { value: 'charged', label: 'Charged' }, { value: 'all', label: 'All' }];
+// 18 Nov 2026: In progress and Cancelled added (every Customer ticket is listed); Pending stays the default
+const FILTERS = [{ value: 'pending', label: 'Pending' }, { value: 'charged', label: 'Charged' }, { value: 'progress', label: 'In progress' }, { value: 'cancelled', label: 'Cancelled' }, { value: 'all', label: 'All' }];
+const PILL = { pending: 'amber', charged: 'green', progress: 'blue', cancelled: 'red' };
+const EMPTY = { pending: 'Nothing waiting to be charged this month.', charged: 'Nothing charged this month.', progress: 'No Customer tickets in progress raised this month.',
+  cancelled: 'No cancelled Customer tickets raised this month.', all: 'No Customer tickets this month.' };
 export default {
   components: { OptionPicker, SkeletonRows },
   props: { propertyId: { type: String, default: '' }, propertyName: { type: String, default: '' }, month: { type: String, required: true } },
   emits: ['charged'],
-  data() { return { me: useSession(), FILTERS, filter: 'pending', detail: null, search: '', tickets: [], rows: {}, locked: {}, loading: true, busy: false, error: '', okMsg: '', exporting: '',
+  data() { return { me: useSession(), FILTERS, PILL, EMPTY, MAINT_STATUS, filter: 'pending', detail: null, search: '', tickets: [], rows: {}, locked: {}, loading: true, busy: false, error: '', okMsg: '', moreOpen: false, sheetFailed: false, sheetChecked: false,
     sheet: null, sheetBusy: '', sheetNote: '', sheetSetup: null, sheetTimer: null, sheetLinks: {}, states: STATES }; },
-  computed: { year() { return this.month.slice(0, 4); }, allProps() { return this.propertyId === 'all'; }, isDirector() { return this.me.role === 'director'; }, nextYear() { return String(new Date().getFullYear() + 1); } },   // 'all': the page's All properties
+  computed: { year() { return this.month.slice(0, 4); }, allProps() { return this.propertyId === 'all'; }, isDirector() { return this.me.role === 'director'; }, nextYear() { return String(new Date().getFullYear() + 1); }, sheetLinked() { return !!this.sheet?.scriptUrl && !this.sheetFailed; } },   // 'all': the page's All properties
   watch: { propertyId() { this.load(); }, month() { this.load(); } },
   async mounted() {
-    this.sheet = await loadSheetSettings();
+    this.sheet = await loadSheetSettings(); this.sheetChecked = true;   // no red dot flash before the settings are read
     this.load();
     this.sheetTimer = setInterval(() => { if (document.visibilityState === 'visible') this.sheetQuick(); }, SHEET_EVERY);
   },
@@ -165,6 +184,7 @@ export default {
   methods: {
     amt, dmy, monthName,
     isCharged(t) { return t.billing?.status === 'charged'; },
+    st(t) { return maintStatus(t); },
     // Click anywhere on a table row opens the ticket popup (the Pending row's inputs and Save button still work as usual)
     closeDetail() { const t = this.detail; if (t && this.isCharged(t) && this.rows[t.id]?.editing) delete this.rows[t.id]; this.detail = null; },
     rowClick(e, t) { if (!e.target.closest('a, button, input, select, textarea, label')) this.detail = t; },
@@ -173,7 +193,7 @@ export default {
     lockKey(t) { return `${t.propertyId}_${t.billing?.expenseMonth}_${t.unitId}`; },
     shown() {
       const q = this.search.trim().toLowerCase();
-      return this.tickets.filter(t => this.filter === 'all' || (this.filter === 'charged') === this.isCharged(t))
+      return this.tickets.filter(t => this.filter === 'all' || this.st(t) === this.filter)
         .filter(t => !q || [t.id, t.unit, t.property].some(v => (v || '').toLowerCase().includes(q)));
     },
     sum(f) { return this.shown().reduce((s, t) => s + (Number(f(t)) || 0), 0); },
@@ -200,13 +220,14 @@ export default {
     // This year's file (from the script; one file per year), else the link saved in Sheet settings
     sheetLink() { return this.sheetLinks[this.year] || (this.sheet?.sheetUrl && this.year === String(new Date().getFullYear()) ? this.sheet.sheetUrl : ''); },
     sheetDone(out, quiet) {
+      this.sheetFailed = false;
       if (out.link) this.sheetLinks = { ...this.sheetLinks, [out.year]: out.link };
       const at = new Date().toLocaleTimeString('en-MY', { hour: 'numeric', minute: '2-digit' });
       this.sheetNote = `Google Sheet synced ${at}` + (out.fromSheet ? ` · ${out.fromSheet} ticket${out.fromSheet === 1 ? '' : 's'} updated from the Sheet` : '')
         + (!quiet && out.toSheet ? ` · ${out.toSheet} row${out.toSheet === 1 ? '' : 's'} written` : '');
       if (out.fromSheet) this.load(true);   // show the Sheet's edits (no second sync)
     },
-    sheetFail(e) { this.sheetNote = 'Google Sheet not synced: ' + (e.plain ? e.message : friendlyError(e, 'sync the Google Sheet')); },
+    sheetFail(e) { this.sheetFailed = true; this.sheetNote = 'Google Sheet not synced: ' + (e.plain ? e.message : friendlyError(e, 'sync the Google Sheet')); },
     async sheetSync(months, quiet = true) {
       if (!this.sheet?.scriptUrl || this.sheetBusy) return;
       this.sheetBusy = 'Syncing…';
@@ -273,15 +294,6 @@ export default {
         this.okMsg = `${t.id}: charge removed; the ticket is Pending again.`; this.$emit('charged'); this.sheetSync([t.completion.month]);
       } catch (e) { this.error = e.plain ? e.message : friendlyError(e, 'remove the charge'); }
       this.busy = false;
-    },
-    async master() {
-      this.error = ''; this.okMsg = ''; this.exporting = 'Preparing…';
-      try {
-        const out = await downloadMasterRecord(this.year, s => { this.exporting = s; });
-        this.okMsg = out.tickets ? `${this.year}_Master_Record.xlsx downloaded: ${out.tickets} ticket${out.tickets === 1 ? '' : 's'} in ${out.months} month sheet${out.months === 1 ? '' : 's'}.`
-          : `${this.year}_Master_Record.xlsx downloaded. No completed Customer tickets in ${this.year} yet (Owner list only).`;
-      } catch (e) { this.error = friendlyError(e, 'build the Master Record'); }
-      this.exporting = '';
     }
   }
 };
@@ -295,7 +307,18 @@ export default {
 .inv-in { width: 120px; height: 34px; }
 .btn-sm { height: 32px; padding: 0 12px; }
 .row-end { text-align: right; white-space: nowrap; }
-.mt-head-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.mt-more { position: relative; display: flex; align-items: center; gap: 10px; }
+.mt-busy { font-size: 12.5px; }
+.mt-dots { display: inline-grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid var(--accent); border-radius: 10px; background: var(--surface); color: var(--accent); cursor: pointer; }
+.mt-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+.mt-dot.on { background: #22a35a; }
+.mt-dot.off { background: var(--danger, #c0392b); }
+.mt-dots:hover, .mt-dots[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.mt-more-back { position: fixed; inset: 0; z-index: 20; }
+.mt-more-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 170px; display: grid; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.mt-more-menu button, .mt-more-menu a { display: block; text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); text-decoration: none; cursor: pointer; }
+.mt-more-menu button:hover:not(:disabled), .mt-more-menu a:hover { background: var(--accent-soft); color: var(--accent); }
+.mt-more-menu button:disabled { opacity: .55; cursor: default; }
 .mt-sheet { margin: -4px 0 10px; font-size: 12.5px; }
 .mt-tid { font-weight: 600; color: var(--accent); }
 /* Eye: a plain icon, no box (Khairul 18 Nov); grey, turns brand red when the row is hovered */

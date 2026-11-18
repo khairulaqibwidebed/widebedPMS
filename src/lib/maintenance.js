@@ -59,10 +59,24 @@ export async function roleStaff(roleId, propertyId) {
 // ---------- Expenses > Maintenance ----------
 // Completed customer tickets of one month (completion.month), for my properties (or one property). Only tickets with a
 // completion record (older completed tickets have none and are left out).
+// 18 Nov 2026 (Khairul): every Customer ticket is on the Maintenance tab and the Sheet, not only completed ones.
+// A ticket's month: completed -> the month it was completed (as before); in progress / cancelled -> the month it was raised.
+const createdMonth = t => { const v = t.createdAt?.toDate ? t.createdAt.toDate() : typeof t.createdAt === 'string' && t.createdAt ? new Date(t.createdAt) : null; return v && !isNaN(v) ? myMonth(v) : ''; };
+export const ticketMonth = t => (t.status === 'done' && t.completion?.month) || createdMonth(t);
+// Its status there: Pending (completed, not charged), Charged, In progress (open or in progress), Cancelled (deleted)
+export const MAINT_STATUS = { pending: 'Pending', charged: 'Charged', progress: 'In progress', cancelled: 'Cancelled' };
+export const maintStatus = t => t.status === 'deleted' ? 'cancelled' : t.status === 'done' && t.completion ? (t.billing?.status === 'charged' ? 'charged' : 'pending') : 'progress';
+
 export async function loadMaintenance(month, propertyId = '') {
-  const base = query(collection(db, 'issues'), where('type', '==', 'customer'), where('status', '==', 'done'), where('completion.month', '==', month));
-  const snap = propertyId ? await getDocs(query(base, where('propertyId', '==', propertyId))) : await getScoped(scoped(base));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.completion && t.status === 'done')
+  const run = q => (propertyId ? getDocs(query(q, where('propertyId', '==', propertyId))) : getScoped(scoped(q)));
+  const issues = collection(db, 'issues');
+  // Completed: by completion month (as before). The rest: every open / in progress / deleted Customer ticket, kept when
+  // raised this month (equality filters only, so no extra Firestore index is needed).
+  const [done, other] = await Promise.all([
+    run(query(issues, where('type', '==', 'customer'), where('status', '==', 'done'), where('completion.month', '==', month))),
+    run(query(issues, where('type', '==', 'customer'), where('status', 'in', ['open', 'progress', 'deleted'])))]);
+  return [...done.docs, ...other.docs].map(d => ({ id: d.id, ...d.data() }))
+    .filter(t => (t.status === 'done' ? !!t.completion : ticketMonth(t) === month))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
