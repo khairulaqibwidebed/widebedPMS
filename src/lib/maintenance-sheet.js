@@ -160,3 +160,8 @@ export async function syncSheetEdits(me, url, year, states = []) {
   }
   return syncTickets(me, url, year, tickets, sheetRows, j.url || '', j.computed || [], null, states);
 }
+
+// A ticket removed for good (18 Nov 2026): its row goes from every month tab of that year's file
+export async function removeSheetRows(url, year, ids) {
+  return (await call(url, { action: 'remove', year: String(year), ids })).removed || 0;
+}
