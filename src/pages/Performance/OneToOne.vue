@@ -78,11 +78,11 @@
           These are filled in for you. Typing over one changes this form only, not the staff record.
           <button type="button" class="link" v-if="edited" @click="resetEdits">Put back the saved details</button>
         </p>
+        <!-- Join date (18 Nov 2026): read from Staff accounts › HR details, not typed here -->
         <div class="oo-join">
           <label for="ooJoin">Join date</label>
-          <input id="ooJoin" class="input" type="date" v-model="joinDraft">
-          <button type="button" class="btn btn-sm" :disabled="savingJoin || joinDraft === (sel.joinDate || '')" @click="saveJoin">{{ savingJoin ? 'Saving…' : 'Save' }}</button>
-          <span class="help" v-if="!sel.joinDate">Entered once; it's kept on the staff record.</span>
+          <input id="ooJoin" class="input" :value="joinShown" readonly :placeholder="'Not saved in HR details'" title="Change it on Staff accounts › HR details">
+          <span class="help">From Staff accounts › HR details.</span>
         </div>
 
         <!-- Leave taken this year (17 Nov 2026): typed in for this form, printed under Join Date. Not saved. -->
@@ -118,7 +118,7 @@
 // Performance › One To One Session (12 Nov 2026). HR and Directors only: only they can read the COH marks.
 // The form is the PDF drawn by lib/performance/oneToOnePdf.js (laid out like HR's Word template); what you see is what prints.
 import { listQuarters } from '@/lib/performance/quarters.js';
-import { loadSession, loadVenues, saveVenues, saveJoinDate, formData, fileName, cleanVenues, DEFAULT_VENUES, TOPIC, LEAVE_TYPES, emptyLeave } from '@/lib/performance/oneToOne.js';
+import { loadSession, loadVenues, saveVenues, formData, longDate, fileName, cleanVenues, DEFAULT_VENUES, TOPIC, LEAVE_TYPES, emptyLeave } from '@/lib/performance/oneToOne.js';
 import { buildOneToOnePdf } from '@/lib/performance/oneToOnePdf.js';
 import { CJK_FONT_URL } from '@/lib/agreements/pdf.js';
 import { friendlyError } from '@/lib/finance-data.js';
@@ -133,11 +133,12 @@ export default {
     return {
       loading: true, error: '', quarters: [], quarterId: '', questions: [], rows: [], unreadable: 0, search: '', selectedUid: '',
       date: todayKey(), venues: [...DEFAULT_VENUES], venue: DEFAULT_VENUES[0], venueOpen: false, newVenue: '', venueLocal: false,
-      joinDraft: '', savingJoin: false, pdfUrl: '', building: false, fontMissing: false,
+      pdfUrl: '', building: false, fontMissing: false,
       TOPIC, LEAVE_TYPES, topic: TOPIC, edit: { staffName: '', position: '', ic: '', leave: emptyLeave() }, editsByUid: {}   // what HR typed over the filled-in details, kept per person while the page is open
     };
   },
   computed: {
+    joinShown() { return longDate(this.sel?.joinDate); },   // dd/mm/yyyy, as printed on the PDF
     shown() { const q = this.search.trim().toLowerCase(); return q ? this.rows.filter(r => r.name.toLowerCase().includes(q)) : this.rows; },
     sel() { return this.rows.find(r => r.uid === this.selectedUid) || null; },
     leaveYear() { return /^\d{4}/.test(this.date || '') ? this.date.slice(0, 4) : String(new Date().getFullYear()); },
@@ -161,7 +162,6 @@ export default {
     // Another person: their details are filled in (or what was typed for them earlier on this visit).
     selectedUid(uid, old) {
       if (old) this.editsByUid[old] = { ...this.edit, leave: { ...this.edit.leave } };
-      this.joinDraft = this.sel?.joinDate || '';
       const kept = this.editsByUid[uid];
       this.edit = this.sel ? (kept ? { ...kept, leave: { ...kept.leave } } : { staffName: this.sel.name, position: this.sel.position, ic: this.sel.ic || '', leave: emptyLeave() })
         : { staffName: '', position: '', ic: '', leave: emptyLeave() };
@@ -223,15 +223,6 @@ export default {
     rememberVenue() { if (this.venue) this.keepVenues(); },
 
     resetEdits() { this.edit = { ...this.edit, staffName: this.sel.name, position: this.sel.position, ic: this.sel.ic || '' }; this.topic = TOPIC; },   // the leave typed in stays
-
-    // ---- Join date ----
-    async saveJoin() {
-      const row = this.sel;
-      this.savingJoin = true; this.error = '';
-      try { await saveJoinDate(row.uid, this.joinDraft); row.joinDate = this.joinDraft; }
-      catch (e) { this.error = e.code === 'permission-denied' ? 'You can\'t change the join date on your own record or a Director\'s. Ask a Director to enter it.' : friendlyError(e, 'save the join date'); }
-      this.savingJoin = false;
-    },
 
     // ---- The PDF ----
     queueBuild() { clearTimeout(this.buildTimer); this.buildTimer = setTimeout(() => this.build(), 250); },

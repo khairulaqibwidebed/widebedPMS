@@ -528,8 +528,15 @@ export default async function handler(req, res) {
       catch (e) { console.error('[drive] issue folder:', e.message); note = `Could not reach the unit's folder in Owner Files (${String(e.message || e).slice(0, 160)}), so this went to Widebed PMS Files.`; }
       if (!folderId && !note) note = 'This property\'s state or unit has no Owner Files folder, so this went to Widebed PMS Files.';
     }
+    // 18 Nov 2026: a ticket's own folder without uploading (raise time / Mark completed), so the ticket keeps its link
+    if (b.action === 'issueFolder') {
+      if (b.kind !== 'issues') throw new HttpError(400, 'Only issue folders.');
+      try { folderId = b.propertyId ? await issueFolder(tok, user, b) : ''; }
+      catch (e) { console.error('[drive] issue folder:', e.message); note = 'Could not reach the unit\'s folder in Owner Files, so the ticket folder is in Widebed PMS Files.'; }
+    }
     if (!folderId) folderId = await recordFolder(tok, b.kind, b.recordId, b.label);
     const folderLink = `https://drive.google.com/drive/folders/${folderId}`;
+    if (b.action === 'issueFolder') return res.status(200).json({ folderId, folderLink, note });
     if (b.action === 'session') {
       const name = String(b.name || 'file').replace(/[\\/]/g, '_').slice(0, 200);
       const r = await g(`${UPLOAD}/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink`, tok, { method: 'POST',

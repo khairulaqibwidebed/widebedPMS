@@ -65,7 +65,7 @@
         </Paged>
         </div>
         </Transition>
-        <p class="help" style="margin-top:12px">Completed tickets are locked: no new comments or tag changes. They stay searchable under Completed.
+        <p class="help" style="margin-top:12px">Completed tickets are locked: no edits or tag changes; comments stay open for follow-up. They stay searchable under Completed.
           <span>{{ `You can see ${visible().length} ticket${visible().length === 1 ? '' : 's'}.` }}</span>
           Files stay in the company Google Drive; tickets keep only the links.</p>
       </div>
@@ -93,9 +93,11 @@
             <!-- 17 Nov 2026: comment box under the original issue, newest comments first -->
             <!-- 17 Nov 2026: files picked, pasted (Ctrl+V) or dropped stay on this device until Post comment, which uploads
                  them to the ticket's Drive folder and then posts. Removing one before posting never touches Drive. -->
-            <div class="post composer" :class="{ dropping }" v-show="ticket.status !== 'done' && canComment()"
+            <!-- 18 Nov 2026: comments stay open on a completed ticket (follow-up only); everything else is locked -->
+            <div class="post composer" :class="{ dropping }" v-show="canComment()"
               @dragover.prevent="dragOver($event)" @dragleave="e => { if (!e.currentTarget.contains(e.relatedTarget)) dropping = false; }" @drop.prevent="onDrop($event)">
               <div class="drop-hint" v-if="dropping">Drop to attach</div>
+              <div class="done-note" v-if="ticket.status === 'done'">Ticket completed. Comments are for follow-up only.</div>
               <textarea class="input" placeholder="Write a comment... (paste with Ctrl+V or drop files here)" v-model="draft.text" aria-label="Comment" @paste="onPaste($event)"></textarea>
               <!-- Previews of what will be posted: click to open, × to take it off -->
               <div class="previews" v-show="draft.files.length">
@@ -118,7 +120,7 @@
                 <button class="btn btn-primary" @click="postComment()" :disabled="busy || (!draft.text.trim() && !draft.files.length)">{{ draft.sending !== null ? `Uploading ${draft.sending}%` : 'Post comment' }}</button>
               </div>
             </div>
-            <div class="locked" v-show="ticket.status === 'done'">{{ 'Completed on ' + stamp(ticket.doneAt) + ' by ' + ticket.doneBy + '. This ticket is locked: no edits, tag changes, comments or links.' }}</div>
+            <div class="locked" v-show="ticket.status === 'done'">{{ 'Completed on ' + stamp(ticket.doneAt) + ' by ' + ticket.doneBy + '. This ticket is locked: no edits or tag changes. Comments stay open for follow-up.' }}</div>
             <div class="locked" v-show="ticket.status !== 'done' && !canComment()">View only. Your role can read this ticket but not comment on it.</div>
             <template v-for="c in newestFirst" :key="c.id">
               <div class="post">
@@ -133,6 +135,20 @@
           <div class="stack" style="gap:16px">
             <div class="card">
               <div class="card-head"><h2>Details</h2></div>
+              <!-- 18 Nov 2026 (Khairul): Actions at the top of Details; its menu opens downward -->
+            <div class="acts acts-card" v-if="(ticket.status !== 'done' && canUpdate()) || canDelete">
+              <button class="btn btn-primary" @click="menuOpen = !menuOpen" aria-haspopup="menu" :aria-expanded="String(menuOpen)">Actions
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+              <div class="acts-back" v-if="menuOpen" @click="menuOpen = false"></div>
+              <div class="acts-menu" v-if="menuOpen" role="menu">
+                <button role="menuitem" v-show="ticket.status === 'open' && canUpdate()" @click="menuOpen = false; setProgress()" :disabled="busy">Mark in progress</button>
+                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; openEdit()" :disabled="busy">{{ typeOf(ticket) === 'customer' ? 'Edit ticket (people, area, details)' : 'Edit title & description' }}</button>
+                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; switchType()" :disabled="busy">{{ typeOf(ticket) === 'customer' ? 'Change to In-house' : 'Change to Customer' }}</button>
+                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; openDone()">Mark completed</button>
+                <button role="menuitem" v-if="canDelete && ticket.status === 'done'" @click="menuOpen = false; reopen = { reason: '', error: '' }">Reopen ticket</button>
+                <button role="menuitem" class="danger" v-if="canDelete" @click="menuOpen = false; openDelete()">Delete ticket</button>
+              </div>
+            </div>
               <div class="kv"><span>Status</span><span><span class="pill" :class="STATUS[ticket.status].cls" :title="statusHint(ticket)">{{ statusLabel(ticket) }}</span></span></div>
               <div class="kv"><span>Type</span><span><span class="type-badge" :class="typeOf(ticket)"><svg viewBox="0 0 24 24" aria-hidden="true" v-html="TYPE_ICON[typeOf(ticket)]"></svg>{{ TYPE_LABEL[typeOf(ticket)] }}</span></span></div>
               <div class="kv"><span>Property</span><span>{{ ticket.property || '—' }}</span></div>
@@ -140,23 +156,30 @@
               <div class="kv"><span>Raised by</span><span class="who">{{ ticket.raisedBy }}<span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ tagLabel(ticket.raisedRole) }}</span></span></div>
               <div class="kv"><span>Raised on</span><span>{{ day(ticket.raisedAt) }}</span></div>
               <div class="kv"><span>Tagged</span><span><template v-for="g in ticket.tags" :key="g"><span class="tag">{{ tagLabel(g) }}</span></template></span></div>
+              <!-- 18 Nov 2026 (Customer tickets): the area, the people doing the work, and the ticket's Drive folder -->
+              <template v-if="typeOf(ticket) === 'customer'">
+                <div class="kv"><span>Area</span><span>{{ ticket.area || '—' }}</span></div>
+                <div class="kv"><span>People</span><span class="ppl"><template v-for="p in ticket.assignees" :key="p.uid"><span class="who"><Avatar :uid="p.uid" :name="p.name" role="" :size="20" />{{ p.name }}</span></template><span v-if="!ticket.assignees.length">—</span></span></div>
+                <div class="kv"><span>Drive folder</span><span><a v-if="ticket.driveFolderUrl" :href="ticket.driveFolderUrl" target="_blank" rel="noopener">Open folder</a><template v-else>Made with the first file</template></span></div>
+              </template>
               <button class="btn" style="width:100%;margin-top:8px" v-show="ticket.status !== 'done' && canUpdate()" @click="openTags()">Edit Department Tags </button>
-            <div class="acts acts-card" v-if="(ticket.status !== 'done' && canUpdate()) || canDelete">
-              <button class="btn btn-primary" @click="menuOpen = !menuOpen" aria-haspopup="menu" :aria-expanded="String(menuOpen)">Actions
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
-              <div class="acts-back" v-if="menuOpen" @click="menuOpen = false"></div>
-              <div class="acts-menu" v-if="menuOpen" role="menu">
-                <button role="menuitem" v-show="ticket.status === 'open' && canUpdate()" @click="menuOpen = false; setProgress()" :disabled="busy">Mark in progress</button>
-                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; openEdit()" :disabled="busy">Edit title &amp; description</button>
-                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; switchType()" :disabled="busy">{{ typeOf(ticket) === 'customer' ? 'Change to In-house' : 'Change to Customer' }}</button>
-                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; confirmDone = true; doneError = ''">Mark completed</button>
-                <button role="menuitem" class="danger" v-if="canDelete" @click="menuOpen = false; openDelete()">Delete ticket</button>
-              </div>
-            </div>
+            <ConfirmReason v-if="reopen" style="margin-top:12px" :title="'Reopen ' + ticket.id + '?'" text="It goes back to In progress. The completion details stay in the audit log." label="Reason" placeholder="e.g. Leak came back" v-model="reopen.reason" confirm-text="Reopen" :busy="busy" @confirm="doReopen()" @cancel="reopen = null" />
+            <div class="notice error" v-if="reopen && reopen.error" style="margin-top:8px">{{ reopen.error }}</div>
             <button class="btn" style="width:100%;margin-top:8px" @click="auditOpen = true">Audit log</button>
             </div>
-            <!-- Quote & invoice: anyone on the ticket adds the quote; Finance/Director approve and add it to the unit's expenses (owner pays) -->
-            <TicketQuote :key="ticket.id" :ticket="ticket" @view="f => $refs.viewer.open(f)" />
+            <!-- 18 Nov 2026: what was done, its cost and the owner charge (Customer tickets completed with the new popup).
+                 The Quote & invoice card (TicketQuote.vue) is no longer shown: Accounting charges the owner from
+                 Expenses & Reimbursements > Maintenance instead. Old issueQuotes and their expense lines are kept. -->
+            <div class="card" v-if="ticket.completion">
+              <div class="card-head"><h2>Completion</h2></div>
+              <div class="kv"><span>Action date</span><span>{{ day(ticket.completion.actionDate) }}</span></div>
+              <div class="kv"><span>Action / Solution</span><span class="wrap">{{ ticket.completion.solution }}</span></div>
+              <div class="kv"><span>Fixed by</span><span>{{ ticket.completion.fixedByName }}</span></div>
+              <div class="kv"><span>Cost (RM)</span><span>{{ money(ticket.completion.cost) }}</span></div>
+              <div class="kv" v-if="ticket.completion.costRemarks"><span>Cost remarks</span><span class="wrap">{{ ticket.completion.costRemarks }}</span></div>
+              <div class="kv"><span>Completed by</span><span>{{ ticket.completion.completedByName }}</span></div>
+              <div class="kv"><span>Owner charge</span><span>{{ ticket.billing?.status === 'charged' ? `RM ${money(ticket.billing.wbCharge)} · invoice ${ticket.billing.invoiceNo}` : 'Pending (Accounting)' }}</span></div>
+            </div>
           </div>
         </div>
       </div>
@@ -186,6 +209,15 @@
             <div class="unit-inner"><div class="field"><label :class="{ req: raise.type === 'customer' }" for="rUnit">Unit</label>
               <ComboInput id="rUnit" v-model="raise.unit" :options="unitOptions()" placeholder="Choose the unit" /></div></div>
           </div>
+          <!-- 18 Nov 2026 (Customer tickets): the area of the unit, and the Maintenance people who do the work -->
+          <template v-if="raise.type === 'customer'">
+            <div class="field"><label for="rArea">Area</label>
+              <OptionPicker class="full-pick" v-model="raise.area" :options="areaOptions()" label="Area" />
+              <input v-if="raise.area === 'Other'" class="input" id="rArea" style="margin-top:8px" v-model="raise.areaOther" maxlength="60" placeholder="Which area?"></div>
+            <div class="field"><label>People</label>
+              <PeoplePicker v-model="raise.people" :people="staffFor" placeholder="Search Maintenance staff" :empty-text="peopleNote(raise.property)" />
+              <div class="help">Who does the work. Role tags above decide who can see the ticket; people picked here can always see and update it.</div></div>
+          </template>
           <div class="field"><label class="req" for="rBody">What happened</label><textarea class="input" id="rBody" style="height:96px" v-model="raise.body" placeholder="Describe the issue, when it started and what you have tried"></textarea></div>
           <div class="field" style="margin-bottom:8px"><label>Tag the roles who should handle it</label>
             <!-- Same chips + drop-down as Edit tags. Your own role is always tagged and has no × -->
@@ -194,11 +226,9 @@
               <span class="help" v-show="!raise.tags.length">No roles tagged</span>
             </div>
             <OptionPicker class="add-role" v-show="raise.tags.length < TAGS.length" v-model="addPickR" :options="addOptionsR()" label="Add a role" @change="addTagR($event)" /></div>
-          <div class="field" style="margin-bottom:6px"><label for="rLinkName">Add Drive link</label>
+          <!-- 18 Nov: "Add Drive link" (name + pasted link) removed from the raise form at Khairul's ask; files are uploaded instead -->
+          <div class="field" style="margin-bottom:6px"><label>Files</label>
             <div class="link-add" style="margin-top:0">
-              <input class="input" id="rLinkName" v-model="raise.linkName" placeholder="Name, e.g. Photo of the leak">
-              <input class="input" v-model="raise.linkUrl" placeholder="Paste the Google Drive link" aria-label="Google Drive link" @keydown.enter.prevent="addLink(raise)">
-              <button class="btn" type="button" @click="addLink(raise)">Add</button>
               <UploadFile v-if="raise.type !== 'customer' || (raise.property.trim() && raise.unit.trim())" kind="issues" :record-id="raise.rid" :folder-label="raise.title" :extra="raiseDrive()" @done="f => addUploaded(raise, f)" />
               <span class="help" v-else>Choose the property and unit first to upload, so files go to the unit's folder.</span>
             </div>
@@ -241,8 +271,42 @@
             <OptionPicker v-if="propertyChoices().length" class="full-pick" v-model="edit.property" :options="propertyOptions(edit.property)" label="Property" searchable />
             <input v-else class="input" id="eProp" v-model="edit.property" maxlength="80"></div>
           <div class="field"><label class="req" for="eBody">What happened</label><textarea class="input" id="eBody" style="height:120px" v-model="edit.body" maxlength="5000"></textarea></div>
+          <template v-if="typeOf(ticket) === 'customer'">
+            <div class="field"><label for="eArea">Area</label>
+              <OptionPicker class="full-pick" v-model="edit.area" :options="areaOptions()" label="Area" />
+              <input v-if="edit.area === 'Other'" class="input" id="eArea" style="margin-top:8px" v-model="edit.areaOther" maxlength="60" placeholder="Which area?"></div>
+            <div class="field"><label>People</label>
+              <PeoplePicker v-model="edit.people" :people="staffFor" :known="ticket.assignees.map(p => ({ ...p, role: '' }))" placeholder="Search Maintenance staff" :empty-text="peopleNote(edit.property)" /></div>
+          </template>
           <div class="help">Saved in the audit log. The ticket's card in the task system changes too.</div>
           <div class="modal-foot"><button type="button" class="btn" @click="edit = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Save</button></div>
+        </form>
+      </template>
+    </div>
+
+    <!-- 18 Nov 2026 (Khairul): In-house to Customer. Property, unit, a Maintenance person and an Operations person are required;
+         Operations and Maintenance are tagged straight away. One write (rules Draft 0.82). -->
+    <div class="modal-back" v-show="toCust" @click.self="toCust = null" v-esc="() => { toCust = null }">
+      <template v-if="toCust">
+        <form class="modal" role="dialog" :aria-label="'Change ' + ticket.id + ' to Customer'" @submit.prevent="saveToCustomer()" style="max-width:520px">
+          <h2>{{ 'Change ' + ticket.id + ' to Customer' }}</h2>
+          <p class="help" style="margin-top:0">A Customer ticket needs its unit and the people doing the work. Operations and Maintenance are tagged when you save.</p>
+          <div class="notice error" v-show="toCust.error">{{ toCust.error }}</div>
+          <div class="field"><label class="req" for="cProp">Property</label>
+            <OptionPicker v-if="propertyChoices().length" class="full-pick" v-model="toCust.property" :options="propertyOptions()" label="Property" searchable @change="toCust.unit = ''" />
+            <input v-else class="input" id="cProp" v-model="toCust.property" maxlength="80" placeholder="Type the property name, as on its task system board"></div>
+          <div class="field"><label class="req" for="cUnit">Unit</label>
+            <ComboInput id="cUnit" v-model="toCust.unit" :options="toCustUnitOptions()" placeholder="Choose the unit" /></div>
+          <div class="field"><label for="cArea">Area</label>
+            <OptionPicker class="full-pick" v-model="toCust.area" :options="areaOptions()" label="Area" />
+            <input v-if="toCust.area === 'Other'" class="input" id="cArea" style="margin-top:8px" v-model="toCust.areaOther" maxlength="60" placeholder="Which area?"></div>
+          <div class="field"><label class="req">Maintenance person</label>
+            <PeoplePicker v-model="toCust.maint" :people="staffFor" placeholder="Search Maintenance staff" :empty-text="peopleNote(toCust.property)" /></div>
+          <div class="field"><label class="req">Operations person</label>
+            <PeoplePicker v-model="toCust.ops" :people="opsFor" placeholder="Search Operations staff" :empty-text="opsNote(toCust.property)" /></div>
+          <div class="field"><label>Tags added</label>
+            <div class="help" style="margin-top:0">{{ toCustTags().filter(g => !ticket.tags.includes(g)).map(tagLabel).join(', ') || 'None (already tagged)' }}</div></div>
+          <div class="modal-foot"><button type="button" class="btn" @click="toCust = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Change to Customer</button></div>
         </form>
       </template>
     </div>
@@ -274,13 +338,29 @@
     </div>
 
     <!-- Confirm complete -->
+    <!-- In-house tickets: the simple popup. Customer tickets (18 Nov 2026): what was done, the cost and who fixed it. -->
     <div class="modal-back" v-show="confirmDone" @click.self="confirmDone = false">
-      <div class="modal" role="dialog" aria-label="Mark completed" style="max-width:440px">
+      <div class="modal" role="dialog" aria-label="Mark completed" style="max-width:440px" v-if="!doneForm">
         <h2>Mark this ticket completed?</h2>
-        <p class="help" style="font-size:13px">It will be locked and archived. Nobody can comment, add links or change tags after this.</p>
+        <p class="help" style="font-size:13px">It will be locked and archived. Nobody can edit it or change tags after this; comments stay open for follow-up.</p>
         <div class="notice error" v-show="doneError">{{ doneError }}</div>
         <div class="modal-foot"><button class="btn" @click="confirmDone = false">Cancel</button><button class="btn btn-primary" @click="complete()" :disabled="busy">Mark completed</button></div>
       </div>
+      <form class="modal" role="dialog" aria-label="Mark completed" style="max-width:520px" v-else @submit.prevent="complete()">
+        <h2>Mark this ticket completed?</h2>
+        <p class="help" style="font-size:13px;margin-top:0">It will be locked. Comments stay open for follow-up. Accounting is told so they can charge the owner.</p>
+        <div class="notice error" v-show="doneError">{{ doneError }}</div>
+        <div class="grid-fields">
+          <FormField id="dDate" label="Action date" type="date" v-model="doneForm.actionDate" req />
+          <FormField id="dCost" label="Cost (RM)" type="number" step="0.01" min="0" v-model="doneForm.cost" placeholder="0.00" req />
+        </div>
+        <div class="field"><label class="req" for="dSol">Action / Solution</label><textarea class="input" id="dSol" style="height:80px" v-model="doneForm.solution" maxlength="1000" placeholder="e.g. Replaced the aircond drain pipe"></textarea></div>
+        <FormField id="dRem" label="Cost remarks" v-model="doneForm.costRemarks" placeholder="e.g. Parts RM 25, labour RM 15" />
+        <div class="field"><label class="req">Fixed by</label>
+          <OptionPicker class="full-pick" v-model="doneForm.fixedByUid" :options="fixedByOptions()" label="Fixed by" /></div>
+        <div class="kv"><span>Drive folder</span><span><a v-if="ticket && ticket.driveFolderUrl" :href="ticket.driveFolderUrl" target="_blank" rel="noopener">Open folder</a><template v-else>Made when you complete</template></span></div>
+        <div class="modal-foot"><button type="button" class="btn" @click="confirmDone = false">Cancel</button><button class="btn btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Mark completed' }}</button></div>
+      </form>
     </div>
     <FileViewer ref="viewer" />
   </main>
@@ -307,7 +387,12 @@ import UploadFile from '@/components/UploadFile.vue';
 import { uploadForLink, fileBlob, driveId } from '@/lib/drive.js';
 import { toast } from '@/lib/toast.js';
 import FileViewer from '@/components/FileViewer.vue';
-import TicketQuote from '@/components/TicketQuote.vue';
+// TicketQuote.vue (Quote & invoice card) is no longer used here since 18 Nov 2026 (Expenses > Maintenance replaces it)
+import PeoplePicker from '@/components/PeoplePicker.vue';
+import ConfirmReason from '@/components/ConfirmReason.vue';
+import { AREAS, maintenanceStaff, roleStaff, canBill, myMonth, myDay, r3 } from '@/lib/maintenance.js';
+import { ticketFolder } from '@/lib/drive.js';
+import { deleteField } from 'firebase/firestore';
 import { NAV_ICONS } from '@/components/NavIcons.js';
 
 import { liveMixin } from '@/lib/use-live.js';
@@ -326,6 +411,11 @@ const canWrite = !!me.role;
 // Roles made on the Roles page can be tagged too (by name).
 const tagsNow = () => ['Director', 'IT', 'Admin', 'HR', 'Finance', 'Operations', 'Procurement', 'Marketing', ...Object.values(CUSTOM_ROLES).filter(r => r.active).map(r => r.name)];
 let TAGS = tagsNow();   // worked out again each time the page opens, so a role made a minute ago is there
+// Customer tickets start with these roles tagged (Khairul, 18 Nov 2026); they can still be taken off before raising.
+// 18 Nov 2026: Maintenance (the custom role on Settings > Roles, matched by name) replaces Marketing. Skipped if that role doesn't exist or is off.
+const maintenanceTag = () => Object.values(CUSTOM_ROLES).find(r => r.active && (r.name || '').trim().toLowerCase() === 'maintenance')?.name;
+const customerTags = () => ['Operations', maintenanceTag()].filter(Boolean);
+const startTags = type => [...new Set([...(TAGS.includes(myRole) ? [myRole] : []), ...(type === 'customer' ? customerTags() : [])])];
 const STATUS = { open: { label: 'Open', cls: 'amber' }, progress: { label: 'In progress', cls: 'blue' }, done: { label: 'Completed', cls: 'green' }, deleted: { label: 'Deleted', cls: 'red' } };
 const FILTERS = [{ key: 'all', label: 'All statuses' }, { key: 'active', label: 'Not completed' }, { key: 'open', label: 'Open' }, { key: 'progress', label: 'In progress' },
   { key: 'done', label: 'Completed' }, { key: 'mine', label: 'Tagged to my role' }, { key: 'raised', label: 'Raised by me' }];
@@ -358,12 +448,15 @@ const localIso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDa
 const nowIso = () => localIso(new Date());
 const isoOf = t => (t?.toDate ? localIso(t.toDate()) : typeof t === 'string' ? t : '');
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], raisedAt: isoOf(d.createdAt), updatedIso: isoOf(d.updatedAt), doneAt: isoOf(d.doneAt) });
+const toTicket = (id, d) => ({ id, ...d, tags: d.tags || [], links: d.links || [], audit: d.audit || [], assigneeUids: d.assigneeUids || [], assignees: d.assignees || [],
+  raisedAt: isoOf(d.createdAt), updatedIso: isoOf(d.updatedAt), doneAt: isoOf(d.doneAt) });
+// Accounting (Expenses Edit tick) and Directors read completed Customer tickets too (rules Draft 0.80), to charge the owner
+const iBill = canBill(me);
 
 export default {
   beforeCreate() { TAGS = tagsNow(); },
   mixins: [liveMixin],
-  components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer, TicketQuote },
+  components: { FormField, Avatar, ComboInput, OptionPicker, UploadFile, FileViewer, PeoplePicker, ConfirmReason },
   data() {
     return {
       TAGS, STATUS, FILTERS, TYPE_LABEL, TYPE_ICON, TYPE_TABS, typeTab: readTypeTab(), myRole, canRaise: canWrite, canDelete: isDirector, del: null,
@@ -371,8 +464,23 @@ export default {
       // The dashboard links here with ?tag= (one team's tickets) and ?filter= (e.g. active = open or in progress).
       filter: FILTERS.some(f => f.key === this.$route.query.filter) ? this.$route.query.filter : (this.$route.query.tag ? 'active' : 'all'),
       tagFilter: TAGS.includes(this.$route.query.tag) ? this.$route.query.tag : '', okMsg: '', error: '', doneError: '',
-      dropping: false, thumbs: {}, loading: true, busy: false, raise: null, tagEdit: null, confirmDone: false, draft: this.newDraft()
+      dropping: false, thumbs: {}, loading: true, busy: false, raise: null, tagEdit: null, confirmDone: false, draft: this.newDraft(),
+      // 18 Nov 2026: Maintenance staff for the property being raised / edited, the completion form, the reopen box
+      staffFor: [], staffLoading: false, doneForm: null, reopen: null, toCust: null, opsFor: [], opsLoading: false
     };
+  },
+  watch: {
+    replies() { this.loadThumbs(); },
+    'ticket.links'() { this.loadThumbs(); },
+    'raise.property'(v) { if (this.raise?.type === 'customer') this.loadStaff(v); },
+    'raise.type'(v) {
+      if (!this.raise) return;
+      // Switching type adds or takes off Operations + Maintenance (never your own role)
+      if (v === 'customer') { this.raise.tags = [...new Set([...this.raise.tags, ...customerTags()])]; this.loadStaff(this.raise.property); }
+      else { const ct = customerTags(); this.raise.tags = this.raise.tags.filter(g => g === myRole || !ct.includes(g)); }
+    },
+    'edit.property'(v) { if (this.edit && typeOf(this.ticket) === 'customer') this.loadStaff(v); },
+    'toCust.property'(v) { if (this.toCust) { this.loadStaff(v); this.loadOps(v); } }
   },
   // ?id= opens a ticket. Opening one or going back changes the address, which remounts the page
   // (Back/Forward included); a message for the next screen travels in history.state.
@@ -383,10 +491,6 @@ export default {
   computed: {
     // 17 Nov 2026: the thread shows the newest comment first, right under the comment box
     newestFirst() { return [...this.replies].reverse(); }
-  },
-  watch: {
-    replies() { this.loadThumbs(); },
-    'ticket.links'() { this.loadThumbs(); }
   },
   methods: {
     tagLabel,   // saved tag word -> what is shown ("Finance" shows as Accounting)
@@ -417,7 +521,9 @@ export default {
       if (this.liveStops.mine || this.liveStops.all) return Promise.resolve();
       const col = collection(db, 'issues');
       const parts = isDirector ? { all: query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT)) }
-        : { tagged: query(col, where('tags', 'array-contains', myRole), limit(LIST_LIMIT)), mine: query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)) };
+        : { tagged: query(col, where('tags', 'array-contains', myRole), limit(LIST_LIMIT)), mine: query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)),
+          // 18 Nov 2026: tickets I am tagged on as a person (People), whatever roles are tagged (rules Draft 0.80)
+          people: query(col, where('assigneeUids', 'array-contains', me.user.uid), limit(LIST_LIMIT)) };
       const got = {};
       return new Promise((resolve, reject) => {
         for (const [key, q] of Object.entries(parts)) {
@@ -452,21 +558,23 @@ export default {
 
     // Visibility: tagged to my role, raised by me, or Director (sees all)
     raisedByMe(t) { return t.raisedByUid === me.user.uid; },
-    canSee(t) { return isDirector || t.tags.includes(myRole) || this.raisedByMe(t); },
+    // 18 Nov 2026: also the people tagged on it (People), and Accounting for a completed Customer ticket (to charge the owner)
+    isPerson(t) { return (t.assigneeUids || []).includes(me.user.uid); },
+    canSee(t) { return isDirector || t.tags.includes(myRole) || this.raisedByMe(t) || this.isPerson(t) || (iBill && t.status === 'done' && t.type === 'customer' && !!t.completion); },
     // Units of the chosen property (all units until one is chosen)
     unitOptions() {
       const p = this.raise?.property;
       return this.units.filter(u => !p || sameName(u.propertyName, p)).map(u => ({ value: u.unitCode, hint: u.propertyName }));
     },
     visible() { return this.tickets.filter(t => t.status !== 'deleted' && this.canSee(t)); },
-    canUpdate() { const t = this.ticket; return t && canWrite && t.status !== 'done' && (isDirector || t.tags.includes(myRole)); },
+    canUpdate() { const t = this.ticket; return t && canWrite && t.status !== 'done' && (isDirector || t.tags.includes(myRole) || this.isPerson(t)); },
     canComment() { return canWrite; },
     // The status is always shown in PMS words (Open, In progress, Completed). Tickets tagged Operations or Procurement have a
     // card in the task system (TMS, Maintenance workspace); its column (e.g. DOING) is shown only when hovering the status.
     statusLabel(t) { return STATUS[t.status].label; },
     statusHint(t) { return t.tmsStatus?.name && t.tmsStatus.for === t.status ? `Task system column: ${t.tmsStatus.name}` : null; },
     count(s) { return this.visible().filter(t => t.status === s).length; },
-    needReply() { return this.visible().filter(t => t.status === 'open' && (isDirector || t.tags.includes(myRole)) && (t.lastBy || t.raisedBy) !== myLabel).length; },
+    needReply() { return this.visible().filter(t => t.status === 'open' && (isDirector || t.tags.includes(myRole) || this.isPerson(t)) && (t.lastBy || t.raisedBy) !== myLabel).length; },
     completedThisMonth() { const ym = nowIso().slice(0, 7); return this.visible().filter(t => t.status === 'done' && (t.doneAt || '').slice(0, 7) === ym).length; },
     typeOf,
     setTypeTab(k) { this.typeTab = k; try { localStorage.setItem(TYPE_KEY, k); } catch { /* private window */ } },
@@ -618,7 +726,9 @@ export default {
       catch (e) { console.error('Task system boards:', e); this.boards = []; }
     },
     openRaise() {
-      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), type: this.typeTab === 'inhouse' ? 'inhouse' : 'customer', title: '', property: '', unit: '', body: '', tags: TAGS.includes(myRole) ? [myRole] : [], links: [], linkName: '', linkUrl: '', error: '' };
+      this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), type: this.typeTab === 'inhouse' ? 'inhouse' : 'customer', title: '', property: '', unit: '', body: '', tags: startTags(this.typeTab === 'inhouse' ? 'inhouse' : 'customer'), links: [], linkName: '', linkUrl: '', error: '',
+        area: '', areaOther: '', people: [] };
+      this.staffFor = [];
       this.$nextTick(() => this.$refs.rTitle?.focus());
       this.units4raise();
       this.loadBoards();
@@ -650,11 +760,23 @@ export default {
       const propertyName = r.type === 'customer' ? r.property.trim().slice(0, 80) : '';
       const propertyId = propertyName ? unit?.propertyId || this.propertyIdOf(propertyName) : null;
       const tags = TAGS.filter(g => r.tags.includes(g) || g === myRole);
-      const h = this.entry(`raised the ${TYPE_LABEL[r.type]} ticket, tagged ${tags.map(tagLabel).join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : ''));
+      // 18 Nov 2026 (Customer): area and the people doing the work
+      const area = r.type === 'customer' ? this.areaValue(r) : '';
+      if (r.type === 'customer' && r.area === 'Other' && !area) return r.error = 'Type the area, or pick one from the list.';
+      const assignees = r.type === 'customer' ? this.peopleOf(r.people) : [];
+      const h = this.entry(`raised the ${TYPE_LABEL[r.type]} ticket, tagged ${tags.map(tagLabel).join(', ')}` + (r.links.length ? ` · ${r.links.length} Drive link${r.links.length > 1 ? 's' : ''}` : '')
+        + (assignees.length ? ` · people: ${assignees.map(p => p.name).join(', ')}` : ''));
       this.busy = true; r.error = '';
       try {
         // Customer ticket: the property's state goes on the ticket (state security); In-house tickets have none
         const state = propertyId ? await stateFor(propertyId) : '';
+        // 18 Nov 2026: the ticket's Drive folder is made now (unit's Maintenance folder in Owner Files), so the ticket keeps
+        // its link from the start. Best effort: a failure never stops the raise (the first file or completion makes it later).
+        let folder = null;
+        if (r.type === 'customer' && propertyId) {
+          try { folder = await ticketFolder(r.rid, r.title.trim(), { propertyId, unit: unit?.unitCode || code, date: myDay() }); }
+          catch (e) { console.warn('Ticket Drive folder not made yet:', e.message); }
+        }
         // One transaction: the next IS number (counters/issues), the ticket and the audit entry.
         const id = await runTransaction(db, async tx => {
           const cRef = doc(db, 'counters', 'issues');
@@ -667,6 +789,8 @@ export default {
           tx.set(ref, { type: r.type, title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
             property: propertyName, propertyId, ...(state ? { state } : {}), tags, status: 'open',
             raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, driveRid: r.rid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
+            ...(r.type === 'customer' ? { area, assigneeUids: assignees.map(p => p.uid), assignees } : {}),
+            ...(folder?.folderId ? { driveFolderId: folder.folderId, driveFolderUrl: folder.folderLink } : {}),
             audit: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
           audit(tx, me, { action: 'issue.create', entity: `issues/${id}`, propertyId, changes: [{ field: 'tags', old: null, new: tags.join(', ') }] });
           return id;
@@ -674,6 +798,7 @@ export default {
         this.raise = null; this.okMsg = `${id} raised and tagged ${tags.map(tagLabel).join(', ')}.`;
         this.notify({ id, tags, raisedRole: myRole, raisedByUid: me.user.uid },
           { title: `New issue ${id}`, message: `${myLabel} raised "${r.title.trim()}", tagged ${tags.map(tagLabel).join(', ')}.` });
+        this.tellPeople({ id }, assignees.map(p => p.uid), `You were tagged on ${id}`, `${myLabel} tagged you on "${r.title.trim()}" (${propertyName}${code ? ' · ' + code : ''}).`);
 
         await this.loadList();
 
@@ -694,17 +819,20 @@ export default {
       this.busy = false;
     },
     async postComment() {
-      const t = this.ticket, d = this.draft; if (t.status === 'done' || !canWrite) return;
+      const t = this.ticket, d = this.draft; if (!canWrite) return;   // 18 Nov 2026: comments allowed on completed tickets too
       if (d.linkUrl.trim()) { this.addLink(d); if (d.error) return; }
       const text = d.text.trim();
       if (!text && !d.links.length && !d.files.length) return;
       // 17 Nov 2026: attached files go to the ticket's Drive folder now, on Post. If that fails nothing is posted.
       let links = d.links.map(l => ({ name: l.name, url: l.url }));
+      let folder = {};   // 18 Nov 2026: an older ticket keeps its Drive folder link the first time a file is added
       if (d.files.length) {
         this.busy = true; d.error = ''; d.sending = 0;
         try {
           const got = await uploadForLink('issues', d.files.map(f => f.file), p => { d.sending = Math.round(p * 100); }, t.driveRid || t.id, t.title, this.ticketDrive(t));
           links = [...links, ...got.map(f => ({ name: f.name.slice(0, 80), url: f.url }))];
+          const fid = /\/folders\/([A-Za-z0-9_-]+)/.exec(got.folderLink || '')?.[1];
+          if (fid && !t.driveFolderUrl) folder = { driveFolderId: fid, driveFolderUrl: got.folderLink };
           if (got.note) toast(got.note);
         } catch (e) { d.error = `Upload failed, nothing was posted: ${e.message}`; this.busy = false; d.sending = null; return; }
         d.sending = null;
@@ -715,11 +843,12 @@ export default {
       try {
         const b = writeBatch(db), ref = doc(db, 'issues', t.id);
         b.set(doc(collection(db, 'issues', t.id, 'replies')), { by: myLabel, byRole: myRole, byUid: me.user.uid, at: nowIso(), text, links, createdAt: serverTimestamp() });
-        b.update(ref, { replyCount: increment(1), linkCount: increment(links.length), lastBy: myLabel, ...(h ? { audit: arrayUnion(h) } : {}), updatedAt: serverTimestamp() });
+        b.update(ref, { replyCount: increment(1), linkCount: increment(links.length), lastBy: myLabel, ...folder, ...(h ? { audit: arrayUnion(h) } : {}), updatedAt: serverTimestamp() });
         audit(b, me, { action: 'issue.comment', entity: `issues/${t.id}`, propertyId: t.propertyId || null, changes: links.length ? [{ field: 'links', old: null, new: links.length }] : [] });
         await b.commit();
-        t.replyCount = (t.replyCount || 0) + 1; t.linkCount = (t.linkCount || 0) + links.length; t.lastBy = myLabel; if (h) t.audit.push(h);
+        t.replyCount = (t.replyCount || 0) + 1; t.linkCount = (t.linkCount || 0) + links.length; t.lastBy = myLabel; Object.assign(t, folder); if (h) t.audit.push(h);
         this.notify(t, { title: `New comment on ${t.id}`, message: `${myLabel} commented on "${t.title}".` });
+        if (typeOf(t) === 'customer') this.toTms(t);   // the TMS card gets this comment (and its files as attachments)
         for (const f of d.files) if (f.preview) URL.revokeObjectURL(f.preview);
         this.draft = this.newDraft();
         await this.loadReplies();
@@ -748,6 +877,7 @@ export default {
     // Customer <-> In-house: Directors and the tagged roles, while the ticket is open or in progress (rules Draft 0.45).
     async switchType() {
       const t = this.ticket, from = typeOf(t), to = from === 'customer' ? 'inhouse' : 'customer';
+      if (to === 'customer') return this.openToCustomer();   // 18 Nov 2026: property, unit and people first
       this.busy = true; this.error = '';
       try {
         await this.change({ type: to }, [`changed the type from ${TYPE_LABEL[from]} to ${TYPE_LABEL[to]}`], 'issue.type', [{ field: 'type', old: TYPE_LABEL[from], new: TYPE_LABEL[to] }]);
@@ -756,6 +886,64 @@ export default {
             : t.property ? '' : ' Choose its property (Edit) so it goes to the task system.');
         this.toTms(t);   // Customer: its card is made; In-house: its card is removed
       } catch (e) { this.error = friendlyError(e, 'change the type'); }
+      this.busy = false;
+    },
+    // 18 Nov 2026 (Khairul): In-house -> Customer popup
+    openToCustomer() {
+      const t = this.ticket;
+      this.toCust = { property: t.property || '', unit: t.unit || '', area: '', areaOther: '', maint: [], ops: [], error: '' };
+      this.staffFor = []; this.opsFor = [];
+      Promise.all([this.units4raise(), this.loadBoards()]).then(() => { if (this.toCust) { this.loadStaff(this.toCust.property); this.loadOps(this.toCust.property); } });
+    },
+    toCustUnitOptions() {
+      const p = this.toCust?.property;
+      return this.units.filter(u => !p || sameName(u.propertyName, p)).map(u => ({ value: u.unitCode, hint: u.propertyName }));
+    },
+    toCustTags() { const t = this.ticket; return TAGS.filter(g => t.tags.includes(g) || customerTags().includes(g)); },
+    async loadOps(propertyName) {
+      const pid = this.propertyIdOf(String(propertyName || '').trim());
+      this.opsFor = []; if (!pid) return;
+      this.opsLoading = true;
+      try { const list = await roleStaff('operations', pid); if (this.propertyIdOf(String(propertyName || '').trim()) === pid) this.opsFor = list; }
+      catch (e) { console.error('Operations staff:', e); }
+      this.opsLoading = false;
+    },
+    opsNote(propertyName) {
+      if (!String(propertyName || '').trim()) return 'Choose the property first.';
+      return this.opsLoading ? 'Loading…' : 'No Operations staff have access to this property.';
+    },
+    async saveToCustomer() {
+      const c = this.toCust, t = this.ticket, propertyName = c.property.trim().slice(0, 80), code = c.unit.trim().toUpperCase();
+      if (!propertyName) return c.error = 'Choose the property.';
+      if (!code) return c.error = 'Choose the unit.';
+      const unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
+      if (unit && !sameName(unit.propertyName, propertyName)) return c.error = `${unit.unitCode} is in ${unit.propertyName}, not ${propertyName}.`;
+      if (!c.maint.length) return c.error = 'Pick the Maintenance person who does the work.';
+      if (!c.ops.length) return c.error = 'Pick the Operations person in charge.';
+      if (!maintenanceTag()) return c.error = 'There is no active Maintenance role (Settings > Roles), so the ticket can\'t be tagged to Maintenance.';
+      const area = this.areaValue(c);
+      if (c.area === 'Other' && !area) return c.error = 'Type the area, or pick one from the list.';
+      const known = [...this.staffFor, ...this.opsFor, ...(t.assignees || [])];
+      const uids = [...new Set([...(t.assigneeUids || []), ...c.maint, ...c.ops])].slice(0, 20);
+      const assignees = uids.map(uid => ({ uid, name: (known.find(x => x.uid === uid)?.name || 'Staff').slice(0, 80) }));
+      const added = uids.filter(u => !(t.assigneeUids || []).includes(u));
+      const tags = this.toCustTags(), newTags = tags.filter(g => !t.tags.includes(g));
+      this.busy = true; c.error = '';
+      try {
+        const propertyId = unit?.propertyId || this.propertyIdOf(propertyName) || null, state = propertyId ? await stateFor(propertyId) : '';
+        const fields = { type: 'customer', property: propertyName, propertyId, ...(state ? { state } : {}), unit: unit?.unitCode || code, unitId: unit?.id || null,
+          tags, assigneeUids: uids, assignees, ...(area ? { area } : {}) };
+        const nm = uid => assignees.find(p => p.uid === uid)?.name || 'Staff';
+        await this.change(fields, [`changed the type from In-house to Customer · ${propertyName} · ${fields.unit}`
+          + (newTags.length ? ` · tagged ${newTags.map(tagLabel).join(', ')}` : '')
+          + ` · Maintenance: ${c.maint.map(nm).join(', ')} · Operations: ${c.ops.map(nm).join(', ')}`], 'issue.type',
+          [{ field: 'type', old: 'In-house', new: 'Customer' }, { field: 'unit', old: t.unit || null, new: fields.unit }, { field: 'people', old: (t.assignees || []).map(p => p.name).join(', ') || null, new: assignees.map(p => p.name).join(', ') }]);
+        Object.assign(t, fields);
+        this.toCust = null; this.okMsg = `${t.id} is now a Customer ticket for ${fields.unit}.`;
+        this.toTms(t);   // its task system card is made
+        if (newTags.length) this.notify(t, { title: `${t.id} tagged to ${newTags.join(', ')}`, message: `${myLabel} changed "${t.title}" to a Customer ticket (${propertyName} · ${fields.unit}).`, tags: newTags, includeRaiser: false });
+        this.tellPeople(t, added, `You were tagged on ${t.id}`, `${myLabel} tagged you on "${t.title}" (${propertyName} · ${fields.unit}).`);
+      } catch (e) { c.error = friendlyError(e, 'change the ticket to Customer'); }
       this.busy = false;
     },
     addOptionsR() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.raise.tags.includes(x)).map(g => ({ value: g, label: tagLabel(g) }))]; },
@@ -785,39 +973,117 @@ export default {
       this.busy = false;
     },
 
-    async complete() {
-      const t = this.ticket
-      this.busy = true
-      this.doneError = ''
-
-      try {
-        await this.change(
-          {
-            status: 'done',
-            doneAt: serverTimestamp(),
-            doneBy: myLabel,
-            doneByUid: me.user.uid,
-          },
-          ['marked the ticket completed'],
-          'issue.complete',
-          [{ field: 'status', old: t.status, new: 'done' }]
-        )
-
-        Object.assign(t, {
-          status: 'done',
-          doneAt: nowIso(),
-          doneBy: myLabel,
-        })
-
-        this.confirmDone = false
-        this.toTms(t)
-        this.notify(t, { title: `${t.id} completed`, message: `${myLabel} marked "${t.title}" completed.` })
-      } catch (e) {
-        this.doneError = friendlyError(e, 'complete the ticket')
-      }
-
-      this.busy = false
+    // Mark completed. In-house: the simple confirm. Customer (18 Nov 2026): Action date, Action / Solution, Cost remarks,
+    // Cost (RM), Fixed by (one of the people tagged; default me). Saved as `completion`, billing { status: 'pending' }.
+    openDone() {
+      const t = this.ticket;
+      this.doneError = '';
+      this.doneForm = typeOf(t) === 'customer'
+        ? { actionDate: myDay(), solution: '', costRemarks: '', cost: '', fixedByUid: me.user.uid }
+        : null;
+      this.confirmDone = true;
     },
+    // Fixed by: the people tagged on the ticket, plus me (the person completing) when I am not one of them
+    fixedByChoices() {
+      // You first (the default), then the ticket's People (18 Nov: no "Choose who fixed it" line)
+      const mine = (this.ticket?.assignees || []).find(p => p.uid === me.user.uid) || { uid: me.user.uid, name: myLabel };
+      return [mine, ...(this.ticket?.assignees || []).filter(p => p.uid !== me.user.uid)];
+    },
+    fixedByOptions() { return this.fixedByChoices().map(p => ({ value: p.uid, label: p.name })); },
+    async complete() {
+      const t = this.ticket, f = this.doneForm;
+      this.doneError = '';
+      let completion = null;
+      if (f) {
+        const cost = f.cost === '' || f.cost == null ? NaN : Number(f.cost);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(f.actionDate || '')) return this.doneError = 'Add the action date.';
+        if (!f.solution.trim()) return this.doneError = 'Say what was done (Action / Solution).';
+        if (!(cost >= 0)) return this.doneError = 'Enter the cost in RM (0 if it cost nothing).';
+        const who = this.fixedByChoices().find(p => p.uid === f.fixedByUid);
+        if (!who) return this.doneError = 'Choose who fixed it.';
+        completion = { actionDate: f.actionDate, solution: f.solution.trim().slice(0, 1000), costRemarks: f.costRemarks.trim().slice(0, 300), cost: r3(cost),
+          fixedByUid: who.uid, fixedByName: who.name, completedByUid: me.user.uid, completedByName: myLabel,
+          completedAt: serverTimestamp(), month: myMonth(), driveFolderUrl: t.driveFolderUrl || '' };
+      }
+      this.busy = true;
+      try {
+        // An older ticket with no Drive folder link gets its folder now (best effort)
+        const folder = {};
+        if (completion && !t.driveFolderUrl && t.propertyId && t.unit) {
+          try {
+            const r = await ticketFolder(t.driveRid || t.id, t.title, this.ticketDrive(t));
+            if (r.folderId) { Object.assign(folder, { driveFolderId: r.folderId, driveFolderUrl: r.folderLink }); completion.driveFolderUrl = r.folderLink; }
+          } catch (e) { console.warn('Ticket Drive folder not made:', e.message); }
+        }
+        const fields = { status: 'done', doneAt: serverTimestamp(), doneBy: myLabel, doneByUid: me.user.uid,
+          ...(completion ? { completion, billing: { status: 'pending' }, ...folder } : {}) };
+        const line = completion
+          ? `marked the ticket completed · action ${completion.actionDate}: ${completion.solution.slice(0, 120)} · fixed by ${completion.fixedByName} · cost RM ${completion.cost.toFixed(2)}`
+          : 'marked the ticket completed';
+        await this.change(fields, [line], 'issue.complete', [{ field: 'status', old: t.status, new: 'done' }, ...(completion ? [{ field: 'cost', old: null, new: completion.cost }] : [])]);
+        Object.assign(t, { status: 'done', doneAt: nowIso(), doneBy: myLabel, ...folder,
+          ...(completion ? { completion: { ...completion, completedAt: nowIso() }, billing: { status: 'pending' } } : {}) });
+        this.confirmDone = false; this.doneForm = null;
+        this.toTms(t);
+        this.notify(t, { title: `${t.id} completed`, message: `${myLabel} marked "${t.title}" completed.` });
+        // Accounting is told, so they charge the owner (Expenses & Reimbursements > Maintenance)
+        if (completion) notifyRole({ recipientRole: 'finance', type: 'issue', refId: t.id, link: '/Finance/expenses?tab=maintenance',
+          title: `${t.id} completed · cost RM ${completion.cost.toFixed(2)} · needs WB Charge`,
+          message: `${t.unit || ''} ${t.property ? '(' + t.property + ')' : ''}: ${completion.solution.slice(0, 120)}. Fixed by ${completion.fixedByName}.` })
+          .catch(e => console.error('Notification failed:', e));
+      } catch (e) {
+        this.doneError = friendlyError(e, 'complete the ticket');
+      }
+      this.busy = false;
+    },
+    // Reopen (Directors only, with a reason): back to In progress. The completion goes into completionHistory and the audit
+    // line; the ticket leaves Accounting's Pending list. Refused while the owner is charged.
+    async doReopen() {
+      const t = this.ticket, r = this.reopen, reason = r.reason.trim();
+      if (!reason) return r.error = 'Give a reason.';
+      if (t.billing?.status === 'charged') return r.error = 'Remove the charge in Expenses first.';
+      this.busy = true; r.error = '';
+      try {
+        const c = t.completion;
+        const fields = { status: 'progress', reopenReason: reason, doneAt: deleteField(), doneBy: deleteField(), doneByUid: deleteField(),
+          ...(c ? { completion: deleteField(), billing: deleteField(),
+            completionHistory: arrayUnion({ ...c, completedAt: c.completedAt?.toDate ? isoOf(c.completedAt) : (c.completedAt || ''), reopenedAt: nowIso(), reopenedBy: myLabel, reopenReason: reason }) } : {}) };
+        const line = `reopened the ticket · reason: "${reason}"` + (c ? ` · was completed on ${c.actionDate} by ${c.fixedByName}, cost RM ${Number(c.cost || 0).toFixed(2)}: ${String(c.solution || '').slice(0, 120)}` : '');
+        await this.change(fields, [line], 'issue.reopen', [{ field: 'status', old: 'done', new: 'progress' }], reason);
+        Object.assign(t, { status: 'progress', reopenReason: reason }); delete t.completion; delete t.billing; delete t.doneBy;
+        this.reopen = null;
+        this.toTms(t);
+        this.notify(t, { title: `${t.id} reopened`, message: `${myLabel} reopened "${t.title}". Reason: ${reason}` });
+      } catch (e) { r.error = friendlyError(e, 'reopen the ticket'); }
+      this.busy = false;
+    },
+
+    // ----- People and Area (18 Nov 2026, Customer tickets) -----
+    areaOptions() { return [{ value: '', label: 'Choose the area' }, ...AREAS.map(a => ({ value: a, label: a }))]; },
+    areaValue(x) { return x.area === 'Other' ? x.areaOther.trim().slice(0, 60) : x.area; },
+    // [{ uid, name }] for picked uids (names from the Maintenance list, or as saved on the ticket)
+    peopleOf(uids) {
+      const known = [...this.staffFor, ...(this.ticket?.assignees || [])];
+      return uids.map(uid => { const p = known.find(x => x.uid === uid); return { uid, name: (p?.name || 'Staff').slice(0, 80) }; });
+    },
+    async loadStaff(propertyName) {
+      const pid = this.propertyIdOf(String(propertyName || '').trim());
+      this.staffFor = []; if (!pid) return;
+      this.staffLoading = true;
+      try { const list = await maintenanceStaff(pid); if (this.propertyIdOf(String(propertyName || '').trim()) === pid) this.staffFor = list; }
+      catch (e) { console.error('Maintenance staff:', e); }
+      this.staffLoading = false;
+    },
+    peopleNote(propertyName) {
+      if (!String(propertyName || '').trim()) return 'Choose the property first.';
+      return this.staffLoading ? 'Loading…' : 'No Maintenance staff have access to this property.';
+    },
+    tellPeople(t, uids, title, message) {
+      const link = `/Operations/issues?id=${t.id}`;
+      for (const uid of uids || []) if (uid !== me.user.uid)
+        notifyUser({ recipientUid: uid, title, message, type: 'issue', refId: t.id, link }).catch(e => console.error('Notification failed:', e));
+    },
+    money(v) { return (Number(v) || 0).toFixed(2); },
 
     openDelete() {
       this.del = { reason: '', error: '' };
@@ -851,7 +1117,7 @@ export default {
         // a new card: say where it went (In-house tickets have no property, so they go to the "Office" board)
         if (r.created) this.okMsg = `${this.okMsg ? this.okMsg + ' ' : ''}Task system card added to the board “${r.boardName}” (${r.column}).`;
         if (!r.taskId || !r.column || r.status !== t.status || !['open', 'progress'].includes(t.status)) return;
-        if (!(isDirector || (t.tags || []).includes(myRole))) return;
+        if (!(isDirector || (t.tags || []).includes(myRole) || this.isPerson(t))) return;
         if (t.tmsStatus?.name === r.column && t.tmsStatus?.for === r.status) return;
         const tmsStatus = { name: r.column, for: r.status };
         await updateDoc(doc(db, 'issues', t.id), { tmsStatus });
@@ -865,10 +1131,12 @@ export default {
       return '';
     },
     openEdit() {
-      this.edit = { title: this.ticket.title, body: this.ticket.body || '', property: this.ticket.property || '', error: '' };
+      const t = this.ticket, other = t.area && !AREAS.includes(t.area);
+      this.edit = { title: t.title, body: t.body || '', property: t.property || '', error: '',
+        area: other ? 'Other' : (t.area || ''), areaOther: other ? t.area : '', people: [...(t.assigneeUids || [])] };
       this.$nextTick(() => this.$refs.eTitle?.focus());
-      this.units4raise();
-      this.loadBoards();
+      this.staffFor = [];
+      Promise.all([this.units4raise(), this.loadBoards()]).then(() => { if (this.edit && typeOf(t) === 'customer') this.loadStaff(this.edit.property); });
     },
     async saveEdit() {
       const e = this.edit, t = this.ticket, title = e.title.trim(), body = e.body.trim(), customer = typeOf(t) === 'customer';
@@ -885,13 +1153,30 @@ export default {
         Object.assign(fields, { property, propertyId, ...(state ? { state } : {}) });
         lines.push(`changed the property (was ${t.property || 'none'})`); changes.push({ field: 'property', old: t.property || null, new: property });
       }
+      // 18 Nov 2026 (Customer): area and people (audit "tagged / removed <name>"; newly tagged people are told)
+      let added = [];
+      if (customer) {
+        const area = this.areaValue(e);
+        if (e.area === 'Other' && !area) return e.error = 'Type the area, or pick one from the list.';
+        if (area !== (t.area || '')) { fields.area = area; lines.push(`changed the area to ${area || 'none'}${t.area ? ` (was ${t.area})` : ''}`); changes.push({ field: 'area', old: t.area || null, new: area || null }); }
+        const before = t.assigneeUids || [], after = e.people;
+        added = after.filter(u => !before.includes(u));
+        const removed = before.filter(u => !after.includes(u));
+        if (added.length || removed.length) {
+          const people = this.peopleOf(after), nameOf = uid => (people.find(p => p.uid === uid) || (t.assignees || []).find(p => p.uid === uid))?.name || 'Staff';
+          Object.assign(fields, { assigneeUids: people.map(p => p.uid), assignees: people });
+          lines.push(...added.map(u => `tagged ${nameOf(u)}`), ...removed.map(u => `removed ${nameOf(u)}`));
+          changes.push({ field: 'people', old: (t.assignees || []).map(p => p.name).join(', ') || null, new: people.map(p => p.name).join(', ') || null });
+        }
+      }
       if (!lines.length) return this.edit = null;
       this.busy = true; e.error = '';
       try {
         await this.change(fields, lines, 'issue.edit', changes);
         Object.assign(t, fields);
         this.edit = null; this.okMsg = `${t.id} saved.`;
-        this.toTms(t);
+        this.toTms(t);   // the card's title, description, property and assignees follow
+        this.tellPeople(t, added, `You were tagged on ${t.id}`, `${myLabel} tagged you on "${t.title}" (${t.property || ''}${t.unit ? ' · ' + t.unit : ''}).`);
       } catch (err) { e.error = friendlyError(err, 'save the ticket'); }
       this.busy = false;
     },
@@ -922,9 +1207,9 @@ export default {
     .back-link:hover { text-decoration: underline; }
     .acts { position: relative; }
     .acts > .btn { display: inline-flex; align-items: center; gap: 6px; }
-    .acts-card { margin-top: 14px; }
+    .acts-card { margin: 0 0 12px; }
     .acts-card > .btn { width: 100%; justify-content: center; }
-    .acts-card .acts-menu { top: auto; bottom: calc(100% + 6px); left: 0; right: 0; width: auto; }
+    .acts-card .acts-menu { top: calc(100% + 6px); bottom: auto; left: 0; right: 0; width: auto; }
     .acts-back { position: fixed; inset: 0; z-index: 20; }
     .acts-menu { position: absolute; left: auto; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 100%; width: max-content; white-space: nowrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 6px; display: grid; }
     .acts-menu button { text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; }
@@ -1054,6 +1339,10 @@ export default {
     .checks input:disabled { opacity: 1; cursor: not-allowed; }
     .checks label:has(input:disabled) { cursor: not-allowed; font-weight: 600; }
     .locked { background: var(--chip); border-radius: 10px; padding: 12px 14px; font-size: 12px; color: var(--text-2); }
+    /* 18 Nov 2026: completed-ticket comment note, People list, long completion text */
+    .done-note { font-size: 12px; color: var(--text-2); background: var(--chip); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; }
+    .kv .ppl { display: flex; flex-wrap: wrap; gap: 6px 10px; justify-content: flex-end; }
+    .kv .wrap { white-space: pre-wrap; overflow-wrap: anywhere; text-align: right; }
     .side-note { color: var(--muted); font-size: 11px; margin-top: 10px; }
     .modal .field { margin-bottom: 12px; }
     @media (max-width: 860px) { .kpis.k3 { grid-template-columns: minmax(0,1fr); } }

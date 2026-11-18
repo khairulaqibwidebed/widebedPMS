@@ -8,15 +8,26 @@
         <div class="sub">{{ `${propName()} · ${monthName(month)} · add them as they happen; each line goes onto its unit's statement` }}</div>
       </div>
       <div class="head-tools">
-        <PropertyPicker v-model="propertyId" :properties="properties" @change="load()" />
-        <MonthPicker :ahead="1" v-model="month" @change="load()" />
+        <!-- All properties only on the Maintenance tab (expense lines are one property at a time) -->
+        <PropertyPicker v-model="propertyId" :properties="properties" :before="tab === 'maintenance' ? [{ value: 'all', label: 'All properties' }] : []" @change="load()" />
+        <MonthPicker :ahead="1" v-model="month" @change="monthChanged()" />
       </div>
     </div>
 
     <div class="notice warn" v-show="completed">This month is completed, so its lines are read-only. Add new costs to the next open month.</div>
     <div class="notice warn" v-show="!loading && !properties.length">No properties yet. Upload an eZee report first; it creates the property and its units.</div>
 
-    <section class="card">
+    <!-- 18 Nov 2026: Maintenance tab (Accounting and Directors): completed Customer tickets, charge the owner -->
+    <!-- Same tab style as Operations > Booking forms (18 Nov 2026) -->
+    <div class="exp-bar" v-if="billing">
+      <div class="exp-tabs" role="tablist" aria-label="Expenses">
+        <button type="button" role="tab" class="exp-tab" :aria-selected="String(tab === 'lines')" :class="{ on: tab === 'lines' }" @click="setTab('lines')">Expense lines</button>
+        <button type="button" role="tab" class="exp-tab" :aria-selected="String(tab === 'maintenance')" :class="{ on: tab === 'maintenance' }" @click="setTab('maintenance')">Maintenance</button>
+      </div>
+    </div>
+    <MaintenancePanel v-if="billing && tab === 'maintenance'" :property-id="propertyId" :property-name="propName()" :month="month" @charged="load()" />
+
+    <section class="card" v-show="tab === 'lines'">
       <div class="card-head">
         <h2>{{ `${monthName(month)} · ${live().length} line${live().length === 1 ? '' : 's'}` }}</h2>
         <button class="btn btn-primary" @click="openAdd()" :disabled="completed || !units.length">+ Add line</button>
@@ -41,6 +52,7 @@
                 <td class="num" :class="e.kind === 'reimburse' ? 'pos-amt' : 'neg-amt'">{{ (e.kind === 'reimburse' ? '+' : '-') + amt(e.amount) }}</td>
                 <td class="row-end">
                   <span class="auto-chip" v-show="e.auto">{{ `Auto · from ${prevShort()}` }}</span>
+                  <span class="auto-chip" v-if="e.source && e.source.issueId" :title="'Maintenance charge, invoice ' + (e.invoiceNo || '') + (e.note ? ' · ' + e.note : '') + '. Change it on the Maintenance tab.'">{{ e.source.issueId + (e.invoiceNo ? ' · ' + e.invoiceNo : '') }}</span>
                   <span class="clip" v-show="(e.files || []).length" title="Files">{{ (e.files || []).length }}</span>
                   <button class="editlink" v-show="canEdit(e)" @click="openEdit(e)">Edit</button>
                 </td>
@@ -165,19 +177,25 @@ import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import UploadFile from '@/components/UploadFile.vue';
 import FileViewer from '@/components/FileViewer.vue';
+import MaintenancePanel from '@/components/MaintenancePanel.vue';
+import { canBill } from '@/lib/maintenance.js';
+const MONTH_KEY = 'wb.expenses.month';
+const savedMonth = () => { try { const m = localStorage.getItem(MONTH_KEY) || ''; return /^\d{4}-\d{2}$/.test(m) ? m : ''; } catch { return ''; } };
 export default {
-  components: { PropertyPicker, FormField, OptionPicker, MonthPicker, UploadFile, FileViewer },
+  components: { PropertyPicker, FormField, OptionPicker, MonthPicker, UploadFile, FileViewer, MaintenancePanel },
   beforeCreate() { params = new URLSearchParams(location.search); },
   data() {
     return {
       KINDS, TYPES, rm, amt, dmy, ddmm, monthName,
       properties: [], units: [], expenses: [],
-      propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
+      // The month picked last is kept (this browser) and in the address (18 Nov 2026)
+      propertyId: params.get('property') || lastProperty(canBill(me) && params.get('tab') === 'maintenance'), month: params.get('month') || savedMonth() || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       completed: false, doneUnits: [], loading: true, error: '', okMsg: '',
       search: '', filter: 'all',
       filters: [{ key: 'all', label: 'All' }, { key: 'expense', label: 'Expenses' }, { key: 'reimburse', label: 'Reimbursements' }, { key: 'broughtForward', label: 'Brought forward' }],
-      panel: {}, panelOpen: false
+      panel: {}, panelOpen: false,
+      billing: canBill(me), tab: canBill(me) && params.get('tab') === 'maintenance' ? 'maintenance' : 'lines'
     };
   },
   // Remember the property for the next page (see lib/last-property.js)
@@ -185,7 +203,8 @@ export default {
   async mounted() {
     try {
       this.properties = await loadProperties();
-      if (!this.properties.some(p => p.id === this.propertyId)) this.propertyId = this.properties[0]?.id || '';
+      if (!(this.propertyId === 'all' && this.tab === 'maintenance') && !this.properties.some(p => p.id === this.propertyId)) this.propertyId = lastProperty() || this.properties[0]?.id || '';
+      if (!this.properties.some(p => p.id === this.propertyId) && this.propertyId !== 'all') this.propertyId = this.properties[0]?.id || '';
       if (!this.months.includes(this.month)) this.months.push(this.month);
       await this.load();
       if (params.has('add')) this.openAdd();
@@ -196,7 +215,7 @@ export default {
   },
   methods: {
     async load() {
-      if (!this.propertyId) { this.loading = false; return; }
+      if (!this.propertyId || this.propertyId === 'all') { this.loading = false; return; }   // 'all': Maintenance tab only
       this.loading = true; this.error = '';
       try {
         const [units, expenses, m, done] = await Promise.all([loadUnits(this.propertyId), loadExpenses(this.propertyId, this.month), monthDoc(this.propertyId, this.month),
@@ -205,7 +224,12 @@ export default {
       } catch (e) { this.error = friendlyError(e, 'load expenses'); }
       this.loading = false;
     },
-    propName() { return this.properties.find(p => p.id === this.propertyId)?.name || ''; },
+    propName() { return this.propertyId === 'all' ? 'All properties' : this.properties.find(p => p.id === this.propertyId)?.name || ''; },
+    monthChanged() {
+      try { localStorage.setItem(MONTH_KEY, this.month); } catch { /* private window */ }
+      this.$router.replace({ query: { ...this.$route.query, month: this.month } });
+      this.load();
+    },
     prevShort() { const [y, m] = this.month.split('-').map(Number); return shortMonth(m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`); },
     // Amount is never typed: Cost + Margin (% of cost, or RM), rounded to the sen.
     amountOf(p) {
@@ -230,7 +254,13 @@ export default {
       const closed = this.panel && this.panel.month === this.month;
       return [{ value: '', label: 'Choose a unit' }, ...this.units.map(o => { const done = closed && this.unitDone(o.id); return { value: o.id, label: o.unitCode + (done ? ' (completed)' : ''), disabled: done }; })];
     },
-    canEdit(e) { return !this.completed && !this.unitDone(e.unitId) && !e.auto; },
+    // Maintenance charges (source.issueId) are changed on the Maintenance tab, so the ticket and the line stay the same
+    canEdit(e) { return !this.completed && !this.unitDone(e.unitId) && !e.auto && !e.source?.issueId; },
+    setTab(t) {
+      this.tab = t; const q = { ...this.$route.query }; if (t === 'maintenance') q.tab = t; else delete q.tab; this.$router.replace({ query: q });
+      // Expense lines need one property: back to the last one picked
+      if (t === 'lines' && this.propertyId === 'all') { const one = lastProperty(); this.propertyId = this.properties.some(p => p.id === one) ? one : this.properties[0]?.id || ''; this.load(); }
+    },
 
     addReceipts(list) { for (const f of list) if (!this.panel.files.some(x => x.link === f.url)) this.panel.files.push({ name: f.name, link: f.url }); },
     openAdd() {
@@ -317,6 +347,13 @@ export default {
 </script>
 
 <style scoped>
+    .exp-bar { border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+    .exp-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+    .exp-tabs::-webkit-scrollbar { display: none; }
+    .exp-tab { display: inline-flex; align-items: center; border: 0; background: none; padding: 10px 14px; margin-bottom: -1px; font: inherit; font-size: 14px; font-weight: 500;
+      color: var(--text-2); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; flex: none; }
+    .exp-tab:hover { color: var(--accent); }
+    .exp-tab.on { color: var(--accent); font-weight: 600; border-bottom-color: var(--accent); }
     .unit-pick { display: block; width: 100%; }
     .unit-pick :deep(.op-btn) { width: 100%; min-height: 40px; }
     .unit-pick :deep(.op-pop) { max-width: none; width: 100%; }

@@ -48,7 +48,7 @@ export function ownerPrivLevel() {
   const me = useSession();
   return ownersFull(me) ? 'main' : can(me, 'owners.view') ? 'contact' : null;
 }
-async function readOwnerPriv(id, lvl = ownerPrivLevel()) {
+export async function readOwnerPriv(id, lvl = ownerPrivLevel()) {   // exported 18 Nov 2026 (Master Record owner list)
   if (!lvl) return {};
   const ref = doc(db, 'owners', id), get = d => getDoc(doc(ref, 'private', d)).then(x => (x.exists() ? x.data() : {})).catch(() => ({}));
   if (lvl === 'contact') return get('contact');

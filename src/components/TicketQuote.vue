@@ -117,6 +117,9 @@
 </template>
 
 <script>
+// NOT USED since 18 Nov 2026: the Issues page no longer shows this Quote & invoice card. Accounting now charges the owner
+// from Expenses & Reimbursements > Maintenance (components/MaintenancePanel.vue, lib/maintenance.js). Kept so old
+// issueQuotes records and the expense lines made from them stay readable; do not delete them.
 // Quote and invoice for a ticket, in issueQuotes/{ticketId}. Anyone who can open the ticket adds, edits and sees the quote
 // (Khairul, 3 Nov 2026). Director and Finance (Expenses Edit tick) approve, reject, add the invoice and mark it paid; the
 // rules check that too. The cost is always charged to the unit's owner: "Add invoice to owner statement" writes an
