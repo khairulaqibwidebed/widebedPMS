@@ -68,7 +68,6 @@ export default {
     try {
       this.sop = await loadSop(this.sopKey);
       if (!this.sop) this.err = 'There is no SOP at this address. It may have been renamed; go back to All SOPs.';
-      else document.title = `${this.sop.title} · Widebed PMS`;
     } catch (e) { this.err = friendlyError(e, 'load this SOP'); }
     this.loading = false;
   },
