@@ -1,6 +1,7 @@
 // Salary advances (5 Nov 2026, rules Draft 0.42).
 //
-// staffHR/{uid}        { ic, position, salary, updatedAt, updatedBy, updatedByName }   HR and Directors only (PDPA).
+// staffHR/{uid}        { ic, position, salary, joinDate, updatedAt, updatedBy, updatedByName }   HR and Directors only (PDPA).
+//                      joinDate 'YYYY-MM-DD' or '' (18 Nov 2026: moved here from users/{uid}.joinDate; One To One reads it).
 // advanceLimits/{uid}  { limit, updatedAt }   50% of salary, written in the same save as staffHR. The person reads their own
 //                      limit here, never their salary or IC.
 // users/{uid}.intern   ticked on HR details: no HR details, no Salary Advance page, the rules refuse their requests.
@@ -76,22 +77,43 @@ export async function getDept(uid) {
 // HR or a Director saves one person's IC and salary (limit in the same batch); position is filled with their role name
 // (the rules still expect it). intern: true clears them,
 // sets the limit to 0 and ticks users/{uid}.intern, so they lose the Salary Advance page.
-export async function saveStaffHR(me, user, before, { ic, salary, intern }) {
+// joinDate (18 Nov 2026) is kept for interns too (the One To One form prints it).
+export const isDateKey = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+export async function saveStaffHR(me, user, before, { ic, salary, intern, joinDate }) {
   const uid = user.id, wasIntern = user.intern === true;
-  const next = intern ? { ic: '', position: '', salary: 0 } : { ic: String(ic || '').trim().slice(0, 40), position: deptOf(user.role).slice(0, 100), salary: money(salary) };
+  const jd = String(joinDate || '').trim();
+  if (jd && !isDateKey(jd)) throw new Error('Pick the join date from the calendar.');
+  const next = intern ? { ic: '', position: '', salary: 0, joinDate: jd } : { ic: String(ic || '').trim().slice(0, 40), position: deptOf(user.role).slice(0, 100), salary: money(salary), joinDate: jd };
   if (!intern && !(next.salary > 0)) throw new Error('Enter the monthly salary.');
-  const changed = ['ic', 'salary'].filter(k => (before?.[k] ?? '') !== next[k]);
+  const changed = ['ic', 'salary', 'joinDate'].filter(k => (before?.[k] ?? '') !== next[k]);
   if (!changed.length && wasIntern === !!intern) throw new Error('Nothing changed.');
   const b = writeBatch(db);
   b.set(doc(db, 'staffHR', uid), { ...next, updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name || '' });
   b.set(doc(db, 'advanceLimits', uid), { limit: limitOf(next.salary), updatedAt: serverTimestamp() });
   if (wasIntern !== !!intern) b.update(doc(db, 'users', uid), { intern: !!intern });
   // The audit log is read by Accounting and IT too, so it names the fields that changed, never the values.
-  const changes = changed.map(f => ({ field: f === 'ic' ? 'IC number' : f, old: null, new: 'changed' }));
+  const changes = changed.map(f => ({ field: f === 'ic' ? 'IC number' : f === 'joinDate' ? 'Join date' : f, old: null, new: 'changed' }));
   if (wasIntern !== !!intern) changes.push({ field: 'intern', old: wasIntern, new: !!intern });
   audit(b, me, { action: 'staffHR.update', entity: `staffHR/${uid}`, changes });
   await b.commit();
   return next;
+}
+// One-off move (18 Nov 2026): join dates typed on the old One To One form (users/{uid}.joinDate) are copied into
+// staffHR/{uid}.joinDate where HR details are saved and have no join date yet. Never overwrites an HR value.
+// HR and Directors may edit every record (HR their own too, 18 Nov 2026). A person with no HR details yet gets it when HR first saves them
+// (the Edit form fills it in). Returns the uids copied.
+export async function copyOldJoinDates(me, users, hr) {
+  const todo = users.filter(u => isDateKey(u.joinDate) && hr[u.id] && !isDateKey(hr[u.id].joinDate));
+  if (!todo.length) return [];
+  for (let i = 0; i < todo.length; i += 200) {
+    const b = writeBatch(db);
+    for (const u of todo.slice(i, i + 200)) {
+      b.update(doc(db, 'staffHR', u.id), { joinDate: u.joinDate, updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name || '' });
+      audit(b, me, { action: 'staffHR.update', entity: `staffHR/${u.id}`, changes: [{ field: 'Join date', old: null, new: 'copied from One To One' }] });
+    }
+    await b.commit();
+  }
+  return todo.map(u => u.id);
 }
 export async function getMyLimit(uid) {
   const d = await getDoc(doc(db, 'advanceLimits', uid));

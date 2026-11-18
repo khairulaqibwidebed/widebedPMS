@@ -1,4 +1,29 @@
 rules_version = '2';
+// Draft 0.85, 18 Nov 2026 (Khairul): Accounting (Expenses Edit tick) and Directors read every Customer ticket, not only
+//   completed ones: Expenses > Maintenance shows In progress and Cancelled tickets too, and they go to the Google Sheet.
+// Draft 0.84, 18 Nov 2026 (Khairul): Maintenance Master Record Google Sheet.
+//   - maintenanceSheet/settings: the Sheet's Apps Script web app URL and Sheet link. Read by Accounting (Expenses Edit tick)
+//     and Directors (billingWriter); the Apps Script checks a caller can read it before syncing. Written by Directors.
+//   - issues: Accounting / Directors save Sheet edits on a completed Customer ticket: area and completion.actionDate /
+//     solution / costRemarks only (+ audit). Nothing else changes.
+// Draft 0.83, 18 Nov 2026 (Khairul): HR may edit their own HR details (staffHR/{uid} and advanceLimits/{uid}), like any
+//   other staff member's. hrDetailsEditor = HR or Director. Nothing else changes (salary advances: HR still never reviews their own).
+// Draft 0.82, 18 Nov 2026 (Khairul): Issues "Change to Customer". One update turns an In-house ticket (open / in progress) into a
+//   Customer ticket with its property, unit, tags (Operations + Maintenance added) and the people doing the work (1 to 20).
+//   Same people as before (Directors, tagged roles, tagged people). Nothing else changes.
+// Draft 0.81, 18 Nov 2026 (Khairul): Join date moved into Staff accounts > HR details. staffHR/{uid} may also hold
+//   joinDate ('YYYY-MM-DD' or '', text up to 10 characters). Same people as before (HR and Directors; HR not their own).
+//   The One To One Session form reads it from there. users/{uid}.joinDate (the old field) is left as it is. Nothing else changes.
+// Draft 0.80, 18 Nov 2026 (Khairul): customer maintenance tickets (Issues People, completion, owner charge).
+//   - issues: People tagged on a ticket (assigneeUids) see it and update it like a tagged role (canSeeIssue, worksIssue).
+//     New fields assigneeUids, assignees, area, driveFolderUrl, driveFolderId (raise, Edit, first file).
+//   - Mark completed on a Customer ticket: completion { ... completedByUid == me } + billing { status: 'pending' }, same people as
+//     before (Directors, tagged roles, now also tagged people) and doneByUid == me.
+//   - Comments (replies and the counter update) are allowed on completed tickets too, same people as before.
+//   - billing: written only by Accounting (Expenses Edit tick) and Directors (billingWriter), on a completed Customer ticket,
+//     only billing (+ completion.cost, + audit). They also read completed Customer tickets (Expenses > Maintenance).
+//   - Reopen: Directors only, done -> progress, completion moved to completionHistory, refused while billing is charged.
+//   - expenses: a line with source.issueId (maintenance charge) is created or edited only by billingWriter and needs invoiceNo.
 // Draft 0.79, 17 Nov 2026 (Khairul): config/driveUnits, a property's own Google Drive units folder (Property > Overview).
 //   - For a property whose unit folders are not in <property>/Owner (e.g. D Majestic: "Profit Sharing"). Issue uploads,
 //     the unit folder link and the Settings > States check use it. { props: { propertyId: { folderId, folderName, link,
@@ -476,7 +501,12 @@ service cloud.firestore {
       return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing', 'housekeeping': 'Housekeeping' }
         .get(role(), exists(roleDoc(role())) ? get(roleDoc(role())).data.get('name', '-') : '-');   // a role made on the Roles page is tagged by its name
     }
-    function canSeeIssue(d) { return anyStaff() && (isDirector() || myIssueTag() in d.tags || d.raisedByUid == request.auth.uid); }
+    // Draft 0.80: people tagged on the ticket (assigneeUids) too. Cheap checks first (1000-step limit per request).
+    function canSeeIssue(d) { return anyStaff() && (d.raisedByUid == request.auth.uid || request.auth.uid in d.get('assigneeUids', []) || isDirector() || myIssueTag() in d.tags); }
+    // Draft 0.80: who works a ticket (In progress, tags, edit, complete): Directors, the tagged roles, the tagged people
+    function worksIssue(d) { return request.auth.uid in d.get('assigneeUids', []) || isDirector() || myIssueTag() in d.tags; }
+    // Draft 0.80: Accounting (Expenses Edit tick) and Directors: charge the owner for a completed Customer ticket
+    function billingWriter() { return isDirector() || can('expenses.edit'); }
 
     // ---- Complaints ----
     function complaintAfter(id) { return getAfter(docPath('complaints', id)).data; }
@@ -543,6 +573,14 @@ service cloud.firestore {
       allow create, update: if isDirector() && rid == 'ai' && request.resource.data.perms is list
         && request.resource.data.perms.hasOnly(aiViewPerms());
       allow delete: if isDirector() && rid != 'director' && rid != 'ai';
+    }
+
+    // Draft 0.84: Maintenance Master Record Google Sheet settings (lib/maintenance-sheet.js).
+    match /maintenanceSheet/{docId} {
+      allow read: if billingWriter();
+      allow write: if docId == 'settings' && isDirector()
+        && request.resource.data.scriptUrl is string && request.resource.data.scriptUrl.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec')
+        && request.resource.data.get('sheetUrl', '') is string && request.resource.data.get('sheetUrl', '').size() <= 300;
     }
 
     match /config/{docId} {
@@ -912,10 +950,18 @@ service cloud.firestore {
 
     match /expenses/{id} {
       allow read: if staff();
+      // Draft 0.80: a maintenance charge (source.issueId, from Expenses > Maintenance) is made only by Accounting / Directors
+      // and carries its Invoice No.
       allow create: if finOrDir()
-        && !unitCompleted(request.resource.data.unitId, request.resource.data.month);
+        && !unitCompleted(request.resource.data.unitId, request.resource.data.month)
+        && (!('source' in request.resource.data)
+          || (request.resource.data.source.issueId is string && request.resource.data.get('invoiceNo', '') is string
+            && request.resource.data.get('invoiceNo', '').size() > 0 && billingWriter()));
       // Automatic Brought Forward lines are only rewritten by Approve & complete / Reopen (auto stays true).
+      // Draft 0.80: a maintenance charge line only by Accounting / Directors, keeping its source and an Invoice No.
       allow update: if finOrDir()
+        && (!('source' in resource.data) || (request.resource.data.source == resource.data.source
+          && request.resource.data.get('invoiceNo', '') is string && request.resource.data.get('invoiceNo', '').size() > 0 && billingWriter()))
         && (resource.data.auto != true || request.resource.data.auto == true)
         && !unitCompleted(resource.data.unitId, resource.data.month)
         && !unitCompleted(request.resource.data.unitId, request.resource.data.month)
@@ -1129,46 +1175,114 @@ service cloud.firestore {
     // Issues: seen by the tagged roles, the person who raised it and Directors. Every role raises tickets.
     // Completed tickets are locked.
     match /issues/{id} {
-      allow read: if canSeeIssue(resource.data) || (isAI() && can('aiIssues.view'));   // Draft 0.74
+      allow read: if canSeeIssue(resource.data) || (isAI() && can('aiIssues.view'))   // Draft 0.74
+        // Draft 0.80: Accounting / Directors read completed Customer tickets (Expenses > Maintenance, Master Record)
+        // Draft 0.85: every Customer ticket (In progress and Cancelled too: the Maintenance tab and the Google Sheet)
+        || (resource.data.get('type', '') == 'customer' && billingWriter());
       allow create: if anyStaff()
         && request.resource.data.raisedByUid == request.auth.uid
         && request.resource.data.status == 'open'
-        && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
+        // Draft 0.80: People (at most 20) and Area; no completion or billing at raise time
+        && request.resource.data.get('assigneeUids', []) is list && request.resource.data.get('assigneeUids', []).size() <= 20
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        && !('completion' in request.resource.data) && !('billing' in request.resource.data);
       // A comment (anyone who can see it): counters, last poster and the ticket's audit trail.
-      allow update: if anyStaff() && canSeeIssue(resource.data) && resource.data.status in ['open', 'progress']
-        && changed().hasOnly(['replyCount', 'linkCount', 'lastBy', 'audit', 'updatedAt']);
-      // In progress, tags and Mark completed: Directors and the tagged roles.
-      allow update: if anyStaff() && resource.data.status in ['open', 'progress']
-        && (isDirector() || myIssueTag() in resource.data.tags)
+      // Draft 0.80: also on completed tickets (follow-up), and the ticket's Drive folder link the first time a file is added.
+      // Draft 0.80: in every update rule below the cheap field checks come first and the role checks last, so a request
+      // that doesn't match a rule stops early (Firestore's 1000-step limit per request was reached otherwise).
+      allow update: if resource.data.status in ['open', 'progress', 'done']
+        && changed().hasOnly(['replyCount', 'linkCount', 'lastBy', 'audit', 'updatedAt', 'driveFolderUrl', 'driveFolderId'])
+        && canSeeIssue(resource.data);
+      // In progress, tags and Mark completed: Directors and the tagged roles (Draft 0.80: and the tagged people).
+      allow update: if resource.data.status in ['open', 'progress']
         && changed().hasOnly(['status', 'tags', 'type', 'doneAt', 'doneBy', 'doneByUid', 'audit', 'updatedAt'])
         && (!('type' in request.resource.data) || request.resource.data.type in ['customer', 'inhouse'])
         && request.resource.data.status in ['open', 'progress', 'done']
-        && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
+        && anyStaff() && worksIssue(resource.data);
       // Draft 0.47: title, description, property and the task system column (tmsStatus), from the Issues page or the task system (TMS),
       // with or without a status change: Directors and the tagged roles, while the ticket is Open or In progress.
-      allow update: if anyStaff() && resource.data.status in ['open', 'progress']
-        && (isDirector() || myIssueTag() in resource.data.tags)
-        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'state', 'tmsStatus', 'audit', 'updatedAt'])
+      // Draft 0.80: and the tagged people; plus People (assigneeUids, assignees), Area and the Drive folder link.
+      allow update: if resource.data.status in ['open', 'progress']
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'state', 'tmsStatus', 'audit', 'updatedAt',
+          'assigneeUids', 'assignees', 'area', 'driveFolderUrl', 'driveFolderId'])
         && request.resource.data.status in ['open', 'progress', 'done']
         && (request.resource.data.status != 'done' || request.resource.data.get('doneByUid', '') == request.auth.uid)
         && request.resource.data.get('title', '') is string
         && request.resource.data.get('title', '').size() > 0 && request.resource.data.get('title', '').size() <= 200
         && request.resource.data.get('body', '') is string && request.resource.data.get('body', '').size() <= 5000
         && request.resource.data.get('property', '') is string && request.resource.data.get('property', '').size() <= 80
-        && (!('tmsStatus' in request.resource.data) || request.resource.data.tmsStatus is map);
+        && (!('tmsStatus' in request.resource.data) || request.resource.data.tmsStatus is map)
+        && request.resource.data.get('assigneeUids', []) is list && request.resource.data.get('assigneeUids', []).size() <= 20
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        && anyStaff() && worksIssue(resource.data);
+      // Draft 0.82: Change to Customer (In-house ticket, open or in progress): type, property, unit, tags, people and area in one write.
+      allow update: if resource.data.status in ['open', 'progress']
+        && changed().hasOnly(['type', 'property', 'propertyId', 'state', 'unit', 'unitId', 'tags', 'assigneeUids', 'assignees', 'area', 'audit', 'updatedAt'])
+        && request.resource.data.type == 'customer' && resource.data.get('type', '') != 'customer'
+        && request.resource.data.property is string && request.resource.data.property.size() > 0 && request.resource.data.property.size() <= 80
+        && request.resource.data.unit is string && request.resource.data.unit.size() > 0 && request.resource.data.unit.size() <= 40
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
+        && request.resource.data.assigneeUids is list && request.resource.data.assigneeUids.size() > 0 && request.resource.data.assigneeUids.size() <= 20
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        && anyStaff() && worksIssue(resource.data);
+      // Draft 0.80: Mark completed on a Customer ticket (same people as above): the completion record, billing pending,
+      // done by me. Nothing about the billing beyond { status: 'pending' }.
+      allow update: if resource.data.status in ['open', 'progress']
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'completion', 'billing', 'driveFolderUrl', 'driveFolderId', 'audit', 'updatedAt'])
+        && request.resource.data.status == 'done' && request.resource.data.doneByUid == request.auth.uid
+        && request.resource.data.completion is map
+        && request.resource.data.completion.completedByUid == request.auth.uid
+        && request.resource.data.completion.cost is number && request.resource.data.completion.cost >= 0
+        && request.resource.data.completion.solution is string && request.resource.data.completion.solution.size() > 0
+        && request.resource.data.completion.month is string
+        && request.resource.data.billing == { 'status': 'pending' }
+        && anyStaff() && worksIssue(resource.data);
+      // Draft 0.84: Accounting / Directors save edits made in the Maintenance Google Sheet (completed Customer ticket):
+      // area, completion.actionDate, completion.solution, completion.costRemarks. Money and everything else stay as they are.
+      allow update: if resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && 'completion' in resource.data
+        && changed().hasOnly(['area', 'completion', 'audit', 'updatedAt'])
+        && request.resource.data.completion.diff(resource.data.completion).affectedKeys().hasOnly(['actionDate', 'solution', 'costRemarks'])
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        && request.resource.data.completion.get('actionDate', '') is string && request.resource.data.completion.get('actionDate', '').size() <= 10
+        && request.resource.data.completion.solution is string && request.resource.data.completion.solution.size() > 0 && request.resource.data.completion.solution.size() <= 2000
+        && request.resource.data.completion.get('costRemarks', '') is string && request.resource.data.completion.get('costRemarks', '').size() <= 500
+        && billingWriter();
+      // Draft 0.80: Accounting / Directors charge the owner (billing), or edit the charge (billing and completion.cost).
+      // Only on a completed Customer ticket that has a completion record; nothing else changes.
+      allow update: if resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && 'completion' in resource.data
+        && changed().hasOnly(['billing', 'completion', 'audit', 'updatedAt'])
+        && request.resource.data.billing is map && request.resource.data.billing.status in ['pending', 'charged']
+        && request.resource.data.completion.diff(resource.data.completion).affectedKeys().hasOnly(['cost'])
+        && request.resource.data.completion.cost is number && request.resource.data.completion.cost >= 0
+        && billingWriter();
+      // Draft 0.80: Reopen (Directors only, with a reason): back to In progress; the completion is kept in completionHistory;
+      // refused while the owner is charged (remove the charge in Expenses first).
+      allow update: if resource.data.status == 'done'
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'completion', 'billing', 'completionHistory', 'reopenReason', 'tmsStatus', 'audit', 'updatedAt'])
+        && request.resource.data.status == 'progress'
+        && resource.data.get('billing', {}).get('status', '') != 'charged'
+        && !('completion' in request.resource.data) && !('billing' in request.resource.data)
+        && request.resource.data.reopenReason is string && request.resource.data.reopenReason.size() > 0
+        && isDirector();
       // Delete ticket: Directors only, any status. Marked deleted with a reason, never removed; nothing changes it after.
-      allow update: if isDirector() && resource.data.status != 'deleted'
+      allow update: if resource.data.status != 'deleted'
         && changed().hasOnly(['status', 'deletedAt', 'deletedBy', 'deletedByUid', 'deleteReason', 'audit', 'updatedAt'])
         && request.resource.data.status == 'deleted'
-        && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0;
+        && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0
+        && isDirector();
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
       allow delete: if false;
       match /replies/{replyId} {
-        allow read: if canSeeIssue(get(docPath('issues', id)).data) || (isAI() && can('aiIssues.view'));   // Draft 0.74
+        allow read: if canSeeIssue(get(docPath('issues', id)).data) || (isAI() && can('aiIssues.view'))   // Draft 0.74
+          // Draft 0.80: Accounting / Directors on a completed Customer ticket (opened from Expenses > Maintenance)
+          || (get(docPath('issues', id)).data.status == 'done' && get(docPath('issues', id)).data.get('type', '') == 'customer' && billingWriter());
+        // Draft 0.80: also on completed tickets (comments stay open for follow-up)
         allow create: if anyStaff() && request.resource.data.byUid == request.auth.uid
           && canSeeIssue(get(docPath('issues', id)).data)
-          && get(docPath('issues', id)).data.status in ['open', 'progress'];
+          && get(docPath('issues', id)).data.status in ['open', 'progress', 'done'];
         allow update, delete: if false;
       }
     }
@@ -1769,15 +1883,16 @@ service cloud.firestore {
     function limitPath(uid) { return /databases/$(database)/documents/advanceLimits/$(uid); }
     function advPath(id)    { return /databases/$(database)/documents/advances/$(id); }
     // HR and Directors keep the details; HR can't change their own (a Director does).
-    function hrDetailsEditor(uid) { return isDirector() || (isHR() && uid != request.auth.uid); }
+    function hrDetailsEditor(uid) { return hrOrDir(); }   // Draft 0.83: HR may edit their own row too
 
     // IC, position and monthly salary. Never readable by the staff member.
     match /staffHR/{uid} {
       allow read: if hrOrDir();
       allow create, update: if hrDetailsEditor(uid)
-        && request.resource.data.keys().hasOnly(['ic', 'position', 'salary', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && request.resource.data.keys().hasOnly(['ic', 'position', 'salary', 'joinDate', 'updatedAt', 'updatedBy', 'updatedByName'])
         && request.resource.data.ic is string && request.resource.data.position is string
         && request.resource.data.salary is number && request.resource.data.salary >= 0
+        && request.resource.data.get('joinDate', '') is string && request.resource.data.get('joinDate', '').size() <= 10
         && request.resource.data.updatedBy == request.auth.uid
         && getAfter(limitPath(uid)).data.limit == request.resource.data.salary * 0.5;
       allow delete: if false;

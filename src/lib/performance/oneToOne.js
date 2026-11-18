@@ -4,8 +4,9 @@
 // so this page is for them only.
 //
 // config/oneToOne   { venues: [string], lastVenue: string, updatedBy, updatedAt }   (rules Draft 0.62: HR and Directors)
-// users/{uid}.joinDate   'YYYY-MM-DD', entered once on this page (HR can't set their own or a Director's: users rules)
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+// staffHR/{uid}.joinDate 'YYYY-MM-DD', from Staff accounts › HR details (18 Nov 2026; no longer typed on this page).
+// users/{uid}.joinDate (the old field typed here) is read only until HR copies it across (HR details › Copy join dates).
+import { collection, doc, getDoc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, ROLE_LABEL } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { listParticipants } from './quarters.js';
@@ -90,6 +91,9 @@ export function formData({ row, questions, date, venue, edits = {} }) {
 }
 
 // ---------- Firestore ----------
+// Join date (18 Nov 2026): HR details first, then the old One To One field until it is copied across.
+const isKey = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+export const joinOf = (u = {}, hr) => (isKey(hr?.joinDate) ? hr.joinDate : isKey(u.joinDate) ? u.joinDate : '');
 const positionOf = (u, hr) => String(hr?.position || '').trim() || `${ROLE_LABEL[u.role] || u.role || ''}${u.intern ? ' Intern' : ''}`.trim();
 
 // Everything the page shows for a quarter: its questions and one row per active participant.
@@ -101,15 +105,11 @@ export async function loadSession(quarterId) {
   let hr = {};
   try { hr = Object.fromEntries((await getDocs(collection(db, 'staffHR'))).docs.map(d => [d.id, d.data()])); } catch (_) { hr = {}; }
   const people = {};
-  for (const [uid, u] of Object.entries(users)) people[uid] = { name: u.displayName || u.email || '', role: u.role || '', position: positionOf(u, hr[uid]), joinDate: u.joinDate || '',
+  for (const [uid, u] of Object.entries(users)) people[uid] = { name: u.displayName || u.email || '', role: u.role || '', position: positionOf(u, hr[uid]), joinDate: joinOf(u, hr[uid]),
     ic: String(hr[uid]?.ic || '').trim() };   // IC from Staff accounts › HR details (17 Nov 2026)
   return { questions, rows: sessionRows(participants, evaluations, people, pairs), unreadable: evaluations.filter(e => (e.status === 'submitted' || e.status === 'approved') && !Array.isArray(e.ratings)).length };
 }
 
-export async function saveJoinDate(uid, date) {
-  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Pick a date.');
-  await updateDoc(doc(db, 'users', uid), { joinDate: date || '' });
-}
 
 // Venues HR has used before, and the one picked last time. Falls back to the default list until one is saved
 // (or when the rules for config/oneToOne aren't deployed yet).

@@ -16,6 +16,9 @@ let setUp = false;
 export const ensureFolders = () => { if (!setUp) { setUp = true; call({ action: 'setup' }).catch(() => { setUp = false; }); } };
 export const removeFile = (kind, fileId) => call({ action: 'remove', kind, fileId });
 export const listFiles = (kind, recordId, label = '') => call({ action: 'list', kind, recordId, label });
+// 18 Nov 2026: a ticket's Drive folder, made if needed, without uploading: { folderId, folderLink, note }.
+// extra = { propertyId, unit, date } as for uploads (customer tickets go to the unit's Maintenance folder).
+export const ticketFolder = (recordId, label = '', extra = {}) => call({ ...extra, action: 'issueFolder', kind: 'issues', recordId, label });
 
 // Sends one file straight from the browser to Drive. onProgress gets 0..1.
 const parse = t => { try { return JSON.parse(t); } catch { return {}; } };
@@ -50,6 +53,7 @@ export async function uploadForLink(kind, files, onProgress = () => {}, recordId
   for (const [i, f] of files.entries()) {
     const r = await uploadFile(kind, recordId, f, p => onProgress((i + p) / files.length), label, extra);
     out.note = r.note;
+    out.folderLink = String(r);   // 18 Nov 2026: the folder the files went to (Issues keep it on the ticket)
     out.push({ name: r.file?.name || f.name, url: r.file?.webViewLink || String(r), id: r.file?.id || '', mimeType: r.file?.mimeType || f.type });
   }
   return out;
