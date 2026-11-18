@@ -15,6 +15,12 @@
 //   eligibleTaskIds, completedTaskIds, excludedTaskIds, exclusionReasons: { taskId: reason },
 //   totalTasks, completedTasks, completionRate, score, syncedAt, selectedBy, selectedByName,
 //   approvedBy, approvedAt, isFinal }
+// 18 Nov 2026: each task also keeps boardId, boardName, columnId, column and dueHistory (who moved the due date, from the
+// TMS). Whether a task counts as done follows the board's "done columns" when the Director has set them
+// (config/tmsDoneColumns, below); otherwise the TMS's own "completed" as before.
+//
+// config/tmsDoneColumns  { boards: { [boardId]: { boardName, workspaceName, doneColumnIds: [], doneColumnNames: [] } },
+//   updatedBy, updatedByName, updatedAt }   Director only (the config/{docId} rule).
 import { collection, doc, getDoc, getDocs, setDoc, query, where, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
@@ -36,9 +42,35 @@ export async function audit(action, entity, details = '') {
 // ---- Reading from the TMS (Director only — the TMS refuses anyone else) ----
 // [{ id, title, status, completed, completedAt, cancelled, dueDate, createdAt, workspaceId, workspaceName, boardId, boardName }]
 export async function fetchEmployeeTasks(employeeUid) {
-  const reply = await sendToTasks('performanceTasks', { data: { employeeUid } });
-  return reply.tasks || [];
+  return (await fetchEmployeeTaskData(employeeUid)).tasks;
 }
+// Tasks plus the boards they sit on, with every column of each board: { tasks, boards: [{ id, name, workspaceId,
+// workspaceName, columns: [{ id, name, isDone, archived }] }] }. A TMS from before 18 Nov 2026 sends no boards.
+export async function fetchEmployeeTaskData(employeeUid) {
+  const reply = await sendToTasks('performanceTasks', { data: { employeeUid } });
+  return { tasks: reply.tasks || [], boards: reply.boards || [] };
+}
+
+// ---- Done columns per board (18 Nov 2026) ----
+export async function loadDoneColumns() {
+  const d = await one(doc(db, 'config', 'tmsDoneColumns'));
+  return d?.boards && typeof d.boards === 'object' ? d.boards : {};
+}
+// boards: the whole map (every board's setting), saved in one go.
+export async function saveDoneColumns(boards) {
+  const s = me();
+  await setDoc(doc(db, 'config', 'tmsDoneColumns'), { boards, updatedBy: s.user.uid, updatedByName: s.name, updatedAt: serverTimestamp() });
+  audit('performance.tms.doneColumns', 'config/tmsDoneColumns', Object.values(boards).map(b => `${b.boardName}: ${(b.doneColumnNames || []).join(', ') || 'none'}`).join(' · '));
+}
+// Is the task done? With the board's done columns set: only a task in one of them. Without: the TMS's own answer.
+export function isTaskDone(t, doneCfg = {}) {
+  const b = doneCfg[t.boardId];
+  if (!b || !Array.isArray(b.doneColumnIds)) return !!t.completed;
+  if (t.columnId) return b.doneColumnIds.includes(t.columnId);
+  return (b.doneColumnNames || []).some(n => n.toLowerCase() === String(t.column || t.status || '').toLowerCase());
+}
+// The task with `completed` worked out from the done columns (the rest as the TMS sent it)
+export const withDone = (t, doneCfg) => ({ ...t, completed: isTaskDone(t, doneCfg) });
 
 // Workspaces the employee has tasks in, with how many: [{ id, name, count }], busiest first.
 export function workspacesOf(tasks) {
@@ -79,14 +111,17 @@ export async function countedElsewhere(employeeUid, quarterId) {
 
 const summary = t => ({
   id: t.id, title: t.title || 'Untitled task', workspaceId: t.workspaceId, workspaceName: t.workspaceName || '',
+  boardId: t.boardId || '', boardName: t.boardName || '', columnId: t.columnId || '', column: t.column || t.status || '',
   dueDate: t.dueDate || null, completed: !!t.completed, completedAt: t.completedAt || null,
-  cancelled: !!t.cancelled, missing: !!t.missing
+  cancelled: !!t.cancelled, missing: !!t.missing,
+  dueHistory: (t.dueHistory || []).slice(-10)   // the last 10 changes are plenty here (the TMS keeps up to 50)
 });
 
 // Builds the snapshot fields from the ticked tasks. Cancelled tasks and tasks that have disappeared from the TMS
 // are kept on the list (so the Director sees what happened) but excluded from the score.
-function buildFields(quarter, tickedTasks) {
+function buildFields(quarter, tickedTasks, doneCfg = null) {
   const eligible = [], completed = [], excluded = [], reasons = {};
+  if (doneCfg) tickedTasks = tickedTasks.map(t => t.missing ? t : withDone(t, doneCfg));
   for (const t of tickedTasks) {
     if (t.missing) { excluded.push(t.id); reasons[t.id] = 'No longer in the TMS (deleted, unassigned or moved to a Super Private workspace)'; continue; }
     if (t.cancelled) { excluded.push(t.id); reasons[t.id] = 'Cancelled'; continue; }
@@ -105,13 +140,14 @@ function buildFields(quarter, tickedTasks) {
 
 // Director saves which workspaces count and which tasks are ticked for this employee this quarter. Only tasks
 // inside the chosen workspaces are kept. Saving a new selection clears any earlier approval.
-export async function saveSelection(quarter, employeeUid, { workspaceIds, workspaceNames, tickedTasks }) {
+export async function saveSelection(quarter, employeeUid, { workspaceIds, workspaceNames, tickedTasks, doneCfg = null }) {
   const s = me();
   const prior = await getSnapshot(quarter.id, employeeUid);
   if (prior?.isFinal) throw new Error('This quarter\'s TMS score is finalized — create a correction instead.');
   const wsSet = new Set(workspaceIds);
   const kept = tickedTasks.filter(t => wsSet.has(t.workspaceId));
-  const fields = buildFields(quarter, kept);
+  if (!kept.length) throw new Error('Tick at least one task, or use "Remove selection".');
+  const fields = buildFields(quarter, kept, doneCfg);
   await setDoc(doc(db, 'performanceTmsSnapshots', snapId(quarter.id, employeeUid)), {
     quarterId: quarter.id, employeeId: employeeUid,
     workspaceIds: [...wsSet], workspaceNames: workspaceNames || [],
@@ -126,7 +162,8 @@ export async function saveSelection(quarter, employeeUid, { workspaceIds, worksp
 
 // A selection that was removed is kept as an empty record (records here are never deleted): no workspace, no task.
 // Everywhere it counts the same as "nothing chosen yet" (no TMS score).
-export const hasSelection = snap => !!snap && (snap.workspaceIds || []).length > 0;
+// 18 Nov 2026: a workspace with no task ticked counts as nothing chosen too (it showed "0 0 N/A" and could be approved).
+export const hasSelection = snap => !!snap && (snap.workspaceIds || []).length > 0 && (snap.tasks || []).length > 0;
 
 // Director removes an employee's whole selection for the quarter (12 Nov 2026): no workspace and no task count any more,
 // and any approval is cleared. Not once the quarter's score is finalized.
@@ -151,9 +188,10 @@ export async function refreshSnapshot(quarter, employeeUid) {
   const prior = await getSnapshot(quarter.id, employeeUid);
   if (!hasSelection(prior)) return null;
   if (prior.isFinal) throw new Error('This quarter\'s TMS score is finalized — create a correction instead.');
-  const fresh = new Map((await fetchEmployeeTasks(employeeUid)).map(t => [t.id, t]));
+  const [tasks, doneCfg] = await Promise.all([fetchEmployeeTasks(employeeUid), loadDoneColumns().catch(() => ({}))]);
+  const fresh = new Map(tasks.map(t => [t.id, t]));
   const ticked = (prior.tasks || []).map(old => fresh.has(old.id) ? fresh.get(old.id) : { ...old, missing: true });
-  const fields = buildFields(quarter, ticked);
+  const fields = buildFields(quarter, ticked, doneCfg);
   const changed = fields.totalTasks !== prior.totalTasks || fields.completedTasks !== prior.completedTasks;
   await setDoc(doc(db, 'performanceTmsSnapshots', snapId(quarter.id, employeeUid)), {
     ...fields, syncedAt: serverTimestamp(),
@@ -161,6 +199,15 @@ export async function refreshSnapshot(quarter, employeeUid) {
   }, { merge: true });
   audit('performance.tms.refresh', `performanceTmsSnapshots/${snapId(quarter.id, employeeUid)}`, `${fields.completedTasks}/${fields.totalTasks}`);
   return fields;
+}
+
+// Undo an approval (18 Nov 2026): the score goes back to "Estimated" until the Director approves it again. Not once finalized.
+export async function unapproveSnapshot(quarterId, employeeUid) {
+  const prior = await getSnapshot(quarterId, employeeUid);
+  if (!prior?.approvedAt) return;
+  if (prior.isFinal) throw new Error('This quarter\'s TMS score is finalized — create a correction instead.');
+  await setDoc(doc(db, 'performanceTmsSnapshots', snapId(quarterId, employeeUid)), { approvedBy: null, approvedAt: null }, { merge: true });
+  audit('performance.tms.unapprove', `performanceTmsSnapshots/${snapId(quarterId, employeeUid)}`);
 }
 
 export async function approveSnapshot(quarterId, employeeUid) {
