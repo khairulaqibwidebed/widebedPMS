@@ -1,4 +1,6 @@
 rules_version = '2';
+// Draft 0.87, 18 Nov 2026 (Khairul): What's New (updates/{id}) post, edit and delete need the "What's New" Full tick
+//   (whatsNew.edit, Content group) instead of Director only. Directors always can; no role preset has it.
 // Draft 0.86, 18 Nov 2026 (Khairul): Directors remove a Cancelled (deleted) ticket and its comments for good, from
 //   Expenses > Maintenance (Cancelled). Only tickets already marked deleted; an audit log line is kept.
 // Draft 0.85, 18 Nov 2026 (Khairul): Accounting (Expenses Edit tick) and Directors read every Customer ticket, not only
@@ -285,7 +287,7 @@ rules_version = '2';
 //
 // Draft 0.20, 3 Nov 2026: ticket quotes and invoices (issueQuotes/{ticketId}: anyone on the ticket adds and reads
 // the quote, Director and Expenses Edit approve and add it to the owner's unit expenses). Draft 0.19, 3 Nov 2026:
-// What's New page (updates/{id}: every staff member reads, Director posts, edits, deletes). Draft 0.18, 3 Nov 2026:
+// What's New page (updates/{id}: every staff member reads; Director posts, edits, deletes; Draft 0.87: or the What's New tick). Draft 0.18, 3 Nov 2026:
 // owner payment status on statements (Pending Payment / Paid, Invoices & Receipts), no reopen once Paid, Director
 // can delete an unused custom role. Draft 0.18, 2 Nov 2026 (restored from root firestore.rules): agreement renewals
 // — every staff member may read the staff list (names for the "In charge" picker on agreements).
@@ -684,7 +686,8 @@ service cloud.firestore {
     // What's New: every staff member reads the updates; only a Director posts, edits or deletes them.
     match /updates/{id} {
       allow read: if anyStaff();
-      allow create, update, delete: if isDirector();
+      // Draft 0.87: the What's New tick (Directors always). KEEP IN STEP WITH whatsNew in lib/access.js.
+      allow create, update, delete: if can('whatsNew.edit');
     }
 
     // HR Announcements (Draft 0.37, 5 Nov 2026). Posted by HR and Directors to Everyone or chosen roles (role ids).

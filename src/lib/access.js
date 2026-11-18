@@ -29,6 +29,9 @@ export const PAGES = [
   { key: 'reports',          label: 'Reports',                       group: 'Accounting',     to: ['/Reports'] },
   { key: 'playbook',         label: 'Playbook (Onboarding, Business Model)', group: 'Content', to: [], editOnly: true },
   { key: 'sops',             label: 'HR SOP pages',                  group: 'Content',     to: [], editOnly: true },
+  // 18 Nov 2026 (Khairul): post, edit and delete What's New updates (was Directors only). No role has it to start.
+  // KEEP IN STEP WITH updates/{id} in firestore.rules.
+  { key: 'whatsNew',         label: "What's New (post, edit, delete updates)", group: 'Content', to: [], editOnly: true },
   { key: 'performance',      label: 'Performance Management',        group: 'Performance', to: ['/Performance/quarters'] },
   // 17 Nov 2026: Google Drive Folders (Settings). Base: see the page and the link check. Full: set a state's folder, create
   // unit folders, change a property's units folder. KEEP IN STEP WITH driveFolders in firestore.rules and api/drive.js.
@@ -86,7 +89,7 @@ export const rowPerms = row => row.keys.flatMap(k => { const p = PAGES.find(x =>
 export const GROUP_NOTES = {
   Accounting: 'Any Accounting page lets them read the finance data. Any Accounting Full lets them change it.',
   Portfolio: 'Owners Base: names and contact only. Owners Full: also IC, date of birth, address and bank details, and can edit. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data.',
-  Content: 'Everyone can read these. Full lets them change the text.',
+  Content: 'Everyone can read these. Full lets them change the text (What\'s New: post, edit and delete updates).',
   'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
   'Company Settings': 'Google Drive Folders Base: see each state\'s folder and which properties and units are linked. Full: set a state\'s folder, create unit folders and change a property\'s units folder.',
   Performance: 'Quarterly performance management (quarters, COH, KPI, TMS administration). Everyone can still see their own results without this access.'

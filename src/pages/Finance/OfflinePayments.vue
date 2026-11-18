@@ -7,6 +7,8 @@
         <LiveStatus class="live-line" :status="liveStatus.list?.status" :last-updated="liveStatus.list?.lastUpdated" />
       </div>
       <div class="head-actions">
+        <!-- ONE-TIME (18 Nov 2026): the old Offline Payment Check System Excel into the PMS. Remove after the import (with lib/offline-import.js). -->
+        <button type="button" class="btn" v-if="isDirector" @click="openImport">Import from Excel</button>
         <button type="button" class="btn" v-if="canEdit" @click="openReport">Report</button>
         <button type="button" class="btn btn-primary" v-if="canEdit" @click="openForm">+ New offline payment</button>
       </div>
@@ -59,7 +61,7 @@
           <p class="muted empty" v-if="!loading && !pageRows.length">No offline payments found.</p>
         </div>
         <div class="table-wrap" v-else :style="pageRows.length ? null : { minHeight: '0' }"><table class="table op-table">
-          <thead><tr><th>Date</th><th>Booking</th><th>Property</th><th>Unit</th><th>Guest</th><th>Purpose</th><th class="num">Amount (RM)</th><th>Status</th><th>Submitted by</th><th></th></tr></thead>
+          <thead><tr><th>Payment Date</th><th>Booking</th><th>Property</th><th>Unit</th><th>Guest</th><th>Purpose</th><th class="num">Amount (RM)</th><th>Status</th><th>Submitted by</th><th></th></tr></thead>
           <tbody>
             <tr v-for="r in pageRows" :key="r.id">
               <td>{{ r.date }}</td><td class="strong">{{ r.bookingNo || '—' }}</td><td>{{ r.propertyName || '—' }}</td><td>{{ r.unitCode || '—' }}</td><td>{{ r.guest }}</td><td class="purpose-cell"><span class="clamp" :title="r.purpose">{{ r.purpose || '—' }}</span></td>
@@ -92,15 +94,17 @@
             <div class="v-item"><span>Payment method</span><b>{{ view.mode || '—' }}</b></div>
             <div class="v-item"><span>Bank reference</span><b>{{ view.bankRef || '—' }}</b></div>
             <div class="v-item"><span>Documents</span><b><a v-if="view.docsLink" :href="view.docsLink" target="_blank" rel="noopener">Open link</a><template v-else>None</template></b></div>
+            <div class="v-item" v-if="(view.docsLinks || []).length > 1"><span>Receipts (old sheet)</span><b><template v-for="(l, i) in view.docsLinks" :key="l"><a :href="l" target="_blank" rel="noopener">{{ `Receipt ${i + 1}` }}</a>{{ i < view.docsLinks.length - 1 ? ' · ' : '' }}</template></b></div>
             <div class="v-item"><span>Verified by</span><b>{{ view.verifiedByName || '—' }}</b></div>
             <div class="v-item"><span>Verified date</span><b>{{ view.verifiedDate || '—' }}</b></div>
             <div class="v-item v-purpose" v-if="view.bookingNo"><span>Booking</span><b>{{ view.bookingNo }}</b></div>
+            <div class="v-item" v-if="view.roomType"><span>Room type (old sheet)</span><b>{{ view.roomType }}</b></div>
             <div class="v-item v-purpose"><span>Purpose</span><b>{{ view.purpose || '—' }}</b></div>
             <div class="v-item v-purpose"><span>Payment code</span><b>{{ view.remarks || '—' }}</b></div>
           </div>
           <div class="v-edit-grid" v-else>
             <div class="notice error" v-show="formError" style="grid-column: 1 / -1">{{ formError }}</div>
-            <FormField label="Payment date" req type="date" v-model="ed.date" />
+            <FormField label="Payment Date" req type="date" v-model="ed.date" />
             <FormField label="Amount (RM)" req type="number" min="0" step="0.01" v-model="ed.amount" />
             <div class="field"><label>Payment method</label>
               <OptionPicker class="fld-pick" v-model="ed.mode" :options="MODES" label="Payment method" /></div>
@@ -166,6 +170,80 @@
       </div>
     </template>
 
+    <!-- ONE-TIME import popup (18 Nov 2026). Remove with the button above. -->
+    <template v-if="imp">
+      <div class="modal-back" @click.self="imp.busy || (imp = null)" v-esc="() => { if (!imp.busy) imp = null }">
+        <div class="modal imp-modal" role="dialog" aria-label="Import offline payments from Excel">
+          <div class="card-head"><h2 style="margin:0">Import from Excel</h2></div>
+          <p class="help">One-time move of the old Offline Payment Check System (the Sales Statement tab) into the PMS. Nothing is saved until you press Import.</p>
+          <div class="notice error" v-show="imp.error">{{ imp.error }}</div>
+          <template v-if="!imp.list">
+            <!-- Choosing the file reads it straight away and shows the preview (nothing is saved yet) -->
+            <label class="imp-pick" :class="{ busy: imp.busy }">
+              <input type="file" hidden accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="readImport" :disabled="!!imp.busy">
+              <b>{{ imp.busy || 'Choose the Excel file' }}</b>
+              <span class="muted">{{ imp.busy ? (imp.file || '') : 'Offline Payment Check System.xlsx. The preview shows next, then the Import button.' }}</span>
+            </label>
+          </template>
+          <template v-else-if="imp.done">
+            <div class="notice">{{ imp.done }}</div>
+          </template>
+          <template v-else>
+            <div class="imp-sum">
+              <div><b>{{ impRows.length }}</b><span>to import</span></div>
+              <div><b>{{ `RM ${impTotal}` }}</b><span>total</span></div>
+              <div><b>{{ imp.skipped.length }}</b><span>skipped (no amount or date)</span></div>
+              <div><b>{{ imp.already.length }}</b><span>already in the PMS</span></div>
+              <div><b>{{ imp.repeats.length }}</b><span>repeated in the file</span></div>
+              <div><b>{{ impPending }}</b><span>need a choice below</span></div>
+            </div>
+            <!-- Sheet units not in the PMS: confirm a similar unit, create a new unit, or keep the text (18 Nov 2026) -->
+            <div class="imp-box" v-if="imp.missing.length">
+              <h4>{{ `Units not in the PMS (${imp.missing.length})` }}</h4>
+              <p class="help">{{ `${impFound} payments matched a PMS unit. For the units below, a similar PMS unit is suggested where there is one: pick "Same as …" if it is that unit, or create a new unit. Import stays off until each has a choice.` }}</p>
+              <div class="imp-unit" v-for="g in imp.missing" :key="g.key" :class="{ todo: !impChoiceOk(g.key) }">
+                <div class="imp-u-name"><b>{{ g.texts.join(' / ') }}</b><span class="muted">{{ `${g.props.join(', ')} · ${g.count} payment${g.count === 1 ? '' : 's'}` }}</span></div>
+                <OptionPicker class="fld-pick" :model-value="imp.choice[g.key].use" :options="g.opts" label="What this unit is" @update:modelValue="v => imp.choice[g.key].use = v" />
+                <template v-if="imp.choice[g.key].use === 'new'">
+                  <input class="input" v-model="imp.choice[g.key].code" placeholder="New unit code" aria-label="New unit code">
+                  <PropertyPicker block class="fld-pick imp-u-wide" v-model="imp.choice[g.key].propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" />
+                </template>
+                <PropertyPicker v-else-if="imp.choice[g.key].use === 'text'" block class="fld-pick imp-u-wide" v-model="imp.choice[g.key].propertyId" :properties="properties" :before="[{ value: '', label: 'No property' }]" />
+              </div>
+            </div>
+            <div class="imp-box" v-if="impNames.length">
+              <h4>{{ `No unit in the sheet: choose the property (${impNames.length})` }}</h4>
+              <p class="help">These payments have no unit. Choose the PMS property for each name, or "No property" to keep the name as text.</p>
+              <div class="imp-map" v-for="n in impNames" :key="n.key">
+                <span>{{ `${n.name || '(blank)'} · ${n.count} payment${n.count === 1 ? '' : 's'}` }}</span>
+                <PropertyPicker block class="fld-pick" :model-value="imp.map[n.key] || ''" :properties="properties"
+                  :before="[{ value: '', label: 'Choose property' }, { value: '-', label: 'No property (keep the name)' }]" @update:modelValue="v => imp.map = { ...imp.map, [n.key]: v }" />
+              </div>
+            </div>
+            <p class="help" v-if="impNewUnits.length">{{ `New units created when you import (${impNewUnits.length}): ${impNewUnits.map(u => u.code + ' in ' + u.propertyName).join(', ')}. They have no owner or fee arrangement yet.` }}</p>
+            <details class="imp-box" v-if="imp.skipped.length">
+              <summary>{{ `Skipped rows (${imp.skipped.length})` }}</summary>
+              <ul><li v-for="x in imp.skipped" :key="x.row">{{ `Row ${x.row}: ${x.why}${x.text ? ' · ' + x.text : ''}` }}</li></ul>
+            </details>
+            <details class="imp-box" v-if="imp.already.length">
+              <summary>{{ `Already in the PMS, not imported again (${imp.already.length})` }}</summary>
+              <ul><li v-for="x in imp.already" :key="x.row">{{ `Row ${x.row}: ${x.date} · RM ${x.amount.toFixed(2)} · ${x.guest}` }}</li></ul>
+            </details>
+            <details class="imp-box" v-if="imp.repeats.length">
+              <summary>{{ `Repeated in the file, only the first is imported (${imp.repeats.length})` }}</summary>
+              <ul><li v-for="x in imp.repeats" :key="x.row">{{ `Row ${x.row} repeats row ${x.of}: ${x.date} · RM ${x.amount.toFixed(2)} · ${x.guest}` }}</li></ul>
+            </details>
+            <p class="help" v-if="imp.busy">{{ imp.busy }}</p>
+          </template>
+          <div class="modal-foot">
+            <button type="button" class="btn" @click="imp = null" :disabled="!!imp.busy">{{ imp.done ? 'Close' : 'Cancel' }}</button>
+            <button type="button" class="btn btn-primary" v-if="!imp.done" :title="imp.list ? '' : 'Choose the file first'" :disabled="!imp.list || !!imp.busy || !impRows.length || impPending > 0" @click="runImport">
+              {{ !imp.list ? 'Import' : imp.busy ? 'Importing…' : `Import ${impRows.length} payments` }}</button>
+          </div>
+        </div>
+      </div>
+    </template>
+
     <template v-if="open">
       <div class="modal-back" @click.self="open = false" v-esc="() => { open = false }">
         <form class="modal" role="dialog" aria-label="New offline payment" @submit.prevent="submit" novalidate>
@@ -174,7 +252,7 @@
           <div class="grid">
             <div class="field"><label class="req">Status <span class="muted">(Unknown = no receipt)</span></label>
               <OptionPicker class="fld-pick" v-model="f.status" :options="statusOptions('')" label="Status" /></div>
-            <FormField label="Payment date" req type="date" v-model="f.date" />
+            <FormField label="Payment Date" req type="date" v-model="f.date" />
             <p class="help wide" v-if="f.status === 'Unknown'">Unknown only needs the date and amount. Operations can fill in the rest later.</p>
             <FormField label="Amount (RM)" req type="number" min="0" step="0.01" v-model="f.amount" placeholder="0.00" />
             <template v-if="f.status !== 'Unknown'">
@@ -202,7 +280,10 @@
 </template>
 
 <script>
-import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { SHEET as IMPORT_SHEET, parseSheet, matchRows, sameKey, nameFromEmail, norm, unitKey, unitIndex, similarUnits, guessProperty, cleanCode } from '@/lib/offline-import.js';   // ONE-TIME import
+import { saveUnit, forgetUnits } from '@/lib/portfolio-data.js';
+import { unitIdOf } from '@/lib/engine.js';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { stateFor } from '@/lib/states.js';
@@ -235,10 +316,29 @@ export default {
   popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   mixins: [liveMixin],
   components: { PropertyPicker, FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus },
-  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
+  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, imp: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: { view(r) { this.loadHistory(r); } },
   computed: {
     isDirector() { return useSession().role === 'director'; },
+    // ---- ONE-TIME import (18 Nov 2026) ----
+    impRows() { return this.imp?.list ? matchRows(this.imp.list, this.properties, this.imp.allUnits, this.imp.choice, this.imp.map) : []; },
+    impPending() { return this.impRows.filter(r => r.how === 'pending').length; },
+    impFound() { return this.impRows.filter(r => r.how === 'found').length; },
+    impTotal() { return this.impRows.reduce((a, r) => a + r.amount, 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+    // Payments with no unit in the sheet whose property name is not a PMS property: one line per name
+    impNames() {
+      if (!this.imp?.list) return [];
+      const m = new Map();
+      matchRows(this.imp.list.filter(r => !unitKey(r.unitCode)), this.properties, [], {}, {}).filter(r => r.how === 'pending')
+        .forEach(r => { const k = norm(r.sheetProperty), g = m.get(k) || { key: k, name: r.sheetProperty, count: 0 }; g.count++; m.set(k, g); });
+      return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+    },
+    // The units the import will create (one per property and code), skipping any that already exist
+    impNewUnits() {
+      const have = new Set((this.imp?.allUnits || []).map(u => u.id)), m = new Map();
+      this.impRows.filter(r => r.how === 'new').forEach(r => { const id = unitIdOf(r.propertyId, r.unitCode); if (!have.has(id) && !m.has(id)) m.set(id, { id, code: r.unitCode, propertyId: r.propertyId, propertyName: r.propertyName }); });
+      return [...m.values()];
+    },
     // View and Edit are separate ticks on Staff accounts: View reads the page, Edit also creates and changes payments
     canEdit() { return can(useSession(), 'offlinePayments.edit'); },
     yearOptions() { const y = new Date().getFullYear(); return Array.from({ length: 5 }, (_, i) => ({ value: String(y - i), label: String(y - i) })); },
@@ -276,9 +376,9 @@ export default {
     load() {
       if (this.liveStops.list) return;
       // Only my properties' payments, plus Unknown ones not given a property yet (lib/property-scope.js)
-      this.live('list', scopedOrBlank(query(collection(db, 'offlinePayments'), orderBy('createdAt', 'desc'), limit(500))), rows => {
+      this.live('list', scopedOrBlank(query(collection(db, 'offlinePayments'), orderBy('createdAt', 'desc'), limit(1000))), rows => {
         this.rows = rows; this.loading = false; this.fillUnits();
-      }, { order: ['createdAt', 'desc'], limit: 500, onError: e => { this.error = e.friendly || friendlyError(e, 'load the offline payments'); this.loading = false; } });
+      }, { order: ['createdAt', 'desc'], limit: 1000, onError: e => { this.error = e.friendly || friendlyError(e, 'load the offline payments'); this.loading = false; } });
     },
     // Booking Form payments made before the unit was saved on them: read the unit from the booking
     // What was added or changed on this payment, from the audit log (Finance and Director can read it)
@@ -287,7 +387,7 @@ export default {
       if (!r?.id) return;
       try {
         const snap = await getDocs(query(collection(db, 'auditLog'), where('entity', '==', `offlinePayments/${r.id}`), limit(50)));
-        const FIELD = { date: 'Date', amount: 'Amount', propertyId: 'Property', propertyName: 'Property', unitCode: 'Unit', guest: 'Guest', purpose: 'Purpose', bankRef: 'Bank reference', mode: 'Payment method', docsLink: 'Documents', status: 'Status', remarks: 'Payment code' };
+        const FIELD = { date: 'Payment date', amount: 'Amount', propertyId: 'Property', propertyName: 'Property', unitCode: 'Unit', guest: 'Guest', purpose: 'Purpose', bankRef: 'Bank reference', mode: 'Payment method', docsLink: 'Documents', status: 'Status', remarks: 'Payment code' };
         const val = v => (v === '' || v == null) ? 'blank' : (v === true ? 'yes' : String(v));
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0));
         if (this.view?.id !== r.id) return;
@@ -458,7 +558,7 @@ export default {
         const byProp = rowsOf(group(r => r.propertyName || '—')), byMonth = rowsOf(group(r => String(r.date).slice(0, 7)));
         const when = t => t?.toDate ? t.toDate().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '';
         const hasReceipt = r => (r.docsLink ? 'Yes' : 'No');
-        const payHead = ['Date', 'Booking no.', 'Property', 'Unit', 'Guest / tenant', 'Purpose', 'Amount (RM)', 'Status', 'Payment mode', 'Bank reference', 'Receipt uploaded', 'Documents link', 'Submitted by', 'Submitted on', 'Verified by', 'Verified date', 'Edited by', 'Edited on', 'Payment code', 'Payment ID', 'Booking ID'];
+        const payHead = ['Payment Date', 'Booking no.', 'Property', 'Unit', 'Guest / tenant', 'Purpose', 'Amount (RM)', 'Status', 'Payment mode', 'Bank reference', 'Receipt uploaded', 'Documents link', 'Submitted by', 'Submitted on', 'Verified by', 'Verified date', 'Edited by', 'Edited on', 'Payment code', 'Payment ID', 'Booking ID'];
         const payRow = r => [r.date, r.bookingNo || '', r.propertyName || '', r.unitCode || '', r.guest || '', r.purpose || '', money(r.amount), r.status || '', r.mode || '', r.bankRef || '', hasReceipt(r), r.docsLink || '', r.submittedByName || '', when(r.createdAt), r.verifiedByName || '', r.verifiedDate || '', r.editedByName || '', when(r.editedAt), r.remarks || '', r.id, r.bookingId || ''];
         const payments = [payHead, ...list.map(payRow)];
         const title = [[`Offline payments · ${propName} · ${from} to ${to}`], [`Made ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })} by ${useSession().name || ''}`], []];
@@ -476,6 +576,109 @@ export default {
         toast('Report downloaded');
       } catch (e) { R.error = friendlyError(e, 'make the report'); }
       R.busy = false;
+    },
+    // ---- ONE-TIME import from the old Excel (18 Nov 2026). Remove with the button and lib/offline-import.js. ----
+    async openImport() {
+      this.imp = { list: null, skipped: [], already: [], repeats: [], allUnits: [], missing: [], choice: {}, map: {}, names: {}, file: '', busy: '', error: '', done: '' };
+      if (!this.properties.length) { try { this.properties = await loadProperties(); } catch { this.imp.error = 'Could not load the property list.'; } }
+    },
+    async readImport(e) {
+      const I = this.imp, file = e.target.files?.[0];
+      if (!file) return;
+      I.error = ''; I.busy = 'Reading the file…'; I.file = file.name;
+      try {
+        const X = await loadXlsxLib(), wb = X.read(await file.arrayBuffer(), { type: 'array' });
+        if (!wb.Sheets[IMPORT_SHEET]) throw Object.assign(new Error(`This file has no "${IMPORT_SHEET}" tab.`), { plain: true });
+        const { rows, skipped } = parseSheet(X.utils.sheet_to_json(wb.Sheets[IMPORT_SHEET], { header: 1, raw: true, defval: null }));
+        I.busy = 'Checking units and payments already in the PMS…';
+        // Every PMS unit (units are matched across all properties); staff names for Verified By; every payment already saved
+        const [unitSnap, users, have] = await Promise.all([
+          getDocs(collection(db, 'units')),
+          getDocs(collection(db, 'users')).catch(() => ({ docs: [] })),
+          getDocs(collection(db, 'offlinePayments'))]);
+        I.allUnits = unitSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.active !== false && u.unitCode);
+        users.docs.forEach(d => { const u = d.data(); if (u.email) I.names[String(u.email).toLowerCase()] = u.displayName || ''; });
+        const saved = new Set(have.docs.map(d => sameKey(d.data())));
+        // Same payment already saved, or the same row twice in the file (date, amount, guest, bank ref, unit, purpose, payment code)
+        const firstOf = new Map(), list = [];
+        for (const r of rows) {
+          if (saved.has(sameKey(r))) { I.already.push(r); continue; }
+          const k = [sameKey(r), norm(r.purpose), norm(r.remarks)].join('|');
+          if (firstOf.has(k)) { I.repeats.push({ ...r, of: firstOf.get(k) }); continue; }
+          firstOf.set(k, r.row); list.push(r);
+        }
+        I.skipped = skipped; I.list = list;
+        // Sheet units with no PMS unit: grouped by code; a similar PMS unit is offered to confirm, else "Create new unit" is preset
+        const idx = unitIndex(I.allUnits), groups = new Map(), propName = id => this.properties.find(p => p.id === id)?.name || id;
+        for (const r of list) {
+          const k = unitKey(r.unitCode);
+          if (!k || idx.has(k)) continue;
+          const g = groups.get(k) || { key: k, texts: [], props: [], count: 0 };
+          if (!g.texts.includes(r.unitCode)) g.texts.push(r.unitCode);
+          if (r.sheetProperty && !g.props.includes(r.sheetProperty)) g.props.push(r.sheetProperty);
+          g.count++; groups.set(k, g);
+        }
+        const choice = {};
+        I.missing = [...groups.values()].map(g => {
+          const sim = similarUnits(g.key, I.allUnits);
+          g.opts = [{ value: '', label: 'Choose…' }, ...sim.map(u => ({ value: u.id, label: `Same as ${u.unitCode} (${propName(u.propertyId)})` })),
+            { value: 'new', label: 'Create new unit' }, { value: 'text', label: 'No unit (keep the sheet text)' }];
+          g.similar = sim.length;
+          choice[g.key] = { use: sim.length ? '' : 'new', code: cleanCode(g.texts[0]), propertyId: guessProperty(g.texts[0], I.allUnits) };
+          return g;
+        }).sort((a, b) => (b.similar ? 1 : 0) - (a.similar ? 1 : 0) || a.texts[0].localeCompare(b.texts[0]));
+        I.choice = choice;
+        if (!list.length) I.error = 'Nothing to import: every payment in the file is already in the PMS or has no amount.';
+      } catch (err) { console.error('Offline payments import: reading failed', err); I.error = err.plain ? err.message : friendlyError(err, 'read the file'); }
+      e.target.value = '';   // the same file can be chosen again
+      I.busy = '';
+    },
+    impChoiceOk(key) {
+      const c = this.imp.choice[key];
+      return c.use === 'text' || (c.use === 'new' ? !!(c.propertyId && cleanCode(c.code)) : !!c.use);
+    },
+    async runImport() {
+      const I = this.imp, me = useSession(), rows = this.impRows, make = this.impNewUnits;
+      if (!rows.length || this.impPending) return;
+      I.error = ''; I.busy = 'Importing…';
+      let n = 0;
+      try {
+        // 1. New units first (no owner or fee arrangement; Accounting or a Director adds those in Portfolio)
+        for (const [i, u] of make.entries()) {
+          I.busy = `Creating unit ${i + 1} of ${make.length} (${u.code})…`;
+          await saveUnit(me, { id: u.id, isNew: true, propertyId: u.propertyId, code: u.code, aliases: [], ownerId: null, info: {}, active: true,
+            terms: null, termsChanged: false, effectiveFrom: new Date().toISOString().slice(0, 7), reason: 'Created by the one-time offline payments import',
+            changes: [{ field: 'unitCode', old: null, new: u.code }] });
+          I.allUnits.push({ id: u.id, unitCode: u.code, propertyId: u.propertyId, active: true });
+        }
+        for (const id of new Set(make.map(u => u.propertyId))) await forgetUnits(id);
+        const states = {};
+        for (const id of new Set(rows.map(r => r.propertyId).filter(Boolean))) states[id] = await stateFor(id);
+        for (let i = 0; i < rows.length; i += 400) {
+          const b = writeBatch(db), part = rows.slice(i, i + 400);
+          for (const r of part) {
+            const links = r.docsLink.split(/\s*\|\s*|\s+/).filter(l => /^https?:\/\//i.test(l));
+            const verifier = r.verifiedEmail ? (I.names[r.verifiedEmail] || nameFromEmail(r.verifiedEmail)) : '';
+            b.set(doc(collection(db, 'offlinePayments')), {
+              ...(states[r.propertyId] ? { state: states[r.propertyId] } : {}),
+              date: r.date, amount: r.amount, propertyId: r.propertyId, propertyName: r.propertyName, unitCode: r.unitCode,
+              guest: r.guest, purpose: r.purpose, mode: '', bankRef: r.bankRef, docsLink: links[0] || '', ...(links.length > 1 ? { docsLinks: links } : {}),
+              remarks: r.remarks, status: r.status, verifiedByName: verifier, verifiedDate: r.verifiedDate, roomType: r.roomType || '',
+              // Sorted by the payment date (noon, Malaysia time); "Submitted by" is the person in the sheet, not the importer
+              createdAt: Timestamp.fromDate(new Date(`${r.date}T12:00:00+08:00`)), createdBy: me.user.uid, submittedByName: r.submittedByName,
+              source: 'excel-import', importedRow: r.row, importedAt: serverTimestamp()
+            });
+          }
+          if (i + 400 >= rows.length) audit(b, me, { action: 'offlinePayment.import', entity: 'offlinePayments', reason: `One-time import from ${I.file}`,
+            changes: [{ field: 'imported', old: null, new: rows.length }, { field: 'skipped', old: null, new: I.skipped.length }, { field: 'alreadyInPms', old: null, new: I.already.length }, { field: 'repeats', old: null, new: I.repeats.length }] });
+          await b.commit(); n += part.length; I.busy = `Imported ${n} of ${rows.length}…`;
+        }
+        I.done = `${n} payments imported${make.length ? `, ${make.length} new units created` : ''}. Skipped: ${I.skipped.length} with no amount or date, ${I.already.length} already in the PMS, ${I.repeats.length} repeated in the file.`;
+        toast('Import finished');
+      } catch (err) {
+        I.error = `${n ? `${n} of ${rows.length} were imported before this error. Running the import again skips those. ` : make.length ? 'Units created so far are kept and found next time. ' : ''}${err.code === 'permission-denied' ? 'Firestore refused the import.' : friendlyError(err, 'import the payments')}`;
+      }
+      I.busy = '';
     },
     setRemarks(r, v) { if (v !== (r.remarks || '')) this.patch(r, { remarks: v.trim() }, 'remarks', r.remarks || ''); }
   }
@@ -576,4 +779,27 @@ export default {
 .modal .field label { font-size: 14px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin-bottom: 12px; }
 @media (max-width: 640px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+/* ONE-TIME import popup (18 Nov 2026) */
+.imp-modal { max-width: 720px; display: grid; gap: 12px; }
+.imp-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.imp-sum > div { display: grid; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.imp-sum b { font-size: 18px; }
+.imp-sum span { font-size: 12px; color: var(--muted); }
+.imp-box { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.imp-box h4 { margin: 0 0 4px; }
+.imp-box summary { cursor: pointer; font-weight: 600; }
+.imp-box ul { margin: 8px 0 0; padding-left: 18px; max-height: 200px; overflow: auto; font-size: 13px; }
+.imp-map { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; margin-top: 8px; font-size: 14px; }
+@media (max-width: 640px) { .imp-map { grid-template-columns: 1fr; } }
+.imp-pick { display: grid; gap: 4px; justify-items: center; text-align: center; padding: 26px 16px; border: 2px dashed var(--border); border-radius: 12px; cursor: pointer; }
+.imp-pick:hover { border-color: var(--accent); background: var(--accent-soft); }
+.imp-pick b { font-size: 15px; color: var(--accent); }
+.imp-pick.busy { cursor: progress; }
+.imp-unit { display: grid; grid-template-columns: 1.1fr 1fr; gap: 8px 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.imp-unit:first-of-type { border-top: 0; }
+.imp-unit.todo .imp-u-name b { color: var(--danger, #c0392b); }
+.imp-u-name { display: grid; gap: 2px; font-size: 14px; }
+.imp-u-name span { font-size: 12.5px; }
+.imp-unit > .input, .imp-unit > .imp-u-wide { grid-column: 2; }
+@media (max-width: 640px) { .imp-unit { grid-template-columns: 1fr; } .imp-unit > .input, .imp-unit > .imp-u-wide { grid-column: auto; } }
 </style>

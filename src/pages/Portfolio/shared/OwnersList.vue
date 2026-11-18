@@ -44,7 +44,7 @@
 // The owners table with its search and Active / Deactivated pills. Used by the Owners page (every owner, or the
 // owners of the property picked there) and a property's Owners tab. Clicking a row asks the page to open the drawer.
 import { amt } from '@/lib/format.js';
-import { arrLabel, ownerName, ownerUnits, carried } from '@/lib/portfolio-data.js';
+import { arrLabel, ownerName, ownerUnits, carried, ownerPrivLevel } from '@/lib/portfolio-data.js';
 
 export default {
   props: {
@@ -63,7 +63,11 @@ export default {
     shownOwners() {
       const q = this.ownerSearch.trim().toLowerCase();
       const pid = this.propertyId;
-      return this.owners.filter(x => (this.showInactive ? x.active === false : x.active !== false)
+      // 18 Nov 2026 (Khairul): without Owners Full only the owner's contact part can be read; an owner whose name that
+      // person can't read is left out entirely instead of showing "No name saved".
+      // Lists with no name column (acc.ownerNames off) show every owner as before.
+      const full = ownerPrivLevel() === 'main' || (this.acc.viewOnly && !this.acc.ownerNames);
+      return this.owners.filter(x => (full || this.nameOf(x.id)) && (this.showInactive ? x.active === false : x.active !== false)
         && (pid === 'all' || this.unitsOf(x.id).some(y => y.propertyId === pid) || (pid !== 'all' && this.property.info?.ownerId === x.id))
         && (!q || (x.code || x.id).toLowerCase().includes(q) || this.nameOf(x.id).toLowerCase().includes(q) || this.unitsOf(x.id).some(y => y.unitCode.toLowerCase().includes(q))));
     }

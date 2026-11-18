@@ -110,17 +110,9 @@
           <button class="btn" @click="remove(detail)" :disabled="busy">Remove charge</button>
           <button class="btn btn-primary" @click="saveEdit(detail)" :disabled="busy">Save change</button>
         </div>
-        <!-- Director, Cancelled ticket: remove it for good (rules Draft 0.86). A reason is required; cannot be undone. -->
-        <div class="mt-purge" v-else-if="purge && purge.id === detail.id">
-          <p class="mt-purge-warn">{{ `${detail.id} and its comments are removed for good: it can't be brought back. Its Google Sheet row goes too; the Drive folder is kept.` }}</p>
-          <textarea class="input mt-reason" rows="3" v-model="purge.reason" placeholder="Reason (kept in the audit log)" aria-label="Reason for removing"></textarea>
-          <div class="notice error" v-show="purge.error">{{ purge.error }}</div>
-          <div class="modal-foot"><button class="btn" @click="purge = null" :disabled="busy">Cancel</button>
-            <button class="btn btn-danger" @click="removeForGood(detail)" :disabled="busy">{{ busy ? 'Removing…' : 'Remove for good' }}</button></div>
-        </div>
         <div class="modal-foot" v-else-if="st(detail) === 'cancelled'">
           <router-link class="btn" :to="{ path: '/Operations/issues', query: { id: detail.id } }">Open ticket</router-link>
-          <button class="btn mt-purge-btn" v-if="isDirector" @click="purge = { id: detail.id, reason: '', error: '' }">Remove for good</button>
+          <button class="btn mt-purge-btn" v-if="isDirector" @click="purge = { id: detail.id, t: detail, reason: '', error: '' }">Remove for good</button>
         </div>
         <div class="modal-foot" v-else>
           <router-link class="btn" :to="{ path: '/Operations/issues', query: { id: detail.id } }">Open ticket</router-link>
@@ -128,6 +120,21 @@
             <span class="muted mt-locked" v-if="locked[lockKey(detail)]" title="That month's statement is completed">Locked</span>
             <button class="btn btn-primary" v-else @click="startEdit(detail)">Edit</button>
           </template>
+        </div>
+      </div>
+    </div>
+    <!-- Director, Cancelled ticket: remove it for good (rules Draft 0.86), in the same popup style as the app's confirm box.
+         A reason is required; cannot be undone. -->
+    <div class="modal-back mt-cf-back" v-if="purge" @click.self="!busy && (purge = null)">
+      <div class="modal mt-cf" role="alertdialog" aria-modal="true" :aria-label="'Remove ' + purge.id + ' for good'" v-esc="() => { if (!busy) purge = null; }">
+        <div class="mt-cf-icon" aria-hidden="true">🗑</div>
+        <h2>{{ `Remove ${purge.id} for good?` }}</h2>
+        <p>The ticket and its comments are deleted and can't be brought back. Its Google Sheet row goes too; the Drive folder is kept.</p>
+        <textarea class="input mt-cf-reason" rows="3" v-model="purge.reason" placeholder="Reason (kept in the audit log)" aria-label="Reason for removing"></textarea>
+        <div class="notice error" v-show="purge.error">{{ purge.error }}</div>
+        <div class="modal-foot mt-cf-foot">
+          <button class="btn" @click="purge = null" :disabled="busy">Cancel</button>
+          <button class="btn mt-cf-danger" @click="removeForGood(purge.t)" :disabled="busy || !purge.reason.trim()">{{ busy ? 'Removing…' : 'Remove for good' }}</button>
         </div>
       </div>
     </div>
@@ -171,6 +178,7 @@ import { friendlyError, completedUnitIds } from '@/lib/finance-data.js';
 import { loadMaintenance, chargeTicket, editCharge, removeCharge, r2, maintStatus, MAINT_STATUS, removeTicketForGood, ticketMonth } from '@/lib/maintenance.js';
 import { loadSheetSettings, saveSheetSettings, syncMonths, syncSheetEdits, yearMonths, makeYearFile, removeSheetRows } from '@/lib/maintenance-sheet.js';
 import { STATES } from '@/lib/states.js';
+import { showNotice } from '@/lib/confirm.js';
 // The Sheet is a reference copy (Khairul): checked on open, after each charge, by the button, and every 2 minutes while the tab is in front
 const SHEET_EVERY = 2 * 60 * 1000;
 
@@ -276,12 +284,12 @@ export default {
       catch (e) { p.error = e.plain ? e.message : friendlyError(e, 'remove the ticket'); this.busy = false; return; }
       this.busy = false;
       this.tickets = this.tickets.filter(x => x.id !== t.id); this.purge = null; this.detail = null; this.error = '';
-      this.okMsg = `${t.id} removed for good.`;
+      // Popups, not a banner (Khairul, 18 Nov 2026)
       const year = (ticketMonth(t) || this.month).slice(0, 4);
-      if (this.sheet?.scriptUrl) {
-        try { await removeSheetRows(this.sheet.scriptUrl, year, [t.id]); }
-        catch (e) { this.okMsg += ` Its Google Sheet row was not removed (${e.message}): delete it in the Sheet.`; }
-      }
+      let sheetErr = '';
+      if (this.sheet?.scriptUrl) { try { await removeSheetRows(this.sheet.scriptUrl, year, [t.id]); } catch (e) { sheetErr = e.message; } }
+      if (sheetErr) showNotice(`${t.id} removed for good`, `Its Google Sheet row was not removed (${sheetErr}). Delete that row in the Sheet by hand.`, 'info');
+      else showNotice(`${t.id} removed for good`, this.sheet?.scriptUrl ? 'The ticket, its comments and its Google Sheet row are gone.' : 'The ticket and its comments are gone.', 'info');
     },
     async charge(t) {
       const r = this.row(t); this.error = ''; this.okMsg = '';
@@ -373,7 +381,15 @@ export default {
 .mt-money .input { height: 34px; width: 100%; background: var(--surface); }
 .neg { color: var(--danger, #c0392b); }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
-.mt-purge { display: grid; gap: 10px; margin-top: 12px; padding: 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--danger, #c0392b) 40%, transparent); background: color-mix(in srgb, var(--danger, #c0392b) 6%, var(--surface)); }
-.mt-purge-warn { margin: 0; font-size: 13px; color: var(--danger, #c0392b); font-weight: 600; }
+.mt-cf-back { z-index: 70; align-items: center; padding-top: 16px; }
+.mt-cf { max-width: 420px; text-align: center; }
+.mt-cf-icon { width: 56px; height: 56px; margin: 0 auto 12px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; background: var(--red-soft); }
+.mt-cf h2 { margin-bottom: 8px; }
+.mt-cf p { margin: 0 0 14px; color: var(--text-2); font-size: 14px; line-height: 1.5; }
+.mt-cf-reason { width: 100%; text-align: left; resize: vertical; }
+.mt-cf-foot { justify-content: center; margin-top: 16px; }
+.mt-cf-foot .btn { min-width: 120px; }
+.mt-cf-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.mt-cf-danger:hover:not(:disabled) { filter: brightness(.9); }
 .mt-purge-btn { color: var(--danger, #c0392b); border-color: color-mix(in srgb, var(--danger, #c0392b) 45%, transparent); }
 </style>
