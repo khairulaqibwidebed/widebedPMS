@@ -1,4 +1,9 @@
 rules_version = '2';
+// Draft 0.84, 18 Nov 2026 (Khairul): Maintenance Master Record Google Sheet.
+//   - maintenanceSheet/settings: the Sheet's Apps Script web app URL and Sheet link. Read by Accounting (Expenses Edit tick)
+//     and Directors (billingWriter); the Apps Script checks a caller can read it before syncing. Written by Directors.
+//   - issues: Accounting / Directors save Sheet edits on a completed Customer ticket: area and completion.actionDate /
+//     solution / costRemarks only (+ audit). Nothing else changes.
 // Draft 0.83, 18 Nov 2026 (Khairul): HR may edit their own HR details (staffHR/{uid} and advanceLimits/{uid}), like any
 //   other staff member's. hrDetailsEditor = HR or Director. Nothing else changes (salary advances: HR still never reviews their own).
 // Draft 0.82, 18 Nov 2026 (Khairul): Issues "Change to Customer". One update turns an In-house ticket (open / in progress) into a
@@ -566,6 +571,14 @@ service cloud.firestore {
       allow create, update: if isDirector() && rid == 'ai' && request.resource.data.perms is list
         && request.resource.data.perms.hasOnly(aiViewPerms());
       allow delete: if isDirector() && rid != 'director' && rid != 'ai';
+    }
+
+    // Draft 0.84: Maintenance Master Record Google Sheet settings (lib/maintenance-sheet.js).
+    match /maintenanceSheet/{docId} {
+      allow read: if billingWriter();
+      allow write: if docId == 'settings' && isDirector()
+        && request.resource.data.scriptUrl is string && request.resource.data.scriptUrl.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec')
+        && request.resource.data.get('sheetUrl', '') is string && request.resource.data.get('sheetUrl', '').size() <= 300;
     }
 
     match /config/{docId} {
@@ -1223,6 +1236,16 @@ service cloud.firestore {
         && request.resource.data.completion.month is string
         && request.resource.data.billing == { 'status': 'pending' }
         && anyStaff() && worksIssue(resource.data);
+      // Draft 0.84: Accounting / Directors save edits made in the Maintenance Google Sheet (completed Customer ticket):
+      // area, completion.actionDate, completion.solution, completion.costRemarks. Money and everything else stay as they are.
+      allow update: if resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && 'completion' in resource.data
+        && changed().hasOnly(['area', 'completion', 'audit', 'updatedAt'])
+        && request.resource.data.completion.diff(resource.data.completion).affectedKeys().hasOnly(['actionDate', 'solution', 'costRemarks'])
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        && request.resource.data.completion.get('actionDate', '') is string && request.resource.data.completion.get('actionDate', '').size() <= 10
+        && request.resource.data.completion.solution is string && request.resource.data.completion.solution.size() > 0 && request.resource.data.completion.solution.size() <= 2000
+        && request.resource.data.completion.get('costRemarks', '') is string && request.resource.data.completion.get('costRemarks', '').size() <= 500
+        && billingWriter();
       // Draft 0.80: Accounting / Directors charge the owner (billing), or edit the charge (billing and completion.cost).
       // Only on a completed Customer ticket that has a completion record; nothing else changes.
       allow update: if resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && 'completion' in resource.data

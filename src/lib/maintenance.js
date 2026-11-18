@@ -12,7 +12,7 @@ import { canSee, scoped, getScoped } from '@/lib/property-scope.js';
 import { can } from '@/lib/access.js';
 import { completedUnitIds, audit, loadXlsxLib, download } from '@/lib/finance-data.js';
 import { markDirty } from '@/lib/summary-data.js';
-import { withState } from '@/lib/states.js';
+import { withState, stateOf } from '@/lib/states.js';
 import { ownerPrivLevel, readOwnerPriv } from '@/lib/portfolio-data.js';
 
 export const AREAS = ['Bedroom', 'Bathroom / Toilet', 'Kitchen', 'Living room', 'Balcony', 'All areas', 'Other'];
@@ -153,7 +153,7 @@ export async function removeCharge(me, t, reason) {
 }
 
 const pad = n => String(n).padStart(2, '0');
-function localNow() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
+export function localNow() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
 
 // ---------- Master Record (yearly Excel) ----------
 export const MASTER_HEADERS = ['ID', "Owner's Name", "Owner's Email Address1", "Owner's Email Address2", 'Property_Name', 'Unit No', 'Report Date',
@@ -168,6 +168,28 @@ const EPOCH = Date.UTC(1899, 11, 30);
 const myDate = v => { const d = tsDate(v); return !d || isNaN(d) ? '' : Math.round((d.getTime() + 8 * 3600e3 - EPOCH) / 1000) / 86400; };
 const dayDate = s => (/^\d{4}-\d{2}-\d{2}$/.test(s || '') ? (Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) - EPOCH) / 86400000 : '');
 
+// Property names, units and owners for a list of tickets (owner details only for people allowed to read them; others get
+// blanks). Shared by the Master Record download and the Google Sheet sync (lib/maintenance-sheet.js).
+export async function masterContext(tickets) {
+  const propIds = [...new Set(tickets.map(t => t.propertyId).filter(Boolean))];
+  const props = {}, units = {}, propState = {};
+  await Promise.all(propIds.map(async pid => {   // all properties at once (18 Nov: faster Sheet sync)
+    const [ps, us] = await Promise.all([
+      getDoc(doc(db, 'properties', pid)).catch(() => null),
+      getDocs(query(collection(db, 'units'), where('propertyId', '==', pid))).catch(() => ({ docs: [] }))]);
+    props[pid] = ps?.exists() ? ps.data().name || '' : '';
+    propState[pid] = ps?.exists() ? stateOf(ps.data()) : '';
+    for (const d of us.docs) units[d.id] = { id: d.id, ...d.data() };
+  }));
+  const lvl = ownerPrivLevel(), owners = {};
+  if (lvl) await Promise.all([...new Set(Object.values(units).map(u => u.ownerId).filter(Boolean))].map(async oid => {
+    const p = await readOwnerPriv(oid, lvl).catch(() => ({}));
+    owners[oid] = { name: [p.fullName, ...(p.coOwners || []).map(c => c.fullName)].filter(Boolean).join(' & '), email1: p.email || '', email2: (p.coOwners || []).map(c => c.email).find(Boolean) || '' };
+  }));
+  const ownerOf = t => owners[units[t.unitId]?.ownerId] || { name: '', email1: '', email2: '' };
+  return { props, units, owners, ownerOf, propState };
+}
+
 // Builds <year>_Master_Record.xlsx fresh every time: a sheet per month with completed customer tickets (up to now), plus Owner list.
 export async function downloadMasterRecord(year, onStep = () => {}) {
   const X = await loadXlsxLib();
@@ -177,20 +199,7 @@ export async function downloadMasterRecord(year, onStep = () => {}) {
   const tickets = Object.values(byMonth).flat();
   // Units and owners (private details only for people allowed to read them; others get blanks)
   onStep('Reading units and owners…');
-  const propIds = [...new Set(tickets.map(t => t.propertyId).filter(Boolean))];
-  const props = {}, units = {};
-  for (const pid of propIds) {
-    const ps = await getDoc(doc(db, 'properties', pid)).catch(() => null);
-    props[pid] = ps?.exists() ? ps.data().name || '' : '';
-    const us = await getDocs(query(collection(db, 'units'), where('propertyId', '==', pid))).catch(() => ({ docs: [] }));
-    for (const d of us.docs) units[d.id] = { id: d.id, ...d.data() };
-  }
-  const lvl = ownerPrivLevel(), owners = {};
-  if (lvl) for (const oid of [...new Set(Object.values(units).map(u => u.ownerId).filter(Boolean))]) {
-    const p = await readOwnerPriv(oid, lvl).catch(() => ({}));
-    owners[oid] = { name: [p.fullName, ...(p.coOwners || []).map(c => c.fullName)].filter(Boolean).join(' & '), email1: p.email || '', email2: (p.coOwners || []).map(c => c.email).find(Boolean) || '' };
-  }
-  const ownerOf = t => owners[units[t.unitId]?.ownerId] || { name: '', email1: '', email2: '' };
+  const { props, units, owners, ownerOf } = await masterContext(tickets);
 
   const wb = X.utils.book_new();
   const bold = { font: { bold: true } };
