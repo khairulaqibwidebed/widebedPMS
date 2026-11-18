@@ -20,7 +20,7 @@
           <h2 :class="'h-' + s.key"><span class="wn-sec-mark"></span>{{ s.label }}</h2>
           <ul><li v-for="(p, i) in s.points" :key="i">{{ p }}</li></ul>
         </section>
-        <footer class="wn-notes-foot" v-if="isDirector">
+        <footer class="wn-notes-foot" v-if="canPost">
           <button class="act-pill" @click="openEdit(open)">Edit</button>
           <button class="act-pill danger" @click="remove(open)">Delete</button>
         </footer>
@@ -39,7 +39,7 @@
           <h1>What's New</h1>
           <div class="sub">Patch notes for the PMS, newest first.</div>
         </div>
-        <div class="head-tools" v-if="isDirector"><button class="btn btn-primary" @click="openNew()">+ Post update</button></div>
+        <div class="head-tools" v-if="canPost"><button class="btn btn-primary" @click="openNew()">+ Post update</button></div>
       </div>
 
 
@@ -123,6 +123,7 @@ import FormField from '@/components/FormField.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { markUpdatesSeen, updatesSeenAt } from '@/lib/whats-new.js';
 import { notifyRole } from '@/services/notificationService.js';
+import { can } from '@/lib/access.js';
 
 // Patch note sections, in the order they show. Older posts saved one "body" field; it shows as Changes.
 const SECTIONS = [
@@ -149,7 +150,8 @@ export default {
   data: () => ({ items: [], loading: true, error: '', okMsg: '', filter: 'mine', kindFilter: 'any', form: null, KINDS, KIND_FILTERS, busy: false, seenBefore: 0, ROLE_LABEL, SECTIONS }),
   computed: {
     me() { return useSession(); },
-    isDirector() { return this.me.role === 'director'; },
+    // 18 Nov 2026: the What's New tick (Content group); Directors always
+    canPost() { return can(this.me, 'whatsNew.edit'); },
     shown() {
       return this.items
         .filter(u => this.filter === 'all' || u.audience.includes('everyone') || u.audience.includes(this.me.role))
