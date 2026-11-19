@@ -16,7 +16,7 @@
         </div>
       </div>
     </div>
-    <p class="card-intro">Customer tickets of this month: completed ones by the month they were completed, In progress and Cancelled ones by the month they were raised. Enter the WB Charge and the Invoice No. to charge the owner: it adds one Maintenance line to the unit's statement. The owner sees only the WB Charge and the description, never the cost or the profit.</p>
+    <p class="card-intro">On-site tickets of this month: completed ones by the month they were completed, In progress and Cancelled ones by the month of their Date. Enter the WB Charge and the Invoice No. to charge the owner: it adds one Maintenance line to the unit's statement. The owner sees only the WB Charge and the description, never the cost or the profit.</p>
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <!-- Sheet status: green dot = set up and the last sync worked; red dot = not set up, or the last sync failed (18 Nov 2026) -->
@@ -185,8 +185,8 @@ const SHEET_EVERY = 2 * 60 * 1000;
 // 18 Nov 2026: In progress and Cancelled added (every Customer ticket is listed); Pending stays the default
 const FILTERS = [{ value: 'pending', label: 'Pending' }, { value: 'charged', label: 'Charged' }, { value: 'progress', label: 'In progress' }, { value: 'cancelled', label: 'Cancelled' }, { value: 'all', label: 'All' }];
 const PILL = { pending: 'amber', charged: 'green', progress: 'blue', cancelled: 'red' };
-const EMPTY = { pending: 'Nothing waiting to be charged this month.', charged: 'Nothing charged this month.', progress: 'No Customer tickets in progress raised this month.',
-  cancelled: 'No cancelled Customer tickets raised this month.', all: 'No Customer tickets this month.' };
+const EMPTY = { pending: 'Nothing waiting to be charged this month.', charged: 'Nothing charged this month.', progress: 'No On-site tickets in progress this month.',
+  cancelled: 'No cancelled On-site tickets this month.', all: 'No On-site tickets this month.' };
 export default {
   components: { OptionPicker, SkeletonRows },
   props: { propertyId: { type: String, default: '' }, propertyName: { type: String, default: '' }, month: { type: String, required: true } },
