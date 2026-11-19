@@ -180,13 +180,21 @@ export async function submitEvaluation(quarterId, evaluateeUid, evaluateeName, r
 // read it — i.e. the evaluator who gave it, or HR/Director. For the evaluatee reading their own received
 // evaluations, every private/scores read is denied by firestore.rules; that's expected, not an error, so
 // each attempt fails silently and the row is returned with the score fields simply absent.
+// 19 Nov 2026 (Firestore reads): each score is kept in this browser with its evaluation's submittedAt (lib/cache.js
+// keepFresh) and read again only after a new submission (submitEvaluation writes both in one batch). The page used to
+// read every evaluation's score on every visit. Kept per role, so a role change never reuses another role's answer.
+// Refused (see above) is kept as "no score"; any other error is not kept, so that score is read again next time.
+const scoreStamp = e => e.submittedAt?.toMillis?.() || 'none';
 async function withScores(evals) {
-  return Promise.all(evals.map(async e => {
+  if (!evals.length) return evals;
+  const { keepFresh } = await import('@/lib/cache.js');   // loaded here so the unit tests of this file need no cache
+  const kept = await keepFresh(`cohScores:${me()?.role || 'none'}`, evals, scoreStamp, async e => {
     try {
       const s = await getDoc(doc(db, 'cohEvaluations', e.id, 'private', 'scores'));
-      return s.exists() ? { ...e, ...s.data() } : e;
-    } catch (_) { return e; }
-  }));
+      return s.exists() ? s.data() : null;
+    } catch (err) { if (err?.code === 'permission-denied') return null; throw err; }
+  });
+  return evals.map(e => (kept[e.id] ? { ...e, ...kept[e.id] } : e));
 }
 
 // Evaluations received about this person — evaluator identity is always included, by design. The score is

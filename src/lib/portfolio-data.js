@@ -11,7 +11,7 @@ import { loadUnits, loadSetup, latestVersion, audit, friendlyError } from '@/lib
 import { propertyMonth, markFrom, canWriteSummaries } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { monthName } from '@/lib/format.js';
-import { cached, clearCache, patchCache, TTL } from '@/lib/cache.js';
+import { cached, clearCache, patchCache, keepFresh, TTL } from '@/lib/cache.js';
 import { propertyFields, normState, stateFor, rememberStates } from '@/lib/states.js';
 import { scoped, scopedOrBlank, getScoped, myProperties, giveMeProperties } from '@/lib/property-scope.js';
 import { useSession } from '@/stores/session.js';
@@ -55,6 +55,21 @@ export async function readOwnerPriv(id, lvl = ownerPrivLevel()) {   // exported 
   const [m, c] = await Promise.all([get('main'), get('contact')]);
   return mergeOwnerPriv(m, c);
 }
+// Owners lists (19 Nov 2026, Firestore reads): each owner's private part is kept in this browser with the owner record's
+// updatedAt (lib/cache.js keepFresh) and read again only when that moved. Every save of a private part also stamps the
+// owner record in the same batch (saveOwner, Bulk Upload), so a kept copy is never out of date.
+// Refused = nothing to show for this person (kept); any other error is not kept, so it is read again next time.
+async function readOwnerPrivKept(id, lvl) {
+  const ref = doc(db, 'owners', id);
+  const get = d => getDoc(doc(ref, 'private', d)).then(x => (x.exists() ? x.data() : {}))
+    .catch(e => { if (e?.code === 'permission-denied') return {}; throw e; });
+  if (lvl === 'contact') return get('contact');
+  const [m, c] = await Promise.all([get('main'), get('contact')]);
+  return mergeOwnerPriv(m, c);
+}
+const ownerStamp = x => msOf(x.updatedAt) || msOf(x.createdAt) || 'none';
+const ownerPrivs = (rows, lvl) => (lvl ? keepFresh(`ownerPriv:${lvl}`, rows, ownerStamp, x => readOwnerPrivKept(x.id, lvl), { prune: true }) : {});
+const byOwnerName = (a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id);
 export const PROP_INFO = ['address', 'city', 'state', 'ezeeAccount', 'ezeeName'];
 export const UNIT_INFO = ['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb'];
 export { STATES } from '@/lib/states.js';   // the list moved to lib/states.js (12 Nov 2026)
@@ -167,32 +182,27 @@ function ownerQueries(extra = []) {
 export async function loadOwners(viewOnly, canEdit) {
   const list = await cached(ownersKey(viewOnly, canEdit), TTL.mid, async () => {
     const rows = (await getScoped(ownerQueries())).docs.map(d => ({ id: d.id, ...d.data() }));
-    const lvl = ownerPrivLevel();
-    const privs = lvl ? await Promise.all(rows.map(x => readOwnerPriv(x.id, lvl))) : [];
-    rows.forEach((x, i) => { x.private = privs[i] || {}; });
+    const privs = await ownerPrivs(rows, ownerPrivLevel());   // only owners changed since this browser last read them
+    rows.forEach(x => { x.private = privs[x.id] || {}; });
     return rows;
   });
-  return [...list].sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id));
+  return [...list].sort(byOwnerName);
 }
 // Live owners list (6 Nov 2026, lib/use-live.js): an owner added or changed by someone else shows without a refresh.
-// Each owner's private part is read once and kept (read again only for an owner whose main record changed).
-// Also drops the saved copy loadOwners keeps, so other pages read fresh. Returns stop().
-// seed = the owners already on screen (from loadOwners), so their private parts are not read twice.
-export function watchOwners(viewOnly, canEdit, onRows, onError, seed = []) {
-  const privs = {}, seenAt = {};
-  const stamp = x => JSON.stringify(x.updatedAt || x.createdAt || '');
-  seed.forEach(x => { privs[x.id] = x.private || {}; seenAt[x.id] = stamp(x); });
+// Private parts come from this browser's kept copies (ownerPrivs): read again only for an owner whose record changed.
+// 19 Nov 2026: the list loadOwners keeps is replaced with each confirmed answer (it used to be thrown away, even on the
+// first answer, so every visit read every owner again). Returns stop(). seed: no longer needed, kept for the callers.
+export function watchOwners(viewOnly, canEdit, onRows, onError, seed = []) {   // eslint-disable-line no-unused-vars
   let turn = 0;
-  return listen(ownerQueries([limit(1000)]), async rows => {
+  return listen(ownerQueries([limit(1000)]), async (rows, meta) => {
     const mine = ++turn;
-    const lvl = ownerPrivLevel();
-    const todo = lvl ? rows.filter(x => !(x.id in privs) || seenAt[x.id] !== stamp(x)) : [];
-    await Promise.all(todo.map(async x => { privs[x.id] = await readOwnerPriv(x.id, lvl); seenAt[x.id] = stamp(x); }));
+    const privs = await ownerPrivs(rows, ownerPrivLevel());
     if (mine !== turn) return;
-    clearCache('owners:');
-    onRows(rows.map(x => ({ ...x, private: privs[x.id] || {} }))
-      .sort((a, b) => (a.private?.fullName || a.name || a.code || a.id).localeCompare(b.private?.fullName || b.name || b.code || b.id)));
-  }, { onError });
+    const list = rows.map(x => ({ ...x, private: privs[x.id] || {} }));
+    // Only answers from the server with nothing of mine still unsaved replace the saved list
+    if (!meta?.fromCache && !meta?.hasPendingWrites) patchCache(ownersKey(viewOnly, canEdit), () => list);
+    onRows(list.sort(byOwnerName));
+  }, { onError, includeMeta: true });
 }
 // Units (with their terms and history, or without terms for view-only roles) of the given properties.
 export async function loadUnitsOf(properties, asOf, viewOnly) {
@@ -493,7 +503,7 @@ export async function copyContacts(me) {
     changes: [{ field: 'private/contact', old: null, new: `${counts.owners} owners, ${counts.tenants} tenants, ${counts.offlineBookings} bookings` }],
     reason: 'Names and contact details copied for Owners Base and the AI Agent' });
   await b.commit();
-  clearCache('owners:');
+  clearCache('owners:'); clearCache('ownerPriv:');   // private parts were written without stamping the owner record
   return counts;
 }
 export async function deleteOwner(me, o, propertyId) {

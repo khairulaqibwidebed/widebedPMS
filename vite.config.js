@@ -70,11 +70,16 @@ if (stub) alias.unshift(
   { find: 'firebase/app', replacement: stub + '/stub-app.js' }, { find: 'firebase/auth', replacement: stub + '/stub-auth.js' },
   { find: 'firebase/firestore', replacement: stub + '/stub-fs3.js' }, { find: /^(\.\.|@)\/firebase-config\.js$/, replacement: stub + '/cfg.js' });
 
-export default defineConfig({
+// Dev read meter (19 Nov 2026): on `npm run dev` only, 'firebase/firestore' goes through src/lib/dev-read-meter.js, which
+// counts server reads per page and collection (type reads() in the browser console). Never in the build or the tests.
+// To remove: delete this block and that file.
+const readMeter = { find: /^firebase\/firestore$/, replacement: fileURLToPath(new URL('./src/lib/dev-read-meter.js', import.meta.url)) };
+
+export default defineConfig(({ command }) => ({
   // Keep spaces between inline elements, the way plain HTML (and the old prototype) does.
   plugins: [vue({ template: { compilerOptions: { whitespace: 'preserve' } } }), localDriveApi(), pwaServiceWorker()],
-  resolve: { alias },
+  resolve: { alias: command === 'serve' && !stub && !process.env.VITEST ? [readMeter, ...alias] : alias },
   // Firebase (main file) and the Excel reader (loaded only when needed) are big on their own; that's expected.
   build: { chunkSizeWarningLimit: 1000 },
   server: { port: 5173 }
-});
+}));

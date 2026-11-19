@@ -1063,7 +1063,8 @@ export default {
         // A fixed phone or a new joint owner also goes in private/contact (16 Nov 2026)
         const cPart = contactOf({ ...('phone' in ids ? { phone: ids.phone } : {}), ...(r.coFill ? { coOwners: r.coFill } : {}) });
         if (Object.keys(cPart).length) b.set(doc(db, 'owners', r.ownerId, 'private', 'contact'), { ...cPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
-        if (l4) b.set(doc(db, 'owners', r.ownerId), { bankLast4: l4, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+        // The owner record is always stamped (19 Nov 2026): other browsers keep owners' private parts until this moves (lib/cache.js keepFresh)
+        b.set(doc(db, 'owners', r.ownerId), { ...(l4 ? { bankLast4: l4 } : {}), updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
         audit(b, me, { action: 'owner.update', entity: `owners/${r.ownerId}`, propertyId: pid, changes: [...this.bankChanges(bank), ...Object.keys(ids).map(k => ({ field: k, old: null, new: '(set)' })), ...(r.coFill ? [{ field: 'coOwners', old: null, new: '(set)' }] : [])], reason: why });
       }
       const unitId = r.unitId || unitIdOf(pid, d.unit);
