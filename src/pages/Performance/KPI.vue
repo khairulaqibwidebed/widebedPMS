@@ -206,6 +206,7 @@
     <div class="modal-back" v-if="employeeKpis" @click.self="employeeKpis = null">
       <div class="modal" style="max-width: 680px;">
         <h2>{{ employeeKpis.employeeName }}'s KPIs</h2>
+        <div class="notice warn" v-if="error" style="margin-bottom:10px;">{{ error }}</div>
         <div class="table-wrap">
           <table class="table hover-rows">
             <thead><tr><th>KPI</th><th>Weight</th><th>Deadline</th><template v-if="canManageKpi"><th>Self</th><th>Supervisor</th><th>Score</th><th>Status</th></template><th></th></tr></thead>
@@ -222,6 +223,7 @@
                 </template>
                 <td style="display:flex; gap:6px;">
                   <button class="act-pill" @click="startEdit(a)">Edit</button>
+                  <button class="act-pill act-danger" :disabled="saving" @click="removeAssignment(a)">Delete</button>
                   <button class="act-pill" v-if="canManageKpi && subOf(a.id)?.status === 'submitted'" @click="openReview({ assignment: a, submission: subOf(a.id) }); employeeKpis = null">Review</button>
                 </td>
               </tr>
@@ -319,7 +321,7 @@ import FormField from '@/components/FormField.vue';
 import RatingPicker from '@/components/RatingPicker.vue';
 import KpiDiscussionChat from '@/components/KpiDiscussionChat.vue';
 import { useSession } from '@/stores/session.js';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { listQuarters, listParticipants, getQuarter } from '@/lib/performance/quarters.js';
 import {
@@ -542,6 +544,26 @@ async function saveAssignForm() {
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
 
+// 19 Nov 2026: delete a KPI entered by mistake (Directors any; HR the same people they assign, firestore.rules).
+// Asks first. A Director is warned when the employee has already submitted a self-assessment for it.
+async function removeAssignment(a) {
+  const sub = subOf(a.id);
+  const who = employeeKpis.value?.employeeName || 'The employee';
+  const warn = sub ? `\n\n${who} has already submitted a self-assessment for this KPI. It will no longer count.` : '';
+  if (!window.confirm(`Delete the KPI "${a.title}"?${warn}\n\nThis can't be undone.`)) return;
+  saving.value = true; error.value = '';
+  try {
+    await deleteDoc(doc(db, 'kpiAssignments', a.id));
+    if (editingId.value === a.id) startAdd();
+    okMsg.value = 'KPI deleted.';
+    const keepOpenFor = employeeKpis.value;
+    await load();
+    employeeKpis.value = keepOpenFor;
+  } catch (e) {
+    error.value = e.code === 'permission-denied' ? 'Not allowed to delete this KPI (check the Firestore rules are published).' : e.message;
+  } finally { saving.value = false; }
+}
+
 async function submitMine(a) {
   const d = drafts[a.id];
   if (d.selfRating == null) { error.value = 'Choose a self-rating before submitting.'; return; }
@@ -610,6 +632,7 @@ async function reopenForDiscussion() {
 
 <style scoped>
 .row-selected { background: var(--hover); }
+.act-pill.act-danger { color: var(--red); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* Follows the account's theme (Settings > Appearance) throughout, same as the COH redesign — var(--surface),

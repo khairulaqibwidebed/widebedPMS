@@ -34,11 +34,11 @@
           <div class="coh-standing">
             <div class="coh-standing-item">
               <div class="coh-standing-value">{{ evaluatedMeCount }}</div>
-              <div class="coh-muted">evaluated you</div>
+              <div class="coh-muted">Who Evaluated You</div>
             </div>
             <div class="coh-standing-item">
               <div class="coh-standing-value">{{ notYetEvaluatedMeCount }}</div>
-              <div class="coh-muted">haven't yet</div>
+              <div class="coh-muted">Ready to Evaluate</div>
             </div>
             <div class="coh-standing-item">
               <div class="coh-standing-value">{{ totalCount }}</div>
@@ -184,8 +184,7 @@
         <div class="coh-overlay" v-if="showSuccess">
           <div class="coh-dialog coh-success">
             <svg viewBox="0 0 24 24" aria-hidden="true" v-html="NAV_ICONS.check"></svg>
-            <h3>Evaluation submitted</h3>
-            <p class="coh-muted">Thanks — {{ activeEvaluatee?.employeeName }} will be able to see your rating.</p>
+            <h3>Evaluate Done</h3>
           </div>
         </div>
       </div>
