@@ -14,9 +14,9 @@
     </div>
 
 
-    <div class="pills" role="group" style="margin-bottom:12px;" v-if="canManageKpi">
+    <div class="pills" role="group" style="margin-bottom:12px;" v-if="canAssignKpi">
       <button class="pill-btn" :class="{ on: tab === 'mine' }" @click="tab = 'mine'">My KPIs</button>
-      <button class="pill-btn" :class="{ on: tab === 'admin' }" @click="tab = 'admin'">Review KPIs</button>
+      <button class="pill-btn" v-if="canManageKpi" :class="{ on: tab === 'admin' }" @click="tab = 'admin'">Review KPIs</button>
       <button class="pill-btn" :class="{ on: tab === 'director' }" @click="tab = 'director'">All employees</button>
     </div>
 
@@ -159,13 +159,13 @@
       </div>
     </template>
 
-    <template v-if="!loading && tab === 'director' && canManageKpi">
+    <template v-if="!loading && tab === 'director' && canAssignKpi">
       <div class="card" style="margin-bottom:16px;">
         <h3 style="margin-top:0;">All employees — {{ participants.length }}</h3>
         <p class="sub" style="margin:0 0 12px;">Click an employee to see their assigned KPIs, add a new one, or edit an existing one.</p>
         <div class="table-wrap">
           <table class="table hover-rows">
-            <thead><tr><th>Employee</th><th>KPIs assigned</th><th>Weightage</th><th>Pending review</th><th></th></tr></thead>
+            <thead><tr><th>Employee</th><th>KPIs assigned</th><th>Weightage</th><th v-if="canManageKpi">Pending review</th><th></th></tr></thead>
             <tbody>
               <tr v-for="p in participants" :key="p.employeeId" style="cursor:pointer;" @click="openEmployeeKpis(p)">
                 <td>{{ p.employeeName }}</td>
@@ -173,7 +173,7 @@
                 <td>
                   <span class="pill" :class="totalWeightage(kpisFor(p.employeeId)) === 100 ? 'green' : 'amber'">{{ totalWeightage(kpisFor(p.employeeId)) }}%</span>
                 </td>
-                <td>{{ kpisFor(p.employeeId).filter(a => subOf(a.id)?.status === 'submitted').length }}</td>
+                <td v-if="canManageKpi">{{ kpisFor(p.employeeId).filter(a => subOf(a.id)?.status === 'submitted').length }}</td>
                 <td><button class="act-pill" @click.stop="openEmployeeKpis(p)">View KPIs</button></td>
               </tr>
               <tr v-if="!participants.length"><td colspan="5" class="muted">No participants in this quarter yet.</td></tr>
@@ -182,7 +182,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" v-if="canManageKpi">
         <h3 style="margin-top:0;">Submissions awaiting review</h3>
         <div class="table-wrap">
           <table class="table hover-rows">
@@ -208,22 +208,24 @@
         <h2>{{ employeeKpis.employeeName }}'s KPIs</h2>
         <div class="table-wrap">
           <table class="table hover-rows">
-            <thead><tr><th>KPI</th><th>Weight</th><th>Deadline</th><th>Self</th><th>Supervisor</th><th>Score</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>KPI</th><th>Weight</th><th>Deadline</th><template v-if="canManageKpi"><th>Self</th><th>Supervisor</th><th>Score</th><th>Status</th></template><th></th></tr></thead>
             <tbody>
               <tr v-for="a in kpisFor(employeeKpis.employeeId)" :key="a.id" :class="{ 'row-selected': editingId === a.id }">
                 <td>{{ a.title }}</td>
                 <td>{{ a.weightage }}%</td>
                 <td>{{ a.deadline || '—' }}</td>
-                <td>{{ subOf(a.id)?.selfRating ?? '—' }}</td>
-                <td>{{ subOf(a.id)?.finalApprovedRating ?? '—' }}</td>
-                <td>{{ taskScoreText(a) }}</td>
-                <td><span class="kpi-status-badge" :class="simpleStatusClass(subOf(a.id)?.status)">{{ simpleStatus(subOf(a.id)?.status) }}</span></td>
+                <template v-if="canManageKpi">
+                  <td>{{ subOf(a.id)?.selfRating ?? '—' }}</td>
+                  <td>{{ subOf(a.id)?.finalApprovedRating ?? '—' }}</td>
+                  <td>{{ taskScoreText(a) }}</td>
+                  <td><span class="kpi-status-badge" :class="simpleStatusClass(subOf(a.id)?.status)">{{ simpleStatus(subOf(a.id)?.status) }}</span></td>
+                </template>
                 <td style="display:flex; gap:6px;">
                   <button class="act-pill" @click="startEdit(a)">Edit</button>
-                  <button class="act-pill" v-if="subOf(a.id)?.status === 'submitted'" @click="openReview({ assignment: a, submission: subOf(a.id) }); employeeKpis = null">Review</button>
+                  <button class="act-pill" v-if="canManageKpi && subOf(a.id)?.status === 'submitted'" @click="openReview({ assignment: a, submission: subOf(a.id) }); employeeKpis = null">Review</button>
                 </td>
               </tr>
-              <tr v-if="!kpisFor(employeeKpis.employeeId).length"><td colspan="8" class="muted">No KPIs assigned yet.</td></tr>
+              <tr v-if="!kpisFor(employeeKpis.employeeId).length"><td :colspan="canManageKpi ? 8 : 4" class="muted">No KPIs assigned yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -332,9 +334,11 @@ import { listStaff } from '@/lib/agreements/data.js';
 import { isCohOnly } from '@/lib/performance/calc.js';
 
 const session = useSession();
-// Confirmed business rule: KPI management (assign/edit/review) is Director-only — narrower than COH, which
-// also allows HR. can('performance.edit') no longer grants this; firestore.rules enforces the same boundary.
+// KPI review, rating and discussions: Directors only. can('performance.edit') doesn't grant it; firestore.rules agrees.
 const canManageKpi = computed(() => session.role === 'director');
+// 19 Nov 2026 (firestore.rules Draft 0.90): HR also assign and edit KPIs on the "All employees" tab, for everyone except
+// themselves and the Directors (a Director assigns HR's). HR don't see ratings or review status (kpiSubmissions stay Director only).
+const canAssignKpi = computed(() => session.role === 'director' || session.role === 'hr');
 
 const loading = ref(true);
 const saving = ref(false);
@@ -474,14 +478,17 @@ async function load() {
         Object.assign(d, { selfRating: existing?.selfRating ?? null, completionTimestamp: existing?.completionTimestamp || '', seeded: true });
       }
     }
-    if (canManageKpi.value) {
+    if (canAssignKpi.value) {
       // Directors are scored on COH only, so they have no KPIs / TMS tasks to set and are left out of this list.
       // Role comes from the participant record, or the staff list for participants saved before roles were stored.
       if (!staffRoles.value) { try { staffRoles.value = new Map((await listStaff()).map(e => [e.uid, e.role])); } catch (_) { staffRoles.value = new Map(); } }
       participants.value = (await listParticipants(quarterId.value))
-        .filter(p => p.participationStatus === 'active' && !isCohOnly(p.role || staffRoles.value.get(p.employeeId)));
+        .filter(p => p.participationStatus === 'active' && !isCohOnly(p.role || staffRoles.value.get(p.employeeId)))
+        // HR don't set their own KPIs (a Director does)
+        .filter(p => canManageKpi.value || p.employeeId !== session.user.uid);
       const all = await listAllAssignments(quarterId.value);
-      allRows.value = await listSubmissionsFor(all);
+      // Submissions (ratings, review status) only for Directors; HR get the assignments alone
+      allRows.value = canManageKpi.value ? await listSubmissionsFor(all) : all.map(a => ({ assignment: a, submission: null }));
     }
   } catch (e) { error.value = e.message; } finally { loading.value = false; }
 }
