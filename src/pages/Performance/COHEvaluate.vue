@@ -34,7 +34,7 @@
           <div class="coh-standing">
             <div class="coh-standing-item">
               <div class="coh-standing-value">{{ evaluatedMeCount }}</div>
-              <div class="coh-muted">Who Evaluated You</div>
+              <div class="coh-muted">How many Evaluated You</div>
             </div>
             <div class="coh-standing-item">
               <div class="coh-standing-value">{{ notYetEvaluatedMeCount }}</div>
