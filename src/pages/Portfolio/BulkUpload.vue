@@ -100,6 +100,10 @@
     </label>
 
     <section class="card" v-show="loading"><p class="muted" style="margin:0">Reading the file…</p></section>
+    <!-- 19 Nov 2026: the file was read but no row could be used: say why instead of showing nothing -->
+    <section class="card" v-show="kind === 'owners' && fileName && !loading && !error && !rows.length">
+      <p class="muted" style="margin:0">{{ `No unit rows found in ${fileName}${sheet ? ` (sheet ${sheet})` : ''}. Each row needs a unit code in "Room Type/Unit List" (column A), filled in under the green header row. Headings and blank rows are left out.` }}</p>
+    </section>
 
     <!-- Preview -->
     <section class="card" v-show="rows.length">
@@ -113,7 +117,7 @@
         <div class="bu-stat skip"><b>{{ count('skip') }}</b><span>Already in the PMS</span></div>
         <div class="bu-stat bad"><b>{{ count('error') }}</b><span>With problems</span></div>
       </div>
-      <p class="bu-note" v-show="kind === 'owners' && rows.length"><b v-if="!allMode && propLabel()">{{ `Saving under ${propLabel()}. ` }}</b>{{ `This will add ${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'}, ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'} and set up ${newFees} ${newFees === 1 ? 'fee' : 'fees'}.` }}</p>
+      <p class="bu-note" v-show="kind === 'owners' && rows.length"><b v-if="!allMode && propLabel()">{{ `Saving under ${propLabel()}. ` }}</b>{{ `This will add ${newOwners} new ${newOwners === 1 ? 'owner' : 'owners'}, ${newUnits} new ${newUnits === 1 ? 'unit' : 'units'}${unitOnlyCount ? ` (${unitOnlyCount} with no owner yet)` : ''} and set up ${newFees} ${newFees === 1 ? 'fee' : 'fees'}.` }}</p>
 
       <p class="bu-note" v-show="kind === 'owners' && bankLeftOut">Bank details left out (needs the Bulk Upload Edit tick).</p>
 
@@ -132,7 +136,7 @@
           <article class="bu-card" :class="r.status">
             <header class="bu-card-head">
               <div class="bu-card-title"><span class="bu-row">{{ `Row ${r.line}` }}</span><b>{{ show(r, previewCols[0].key) }}</b></div>
-              <span class="pill" :class="{ ok: 'green', skip: 'amber', error: 'red' }[r.status]">{{ r.status === 'ok' ? (kind === 'owners' ? (r.newOwner ? 'New owner' : 'Existing owner') : kind === 'bookings' ? r.id : 'New') : { skip: 'Skipped', error: 'Problem' }[r.status] }}</span>
+              <span class="pill" :class="{ ok: 'green', skip: 'amber', error: 'red' }[r.status]">{{ r.status === 'ok' ? (kind === 'owners' ? (r.unitOnly ? 'New unit, no owner' : r.newOwner ? 'New owner' : 'Existing owner') : kind === 'bookings' ? r.id : 'New') : { skip: 'Skipped', error: 'Problem' }[r.status] }}</span>
             </header>
             <dl class="bu-kv">
               <template v-for="c in previewCols.slice(1)" :key="c.key">
@@ -153,7 +157,7 @@
       </Paged>
 
       <div class="actions bu-actions">
-        <span class="help">{{ blocker || (count('ok') ? `Only the ${count('ok')} ready ${count('ok') === 1 ? 'row is' : 'rows are'} saved. Skipped rows and rows with problems are left out.` : 'Nothing to save.') }}</span>
+        <span class="help">{{ blocker || saveNote }}</span>
         <button type="button" class="btn btn-primary" :disabled="saving || !count('ok') || !!blocker" :title="blocker" @click="save()">{{ saving ? `Saving… ${savedSoFar} of ${count('ok')}` : 'Confirm & Upload to Database' }}</button>
       </div>
     </section>
@@ -287,9 +291,12 @@ function mapPropertyRow(row) {
 // Cells listing an old and a new owner on separate lines keep the "(new owner)" line (see ownerCell below).
 function mapOwnerRow(row) {
   const fullName = ownerCell(col(row, 'Owner Name 1'));
-  if (!fullName) return null;                                         // section titles and blank lines
+  const unit = unitCodeFromList(ownerCell(col(row, 'Room Type/Unit List')));
+  // 19 Nov 2026: a row with a unit code and no owner name is a unit with no owner yet (checkOwners). Headings, totals and
+  // notes are still left out: a unit code has a digit and is short.
+  if (!fullName && (row.__head || !/\d/.test(unit) || unit.length > 20)) return null;
   return {
-    unit:     unitCodeFromList(ownerCell(col(row, 'Room Type/Unit List'))),   // saved as the unit code (see below)
+    unit,     // saved as the unit code (see unitCodeFromList below)
     fullName,
     email:    firstEmail(ownerCell(col(row, 'Email Address 1'))),
     phone:    ownerCell(col(row, 'Contact No 1')),
@@ -409,6 +416,18 @@ export default {
     newOwners() { return this.rows.filter(r => r.status === 'ok' && r.newOwner).length; },
     newUnits() { return this.rows.filter(r => r.status === 'ok' && r.newUnit).length; },
     newFees() { return this.rows.filter(r => r.status === 'ok' && r.terms).length; },
+    unitOnlyCount() { return this.rows.filter(r => r.status === 'ok' && r.unitOnly).length; },
+    // 19 Nov 2026: why the button saves what it saves, or why it can't save anything (the first problem's reason shown)
+    saveNote() {
+      const ok = this.count('ok'), skip = this.count('skip'), bad = this.count('error');
+      const rows = n => `${n} ${n === 1 ? 'row' : 'rows'}`;
+      const first = this.rows.find(r => r.status === 'error');
+      const firstWhy = first ? ` First problem, row ${first.line}: ${first.note}` : '';
+      if (ok) return [`Only the ${ok} ready ${ok === 1 ? 'row is' : 'rows are'} saved.`, skip ? `${rows(skip)} skipped (already in the PMS, nothing to change).` : '',
+        bad ? `${rows(bad)} with problems left out (reason on each red card).` : ''].filter(Boolean).join(' ');
+      const parts = [skip ? `${rows(skip)} already in the PMS with nothing to change` : '', bad ? `${rows(bad)} with problems (reason on each red card)` : ''].filter(Boolean);
+      return `Nothing to save: ${parts.join(' and ') || 'no rows'}.${firstWhy}`;
+    },
     // The file has bank details but the uploader may not save them
     bankLeftOut() { return this.kind === 'owners' && this.rows.some(r => r.bankLeftOut); },
     // Why saving is not possible yet (unit owners need a property)
@@ -512,6 +531,7 @@ export default {
             const r = {}; names.forEach((n, j) => { if (!(n in r) || String(r[n]).trim() === '') r[n] = cells[j] ?? ''; });
             Object.defineProperty(r, '__byKey', { value: Object.fromEntries(Object.entries(r).map(([k, v]) => [norm(k), v])) });
             Object.defineProperty(r, '__section', { value: head === null ? section : '' });
+            Object.defineProperty(r, '__head', { value: head !== null });   // a heading row is never a unit (mapOwnerRow)
             lines.push({ r, sheet, line: i + 1 });   // row number as in the spreadsheet
             (this.parsed[sheet] ||= []).push({ r, sheet, line: String(i + 1) });
           }
@@ -797,11 +817,28 @@ export default {
         data.bankLabel = hasBank ? (canBank ? [data.bankName, data.bankAccount ? `…${last4(data.bankAccount)}` : ''].filter(Boolean).join(' ') || '(holder only)' : 'Left out') : '';
         const fail = note => Object.assign(row, { status: 'error', note });
         if (!data.unit) return fail('No unit in this row.');
-        if (!data.fullName) return fail('Needs the owner\'s full name.');
+        // 19 Nov 2026: no owner name = the unit only, with no owner yet. Owner details without a name are never saved.
+        if (!data.fullName && (data.ic || data.email || data.phone || BANK.some(k => data[k]) || data.co.fullName || data.co.ic || data.co.phone || data.co.email))
+          return fail('Has owner details but no Owner Name 1. Add the owner\'s name, or clear the owner columns to add the unit only.');
         if (data.email && !/^\S+@\S+\.\S+$/.test(data.email)) return fail('The email doesn\'t look right.');
         if (co.length && co[0].email && !/^\S+@\S+\.\S+$/.test(co[0].email)) return fail('The joint owner\'s email doesn\'t look right.');
         if (seenUnits.has(norm(data.unit))) return fail(`Unit ${data.unit} is listed twice (also row ${seenUnits.get(norm(data.unit))}).`);
         seenUnits.set(norm(data.unit), line);
+        // Unit only (no owner name): a new unit with no owner, or skipped when the unit is already here. Upload the file
+        // again with the names later: those units then get their owner linked (the usual path below).
+        if (!data.fullName) {
+          Object.assign(row, { unitOnly: true, linkOwner: false });
+          const u = units.get(norm(data.unit));
+          if (u) return Object.assign(row, { status: 'skip', note: `${u.unitCode} is already in the PMS. This row has no owner name, so nothing changes.` });
+          const extra = [];
+          row.newUnit = true; row.terms = fee.terms;
+          if (data.autocount && canBank) row.acNew = data.autocount;
+          else if (data.autocount) extra.push('Autocount no. left out (needs the Bulk Upload Edit tick).');
+          if (data.remark && canBank) row.remNew = data.remark;
+          else if (data.remark) extra.push('Remark left out (needs the Bulk Upload Edit tick).');
+          row.note = [`New unit ${data.unit}, no owner yet.`, ...extra].join(' ');
+          return row;
+        }
         // Owner: reuse when the IC or email is known, else a new code
         let known = (ic && ics.get(ic)) || (data.email && emails.get(data.email)) || (!ic && !data.email && names.get(norm(data.fullName))) || null;
         const notes = [];
@@ -952,6 +989,8 @@ export default {
           const p = this.properties.find(x => x.id === this.propertyId);
           this.done = `Saved ${ready.length} ${ready.length === 1 ? 'unit' : 'units'} under ${p?.name || 'the property'} (${this.newUnits} new units, ${this.newOwners} new owners, ${this.newFees} fees). Units the file had no clear fee for still need theirs set on Portfolio.`;
         }
+        // 19 Nov 2026: units saved without an owner
+        if (this.kind === 'owners' && this.unitOnlyCount) this.done += ` ${this.unitOnlyCount} ${this.unitOnlyCount === 1 ? 'unit has' : 'units have'} no owner yet: upload the file again with the owner names when you have them.`;
         if (this.kind === 'owners') {
           const banks = new Set(ready.filter(r => r.bankFill).map(r => r.ownerId)).size;
           if (banks) this.done += ` Bank details saved for ${banks} ${banks === 1 ? 'owner' : 'owners'}.`;
@@ -1082,7 +1121,7 @@ export default {
         }
         return;
       }
-      if (r.newUnit) b.set(doc(db, 'units', unitId), { propertyId: pid, unitCode: d.unit, ezeeRoomMatch: d.unit, aliases: [], ownerId: r.ownerId, active: true, ...stateTag(pid),
+      if (r.newUnit) b.set(doc(db, 'units', unitId), { propertyId: pid, unitCode: d.unit, ezeeRoomMatch: d.unit, aliases: [], ownerId: r.ownerId || null, active: true, ...stateTag(pid),
         ...(r.unitType ? { info: { type: r.unitType } } : {}), ...(r.acNew ? { autocountAcc: r.acNew } : {}), ...(r.remNew ? { remarks: r.remNew } : {}), createdAt: serverTimestamp(), createdBy: me.user.uid });
       else if (r.linkOwner || fills.length) b.set(doc(db, 'units', unitId), { ...(r.linkOwner ? { ownerId: r.ownerId } : {}), ...typePart, ...acPart, updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
       // Fee from the Owner List, for a unit with none yet. 2000-01 = applies to every month until a later version is added on Portfolio.

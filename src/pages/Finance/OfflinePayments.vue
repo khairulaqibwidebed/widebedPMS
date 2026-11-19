@@ -16,11 +16,12 @@
 
 
     <section class="kpis">
-      <div class="card kpi"><div class="label">Total submissions</div><div class="value">{{ rows.length }}</div></div>
-      <div class="card kpi"><div class="label">Checked</div><div class="value">{{ count('Checked') }}</div></div>
-      <div class="card kpi"><div class="label">Pending</div><div class="value">{{ count('Pending') }}</div></div>
-      <div class="card kpi"><div class="label">Unknown</div><div class="value" :class="{ alert: count('Unknown') }">{{ count('Unknown') }}</div></div>
-      <div class="card kpi"><div class="label">Edited</div><div class="value">{{ count('Edited') }}</div></div>
+      <!-- 19 Nov 2026: each card filters the list below by its status (the Status filter follows); Total shows them all -->
+      <button type="button" class="card kpi kpi-link" :class="{ on: !status }" :aria-pressed="!status" @click="status = ''"><div class="label">Total submissions</div><div class="value">{{ rows.length }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: status === 'Checked' }" :aria-pressed="status === 'Checked'" @click="pickStatus('Checked')"><div class="label">Checked</div><div class="value">{{ count('Checked') }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: status === 'Pending' }" :aria-pressed="status === 'Pending'" @click="pickStatus('Pending')"><div class="label">Pending</div><div class="value">{{ count('Pending') }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: status === 'Unknown' }" :aria-pressed="status === 'Unknown'" @click="pickStatus('Unknown')"><div class="label">Unknown</div><div class="value" :class="{ alert: count('Unknown') }">{{ count('Unknown') }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: status === 'Edited' }" :aria-pressed="status === 'Edited'" @click="pickStatus('Edited')"><div class="label">Edited</div><div class="value">{{ count('Edited') }}</div></button>
     </section>
 
     <section class="card">
@@ -352,6 +353,8 @@ export default {
   async mounted() { await this.load(); },
   methods: {
     niceDate(d) { if (!d) return ''; const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']; return `${+d.slice(8, 10)} ${M[+d.slice(5, 7) - 1] || ''} ${d.slice(0, 4)}`; },
+    // A status card: show only that status; clicking the card that is already on shows them all again
+    pickStatus(s) { this.status = this.status === s ? '' : s; },
     openRow(r) { this.view = r; this.editing = false; this.pendingLink = ''; },
     setLayout(v) { this.layout = v; try { localStorage.setItem(LAYOUT_KEY, v); } catch { /* not remembered */ } },
     count(s) { return this.rows.filter(r => r.status === s).length; },
