@@ -1,5 +1,228 @@
 rules_version = '2';
+<<<<<<< HEAD
 // Widebed PMS Firestore rules. Draft 0.36, 5 Nov 2026 (Khairul): delete a cancelled offline booking for good. Accounting,
+=======
+// Draft 0.89, 19 Nov 2026 (Khairul): issues carry a Deadline (deadline, YYYY-MM-DD), required on Raise a ticket and Edit;
+//   sent to the task system card as its due date (the ticket's Date is the card's start date).
+// Draft 0.88, 19 Nov 2026 (Khairul): issues carry a Date (reportDate, YYYY-MM-DD): set on Raise a ticket (today by
+//   default) and changed in Edit. Used as the Master Record "Report Date".
+// Draft 0.87, 18 Nov 2026 (Khairul): What's New (updates/{id}) post, edit and delete need the "What's New" Full tick
+//   (whatsNew.edit, Content group) instead of Director only. Directors always can; no role preset has it.
+// Draft 0.86, 18 Nov 2026 (Khairul): Directors remove a Cancelled (deleted) ticket and its comments for good, from
+//   Expenses > Maintenance (Cancelled). Only tickets already marked deleted; an audit log line is kept.
+// Draft 0.85, 18 Nov 2026 (Khairul): Accounting (Expenses Edit tick) and Directors read every Customer ticket, not only
+//   completed ones: Expenses > Maintenance shows In progress and Cancelled tickets too, and they go to the Google Sheet.
+// Draft 0.84, 18 Nov 2026 (Khairul): Maintenance Master Record Google Sheet.
+//   - maintenanceSheet/settings: the Sheet's Apps Script web app URL and Sheet link. Read by Accounting (Expenses Edit tick)
+//     and Directors (billingWriter); the Apps Script checks a caller can read it before syncing. Written by Directors.
+//   - issues: Accounting / Directors save Sheet edits on a completed Customer ticket: area and completion.actionDate /
+//     solution / costRemarks only (+ audit). Nothing else changes.
+// Draft 0.83, 18 Nov 2026 (Khairul): HR may edit their own HR details (staffHR/{uid} and advanceLimits/{uid}), like any
+//   other staff member's. hrDetailsEditor = HR or Director. Nothing else changes (salary advances: HR still never reviews their own).
+// Draft 0.82, 18 Nov 2026 (Khairul): Issues "Change to Customer". One update turns an In-house ticket (open / in progress) into a
+//   Customer ticket with its property, unit, tags (Operations + Maintenance added) and the people doing the work (1 to 20).
+//   Same people as before (Directors, tagged roles, tagged people). Nothing else changes.
+// Draft 0.81, 18 Nov 2026 (Khairul): Join date moved into Staff accounts > HR details. staffHR/{uid} may also hold
+//   joinDate ('YYYY-MM-DD' or '', text up to 10 characters). Same people as before (HR and Directors; HR not their own).
+//   The One To One Session form reads it from there. users/{uid}.joinDate (the old field) is left as it is. Nothing else changes.
+// Draft 0.80, 18 Nov 2026 (Khairul): customer maintenance tickets (Issues People, completion, owner charge).
+//   - issues: People tagged on a ticket (assigneeUids) see it and update it like a tagged role (canSeeIssue, worksIssue).
+//     New fields assigneeUids, assignees, area, driveFolderUrl, driveFolderId (raise, Edit, first file).
+//   - Mark completed on a Customer ticket: completion { ... completedByUid == me } + billing { status: 'pending' }, same people as
+//     before (Directors, tagged roles, now also tagged people) and doneByUid == me.
+//   - Comments (replies and the counter update) are allowed on completed tickets too, same people as before.
+//   - billing: written only by Accounting (Expenses Edit tick) and Directors (billingWriter), on a completed Customer ticket,
+//     only billing (+ completion.cost, + audit). They also read completed Customer tickets (Expenses > Maintenance).
+//   - Reopen: Directors only, done -> progress, completion moved to completionHistory, refused while billing is charged.
+//   - expenses: a line with source.issueId (maintenance charge) is created or edited only by billingWriter and needs invoiceNo.
+// Draft 0.79, 17 Nov 2026 (Khairul): config/driveUnits, a property's own Google Drive units folder (Property > Overview).
+//   - For a property whose unit folders are not in <property>/Owner (e.g. D Majestic: "Profit Sharing"). Issue uploads,
+//     the unit folder link and the Settings > States check use it. { props: { propertyId: { folderId, folderName, link,
+//     by, byName, at } }, updatedBy, updatedAt }. Every staff member reads; Directors and Operations write (as driveStates).
+//   - HR may read the properties list again (Draft 0.65, lost in a later merge): Staff accounts > Properties was empty for HR.
+//   - New access row 'driveFolders' (Google Drive Folders, Company Settings): Operations have Base + Full by default
+//     (presetFor). config/driveStates, driveSeen and driveUnits are now written by anyone with driveFolders.edit
+//     (Directors always), instead of Directors and Operations by role. KEEP IN STEP WITH PRESETS in lib/access.js.
+// Draft 0.78, 17 Nov 2026: Housekeeping.
+//   - New built-in role 'housekeeping' (users/{uid}.role). It signs in like any role (a username HR sets; the sign-in
+//     address is <username>@housekeeping.widebed.com). Its usual pages: presetFor('housekeeping') = none beyond the
+//     always-open ones; the Director changes them on Roles, HR/Director per person. KEEP IN STEP WITH PRESETS in lib/access.js.
+//     Issues tag 'Housekeeping' (myIssueTag); notifications may go to the role 'housekeeping'.
+//   - cohAssignments/{quarterId} { pairs: { evaluatorUid: [evaluateeUid] }, updatedBy, updatedByName, updatedAt }:
+//     HR and Directors write, every staff member reads (to see whom they rate).
+//   - cohEvaluations create: when the evaluator or the person rated is a housekeeper, the pair must be listed in
+//     cohAssignments for that quarter (hkPairOk). Every other pair works as before.
+//   - Setting a housekeeper's password is done by api/hk-password.js (service account), not by these rules.
+// Draft 0.77, 17 Nov 2026 (Khairul): Directors delete or switch off properties (Portfolio > Properties).
+//   - properties: delete is Directors only (before, `allow write` let every portfolioEditor delete one). Changing
+//     `active` (switch off / on) is Directors only; editors still create and edit everything else as before.
+//   - properties/{id}/rateVersions: Directors may delete (only when the property itself is deleted).
+//   - months: Directors may delete a month summary whose property no longer exists (cleared after a property delete).
+// Draft 0.76, 17 Nov 2026 (Khairul): Operations "Firestore refused this" on Portfolio > Owners. No new access, two fixes:
+//   - Since 0.73 every rule asked the staff record and the role's preset list many times over, so Operations requests went
+//     past Firestore's limit of 1000 checks per request and were refused (even reading an owner). The page-access helpers
+//     (role, myPerms, can, finEdit, finView, staff, ownersFull, portfolioEditor, guestFull) now read the record once per check
+//     and build only that role's own preset list. Same answers as before.
+//   - The Draft 0.63 rules had been lost in a later merge and are back: your own `properties` (+1 property you created),
+//     owners `states`/`propertyIds` (Operations, Marketing), tenants and tenants private/main `propertyIds` (Operations).
+//   - Properties Full counts as Properties Base (portfolioViewer), so a Full-only list can still add owners.
+// Draft 0.75, 17 Nov 2026 (Khairul): config/driveStates (Settings > States: each state's Google Drive folder).
+//   - Read by every signed-in staff member (Add property, Bulk Upload and api/drive.js read it). Written by Directors
+//     and Operations; holds only states, updatedBy, updatedByName and updatedAt, with updatedBy = the writer.
+//   - config/driveSeen: properties once linked to a Drive folder (orange dot when no longer found). Same readers and writers.
+// Draft 0.74, 17 Nov 2026 (Khairul): the AI Agent's pages are set on Settings > Roles (roles/ai), Base (view) only.
+//   - roles/ai: a Director saves it; its perms may only hold aiViewPerms() (Owners, Properties, Bookings, Owner Leads and
+//     the AI-only Issues, Announcements, Playbook/SOP rows). The AI's own staff record ticks are ignored.
+//   - It reads with those levels like anyone else, plus: tenants' and offline bookings' private/contact (name, phone,
+//     email) with Bookings Base; issues and replies, announcements, Playbook and SOPs with their AI rows.
+//   - Never: owner records (they hold the bank's last 4 digits; names come from private/contact), private/main of
+//     anything, payments, finance, staff list, HR records, other people's notifications. It never writes anything.
+//   - Guests' name, phone and email are also saved in tenants/{id}/private/contact and offlineBookings/{id}/private/contact.
+// Draft 0.73, 16 Nov 2026 (Khairul): access levels and the AI Agent role.
+//   - "Owners, Properties & Bookings" split into Owners, Properties (portfolio.*) and Bookings ticks, each Base (view) or
+//     Full (edit). Lists saved before this have no 'split.v2' mark: their portfolio ticks count as Owners and Bookings too,
+//     and Tenant Leads View as Bookings Full (can() / legacyHas(), same as upgradePerms in lib/access.js).
+//   - Owner personal data in two parts: owners/{id}/private/contact (name, email, phone, WhatsApp, WeChat; Owners Base and
+//     up) and private/main (everything, IC, date of birth, address and bank included; Owners Full only). The private
+//     catch-all no longer covers owners. Marketing read and change private/contact only.
+//   - Guest/tenant personal data (tenants and offline bookings private parts): Bookings Full or Tenant Leads Full.
+//   - Bookings Base read offline payments (the booking's payments); Bookings Full edit offline bookings.
+//   - AI Agent role ('ai'): no ticks, not "any staff"; reads properties only. Nothing else, never writes.
+// Draft 0.72, 16 Nov 2026 (Khairul): Directors may delete an offline payment (Accounting > Offline Payments; audited).
+// Draft 0.71, 16 Nov 2026 (Khairul): bookings Awaiting payment + invoice.
+//   - config/invoiceDefaults: the invoice header, T&Cs and bank details (New booking > invoice). Staff read; Directors write.
+//   - offlineBookings status 'pending' (shown as Awaiting payment): Operations may save one from their inquiry while the
+//     inquiry stays Interested; finishing it later (pending -> active) may add the booking's payment and mark the inquiry booked.
+// Draft 0.70, 16 Nov 2026 (Khairul): config/ownerLeadDefaults (Owner Leads > Defaults: the Operations Setup and
+// Marketing rows new listings start with). Every staff member reads it; only Directors write (as every config doc).
+// Draft 0.69, 16 Nov 2026 (Khairul): users/{uid}/drafts/{draftId}, form drafts saved on your own account
+// (New booking > Save draft). Only you read and write your own. Nothing else changed.
+// Widebed PMS Firestore rules. Draft 0.68, 13 Nov 2026 (Khairul): merge only. Holds Khairul's 0.65 to 0.67 and
+// the changes pulled from origin/testing (Neo's side). Nothing new.
+// Draft 0.67, 13 Nov 2026 (Khairul): Directors may delete an owner listing
+// (newOwnerListings/{id} and its private/main). Nothing else changed.
+// Draft 0.66, 13 Nov 2026 (Khairul): Owner Leads redesign. (1) Operations work owner listings:
+// their usual pages get Owner Leads Edit (presetFor, same as lib/access.js PRESETS), they may change lead statuses and read
+// and write the listing's private part (listingMover: owner phone, email, IC, joint owners, Wifi password). (2) Procurement
+// may add properties, units and owners like Operations and Marketing (portfolioAdder: no terms, no bank details), because
+// marking a listing's agreement Signed makes them in Portfolio. (3) Owner listing editors and viewers may read sharedRates
+// (Fees & Rates arrangements for the rental type). Nothing else changed.
+// Draft 0.65, 13 Nov 2026 (Khairul): HR may read the properties list, so they can give staff
+// property access on Settings > Staff Accounts (HR already updates users/{uid}.properties; the list showed "not found").
+// Nothing else changed.
+// Draft 0.64, 12 Nov 2026 (Khairul): merge only. Holds Khairul's 0.62 + 0.63 and Neo's
+// One To One draft (his "0.62", noted below as 0.62-Neo). Nothing new.
+// Draft 0.63, 12 Nov 2026 (Khairul): data access by property, two small gaps. (1) users/{uid}: you may
+// add ONE property to your own `properties` list, only a property you created (so a property you add doesn't vanish for you).
+// (2) owners / tenants / tenants private: the people who already add them may save `propertyIds` (the properties the owner's
+// units or the tenant's bookings are in), nothing else. No read rule changed. This is NOT the Phase 4 lock (not planned now).
+// Draft 0.62, 12 Nov 2026 (Khairul): issueQuotes, Directors may read the whole list (the Director's
+// "Stamp and link records" reads every ticket quote; the ticket check below can't be proved for a list, so it was refused). Nothing else changed.
+// Draft 0.62-Neo, 12 Nov 2026: One To One Session (Performance). config/oneToOne keeps the
+// venues HR has used (venues: up to 50 short texts) and the one picked last (lastVenue); HR and Directors read and write it.
+// Nothing else changes: the join date is users/{uid}.joinDate (the users rules already let HR and Directors save it), and
+// deleting a COH question marks it deleted (an update HR and Directors could already make; questions are still never removed).
+// Draft 0.61, 12 Nov 2026: Staff Attendance, several locations. config/attendance may hold
+// `places` (up to 30: name, address, lat, lng, radiusM, cosLat), the company's properties next to the main office. A clock-in /
+// clock-out inside one is Normal and saves which one (clockInPlaceIdx / clockOutPlaceIdx: -1 = the main office, else the
+// place's position in the list) and its name (clockInPlace / clockOutPlace, 'WIDEBED' for the main office); the server checks
+// the phone really is inside the place it names. Outside all of them it is Off-site (if allowed) and the place text is the
+// address the phone looked up (up to 200 characters). Apps from before this draft still work (main office only). Nothing else changes.
+// Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
+// property (Portfolio > Fees & Rates). Read and add-only create, the same people as a property's rateVersions. Nothing else changed.
+// Draft 0.59, 12 Nov 2026: Staff Attendance, holidays per person. A public holiday
+// (attendanceHolidays/{date}) may leave some staff out (exceptUids: a list of uids, HR unticks them in the PMS). For them that
+// date is a normal working day: clocking in is not an Off day and late counts. Holidays now accept only name, exceptUids
+// (up to 300), addedBy/addedAt and updatedBy/updatedAt. Nothing else changes.
+// Draft 0.58, 12 Nov 2026 (Khairul): Operations read owners/{id}/private/main, so Portfolio
+// shows them owner names (Marketing already could). The page shows only the name; nothing else changed.
+// Draft 0.57, 12 Nov 2026 (Khairul, state security Phase 2): records carry their property's
+// `state` (owners, tenants and eZee uploads a `states` list). The lists of allowed keys take state/states, a Director
+// may change only state/states on any property-linked record (Stamp states tool, stampOnly()), and Operations may refresh
+// an owner's `states`. Nothing is locked by state yet (that is Phase 4); no other check changed.
+// Draft 0.56, 12 Nov 2026 (Khairul, state security Phase 1): a new property may carry a
+// top-level `state` (Operations' add-property check listed every allowed key and refused it). Nothing else changed;
+// the state lock itself comes in a later draft.
+// Draft 0.55, 11 Nov 2026 (Khairul): republish only. Neo's Draft 0.54 (attendance off-site) with
+// Khairul's Draft 0.53 (Owner Leads statuses) kept, so neither drops the other. No rule changes.
+// Draft 0.54, 11 Nov 2026: Staff Attendance off-site. Staff may clock in and out away from the office;
+// each clock-in / clock-out is saved with InArea true (Normal) or false (Off-site), and the server checks that flag against its own
+// distance sum, so it can't be faked as Normal. HR / Directors can turn off-site off in config/attendance (allowOffsite: false):
+// then, as before, only inside the office area. Fake-GPS is still refused. Nothing else changes.
+// Draft 0.53, 11 Nov 2026 (Khairul): Owner Leads statuses. newOwnerListings status may be
+// inProgress (older), progress, signed, live or cancelled (Not proceeding). Status and its fields (prevStatus, signedAt,
+// liveAt, cancelledAt/By/ByUid, cancelReason) change only by Directors and Procurement (also from the TMS, which writes as
+// the signed-in person); Marketing may only take a listing to Live (with liveAt). Only Directors reopen a cancelled one.
+// The owner's phone and email (newOwnerListings/{id}/private/main) now only Directors and Procurement read and write.
+// Draft 0.52, 11 Nov 2026: Staff Attendance, several clock-ins a day. After clocking out, staff can clock in
+// again (out to a client and back): session 2, 3… up to 10 (attendance/{uid}_{day}_s2 …), only once the one before is clocked out,
+// still inside the office area with the server's time; late is decided only by the day's first clock-in. HR / Director
+// corrections may also fix a later session. Nothing else changes.
+// Draft 0.51, 11 Nov 2026: Staff Attendance corrections. On the PMS Attendance page (HR > Attendance) HR and
+// Directors can add a missing day or fix a clock-in / clock-out for anyone except themselves, with a note (editNote) and their
+// uid and the server time (editedBy, editedAt). The record's person and date never change. Still nobody deletes. Nothing else changes.
+// Draft 0.50, 11 Nov 2026 (Khairul): anonymous senders can reply in their staff complaint's
+// conversation (and add photos or documents) while it isn't Closed; nothing naming them is saved (no byUid, no byName).
+// Documents on Director complaints too (HR's Drive; the Directors and the HR sender). docs may carry threadId (a chat photo).
+// Draft 0.49 (Neo), 11 Nov 2026: Staff Attendance (Flutter app on this same Firebase project, PMS sign-in).
+// attendance/{uid}_{YYYY-MM-DD}: one record per person per Malaysia day. Any active staff member creates only their own,
+// for today, with the server's time, inside the office area (config/attendance: lat, lng, radiusM, cosLat, lateAfterMin,
+// workDays). After lateAfterMin (9:10 AM) on a working day the record must say late with a typed reason; on a weekend or a
+// holiday (attendanceHolidays/{date}) it is offDay. Clock out once, the same day, inside the area, then workedMinutes once
+// (checked against the two server times); nothing else can change.
+// Staff read only their own; HR and Directors read all. Nobody deletes. attendanceHolidays: everyone reads, HR and Directors
+// write. config/attendance: everyone reads (config/{docId} allows only some roles), HR and Directors write. Nothing else changes.
+// Draft 0.48, 11 Nov 2026 (Khairul): documents on staff complaints (complaints/{id}/docs: name and
+// Drive file id; the files sit in HR's own Google Drive). Read by the same people as the conversation. Added by HR, by the
+// named sender while it isn't Closed, or by an anonymous sender only in the first 15 minutes (no uid). Never changed or removed.
+// Draft 0.47, 10 Nov 2026: Issues <-> TMS Maintenance link. Directors and the tagged roles can
+// change a ticket's title, description and property (its card is on that property's board in the TMS), and its tmsStatus (the task system column the ticket's card is in, a map
+// { name, for }), with or without a status change, while it is Open or In progress. The task system (TMS) writes these as
+// the signed-in person, with their own PMS sign-in, so the same people can change the same tickets. Mark completed through
+// this rule also needs doneByUid == the person. Nothing else changes; Completed tickets stay locked.
+// Draft 0.46, 6 Nov 2026 (Khairul): Pool Sharing check on Month-end: Accounting / Directors save
+// "Confirmed 0 bookings" on a month document (poolZero only). Month summaries (unitMonths) may hold
+// 'arrangementType'. Fee arrangements need no change: they are saved on the property's rateVersions, which Accounting /
+// Directors already create.
+// Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
+// (advances byHR: created straight at Reviewed, within 50% of their salary, not interns, never for themselves), with the form
+// and the signature-use line in the same save. The staff member reads it but can't sign it in the PMS (paper only; HR marks it
+// signed outside). Also (6 Nov 2026): the Procurement Forms page is removed, so procurementForms.view leaves the procurement preset.
+// Also (6 Nov 2026): SOPs get an icon (a short icon name HR picks).
+// Also (6 Nov 2026): HR and Directors can delete an SOP: a soft delete (deleted: true with a reason), the record stays.
+// Also (6 Nov 2026): HR can make new SOPs (sops/{key}: any lower-case key with dashes, with a title and short line), not only the first four.
+// Also (6 Nov 2026): issues get a type (customer or inhouse); Directors and the tagged roles can change it while the ticket is open or in progress.
+// Draft 0.44, 5 Nov 2026 (Khairul): salary advance requests no longer need a "needed by" date
+// (the field is optional; older requests keep theirs). Nothing else changes.
+// Draft 0.43, 5 Nov 2026 (Khairul): salary advance review no longer asks how the Director was
+// told (the tick alone, saved with HR's name and time). Only the chloeTold.how check is removed. Nothing else changes.
+// Draft 0.42, 5 Nov 2026 (Khairul): Salary advances (0.41 was never published; this replaces it).
+// staffHR/{uid} (IC, position, salary) and advanceLimits/{uid} (50% of salary, same save): HR and Directors write; HR can't
+// change their own. The person reads only their own limit. Interns (users/{uid}.intern) can't ask for an advance.
+// advances/{id}: staff create their own (Submitted, amount <= 50% of the salary in staffHR), read their own, withdraw while
+// Submitted, and sign once Reviewed (signed/main, drawn or uploaded). HR (never on their own request): Review (amount, Director
+// told; frozen form advances/{id}/form/main + signatureUses/{id} in the same batch), mark signed outside the PMS (fully signed
+// document signed/copy required), add or replace signed/copy later, Approve (pending payment), Paid (payment type, date,
+// screenshot payment/main), Reject at Submitted or Signed. form and signed: the staff member, HR and Directors read; payment:
+// HR and Directors only. advances/{id}/notes: HR writes, HR and Directors read. signatures/director: HR and Directors.
+// counters/advances for SA- refs. Nothing is deleted. Nothing else changes.
+// Draft 0.40, 5 Nov 2026 (Khairul): second fix for 0.38. HR still couldn't read the private
+// part (subject, details) of their own Director complaint. dirSide() now reads the complaint and the role once each, the
+// private-part rule is split into separate lines, and a backup line lets HR read a private part whose fromUid is theirs.
+// Nothing else changes.
+// Draft 0.39, 5 Nov 2026 (Khairul): fix for 0.38. HR's "my Director complaints" list
+// (kind == director, fromId == me) was refused because the read rule used get('fromId', null), which a list query can't
+// be checked against. It now compares resource.data.fromId directly. Nothing else changes.
+// Draft 0.38, 5 Nov 2026 (Khairul): Director complaints are private to the HR person who sent
+// them. A new Director complaint keeps the sender's uid (fromId) on the main record; HR reads only their own Director
+// complaints (record, private part, conversation, photos) and replies only on those. Directors still read all. Staff
+// complaints unchanged (HR reads all). Nothing else changes.
+// Draft 0.37, 5 Nov 2026 (Khairul): HR Announcements. announcements/{id}: anyone signed in reads
+// the ones meant for their role or Everyone; HR and Directors read all, post, edit and delete. announcements/{id}/views/{uid}:
+// written once by that person (first time they open it), read by that person, HR and Directors. announcementReads/{uid}: the
+// person's own list of opened announcements, only they read and write it. Files go to Google Drive, not Firestore. Nothing else changes.
+// Draft 0.36, 5 Nov 2026 (Khairul): delete a cancelled offline booking for good. Accounting,
+>>>>>>> 1000b91fc9d27dab9d94987035f68ae2a79a2fab
 // Directors and Operations may delete an offlineBookings document whose status is 'cancelled', with its private part and
 // its utility bill (utilityBills/{same id}). Cancelling itself needed no change. Nothing else changes.
 // Draft 0.35, 5 Nov 2026 (Khairul, on top of Neo's Draft 0.34 below): joint owners. An owner's
@@ -692,7 +915,18 @@ service cloud.firestore {
       allow create: if anyStaff()
         && request.resource.data.raisedByUid == request.auth.uid
         && request.resource.data.status == 'open'
+<<<<<<< HEAD
         && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+=======
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
+        // Draft 0.80: People (at most 20) and Area; no completion or billing at raise time
+        && request.resource.data.get('assigneeUids', []) is list && request.resource.data.get('assigneeUids', []).size() <= 20
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        // Draft 0.88: the Date (YYYY-MM-DD) the problem was reported; Draft 0.89: the Deadline (YYYY-MM-DD)
+        && request.resource.data.get('reportDate', '') is string && request.resource.data.get('reportDate', '').size() <= 10
+        && request.resource.data.get('deadline', '') is string && request.resource.data.get('deadline', '').size() <= 10
+        && !('completion' in request.resource.data) && !('billing' in request.resource.data);
+>>>>>>> 1000b91fc9d27dab9d94987035f68ae2a79a2fab
       // A comment (anyone who can see it): counters, last poster and the ticket's audit trail.
       allow update: if anyStaff() && canSeeIssue(resource.data) && resource.data.status in ['open', 'progress']
         && changed().hasOnly(['replyCount', 'linkCount', 'lastBy', 'audit', 'updatedAt']);
@@ -701,7 +935,79 @@ service cloud.firestore {
         && (isDirector() || myIssueTag() in resource.data.tags)
         && changed().hasOnly(['status', 'tags', 'doneAt', 'doneBy', 'doneByUid', 'audit', 'updatedAt'])
         && request.resource.data.status in ['open', 'progress', 'done']
+<<<<<<< HEAD
         && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
+=======
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
+        && anyStaff() && worksIssue(resource.data);
+      // Draft 0.47: title, description, property and the task system column (tmsStatus), from the Issues page or the task system (TMS),
+      // with or without a status change: Directors and the tagged roles, while the ticket is Open or In progress.
+      // Draft 0.80: and the tagged people; plus People (assigneeUids, assignees), Area and the Drive folder link.
+      allow update: if resource.data.status in ['open', 'progress']
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'state', 'tmsStatus', 'audit', 'updatedAt',
+          'assigneeUids', 'assignees', 'area', 'driveFolderUrl', 'driveFolderId', 'reportDate', 'deadline'])   // Draft 0.88: reportDate; 0.89: deadline
+        && request.resource.data.status in ['open', 'progress', 'done']
+        && (request.resource.data.status != 'done' || request.resource.data.get('doneByUid', '') == request.auth.uid)
+        && request.resource.data.get('title', '') is string
+        && request.resource.data.get('title', '').size() > 0 && request.resource.data.get('title', '').size() <= 200
+        && request.resource.data.get('body', '') is string && request.resource.data.get('body', '').size() <= 5000
+        && request.resource.data.get('property', '') is string && request.resource.data.get('property', '').size() <= 80
+        && (!('tmsStatus' in request.resource.data) || request.resource.data.tmsStatus is map)
+        && request.resource.data.get('assigneeUids', []) is list && request.resource.data.get('assigneeUids', []).size() <= 20
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        && request.resource.data.get('reportDate', '') is string && request.resource.data.get('reportDate', '').size() <= 10
+        && request.resource.data.get('deadline', '') is string && request.resource.data.get('deadline', '').size() <= 10
+        && anyStaff() && worksIssue(resource.data);
+      // Draft 0.82: Change to Customer (In-house ticket, open or in progress): type, property, unit, tags, people and area in one write.
+      allow update: if resource.data.status in ['open', 'progress']
+        && changed().hasOnly(['type', 'property', 'propertyId', 'state', 'unit', 'unitId', 'tags', 'assigneeUids', 'assignees', 'area', 'audit', 'updatedAt'])
+        && request.resource.data.type == 'customer' && resource.data.get('type', '') != 'customer'
+        && request.resource.data.property is string && request.resource.data.property.size() > 0 && request.resource.data.property.size() <= 80
+        && request.resource.data.unit is string && request.resource.data.unit.size() > 0 && request.resource.data.unit.size() <= 40
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
+        && request.resource.data.assigneeUids is list && request.resource.data.assigneeUids.size() > 0 && request.resource.data.assigneeUids.size() <= 20
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        && anyStaff() && worksIssue(resource.data);
+      // Draft 0.80: Mark completed on a Customer ticket (same people as above): the completion record, billing pending,
+      // done by me. Nothing about the billing beyond { status: 'pending' }.
+      allow update: if resource.data.status in ['open', 'progress']
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'completion', 'billing', 'driveFolderUrl', 'driveFolderId', 'audit', 'updatedAt'])
+        && request.resource.data.status == 'done' && request.resource.data.doneByUid == request.auth.uid
+        && request.resource.data.completion is map
+        && request.resource.data.completion.completedByUid == request.auth.uid
+        && request.resource.data.completion.cost is number && request.resource.data.completion.cost >= 0
+        && request.resource.data.completion.solution is string && request.resource.data.completion.solution.size() > 0
+        && request.resource.data.completion.month is string
+        && request.resource.data.billing == { 'status': 'pending' }
+        && anyStaff() && worksIssue(resource.data);
+      // Draft 0.84: Accounting / Directors save edits made in the Maintenance Google Sheet (completed Customer ticket):
+      // area, completion.actionDate, completion.solution, completion.costRemarks. Money and everything else stay as they are.
+      allow update: if resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && 'completion' in resource.data
+        && changed().hasOnly(['area', 'completion', 'audit', 'updatedAt'])
+        && request.resource.data.completion.diff(resource.data.completion).affectedKeys().hasOnly(['actionDate', 'solution', 'costRemarks'])
+        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
+        && request.resource.data.completion.get('actionDate', '') is string && request.resource.data.completion.get('actionDate', '').size() <= 10
+        && request.resource.data.completion.solution is string && request.resource.data.completion.solution.size() > 0 && request.resource.data.completion.solution.size() <= 2000
+        && request.resource.data.completion.get('costRemarks', '') is string && request.resource.data.completion.get('costRemarks', '').size() <= 500
+        && billingWriter();
+      // Draft 0.80: Accounting / Directors charge the owner (billing), or edit the charge (billing and completion.cost).
+      // Only on a completed Customer ticket that has a completion record; nothing else changes.
+      allow update: if resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && 'completion' in resource.data
+        && changed().hasOnly(['billing', 'completion', 'audit', 'updatedAt'])
+        && request.resource.data.billing is map && request.resource.data.billing.status in ['pending', 'charged']
+        && request.resource.data.completion.diff(resource.data.completion).affectedKeys().hasOnly(['cost'])
+        && request.resource.data.completion.cost is number && request.resource.data.completion.cost >= 0
+        && billingWriter();
+      // Draft 0.80: Reopen (Directors only, with a reason): back to In progress; the completion is kept in completionHistory;
+      // refused while the owner is charged (remove the charge in Expenses first).
+      allow update: if resource.data.status == 'done'
+        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'completion', 'billing', 'completionHistory', 'reopenReason', 'tmsStatus', 'audit', 'updatedAt'])
+        && request.resource.data.status == 'progress'
+        && resource.data.get('billing', {}).get('status', '') != 'charged'
+        && !('completion' in request.resource.data) && !('billing' in request.resource.data)
+        && request.resource.data.reopenReason is string && request.resource.data.reopenReason.size() > 0
+        && isDirector();
+>>>>>>> 1000b91fc9d27dab9d94987035f68ae2a79a2fab
       // Delete ticket: Directors only, any status. Marked deleted with a reason, never removed; nothing changes it after.
       allow update: if isDirector() && resource.data.status != 'deleted'
         && changed().hasOnly(['status', 'deletedAt', 'deletedBy', 'deletedByUid', 'deleteReason', 'audit', 'updatedAt'])
