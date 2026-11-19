@@ -286,6 +286,12 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 .side-foot .foot-new { position: relative; }
 .side-foot .foot-new.unread::after { content: ""; position: absolute; top: 9px; left: 24px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
 .sidebar > nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* 19 Nov 2026: the menu's scrollbar sits in the sidebar's right padding, not on top of the menu items (a Windows
+   scrollbar is drawn inside the box and covered the right end of the highlighted item). Thin, and space kept for it
+   so the items don't jump when the list grows long enough to scroll. */
+.sidebar > nav { scrollbar-width: thin; scrollbar-gutter: stable; margin-right: -12px; padding-right: 4px; }
+/* A long page name ends in … instead of running under the edge */
+.sidebar .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-foot .sidebar-toggle { flex: 0 0 auto; width: 40px; height: 40px; margin: 0; padding: 0; justify-content: center; gap: 0; border-radius: 8px; }
 .side-foot .toggle-label { display: none; }
 

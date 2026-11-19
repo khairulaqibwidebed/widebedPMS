@@ -1,220 +1,5 @@
 rules_version = '2';
-// Draft 0.87, 18 Nov 2026 (Khairul): What's New (updates/{id}) post, edit and delete need the "What's New" Full tick
-//   (whatsNew.edit, Content group) instead of Director only. Directors always can; no role preset has it.
-// Draft 0.86, 18 Nov 2026 (Khairul): Directors remove a Cancelled (deleted) ticket and its comments for good, from
-//   Expenses > Maintenance (Cancelled). Only tickets already marked deleted; an audit log line is kept.
-// Draft 0.85, 18 Nov 2026 (Khairul): Accounting (Expenses Edit tick) and Directors read every Customer ticket, not only
-//   completed ones: Expenses > Maintenance shows In progress and Cancelled tickets too, and they go to the Google Sheet.
-// Draft 0.84, 18 Nov 2026 (Khairul): Maintenance Master Record Google Sheet.
-//   - maintenanceSheet/settings: the Sheet's Apps Script web app URL and Sheet link. Read by Accounting (Expenses Edit tick)
-//     and Directors (billingWriter); the Apps Script checks a caller can read it before syncing. Written by Directors.
-//   - issues: Accounting / Directors save Sheet edits on a completed Customer ticket: area and completion.actionDate /
-//     solution / costRemarks only (+ audit). Nothing else changes.
-// Draft 0.83, 18 Nov 2026 (Khairul): HR may edit their own HR details (staffHR/{uid} and advanceLimits/{uid}), like any
-//   other staff member's. hrDetailsEditor = HR or Director. Nothing else changes (salary advances: HR still never reviews their own).
-// Draft 0.82, 18 Nov 2026 (Khairul): Issues "Change to Customer". One update turns an In-house ticket (open / in progress) into a
-//   Customer ticket with its property, unit, tags (Operations + Maintenance added) and the people doing the work (1 to 20).
-//   Same people as before (Directors, tagged roles, tagged people). Nothing else changes.
-// Draft 0.81, 18 Nov 2026 (Khairul): Join date moved into Staff accounts > HR details. staffHR/{uid} may also hold
-//   joinDate ('YYYY-MM-DD' or '', text up to 10 characters). Same people as before (HR and Directors; HR not their own).
-//   The One To One Session form reads it from there. users/{uid}.joinDate (the old field) is left as it is. Nothing else changes.
-// Draft 0.80, 18 Nov 2026 (Khairul): customer maintenance tickets (Issues People, completion, owner charge).
-//   - issues: People tagged on a ticket (assigneeUids) see it and update it like a tagged role (canSeeIssue, worksIssue).
-//     New fields assigneeUids, assignees, area, driveFolderUrl, driveFolderId (raise, Edit, first file).
-//   - Mark completed on a Customer ticket: completion { ... completedByUid == me } + billing { status: 'pending' }, same people as
-//     before (Directors, tagged roles, now also tagged people) and doneByUid == me.
-//   - Comments (replies and the counter update) are allowed on completed tickets too, same people as before.
-//   - billing: written only by Accounting (Expenses Edit tick) and Directors (billingWriter), on a completed Customer ticket,
-//     only billing (+ completion.cost, + audit). They also read completed Customer tickets (Expenses > Maintenance).
-//   - Reopen: Directors only, done -> progress, completion moved to completionHistory, refused while billing is charged.
-//   - expenses: a line with source.issueId (maintenance charge) is created or edited only by billingWriter and needs invoiceNo.
-// Draft 0.79, 17 Nov 2026 (Khairul): config/driveUnits, a property's own Google Drive units folder (Property > Overview).
-//   - For a property whose unit folders are not in <property>/Owner (e.g. D Majestic: "Profit Sharing"). Issue uploads,
-//     the unit folder link and the Settings > States check use it. { props: { propertyId: { folderId, folderName, link,
-//     by, byName, at } }, updatedBy, updatedAt }. Every staff member reads; Directors and Operations write (as driveStates).
-//   - HR may read the properties list again (Draft 0.65, lost in a later merge): Staff accounts > Properties was empty for HR.
-//   - New access row 'driveFolders' (Google Drive Folders, Company Settings): Operations have Base + Full by default
-//     (presetFor). config/driveStates, driveSeen and driveUnits are now written by anyone with driveFolders.edit
-//     (Directors always), instead of Directors and Operations by role. KEEP IN STEP WITH PRESETS in lib/access.js.
-// Draft 0.78, 17 Nov 2026: Housekeeping.
-//   - New built-in role 'housekeeping' (users/{uid}.role). It signs in like any role (a username HR sets; the sign-in
-//     address is <username>@housekeeping.widebed.com). Its usual pages: presetFor('housekeeping') = none beyond the
-//     always-open ones; the Director changes them on Roles, HR/Director per person. KEEP IN STEP WITH PRESETS in lib/access.js.
-//     Issues tag 'Housekeeping' (myIssueTag); notifications may go to the role 'housekeeping'.
-//   - cohAssignments/{quarterId} { pairs: { evaluatorUid: [evaluateeUid] }, updatedBy, updatedByName, updatedAt }:
-//     HR and Directors write, every staff member reads (to see whom they rate).
-//   - cohEvaluations create: when the evaluator or the person rated is a housekeeper, the pair must be listed in
-//     cohAssignments for that quarter (hkPairOk). Every other pair works as before.
-//   - Setting a housekeeper's password is done by api/hk-password.js (service account), not by these rules.
-// Draft 0.77, 17 Nov 2026 (Khairul): Directors delete or switch off properties (Portfolio > Properties).
-//   - properties: delete is Directors only (before, `allow write` let every portfolioEditor delete one). Changing
-//     `active` (switch off / on) is Directors only; editors still create and edit everything else as before.
-//   - properties/{id}/rateVersions: Directors may delete (only when the property itself is deleted).
-//   - months: Directors may delete a month summary whose property no longer exists (cleared after a property delete).
-// Draft 0.76, 17 Nov 2026 (Khairul): Operations "Firestore refused this" on Portfolio > Owners. No new access, two fixes:
-//   - Since 0.73 every rule asked the staff record and the role's preset list many times over, so Operations requests went
-//     past Firestore's limit of 1000 checks per request and were refused (even reading an owner). The page-access helpers
-//     (role, myPerms, can, finEdit, finView, staff, ownersFull, portfolioEditor, guestFull) now read the record once per check
-//     and build only that role's own preset list. Same answers as before.
-//   - The Draft 0.63 rules had been lost in a later merge and are back: your own `properties` (+1 property you created),
-//     owners `states`/`propertyIds` (Operations, Marketing), tenants and tenants private/main `propertyIds` (Operations).
-//   - Properties Full counts as Properties Base (portfolioViewer), so a Full-only list can still add owners.
-// Draft 0.75, 17 Nov 2026 (Khairul): config/driveStates (Settings > States: each state's Google Drive folder).
-//   - Read by every signed-in staff member (Add property, Bulk Upload and api/drive.js read it). Written by Directors
-//     and Operations; holds only states, updatedBy, updatedByName and updatedAt, with updatedBy = the writer.
-//   - config/driveSeen: properties once linked to a Drive folder (orange dot when no longer found). Same readers and writers.
-// Draft 0.74, 17 Nov 2026 (Khairul): the AI Agent's pages are set on Settings > Roles (roles/ai), Base (view) only.
-//   - roles/ai: a Director saves it; its perms may only hold aiViewPerms() (Owners, Properties, Bookings, Owner Leads and
-//     the AI-only Issues, Announcements, Playbook/SOP rows). The AI's own staff record ticks are ignored.
-//   - It reads with those levels like anyone else, plus: tenants' and offline bookings' private/contact (name, phone,
-//     email) with Bookings Base; issues and replies, announcements, Playbook and SOPs with their AI rows.
-//   - Never: owner records (they hold the bank's last 4 digits; names come from private/contact), private/main of
-//     anything, payments, finance, staff list, HR records, other people's notifications. It never writes anything.
-//   - Guests' name, phone and email are also saved in tenants/{id}/private/contact and offlineBookings/{id}/private/contact.
-// Draft 0.73, 16 Nov 2026 (Khairul): access levels and the AI Agent role.
-//   - "Owners, Properties & Bookings" split into Owners, Properties (portfolio.*) and Bookings ticks, each Base (view) or
-//     Full (edit). Lists saved before this have no 'split.v2' mark: their portfolio ticks count as Owners and Bookings too,
-//     and Tenant Leads View as Bookings Full (can() / legacyHas(), same as upgradePerms in lib/access.js).
-//   - Owner personal data in two parts: owners/{id}/private/contact (name, email, phone, WhatsApp, WeChat; Owners Base and
-//     up) and private/main (everything, IC, date of birth, address and bank included; Owners Full only). The private
-//     catch-all no longer covers owners. Marketing read and change private/contact only.
-//   - Guest/tenant personal data (tenants and offline bookings private parts): Bookings Full or Tenant Leads Full.
-//   - Bookings Base read offline payments (the booking's payments); Bookings Full edit offline bookings.
-//   - AI Agent role ('ai'): no ticks, not "any staff"; reads properties only. Nothing else, never writes.
-// Draft 0.72, 16 Nov 2026 (Khairul): Directors may delete an offline payment (Accounting > Offline Payments; audited).
-// Draft 0.71, 16 Nov 2026 (Khairul): bookings Awaiting payment + invoice.
-//   - config/invoiceDefaults: the invoice header, T&Cs and bank details (New booking > invoice). Staff read; Directors write.
-//   - offlineBookings status 'pending' (shown as Awaiting payment): Operations may save one from their inquiry while the
-//     inquiry stays Interested; finishing it later (pending -> active) may add the booking's payment and mark the inquiry booked.
-// Draft 0.70, 16 Nov 2026 (Khairul): config/ownerLeadDefaults (Owner Leads > Defaults: the Operations Setup and
-// Marketing rows new listings start with). Every staff member reads it; only Directors write (as every config doc).
-// Draft 0.69, 16 Nov 2026 (Khairul): users/{uid}/drafts/{draftId}, form drafts saved on your own account
-// (New booking > Save draft). Only you read and write your own. Nothing else changed.
-// Widebed PMS Firestore rules. Draft 0.68, 13 Nov 2026 (Khairul): merge only. Holds Khairul's 0.65 to 0.67 and
-// the changes pulled from origin/testing (Neo's side). Nothing new.
-// Draft 0.67, 13 Nov 2026 (Khairul): Directors may delete an owner listing
-// (newOwnerListings/{id} and its private/main). Nothing else changed.
-// Draft 0.66, 13 Nov 2026 (Khairul): Owner Leads redesign. (1) Operations work owner listings:
-// their usual pages get Owner Leads Edit (presetFor, same as lib/access.js PRESETS), they may change lead statuses and read
-// and write the listing's private part (listingMover: owner phone, email, IC, joint owners, Wifi password). (2) Procurement
-// may add properties, units and owners like Operations and Marketing (portfolioAdder: no terms, no bank details), because
-// marking a listing's agreement Signed makes them in Portfolio. (3) Owner listing editors and viewers may read sharedRates
-// (Fees & Rates arrangements for the rental type). Nothing else changed.
-// Draft 0.65, 13 Nov 2026 (Khairul): HR may read the properties list, so they can give staff
-// property access on Settings > Staff Accounts (HR already updates users/{uid}.properties; the list showed "not found").
-// Nothing else changed.
-// Draft 0.64, 12 Nov 2026 (Khairul): merge only. Holds Khairul's 0.62 + 0.63 and Neo's
-// One To One draft (his "0.62", noted below as 0.62-Neo). Nothing new.
-// Draft 0.63, 12 Nov 2026 (Khairul): data access by property, two small gaps. (1) users/{uid}: you may
-// add ONE property to your own `properties` list, only a property you created (so a property you add doesn't vanish for you).
-// (2) owners / tenants / tenants private: the people who already add them may save `propertyIds` (the properties the owner's
-// units or the tenant's bookings are in), nothing else. No read rule changed. This is NOT the Phase 4 lock (not planned now).
-// Draft 0.62, 12 Nov 2026 (Khairul): issueQuotes, Directors may read the whole list (the Director's
-// "Stamp and link records" reads every ticket quote; the ticket check below can't be proved for a list, so it was refused). Nothing else changed.
-// Draft 0.62-Neo, 12 Nov 2026: One To One Session (Performance). config/oneToOne keeps the
-// venues HR has used (venues: up to 50 short texts) and the one picked last (lastVenue); HR and Directors read and write it.
-// Nothing else changes: the join date is users/{uid}.joinDate (the users rules already let HR and Directors save it), and
-// deleting a COH question marks it deleted (an update HR and Directors could already make; questions are still never removed).
-// Draft 0.61, 12 Nov 2026: Staff Attendance, several locations. config/attendance may hold
-// `places` (up to 30: name, address, lat, lng, radiusM, cosLat), the company's properties next to the main office. A clock-in /
-// clock-out inside one is Normal and saves which one (clockInPlaceIdx / clockOutPlaceIdx: -1 = the main office, else the
-// place's position in the list) and its name (clockInPlace / clockOutPlace, 'WIDEBED' for the main office); the server checks
-// the phone really is inside the place it names. Outside all of them it is Off-site (if allowed) and the place text is the
-// address the phone looked up (up to 200 characters). Apps from before this draft still work (main office only). Nothing else changes.
-// Draft 0.60, 12 Nov 2026 (Khairul): sharedRates = one set of fees and rates for every
-// property (Portfolio > Fees & Rates). Read and add-only create, the same people as a property's rateVersions. Nothing else changed.
-// Draft 0.59, 12 Nov 2026: Staff Attendance, holidays per person. A public holiday
-// (attendanceHolidays/{date}) may leave some staff out (exceptUids: a list of uids, HR unticks them in the PMS). For them that
-// date is a normal working day: clocking in is not an Off day and late counts. Holidays now accept only name, exceptUids
-// (up to 300), addedBy/addedAt and updatedBy/updatedAt. Nothing else changes.
-// Draft 0.58, 12 Nov 2026 (Khairul): Operations read owners/{id}/private/main, so Portfolio
-// shows them owner names (Marketing already could). The page shows only the name; nothing else changed.
-// Draft 0.57, 12 Nov 2026 (Khairul, state security Phase 2): records carry their property's
-// `state` (owners, tenants and eZee uploads a `states` list). The lists of allowed keys take state/states, a Director
-// may change only state/states on any property-linked record (Stamp states tool, stampOnly()), and Operations may refresh
-// an owner's `states`. Nothing is locked by state yet (that is Phase 4); no other check changed.
-// Draft 0.56, 12 Nov 2026 (Khairul, state security Phase 1): a new property may carry a
-// top-level `state` (Operations' add-property check listed every allowed key and refused it). Nothing else changed;
-// the state lock itself comes in a later draft.
-// Draft 0.55, 11 Nov 2026 (Khairul): republish only. Neo's Draft 0.54 (attendance off-site) with
-// Khairul's Draft 0.53 (Owner Leads statuses) kept, so neither drops the other. No rule changes.
-// Draft 0.54, 11 Nov 2026: Staff Attendance off-site. Staff may clock in and out away from the office;
-// each clock-in / clock-out is saved with InArea true (Normal) or false (Off-site), and the server checks that flag against its own
-// distance sum, so it can't be faked as Normal. HR / Directors can turn off-site off in config/attendance (allowOffsite: false):
-// then, as before, only inside the office area. Fake-GPS is still refused. Nothing else changes.
-// Draft 0.53, 11 Nov 2026 (Khairul): Owner Leads statuses. newOwnerListings status may be
-// inProgress (older), progress, signed, live or cancelled (Not proceeding). Status and its fields (prevStatus, signedAt,
-// liveAt, cancelledAt/By/ByUid, cancelReason) change only by Directors and Procurement (also from the TMS, which writes as
-// the signed-in person); Marketing may only take a listing to Live (with liveAt). Only Directors reopen a cancelled one.
-// The owner's phone and email (newOwnerListings/{id}/private/main) now only Directors and Procurement read and write.
-// Draft 0.52, 11 Nov 2026: Staff Attendance, several clock-ins a day. After clocking out, staff can clock in
-// again (out to a client and back): session 2, 3… up to 10 (attendance/{uid}_{day}_s2 …), only once the one before is clocked out,
-// still inside the office area with the server's time; late is decided only by the day's first clock-in. HR / Director
-// corrections may also fix a later session. Nothing else changes.
-// Draft 0.51, 11 Nov 2026: Staff Attendance corrections. On the PMS Attendance page (HR > Attendance) HR and
-// Directors can add a missing day or fix a clock-in / clock-out for anyone except themselves, with a note (editNote) and their
-// uid and the server time (editedBy, editedAt). The record's person and date never change. Still nobody deletes. Nothing else changes.
-// Draft 0.50, 11 Nov 2026 (Khairul): anonymous senders can reply in their staff complaint's
-// conversation (and add photos or documents) while it isn't Closed; nothing naming them is saved (no byUid, no byName).
-// Documents on Director complaints too (HR's Drive; the Directors and the HR sender). docs may carry threadId (a chat photo).
-// Draft 0.49 (Neo), 11 Nov 2026: Staff Attendance (Flutter app on this same Firebase project, PMS sign-in).
-// attendance/{uid}_{YYYY-MM-DD}: one record per person per Malaysia day. Any active staff member creates only their own,
-// for today, with the server's time, inside the office area (config/attendance: lat, lng, radiusM, cosLat, lateAfterMin,
-// workDays). After lateAfterMin (9:10 AM) on a working day the record must say late with a typed reason; on a weekend or a
-// holiday (attendanceHolidays/{date}) it is offDay. Clock out once, the same day, inside the area, then workedMinutes once
-// (checked against the two server times); nothing else can change.
-// Staff read only their own; HR and Directors read all. Nobody deletes. attendanceHolidays: everyone reads, HR and Directors
-// write. config/attendance: everyone reads (config/{docId} allows only some roles), HR and Directors write. Nothing else changes.
-// Draft 0.48, 11 Nov 2026 (Khairul): documents on staff complaints (complaints/{id}/docs: name and
-// Drive file id; the files sit in HR's own Google Drive). Read by the same people as the conversation. Added by HR, by the
-// named sender while it isn't Closed, or by an anonymous sender only in the first 15 minutes (no uid). Never changed or removed.
-// Draft 0.47, 10 Nov 2026: Issues <-> TMS Maintenance link. Directors and the tagged roles can
-// change a ticket's title, description and property (its card is on that property's board in the TMS), and its tmsStatus (the task system column the ticket's card is in, a map
-// { name, for }), with or without a status change, while it is Open or In progress. The task system (TMS) writes these as
-// the signed-in person, with their own PMS sign-in, so the same people can change the same tickets. Mark completed through
-// this rule also needs doneByUid == the person. Nothing else changes; Completed tickets stay locked.
-// Draft 0.46, 6 Nov 2026 (Khairul): Pool Sharing check on Month-end: Accounting / Directors save
-// "Confirmed 0 bookings" on a month document (poolZero only). Month summaries (unitMonths) may hold
-// 'arrangementType'. Fee arrangements need no change: they are saved on the property's rateVersions, which Accounting /
-// Directors already create.
-// Draft 0.45, 5 Nov 2026 (Khairul): HR can make a salary advance form for a staff member
-// (advances byHR: created straight at Reviewed, within 50% of their salary, not interns, never for themselves), with the form
-// and the signature-use line in the same save. The staff member reads it but can't sign it in the PMS (paper only; HR marks it
-// signed outside). Also (6 Nov 2026): the Procurement Forms page is removed, so procurementForms.view leaves the procurement preset.
-// Also (6 Nov 2026): SOPs get an icon (a short icon name HR picks).
-// Also (6 Nov 2026): HR and Directors can delete an SOP: a soft delete (deleted: true with a reason), the record stays.
-// Also (6 Nov 2026): HR can make new SOPs (sops/{key}: any lower-case key with dashes, with a title and short line), not only the first four.
-// Also (6 Nov 2026): issues get a type (customer or inhouse); Directors and the tagged roles can change it while the ticket is open or in progress.
-// Draft 0.44, 5 Nov 2026 (Khairul): salary advance requests no longer need a "needed by" date
-// (the field is optional; older requests keep theirs). Nothing else changes.
-// Draft 0.43, 5 Nov 2026 (Khairul): salary advance review no longer asks how the Director was
-// told (the tick alone, saved with HR's name and time). Only the chloeTold.how check is removed. Nothing else changes.
-// Draft 0.42, 5 Nov 2026 (Khairul): Salary advances (0.41 was never published; this replaces it).
-// staffHR/{uid} (IC, position, salary) and advanceLimits/{uid} (50% of salary, same save): HR and Directors write; HR can't
-// change their own. The person reads only their own limit. Interns (users/{uid}.intern) can't ask for an advance.
-// advances/{id}: staff create their own (Submitted, amount <= 50% of the salary in staffHR), read their own, withdraw while
-// Submitted, and sign once Reviewed (signed/main, drawn or uploaded). HR (never on their own request): Review (amount, Director
-// told; frozen form advances/{id}/form/main + signatureUses/{id} in the same batch), mark signed outside the PMS (fully signed
-// document signed/copy required), add or replace signed/copy later, Approve (pending payment), Paid (payment type, date,
-// screenshot payment/main), Reject at Submitted or Signed. form and signed: the staff member, HR and Directors read; payment:
-// HR and Directors only. advances/{id}/notes: HR writes, HR and Directors read. signatures/director: HR and Directors.
-// counters/advances for SA- refs. Nothing is deleted. Nothing else changes.
-// Draft 0.40, 5 Nov 2026 (Khairul): second fix for 0.38. HR still couldn't read the private
-// part (subject, details) of their own Director complaint. dirSide() now reads the complaint and the role once each, the
-// private-part rule is split into separate lines, and a backup line lets HR read a private part whose fromUid is theirs.
-// Nothing else changes.
-// Draft 0.39, 5 Nov 2026 (Khairul): fix for 0.38. HR's "my Director complaints" list
-// (kind == director, fromId == me) was refused because the read rule used get('fromId', null), which a list query can't
-// be checked against. It now compares resource.data.fromId directly. Nothing else changes.
-// Draft 0.38, 5 Nov 2026 (Khairul): Director complaints are private to the HR person who sent
-// them. A new Director complaint keeps the sender's uid (fromId) on the main record; HR reads only their own Director
-// complaints (record, private part, conversation, photos) and replies only on those. Directors still read all. Staff
-// complaints unchanged (HR reads all). Nothing else changes.
-// Draft 0.37, 5 Nov 2026 (Khairul): HR Announcements. announcements/{id}: anyone signed in reads
-// the ones meant for their role or Everyone; HR and Directors read all, post, edit and delete. announcements/{id}/views/{uid}:
-// written once by that person (first time they open it), read by that person, HR and Directors. announcementReads/{uid}: the
-// person's own list of opened announcements, only they read and write it. Files go to Google Drive, not Firestore. Nothing else changes.
-// Draft 0.36, 5 Nov 2026 (Khairul): delete a cancelled offline booking for good. Accounting,
+// Widebed PMS Firestore rules. Draft 0.36, 5 Nov 2026 (Khairul): delete a cancelled offline booking for good. Accounting,
 // Directors and Operations may delete an offlineBookings document whose status is 'cancelled', with its private part and
 // its utility bill (utilityBills/{same id}). Cancelling itself needed no change. Nothing else changes.
 // Draft 0.35, 5 Nov 2026 (Khairul, on top of Neo's Draft 0.34 below): joint owners. An owner's
@@ -287,7 +72,7 @@ rules_version = '2';
 //
 // Draft 0.20, 3 Nov 2026: ticket quotes and invoices (issueQuotes/{ticketId}: anyone on the ticket adds and reads
 // the quote, Director and Expenses Edit approve and add it to the owner's unit expenses). Draft 0.19, 3 Nov 2026:
-// What's New page (updates/{id}: every staff member reads; Director posts, edits, deletes; Draft 0.87: or the What's New tick). Draft 0.18, 3 Nov 2026:
+// What's New page (updates/{id}: every staff member reads, Director posts, edits, deletes). Draft 0.18, 3 Nov 2026:
 // owner payment status on statements (Pending Payment / Paid, Invoices & Receipts), no reopen once Paid, Director
 // can delete an unused custom role. Draft 0.18, 2 Nov 2026 (restored from root firestore.rules): agreement renewals
 // — every staff member may read the staff list (names for the "In charge" picker on agreements).
@@ -337,122 +122,67 @@ service cloud.firestore {
     function signedIn()   { return request.auth != null; }
     // The role is read from the person's staff record. A switched-off record (active == false) has no role.
     function myRecord()   { return /databases/$(database)/documents/users/$(request.auth.uid); }
-    // Draft 0.76: the staff record is read once per check (let), so a rule stays well under Firestore's 1000-step limit.
-    function myRec()      { return signedIn() && exists(myRecord()) ? get(myRecord()).data : {}; }
-    function roleOf(rec)  { return rec.get('active', true) == true ? rec.get('role', null) : null; }
-    function role()       { return roleOf(myRec()); }
+    function role() {
+      return signedIn() && exists(myRecord()) && get(myRecord()).data.get('active', true) == true
+        ? get(myRecord()).data.get('role', null) : null;
+    }
     function isDirector() { return role() == 'director'; }
     function isIT()       { return role() == 'it'; }
     function isHR()       { return role() == 'hr'; }
     function opsRole()    { return role() == 'operations'; }
     // Any active staff record with a role (every role, including IT).
-    // Draft 0.73: not the AI Agent
-    function anyStaff()   { return role() != null && role() != 'ai'; }
-    function isAI()       { return role() == 'ai'; }
+    function anyStaff()   { return role() != null; }
     // Staff accounts: Director and HR. HR can't create, edit or promote anyone to Director.
     function staffAdmin() { return isDirector() || isHR(); }
     function hrOrDir()    { return isHR() || isDirector(); }
 
     // ---- Page access (Draft 0.12) ----
     // What each role gets before anyone changes its ticks. KEEP IN STEP WITH PRESETS in lib/access.js.
-    // Draft 0.76: only the role's own list is built (was one map of every role's list, built on every check).
     function presetFor(r) {
-      return r == 'finance' ? ['reports.view', 'reports.edit', 'ezeeUpload.view', 'ezeeUpload.edit', 'expenses.view', 'expenses.edit',
+      return {
+        'finance': ['reports.view', 'reports.edit', 'ezeeUpload.view', 'ezeeUpload.edit', 'expenses.view', 'expenses.edit',
           'monthEnd.view', 'monthEnd.edit', 'invoices.view', 'invoices.edit', 'offlinePayments.view', 'offlinePayments.edit',
-          'owners.view', 'owners.edit', 'portfolio.view', 'portfolio.edit', 'bookings.view', 'bookings.edit',
-          'bulkUpload.view', 'bulkUpload.edit', 'offlineInquiries.view', 'offlineInquiries.edit', 'split.v2']
-        : r == 'operations' ? ['owners.view', 'portfolio.view', 'bookings.view', 'bookings.edit', 'offlineInquiries.view', 'offlineInquiries.edit',
-          'bookingForms.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'offlinePayments.view', 'driveFolders.view', 'driveFolders.edit', 'split.v2']
-        : r == 'it' ? ['split.v2']
-        : r == 'hr' ? ['playbook.edit', 'sops.edit', 'split.v2']
-        : r == 'procurement' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
-        : r == 'marketing' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
-        : r == 'ai' ? ['portfolio.view', 'split.v2']
-        : r == 'housekeeping' ? ['split.v2']   // Draft 0.78
-        : [];
+          'portfolio.view', 'portfolio.edit', 'bulkUpload.view', 'bulkUpload.edit', 'offlineInquiries.view', 'offlineInquiries.edit'],
+        'operations': ['portfolio.view', 'offlineInquiries.view', 'offlineInquiries.edit', 'bookingForms.view', 'newOwnerListings.view', 'offlinePayments.view'],
+        'it': [],
+        'hr': ['playbook.edit', 'sops.edit'],
+        'procurement': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'procurementForms.view'],
+        'marketing': ['portfolio.view', 'newOwnerListings.view', 'newOwnerListings.edit']
+      }.get(r, []);
     }
     // Draft 0.17: the Director can change a role's usual pages and make new roles on the Roles page, saved in roles/{id}.
     // A role with a roles/{id} document uses its perms list; the built-in lists above are the fallback.
     function roleDoc(r)     { return /databases/$(database)/documents/roles/$(r); }
-    // Draft 0.76: the preset is built only when there is no saved list (get()'s default was always built).
-    function roleDefault(r) {
-      let d = exists(roleDoc(r)) ? get(roleDoc(r)).data : {};
-      return 'perms' in d ? d.perms : presetFor(r);
-    }
+    function roleDefault(r) { return exists(roleDoc(r)) ? get(roleDoc(r)).data.get('perms', presetFor(r)) : presetFor(r); }
     // The person's ticks: saved on their record, or their role's usual pages. A switched-off record has none.
-    // Draft 0.73: the AI Agent never has ticks, whatever is saved on its record.
-    // Draft 0.74: the AI Agent's list is its role's (roles/ai, view levels only); never its own record's.
-    function permsFor(rec, r) { return r == null ? [] : (r == 'ai' ? roleDefault('ai') : ('perms' in rec ? rec.perms : roleDefault(r))); }
-    function myPerms()    { let rec = myRec(); return permsFor(rec, roleOf(rec)); }
-    // Draft 0.76: can() reads the record once; canIn() checks a list already read; canAny() checks several names at once.
-    function canIn(p, r, ps) { return r == 'director' || p in ps || (r != 'ai' && !('split.v2' in ps) && legacyIn(p, ps)); }
-    function can(p)       { let rec = myRec(); let r = roleOf(rec); return canIn(p, r, permsFor(rec, r)); }
-    function canAnyIn(names, r, ps) {
-      return r == 'director' || ps.hasAny(names) || (r != 'ai' && !('split.v2' in ps)
-        && ((names.hasAny(['owners.view', 'bookings.view']) && 'portfolio.view' in ps)
-          || (names.hasAny(['owners.edit', 'bookings.edit']) && 'portfolio.edit' in ps)
-          || (names.hasAny(['bookings.view', 'bookings.edit']) && 'offlineInquiries.view' in ps)));
-    }
-    function canAny(names) { let rec = myRec(); let r = roleOf(rec); return canAnyIn(names, r, permsFor(rec, r)); }
-    // Every name roles/ai may hold. KEEP IN STEP WITH AI_VIEW_PERMS in lib/access.js.
-    function aiViewPerms() { return ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'aiIssues.view', 'aiAnnouncements.view', 'aiContent.view', 'split.v2']; }
-    // A list saved before Draft 0.73 (no 'split.v2'): Portfolio View/Edit also give Owners and Bookings View/Edit, and
-    // Tenant Leads View gives Bookings View and Edit (they edited offline bookings before).
-    function legacyIn(p, ps) {
-      return (p in ['owners.view', 'bookings.view'] && 'portfolio.view' in ps)
-        || (p in ['owners.edit', 'bookings.edit'] && 'portfolio.edit' in ps)
-        || (p in ['bookings.view', 'bookings.edit'] && 'offlineInquiries.view' in ps);
-    }
-    function legacyHas(p) { return legacyIn(p, myPerms()); }
+    function myPerms()    { return role() != null ? get(myRecord()).data.get('perms', roleDefault(role())) : []; }
+    function can(p)       { return isDirector() || p in myPerms(); }
 
     // Finance data: any Finance page lets them read it; any Finance page ticked for Edit lets them change it.
-    function finEdit()    { let rec = myRec(); let r = roleOf(rec); return r == 'director' || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit']); }
-    function finView()    { let rec = myRec(); let r = roleOf(rec); return r == 'director' || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit', 'reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view']); }
+    function finEdit()    { return isDirector() || myPerms().hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit']); }
+    function finView()    { return finEdit() || myPerms().hasAny(['reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view']); }
     function finOrDir()   { return finEdit(); }
     function isFinance()  { return finEdit(); }
     // Finance-data readers, plus IT (view-only on everything, as before).
-    function staff()      { let rec = myRec(); let r = roleOf(rec); return r in ['director', 'it'] || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit', 'reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view']); }
+    function staff()      { return finView() || isIT(); }
     // Offline Inquiries page: works the inquiries assigned to them (Create booking, tenants, direct bookings).
-    function isOps()      { return can('offlineInquiries.view') && role() != 'ai'; }
+    function isOps()      { return can('offlineInquiries.view'); }
     // Portfolio: View reads owners, properties, units and bookings. Edit (or Bulk Upload Edit) changes them,
     // terms and bank details included.
-    function portfolioViewer() { return canAny(['portfolio.view', 'portfolio.edit']); }   // Draft 0.76: Full includes Base
-    // Draft 0.73: Owners Base read names and contact (private/contact); Owners Full (or Bulk Upload Edit) everything.
-    function ownersViewer()    { return can('owners.view'); }
-    function ownersFull()      { return canAny(['owners.edit', 'bulkUpload.edit']); }
-    function ownerContactKeys() { return ['fullName', 'email', 'phone', 'whatsapp', 'wechat', 'coOwners', 'updatedAt', 'updatedBy']; }
-    // Guest and tenant personal data: Bookings Full or Tenant Leads Full (Accounting edit through the catch-all).
-    function guestFull()       { return canAny(['bookings.edit', 'offlineInquiries.edit']); }
-    function portfolioEditor() { return canAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit', 'portfolio.edit', 'bulkUpload.edit']); }
-    // Operations, Marketing and (Draft 0.66) Procurement with Portfolio View may also add properties, units and owners
-    // (no terms or bank details).
-    function portfolioAdder()  { return role() in ['operations', 'marketing', 'procurement'] && portfolioViewer(); }
+    function portfolioViewer() { return can('portfolio.view'); }
+    function portfolioEditor() { return finEdit() || can('portfolio.edit') || can('bulkUpload.edit'); }
+    // Operations and Marketing with Portfolio View may also add properties, units and owners (no terms or bank details).
+    function portfolioAdder()  { return role() in ['operations', 'marketing'] && portfolioViewer(); }
     // Marketing with Portfolio View also edit names and details (Khairul 27 Oct).
     function isMkt()      { return role() == 'marketing' && portfolioViewer(); }
     // New Owner Listings.
     function listingViewer()   { return can('newOwnerListings.view'); }
     function listingEditor()   { return can('newOwnerListings.edit'); }
-    // Draft 0.51: lead statuses
-    // Draft 0.66: Operations too
-    function listingMover()    { return isDirector() || role() in ['procurement', 'operations']; }
-    function listingStatuses() { return ['inProgress', 'progress', 'signed', 'live', 'cancelled']; }
-    function oldListingStatus() { return resource.data.get('status', 'inProgress'); }
-    function listingStatusOk() {
-      return !changed().hasAny(['status', 'prevStatus', 'signedAt', 'liveAt', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancelReason'])
-        || (listingMover() && (isDirector() || oldListingStatus() != 'cancelled' || !changed().hasAny(['status'])))
-        || (role() == 'marketing' && request.resource.data.status == 'live' && oldListingStatus() in ['inProgress', 'progress', 'signed']
-            && !changed().hasAny(['prevStatus', 'signedAt', 'cancelledAt', 'cancelledBy', 'cancelledByUid', 'cancelReason']));
-    }
 
     // ---- Paths and writes ----
     function docPath(col, id)    { return /databases/$(database)/documents/$(col)/$(id); }
     function changed()           { return request.resource.data.diff(resource.data).affectedKeys(); }
     function newKeysOnly(keys)   { return request.resource.data.keys().hasOnly(keys); }
-    // Draft 0.57: a Director stamping states. Only `state` (a string) or `states` (a list) changes.
-    function stampOnly() {
-      return isDirector() && changed().hasOnly(['state', 'states'])
-        && request.resource.data.get('state', '') is string && request.resource.data.get('states', []) is list;
-    }
     function createdNow(col, id) { return !exists(docPath(col, id)) && existsAfter(docPath(col, id)); }
 
     // ---- Month-end: completion is per unit, statements/{unitId}_{month} ----
@@ -470,19 +200,13 @@ service cloud.firestore {
       return /databases/$(database)/documents/approvals/$(unitId + '_' + month);
     }
     function unitMonthKeys() {
-      return ['propertyId', 'state', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'arrangementType', 'fixedRentAmount',
+      return ['propertyId', 'month', 'unitId', 'unitCode', 'engineVersion', 'inUnits', 'hasTerms', 'arrangement', 'fixedRentAmount',
         'firstBookingId', 'row', 'noUnit', 'dash', 'statement', 'stale', 'dirtyRev', 'cleanRev', 'marks', 'computedAt', 'computedBy'];
     }
 
     // ---- Operations: inquiries, Create booking, direct bookings ----
     function assignedToMe(inqId) { return get(docPath('offlineInquiries', inqId)).data.get('assignedToUid', null) == request.auth.uid; }
     // True only inside the Create booking transaction: offline_{id} doesn't exist before and does after.
-    // Draft 0.71: true only in the write that finishes an Awaiting payment booking (status pending -> active).
-    function bookingPaidNow(bId) {
-      return bId is string && exists(docPath('offlineBookings', bId))
-        && get(docPath('offlineBookings', bId)).data.get('status', '') == 'pending'
-        && getAfter(docPath('offlineBookings', bId)).data.get('status', '') == 'active';
-    }
     function bookingMadeNow(inqId) {
       return !exists(docPath('offlineBookings', 'offline_' + inqId)) && existsAfter(docPath('offlineBookings', 'offline_' + inqId));
     }
@@ -502,26 +226,14 @@ service cloud.firestore {
 
     // ---- Issues: the tag each role answers to ('Admin' has no sign-in role yet) ----
     function myIssueTag() {
-      return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing', 'housekeeping': 'Housekeeping' }
+      return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing' }
         .get(role(), exists(roleDoc(role())) ? get(roleDoc(role())).data.get('name', '-') : '-');   // a role made on the Roles page is tagged by its name
     }
-    // Draft 0.80: people tagged on the ticket (assigneeUids) too. Cheap checks first (1000-step limit per request).
-    function canSeeIssue(d) { return anyStaff() && (d.raisedByUid == request.auth.uid || request.auth.uid in d.get('assigneeUids', []) || isDirector() || myIssueTag() in d.tags); }
-    // Draft 0.80: who works a ticket (In progress, tags, edit, complete): Directors, the tagged roles, the tagged people
-    function worksIssue(d) { return request.auth.uid in d.get('assigneeUids', []) || isDirector() || myIssueTag() in d.tags; }
-    // Draft 0.80: Accounting (Expenses Edit tick) and Directors: charge the owner for a completed Customer ticket
-    function billingWriter() { return isDirector() || can('expenses.edit'); }
+    function canSeeIssue(d) { return anyStaff() && (isDirector() || myIssueTag() in d.tags || d.raisedByUid == request.auth.uid); }
 
     // ---- Complaints ----
     function complaintAfter(id) { return getAfter(docPath('complaints', id)).data; }
     function complaintNow(id)   { return get(docPath('complaints', id)).data; }
-    // Draft 0.38: a Director complaint is between the Directors and the HR person who sent it (fromId), not all of HR
-    // Draft 0.40: reads the complaint and the role once each (fewer get() calls; Firestore caps them per request)
-    function dirSide(id) {
-      let c = complaintNow(id);
-      let r = role();
-      return c.kind == 'director' && (r == 'director' || (r == 'hr' && c.get('fromId', null) == request.auth.uid));
-    }
 
     // ================= Shared: private data, accounts, counters, logs =================
 
@@ -530,10 +242,10 @@ service cloud.firestore {
     // their own rules below.
     match /{parent=**}/private/{docId} {
       allow read, write: if finOrDir() && parent[0] != 'complaints' && parent[0] != 'newOwnerListings'
-        && parent[0] != 'cohEvaluations' && parent[0] != 'owners';   // Draft 0.73: owners follow Owners Full
+        && parent[0] != 'cohEvaluations';
       // Returning tenant search: collectionGroup('private') where kind == 'tenant'. kind is written only on
       // tenants/{id}/private/main; Operations can't add it to an inquiry's private doc.
-      allow read: if (guestFull() || finOrDir()) && resource.data.get('kind', '') == 'tenant';   // Draft 0.73: Full only
+      allow read: if (isOps() || finOrDir()) && resource.data.get('kind', '') == 'tenant';
     }
 
     match /users/{uid} {
@@ -550,96 +262,20 @@ service cloud.firestore {
       allow update: if isHR() && permsOk() && uid != request.auth.uid
         && resource.data.role != 'director' && request.resource.data.role != 'director';
       // Sign-in stamps lastLoginAt on your own record (Team activity).
-      allow update: if signedIn() && !isAI() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
-      // Draft 0.63 (lost in a later merge, put back in 0.76): whoever adds a property gets it on their own list. One id at
-      // a time, added at the end, nothing removed, and it must be a property they created themselves.
-      allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['properties'])
-        && request.resource.data.properties is list
-        && request.resource.data.properties.size() == resource.data.get('properties', []).size() + 1
-        && request.resource.data.properties.hasAll(resource.data.get('properties', []))
-        && get(docPath('properties', request.resource.data.properties[request.resource.data.properties.size() - 1])).data.get('createdBy', null) == request.auth.uid
-        && anyStaff();
+      allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
       allow delete: if false;
-
-      // Form drafts on your own account (New booking > Save draft, 16 Nov 2026). Only you; small docs only.
-      match /drafts/{draftId} {
-        allow read, delete: if signedIn() && request.auth.uid == uid;
-        allow create, update: if signedIn() && !isAI() && request.auth.uid == uid && request.resource.data.size() <= 10
-          && (!('bk' in request.resource.data) || (request.resource.data.bk is string && request.resource.data.bk.size() < 60000));
-      }
     }
 
     // Roles page (Director only). Everyone signed in reads, so the app can show names and usual pages after sign-in.
     match /roles/{rid} {
       allow read: if signedIn();
-      allow create, update: if isDirector() && request.resource.data.perms is list && rid != 'director' && rid != 'ai';
-      // Draft 0.74: the AI Agent's pages, view levels only
-      allow create, update: if isDirector() && rid == 'ai' && request.resource.data.perms is list
-        && request.resource.data.perms.hasOnly(aiViewPerms());
-      allow delete: if isDirector() && rid != 'director' && rid != 'ai';
-    }
-
-    // Draft 0.84: Maintenance Master Record Google Sheet settings (lib/maintenance-sheet.js).
-    match /maintenanceSheet/{docId} {
-      allow read: if billingWriter();
-      allow write: if docId == 'settings' && isDirector()
-        && request.resource.data.scriptUrl is string && request.resource.data.scriptUrl.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec')
-        && request.resource.data.get('sheetUrl', '') is string && request.resource.data.get('sheetUrl', '').size() <= 300;
+      allow create, update: if isDirector() && request.resource.data.perms is list && rid != 'director';
+      allow delete: if isDirector() && rid != 'director';
     }
 
     match /config/{docId} {
       allow read: if staff();
       allow write: if isDirector();
-    }
-
-    // Owner Leads defaults (Draft 0.70): read by whoever starts a listing; written by Directors (config/{docId} above).
-    match /config/ownerLeadDefaults {
-      allow read: if anyStaff();
-      allow write: if isDirector() && request.resource.data.setup is list && request.resource.data.setup.size() <= 40
-        && request.resource.data.marketing is list && request.resource.data.marketing.size() <= 40;
-    }
-
-    // State Drive folders (Draft 0.75): Settings > States. Directors and Operations write; all staff read.
-    match /config/driveStates {
-      allow read: if anyStaff();
-      allow write: if can('driveFolders.edit')
-        && request.resource.data.keys().hasOnly(['states', 'updatedBy', 'updatedByName', 'updatedAt'])
-        && request.resource.data.states is map && request.resource.data.states.size() <= 20
-        && request.resource.data.updatedBy == request.auth.uid;
-    }
-    // Draft 0.79: a property's own units folder (Property > Overview)
-    match /config/driveUnits {
-      allow read: if anyStaff();
-      allow write: if can('driveFolders.edit')
-        && request.resource.data.keys().hasOnly(['props', 'updatedBy', 'updatedAt'])
-        && request.resource.data.props is map && request.resource.data.props.size() <= 500
-        && request.resource.data.updatedBy == request.auth.uid;
-    }
-    match /config/driveSeen {
-      allow read: if anyStaff();
-      allow write: if can('driveFolders.edit')
-        && request.resource.data.keys().hasOnly(['props', 'updatedBy', 'updatedAt'])
-        && request.resource.data.props is map && request.resource.data.updatedBy == request.auth.uid;
-    }
-
-    // Booking invoice defaults (Draft 0.71): read by whoever makes a booking; written by Directors only.
-    match /config/invoiceDefaults {
-      allow read: if anyStaff();
-      allow write: if isDirector()
-        && request.resource.data.keys().hasOnly(['header', 'terms', 'bank', 'updatedAt', 'updatedBy', 'updatedByName'])
-        && request.resource.data.header is string && request.resource.data.header.size() <= 1000
-        && request.resource.data.terms is string && request.resource.data.terms.size() <= 20000
-        && request.resource.data.bank is string && request.resource.data.bank.size() <= 2000;
-    }
-
-    // One To One Session (Draft 0.62): the venues HR picks from on Performance > One To One Session.
-    match /config/oneToOne {
-      allow read: if hrOrDir();
-      allow write: if hrOrDir()
-        && request.resource.data.keys().hasOnly(['venues', 'lastVenue', 'updatedBy', 'updatedAt'])
-        && request.resource.data.venues is list && request.resource.data.venues.size() <= 50
-        && request.resource.data.lastVenue is string && request.resource.data.lastVenue.size() <= 80
-        && request.resource.data.updatedBy == request.auth.uid;
     }
 
     // Unit types added with "+ Add type" on Add unit: anyone who can add or edit units may add to the list.
@@ -672,10 +308,6 @@ service cloud.firestore {
         && request.resource.data.next == 2;
       allow update: if ((name == 'staffComplaints' && anyStaff()) || (name == 'directorComplaints' && hrOrDir()))
         && request.resource.data.next == resource.data.next + 1;
-      // Salary advances (Draft 0.42).
-      allow read: if name == 'advances' && anyStaff();
-      allow create: if name == 'advances' && anyStaff() && request.resource.data.next == 2;
-      allow update: if name == 'advances' && anyStaff() && request.resource.data.next == resource.data.next + 1;
       // New owner listings.
       allow read: if name == 'newOwnerListings' && listingEditor();
       allow create: if name == 'newOwnerListings' && listingEditor() && request.resource.data.next == 2;
@@ -686,43 +318,7 @@ service cloud.firestore {
     // What's New: every staff member reads the updates; only a Director posts, edits or deletes them.
     match /updates/{id} {
       allow read: if anyStaff();
-      // Draft 0.87: the What's New tick (Directors always). KEEP IN STEP WITH whatsNew in lib/access.js.
-      allow create, update, delete: if can('whatsNew.edit');
-    }
-
-    // HR Announcements (Draft 0.37, 5 Nov 2026). Posted by HR and Directors to Everyone or chosen roles (role ids).
-    match /announcements/{id} {
-      function annPoster() { return isHR() || isDirector(); }
-      function annOk() {
-        return request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 150
-          && request.resource.data.message is string && request.resource.data.message.size() > 0 && request.resource.data.message.size() <= 5000
-          && request.resource.data.audience is list && request.resource.data.audience.size() > 0 && request.resource.data.audience.size() <= 40
-          && request.resource.data.get('pinned', false) is bool
-          && request.resource.data.get('files', []) is list && request.resource.data.get('files', []).size() <= 10;
-      }
-      allow read: if annPoster() || (anyStaff() && resource.data.audience.hasAny([role(), 'everyone'])) || (isAI() && can('aiAnnouncements.view'));
-      allow create: if annPoster() && annOk() && request.resource.data.createdBy == request.auth.uid;
-      allow update: if annPoster() && annOk() && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt;
-      allow delete: if annPoster();
-
-      // Opened: once per person (no update), only for an announcement meant for them
-      match /views/{uid} {
-        function annForMe() {
-          return get(/databases/$(database)/documents/announcements/$(id)).data.audience.hasAny([role(), 'everyone']);
-        }
-        allow read: if signedIn() && (request.auth.uid == uid || isHR() || isDirector());
-        allow create: if anyStaff() && request.auth.uid == uid && annForMe()
-          && request.resource.data.keys().hasOnly(['viewedAt', 'name', 'role'])
-          && request.resource.data.viewedAt == request.time;
-        allow delete: if isHR() || isDirector();
-      }
-    }
-    // Each person's own list of announcements they have opened (dashboard banner, Unread filter)
-    match /announcementReads/{uid} {
-      allow read: if signedIn() && request.auth.uid == uid;
-      allow create, update: if anyStaff() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['ids']) && request.resource.data.ids is map;
+      allow create, update, delete: if isDirector();
     }
 
     // Every role writes its own audit entries; an anonymous complaint is logged with NO uid.
@@ -772,13 +368,9 @@ service cloud.firestore {
     // Version documents are add-only: a change is a new document.
 
     match /properties/{propertyId} {
-      allow read: if staff() || portfolioViewer() || isHR();   // Draft 0.74: the AI Agent with Properties Base (portfolioViewer). Draft 0.79: HR again (0.65, lost in a merge)
-      // Draft 0.77: was `allow write: if portfolioEditor()`, which also let every Portfolio/Accounting editor delete a
-      // property. Now only Directors delete a property or switch it off/on (`active`); editors still add and edit.
-      allow create: if portfolioEditor();
-      allow update: if portfolioEditor() && (!changed().hasAny(['active']) || isDirector());
-      allow delete: if isDirector();   // the page only offers it for properties with no units and no history
-      allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'state', 'info', 'active', 'createdAt', 'createdBy'])
+      allow read: if staff() || portfolioViewer();
+      allow write: if portfolioEditor();
+      allow create: if portfolioAdder() && newKeysOnly(['name', 'code', 'info', 'active', 'createdAt', 'createdBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.name is string && request.resource.data.code is string
         && (!('info' in request.resource.data) || request.resource.data.info.keys().hasOnly(['address', 'city', 'state', 'ezeeAccount', 'ezeeName']));
@@ -794,17 +386,8 @@ service cloud.firestore {
         allow create: if portfolioAdder() && v == '2000-01_default' && createdNow('properties', propertyId)
           && request.resource.data.effectiveFrom == '2000-01' && request.resource.data.createdBy == request.auth.uid
           && newKeysOnly(['effectiveFrom', 'ota', 'earlyCheckInToOwner', 'tourismTaxPerNight', 'reason', 'createdBy', 'createdByName', 'createdAt']);
-        allow update: if false;
-        allow delete: if isDirector();   // Draft 0.77: only when the property itself is deleted
+        allow update, delete: if false;
       }
-    }
-
-    // One set of fees and rates for every property (Draft 0.60). Add-only versions, like rateVersions above.
-    match /sharedRates/{v} {
-      // Draft 0.66: owner listing viewers too (the rental type picks an arrangement)
-      allow read: if staff() || portfolioEditor() || listingViewer();
-      allow create: if portfolioEditor() && request.resource.data.reason is string;
-      allow update, delete: if false;
     }
 
     match /units/{unitId} {
@@ -812,7 +395,7 @@ service cloud.firestore {
       allow create, update: if portfolioEditor();
       allow delete: if isDirector();   // safe delete: the page only offers it for units with no history
       // Operations: no terms (arrangement, fixed rent, fees).
-      allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'state', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
+      allow create: if portfolioAdder() && newKeysOnly(['propertyId', 'unitCode', 'ezeeRoomMatch', 'aliases', 'ownerId', 'info', 'active',
           'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.createdBy == request.auth.uid
         && exists(docPath('properties', request.resource.data.propertyId))
@@ -820,8 +403,6 @@ service cloud.firestore {
       // Marketing edit unit details and eZee names; not the owner link, status or terms.
       allow update: if isMkt() && changed().hasOnly(['aliases', 'info', 'updatedAt', 'updatedBy'])
         && request.resource.data.info.keys().hasOnly(['type', 'bedrooms', 'bathrooms', 'sizeSqft', 'carParks', 'tnb', 'water', 'wifi', 'sewerage', 'jmb']);
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
       match /terms/{v} {
         allow read: if staff() || portfolioEditor();
         allow create: if portfolioEditor() && request.resource.data.reason is string;
@@ -836,41 +417,25 @@ service cloud.firestore {
 
     // The owner parent holds bankLast4 (not shown to portfolio viewers); Operations create it with none.
     match /owners/{ownerId} {
-      // Draft 0.63 (lost in a later merge, put back in 0.76): Operations and Marketing also save `propertyIds` (the
-      // properties of the owner's units; staff of those properties see the owner), the same way as `states`.
-      // First in the block, cheapest check first (Firestore stops a request after 1000 checks).
-      allow update: if changed().hasOnly(['states', 'propertyIds'])
-        && request.resource.data.get('states', []) is list && request.resource.data.get('states', []).size() <= 16
-        && request.resource.data.get('propertyIds', []) is list && request.resource.data.get('propertyIds', []).size() <= 200
-        && (portfolioAdder() || isMkt());
-      allow read: if !isAI() && (staff() || portfolioViewer() || ownersViewer());   // Draft 0.74: holds bankLast4, so never the AI
-      allow create, update: if portfolioEditor() || ownersFull();
+      allow read: if staff() || portfolioViewer();
+      allow create, update: if portfolioEditor();
       allow delete: if isDirector();   // safe delete: the page only offers it for owners with no units
-      allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'states', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+      allow create: if portfolioAdder() && newKeysOnly(['code', 'active', 'bankLast4', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && request.resource.data.active == true && request.resource.data.get('bankLast4', null) == null
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if isMkt() && changed().hasOnly(['updatedAt', 'updatedBy']);
-      // Draft 0.57: an owner's `states` (the states of their units) is worked out again after Operations or Marketing save a unit
-      allow update: if (portfolioAdder() || isMkt()) && changed().hasOnly(['states']) && request.resource.data.states is list
-        && request.resource.data.states.size() <= 16;
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
       // Operations write name and contact details once, in the batch that creates the owner, and never read them back.
       match /private/{docId} {
-        // Draft 0.73: Owners Full: everything (main) and the contact part.
-        allow read, write: if ownersFull() && docId in ['main', 'contact'];
-        // Adding an owner (Operations, Marketing, Procurement): both parts written once, in the batch that creates the
-        // owner; private/main is never read back.
+        // Portfolio Edit: names, contact and bank details.
+        allow read, write: if portfolioEditor() && docId == 'main';
         allow create: if portfolioAdder() && docId == 'main' && createdNow('owners', ownerId)
           && newKeysOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy'])
           && request.resource.data.updatedBy == request.auth.uid;
-        allow create: if portfolioAdder() && docId == 'contact' && createdNow('owners', ownerId)
-          && newKeysOnly(ownerContactKeys()) && request.resource.data.updatedBy == request.auth.uid;
-        // Owners Base (and Marketing, Operations as before): names and contact only.
-        allow read: if (ownersViewer() || isMkt()) && docId == 'contact';
-        // Marketing change names and contact details (Khairul 27 Oct), in the contact part only.
-        allow create, update: if isMkt() && docId == 'contact' && request.resource.data.updatedBy == request.auth.uid
-          && request.resource.data.keys().hasOnly(ownerContactKeys());
+        // Marketing read and edit names and contact details (Khairul 27 Oct). Bank fields share this document: the
+        // page hides them and Marketing can't change them.
+        allow read: if isMkt() && docId == 'main';
+        allow update: if isMkt() && docId == 'main' && request.resource.data.updatedBy == request.auth.uid
+          && changed().hasOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy']);
       }
     }
 
@@ -885,9 +450,7 @@ service cloud.firestore {
     match /importBatches/{id} {
       allow read: if staff() || isOps() || opsRole();
       allow create: if finOrDir();
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
-      allow delete: if false;
+      allow update, delete: if false;
     }
 
     // Locked months are protected by the app posting changes as adjustments (CSV-13); Edit on a completed month goes
@@ -898,16 +461,12 @@ service cloud.firestore {
       allow create, update: if finOrDir();
       // Draft 0.24 (Khairul): only a booking already removed by hand on Month-end (cancelled + removedByHand), by Finance/Director
       allow delete: if finOrDir() && resource.data.status == 'cancelled' && resource.data.get('removedByHand', null) != null;
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
     }
 
     // Each unit's payout per month: completed statements, and Finance's past statements uploaded as reference.
     match /payoutHistory/{id} {
       allow read: if staff();
       allow create, update: if finOrDir();
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
       allow delete: if isDirector();
     }
 
@@ -920,25 +479,16 @@ service cloud.firestore {
         && request.resource.data.status in ['open', 'partial', 'completed'];
       // Summary-only writes, on any month.
       allow create: if finOrDir()
-        && newKeysOnly(['propertyId', 'state', 'month', 'summary'])
+        && newKeysOnly(['propertyId', 'month', 'summary'])
         && id == request.resource.data.propertyId + '_' + request.resource.data.month;
-      // Pool Sharing check (Draft 0.46): "Confirmed 0 bookings" per unit, with who and when (poolZero only).
-      allow create: if finOrDir() && newKeysOnly(['propertyId', 'state', 'month', 'poolZero'])
-        && id == request.resource.data.propertyId + '_' + request.resource.data.month;
-      allow update: if finOrDir() && changed().hasOnly(['poolZero', 'state']);
       allow update: if finOrDir()
-        && changed().hasOnly(['propertyId', 'state', 'month', 'summary'])
+        && changed().hasOnly(['propertyId', 'month', 'summary'])
         && request.resource.data.propertyId == resource.data.get('propertyId', request.resource.data.propertyId)
         && request.resource.data.month == resource.data.get('month', request.resource.data.month);
       // Approve & complete on a summary-only month document (no status yet means open).
       allow update: if finOrDir() && resource.data.get('status', 'open') != 'completed'
         && request.resource.data.status in ['open', 'partial', 'completed'];
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
-      // Draft 0.77: a deleted property's month summaries (the Properties list writes one per property each month, even
-      // with no units). Directors only, and only once the property itself is gone.
-      allow delete: if isDirector() && resource.data.get('propertyId', '') is string && resource.data.get('propertyId', '') != ''
-        && !exists(docPath('properties', resource.data.get('propertyId', '')));
+      allow delete: if false;
     }
 
     // ===== Month summaries (scale): unitMonths/{unitId}_{month}, worked out once by lib/summaries.js. Never deleted.
@@ -948,31 +498,19 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(unitMonthKeys())
         && request.resource.data.propertyId is string && request.resource.data.month is string && request.resource.data.unitId is string
         && id == request.resource.data.unitId + '_' + request.resource.data.month;
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
       allow delete: if false;
     }
 
     match /expenses/{id} {
       allow read: if staff();
-      // Draft 0.80: a maintenance charge (source.issueId, from Expenses > Maintenance) is made only by Accounting / Directors
-      // and carries its Invoice No.
       allow create: if finOrDir()
-        && !unitCompleted(request.resource.data.unitId, request.resource.data.month)
-        && (!('source' in request.resource.data)
-          || (request.resource.data.source.issueId is string && request.resource.data.get('invoiceNo', '') is string
-            && request.resource.data.get('invoiceNo', '').size() > 0 && billingWriter()));
+        && !unitCompleted(request.resource.data.unitId, request.resource.data.month);
       // Automatic Brought Forward lines are only rewritten by Approve & complete / Reopen (auto stays true).
-      // Draft 0.80: a maintenance charge line only by Accounting / Directors, keeping its source and an Invoice No.
       allow update: if finOrDir()
-        && (!('source' in resource.data) || (request.resource.data.source == resource.data.source
-          && request.resource.data.get('invoiceNo', '') is string && request.resource.data.get('invoiceNo', '').size() > 0 && billingWriter()))
         && (resource.data.auto != true || request.resource.data.auto == true)
         && !unitCompleted(resource.data.unitId, resource.data.month)
         && !unitCompleted(request.resource.data.unitId, request.resource.data.month)
         && request.resource.data.month == resource.data.month;
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
       allow delete: if false;   // "Remove" sets deleted = true
     }
 
@@ -998,8 +536,6 @@ service cloud.firestore {
         && request.resource.data.revision == resource.data.revision
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paidDate', 'paidAmount', 'paidRef', 'paidBy', 'paidByName', 'paidAt', 'payUndoReason', 'payUndoBy', 'payUndoByName', 'payUndoAt'])
         && (request.resource.data.paymentStatus == 'paid' || (isDirector() && request.resource.data.paymentStatus == 'pending'));
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
       allow delete: if false;
       match /revisions/{rev} {
         allow read: if staff();
@@ -1027,8 +563,6 @@ service cloud.firestore {
       allow update: if isDirector() && resource.data.status == 'submitted'
         && (request.resource.data.status == 'approved'
           || (request.resource.data.status == 'returned' && request.resource.data.returnReason is string && request.resource.data.returnReason.size() > 0));
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -1059,11 +593,7 @@ service cloud.firestore {
         && changed().hasOnly(['status', 'history', 'updatedAt', 'tenantId', 'bookingId'])
         && request.resource.data.status in ['new', 'interested', 'considering', 'uninterested', 'booked']
         && (bookingMadeNow(id)
-            || (!changed().hasAny(['tenantId', 'bookingId']) && (request.resource.data.status != 'booked' || resource.data.status == 'booked'))
-            // Draft 0.71: Awaiting payment booking finished -> the inquiry becomes booked
-            || (!changed().hasAny(['tenantId', 'bookingId']) && request.resource.data.status == 'booked' && bookingPaidNow(resource.data.get('bookingId', null))));
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
+            || (!changed().hasAny(['tenantId', 'bookingId']) && (request.resource.data.status != 'booked' || resource.data.status == 'booked')));
       allow delete: if false;
       // Contact details: Finance/Directors through the catch-all; the assignee here.
       match /private/{docId} {
@@ -1077,25 +607,15 @@ service cloud.firestore {
     // Written by Finance/Directors, and by Operations only inside Create booking (opsBooking, lastInquiryId)
     // or a direct booking (directBookingMadeNow, lastBookingId).
     match /tenants/{tenantId} {
-      // Draft 0.63 (lost in a later merge, put back in 0.76): after a booking is saved, the booking's property is added
-      // to the tenant's `propertyIds` (only that changes). First in the block, cheapest check first.
-      allow update: if changed().hasOnly(['propertyIds']) && request.resource.data.propertyIds is list
-        && request.resource.data.propertyIds.size() <= 200 && isOps();
       allow read: if finOrDir() || isOps();
       allow create, update: if finOrDir();
       allow create, update: if opsBooking(request.resource.data.get('lastInquiryId', null), tenantId)
-        && (resource == null || changed().hasOnly(['status', 'states', 'lastInquiryId', 'updatedAt', 'updatedBy']));
+        && (resource == null || changed().hasOnly(['status', 'lastInquiryId', 'updatedAt', 'updatedBy']));
       allow create, update: if isOps() && directBookingMadeNow(request.resource.data.get('lastBookingId', null), tenantId)
-        && (resource == null || changed().hasOnly(['status', 'states', 'lastBookingId', 'updatedAt', 'updatedBy']));
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
+        && (resource == null || changed().hasOnly(['status', 'lastBookingId', 'updatedAt', 'updatedBy']));
       allow delete: if false;
       match /private/{docId} {
-        allow read: if isOps() && guestFull();   // Draft 0.73: tenant personal data, Full only
-        // Draft 0.63 (put back in 0.76): the same list on private/main (the tenant search reads it)
-        allow update: if docId == 'main' && changed().hasOnly(['propertyIds'])
-          && request.resource.data.propertyIds is list && request.resource.data.propertyIds.size() <= 200 && (isOps() || finOrDir());
-        allow read: if isAI() && docId == 'contact' && can('bookings.view');   // Draft 0.74: name, phone, email only
+        allow read: if isOps();
         allow create, update: if opsBooking(getAfter(docPath('tenants', tenantId)).data.get('lastInquiryId', null), tenantId);
         allow create, update: if isOps()
           && directBookingMadeNow(getAfter(docPath('tenants', tenantId)).data.get('lastBookingId', null), tenantId);
@@ -1106,21 +626,17 @@ service cloud.firestore {
     // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
     // View and Edit are separate ticks: Offline Payments View reads; Offline Payments Edit creates and changes.
     match /offlinePayments/{id} {
-      allow read: if can('offlinePayments.view') || can('offlinePayments.edit') || (can('bookings.view') && !isAI());   // Draft 0.73: a booking's payments (not the AI, 0.74)
+      allow read: if can('offlinePayments.view') || can('offlinePayments.edit');
       allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
       allow update: if can('offlinePayments.edit');
       // The Booking Form saves the booking's payment here (Pending), in the same write as the booking itself.
       allow create: if (isOps() || finOrDir()) && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'Pending'
-        && request.resource.data.bookingId is string
-        && ((!exists(docPath('offlineBookings', request.resource.data.bookingId)) && existsAfter(docPath('offlineBookings', request.resource.data.bookingId)))
-            || bookingPaidNow(request.resource.data.bookingId));   // Draft 0.71: paid later, when an Awaiting payment booking is finished
+        && request.resource.data.bookingId is string && !exists(docPath('offlineBookings', request.resource.data.bookingId))
+        && existsAfter(docPath('offlineBookings', request.resource.data.bookingId));
       // Operations fill in a payment that has no receipt (status Unknown): saving it makes it Edited, and Finance is told.
       allow update: if role() == 'operations' && can('offlinePayments.view') && resource.data.status == 'Unknown' && request.resource.data.status == 'Edited'
         && !changed().hasAny(['createdBy', 'createdAt', 'submittedByName', 'verifiedByName', 'verifiedDate', 'remarks']);
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
-      // Draft 0.72: only a Director deletes a payment (the page writes an audit line with what it was)
-      allow delete: if isDirector();
+      allow delete: if false;
     }
     // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
     match /utilityBills/{bookingId} {
@@ -1131,29 +647,24 @@ service cloud.firestore {
       allow update: if finOrDir() || can('bookingForms.view');
       // Draft 0.36: removed with its booking, only while the booking is cancelled.
       allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
     }
 
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
     // offline_{inquiryId} from Create booking, or offline_BK-0001 for a direct booking (no inquiry).
     match /offlineBookings/{bookingId} {
-      allow read: if finOrDir() || isOps() || portfolioViewer() || can('bookings.view');
+      allow read: if finOrDir() || isOps() || portfolioViewer();
       allow create: if finOrDir() && bookingId == 'offline_' + request.resource.data.inquiryId;
       allow update: if finOrDir() && request.resource.data.inquiryId == resource.data.inquiryId;
       // Operations: Create booking on their own inquiry (the inquiry must point back and be booked in the same write).
       allow create: if isOps() && bookingId == 'offline_' + request.resource.data.inquiryId
         && assignedToMe(request.resource.data.inquiryId)
         && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.bookingId == bookingId
-        && (getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.status == 'booked'
-            // Draft 0.71: saved as Awaiting payment; the inquiry stays Interested (Pending payment)
-            || (request.resource.data.get('status', '') == 'pending' && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.status == 'interested'));
+        && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.status == 'booked';
       // ...and adding the eZee reservation no. later.
       allow update: if isOps() && assignedToMe(resource.data.inquiryId)
         && changed().hasOnly(['ezeeReservationNo', 'updatedAt', 'updatedBy']);
       // Operations edit any booking's details (Portfolio > Bookings > open a booking); who, source and the inquiry link stay as they were.
-      // Draft 0.73: Bookings Full (was any Operations)
-      allow update: if can('bookings.edit') && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId']);
+      allow update: if isOps() && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId']);
       // Direct booking (Portfolio > Bookings > + New booking).
       allow create: if (finOrDir() || isOps()) && bookingId.matches('offline_BK-[0-9]+')
         && request.resource.data.source == 'direct' && request.resource.data.inquiryId == null
@@ -1164,13 +675,10 @@ service cloud.firestore {
       allow create: if finOrDir() && bookingId.matches('offline_[A-Z0-9]+-[0-9]+') && request.resource.data.source == 'import'
         && request.resource.data.createdBy == request.auth.uid;
       // Draft 0.36: delete for good, only a cancelled booking (the page also checks no payment is recorded).
-      allow delete: if (finOrDir() || can('bookings.edit')) && resource.data.get('status', '') == 'cancelled';
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
-      // Door passcodes for the booking (Booking Form), and the guest on imported bookings. Draft 0.73: read with Full only.
+      allow delete: if (finOrDir() || isOps()) && resource.data.get('status', '') == 'cancelled';
+      // Door passcodes for the booking (Booking Form).
       match /private/{doc} {
-        allow read: if finOrDir() || (isOps() && guestFull());
-        allow read: if isAI() && doc == 'contact' && can('bookings.view');   // Draft 0.74: guest name, phone, email
+        allow read: if finOrDir() || isOps();
         allow create: if (finOrDir() || isOps()) && existsAfter(docPath('offlineBookings', bookingId));
         allow update: if finOrDir() || isOps();
         allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
@@ -1180,118 +688,32 @@ service cloud.firestore {
     // Issues: seen by the tagged roles, the person who raised it and Directors. Every role raises tickets.
     // Completed tickets are locked.
     match /issues/{id} {
-      allow read: if canSeeIssue(resource.data) || (isAI() && can('aiIssues.view'))   // Draft 0.74
-        // Draft 0.80: Accounting / Directors read completed Customer tickets (Expenses > Maintenance, Master Record)
-        // Draft 0.85: every Customer ticket (In progress and Cancelled too: the Maintenance tab and the Google Sheet)
-        || (resource.data.get('type', '') == 'customer' && billingWriter());
+      allow read: if canSeeIssue(resource.data);
       allow create: if anyStaff()
         && request.resource.data.raisedByUid == request.auth.uid
         && request.resource.data.status == 'open'
-        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
-        // Draft 0.80: People (at most 20) and Area; no completion or billing at raise time
-        && request.resource.data.get('assigneeUids', []) is list && request.resource.data.get('assigneeUids', []).size() <= 20
-        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
-        && !('completion' in request.resource.data) && !('billing' in request.resource.data);
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
       // A comment (anyone who can see it): counters, last poster and the ticket's audit trail.
-      // Draft 0.80: also on completed tickets (follow-up), and the ticket's Drive folder link the first time a file is added.
-      // Draft 0.80: in every update rule below the cheap field checks come first and the role checks last, so a request
-      // that doesn't match a rule stops early (Firestore's 1000-step limit per request was reached otherwise).
-      allow update: if resource.data.status in ['open', 'progress', 'done']
-        && changed().hasOnly(['replyCount', 'linkCount', 'lastBy', 'audit', 'updatedAt', 'driveFolderUrl', 'driveFolderId'])
-        && canSeeIssue(resource.data);
-      // In progress, tags and Mark completed: Directors and the tagged roles (Draft 0.80: and the tagged people).
-      allow update: if resource.data.status in ['open', 'progress']
-        && changed().hasOnly(['status', 'tags', 'type', 'doneAt', 'doneBy', 'doneByUid', 'audit', 'updatedAt'])
-        && (!('type' in request.resource.data) || request.resource.data.type in ['customer', 'inhouse'])
+      allow update: if anyStaff() && canSeeIssue(resource.data) && resource.data.status in ['open', 'progress']
+        && changed().hasOnly(['replyCount', 'linkCount', 'lastBy', 'audit', 'updatedAt']);
+      // In progress, tags and Mark completed: Directors and the tagged roles.
+      allow update: if anyStaff() && resource.data.status in ['open', 'progress']
+        && (isDirector() || myIssueTag() in resource.data.tags)
+        && changed().hasOnly(['status', 'tags', 'doneAt', 'doneBy', 'doneByUid', 'audit', 'updatedAt'])
         && request.resource.data.status in ['open', 'progress', 'done']
-        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
-        && anyStaff() && worksIssue(resource.data);
-      // Draft 0.47: title, description, property and the task system column (tmsStatus), from the Issues page or the task system (TMS),
-      // with or without a status change: Directors and the tagged roles, while the ticket is Open or In progress.
-      // Draft 0.80: and the tagged people; plus People (assigneeUids, assignees), Area and the Drive folder link.
-      allow update: if resource.data.status in ['open', 'progress']
-        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'state', 'tmsStatus', 'audit', 'updatedAt',
-          'assigneeUids', 'assignees', 'area', 'driveFolderUrl', 'driveFolderId'])
-        && request.resource.data.status in ['open', 'progress', 'done']
-        && (request.resource.data.status != 'done' || request.resource.data.get('doneByUid', '') == request.auth.uid)
-        && request.resource.data.get('title', '') is string
-        && request.resource.data.get('title', '').size() > 0 && request.resource.data.get('title', '').size() <= 200
-        && request.resource.data.get('body', '') is string && request.resource.data.get('body', '').size() <= 5000
-        && request.resource.data.get('property', '') is string && request.resource.data.get('property', '').size() <= 80
-        && (!('tmsStatus' in request.resource.data) || request.resource.data.tmsStatus is map)
-        && request.resource.data.get('assigneeUids', []) is list && request.resource.data.get('assigneeUids', []).size() <= 20
-        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
-        && anyStaff() && worksIssue(resource.data);
-      // Draft 0.82: Change to Customer (In-house ticket, open or in progress): type, property, unit, tags, people and area in one write.
-      allow update: if resource.data.status in ['open', 'progress']
-        && changed().hasOnly(['type', 'property', 'propertyId', 'state', 'unit', 'unitId', 'tags', 'assigneeUids', 'assignees', 'area', 'audit', 'updatedAt'])
-        && request.resource.data.type == 'customer' && resource.data.get('type', '') != 'customer'
-        && request.resource.data.property is string && request.resource.data.property.size() > 0 && request.resource.data.property.size() <= 80
-        && request.resource.data.unit is string && request.resource.data.unit.size() > 0 && request.resource.data.unit.size() <= 40
-        && request.resource.data.tags is list && request.resource.data.tags.size() > 0
-        && request.resource.data.assigneeUids is list && request.resource.data.assigneeUids.size() > 0 && request.resource.data.assigneeUids.size() <= 20
-        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
-        && anyStaff() && worksIssue(resource.data);
-      // Draft 0.80: Mark completed on a Customer ticket (same people as above): the completion record, billing pending,
-      // done by me. Nothing about the billing beyond { status: 'pending' }.
-      allow update: if resource.data.status in ['open', 'progress']
-        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'completion', 'billing', 'driveFolderUrl', 'driveFolderId', 'audit', 'updatedAt'])
-        && request.resource.data.status == 'done' && request.resource.data.doneByUid == request.auth.uid
-        && request.resource.data.completion is map
-        && request.resource.data.completion.completedByUid == request.auth.uid
-        && request.resource.data.completion.cost is number && request.resource.data.completion.cost >= 0
-        && request.resource.data.completion.solution is string && request.resource.data.completion.solution.size() > 0
-        && request.resource.data.completion.month is string
-        && request.resource.data.billing == { 'status': 'pending' }
-        && anyStaff() && worksIssue(resource.data);
-      // Draft 0.84: Accounting / Directors save edits made in the Maintenance Google Sheet (completed Customer ticket):
-      // area, completion.actionDate, completion.solution, completion.costRemarks. Money and everything else stay as they are.
-      allow update: if resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && 'completion' in resource.data
-        && changed().hasOnly(['area', 'completion', 'audit', 'updatedAt'])
-        && request.resource.data.completion.diff(resource.data.completion).affectedKeys().hasOnly(['actionDate', 'solution', 'costRemarks'])
-        && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
-        && request.resource.data.completion.get('actionDate', '') is string && request.resource.data.completion.get('actionDate', '').size() <= 10
-        && request.resource.data.completion.solution is string && request.resource.data.completion.solution.size() > 0 && request.resource.data.completion.solution.size() <= 2000
-        && request.resource.data.completion.get('costRemarks', '') is string && request.resource.data.completion.get('costRemarks', '').size() <= 500
-        && billingWriter();
-      // Draft 0.80: Accounting / Directors charge the owner (billing), or edit the charge (billing and completion.cost).
-      // Only on a completed Customer ticket that has a completion record; nothing else changes.
-      allow update: if resource.data.status == 'done' && resource.data.get('type', '') == 'customer' && 'completion' in resource.data
-        && changed().hasOnly(['billing', 'completion', 'audit', 'updatedAt'])
-        && request.resource.data.billing is map && request.resource.data.billing.status in ['pending', 'charged']
-        && request.resource.data.completion.diff(resource.data.completion).affectedKeys().hasOnly(['cost'])
-        && request.resource.data.completion.cost is number && request.resource.data.completion.cost >= 0
-        && billingWriter();
-      // Draft 0.80: Reopen (Directors only, with a reason): back to In progress; the completion is kept in completionHistory;
-      // refused while the owner is charged (remove the charge in Expenses first).
-      allow update: if resource.data.status == 'done'
-        && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'completion', 'billing', 'completionHistory', 'reopenReason', 'tmsStatus', 'audit', 'updatedAt'])
-        && request.resource.data.status == 'progress'
-        && resource.data.get('billing', {}).get('status', '') != 'charged'
-        && !('completion' in request.resource.data) && !('billing' in request.resource.data)
-        && request.resource.data.reopenReason is string && request.resource.data.reopenReason.size() > 0
-        && isDirector();
+        && request.resource.data.tags is list && request.resource.data.tags.size() > 0;
       // Delete ticket: Directors only, any status. Marked deleted with a reason, never removed; nothing changes it after.
-      allow update: if resource.data.status != 'deleted'
+      allow update: if isDirector() && resource.data.status != 'deleted'
         && changed().hasOnly(['status', 'deletedAt', 'deletedBy', 'deletedByUid', 'deleteReason', 'audit', 'updatedAt'])
         && request.resource.data.status == 'deleted'
-        && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0
-        && isDirector();
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
-      // Draft 0.86: a Director removes a Cancelled (deleted) ticket for good (Expenses > Maintenance, Cancelled)
-      allow delete: if resource.data.status == 'deleted' && isDirector();
+        && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0;
+      allow delete: if false;
       match /replies/{replyId} {
-        allow read: if canSeeIssue(get(docPath('issues', id)).data) || (isAI() && can('aiIssues.view'))   // Draft 0.74
-          // Draft 0.80: Accounting / Directors on a completed Customer ticket (opened from Expenses > Maintenance)
-          || (get(docPath('issues', id)).data.status == 'done' && get(docPath('issues', id)).data.get('type', '') == 'customer' && billingWriter());
-        // Draft 0.80: also on completed tickets (comments stay open for follow-up)
+        allow read: if canSeeIssue(get(docPath('issues', id)).data);
         allow create: if anyStaff() && request.resource.data.byUid == request.auth.uid
           && canSeeIssue(get(docPath('issues', id)).data)
-          && get(docPath('issues', id)).data.status in ['open', 'progress', 'done'];
-        allow update: if false;
-        // Draft 0.86: its comments go first when a Director removes a Cancelled ticket for good
-        allow delete: if get(docPath('issues', id)).data.status == 'deleted' && isDirector();
+          && get(docPath('issues', id)).data.status in ['open', 'progress'];
+        allow update, delete: if false;
       }
     }
 
@@ -1306,7 +728,7 @@ service cloud.firestore {
           && canSeeIssue(get(docPath('issues', id)).data);
       }
       function quoteKeys() {
-        return ['issueId', 'propertyId', 'state', 'unitId', 'unitCode', 'chargeTo', 'vendor', 'items', 'total', 'notes', 'status', 'rejectReason',
+        return ['issueId', 'propertyId', 'unitId', 'unitCode', 'chargeTo', 'vendor', 'items', 'total', 'notes', 'status', 'rejectReason',
           'createdAt', 'createdBy', 'createdByName', 'history', 'updatedAt', 'updatedBy'];
       }
       function quoteOk() {
@@ -1324,8 +746,6 @@ service cloud.firestore {
       allow create, update: if priceAccess() && ticketOk() && quoteOk()
         && request.resource.data.status in ['quoted', 'approved', 'invoiced', 'paid', 'rejected']
         && (resource == null || resource.data.status != 'paid');
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
       allow delete: if false;
     }
 
@@ -1369,7 +789,7 @@ service cloud.firestore {
         && request.resource.data.link is string && request.resource.data.link.matches('/.*')
         && ((request.resource.data.recipientUid is string && request.resource.data.recipientRole == null)
           || (request.resource.data.recipientUid == null
-            && (request.resource.data.recipientRole in ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing', 'housekeeping']
+            && (request.resource.data.recipientRole in ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing']
               // Draft 0.21: a role made on the Roles page (e.g. Maintenance)
               || (request.resource.data.recipientRole is string && exists(roleDoc(request.resource.data.recipientRole))))));
       // Read, unread, star and hide (Draft 0.22): the recipient adds or removes only their own uid in readBy / starredBy / hiddenBy.
@@ -1385,26 +805,18 @@ service cloud.firestore {
 
     // ================= HR: SOPs, Playbook, onboarding, complaints =================
 
-    // sops/{key}. Everyone reads; HR and Directors edit and soft-delete (deleted: true). Never removed.
+    // sops/{attendance|advance|allowance|socso}. Everyone reads; HR and Directors edit. Never deleted.
     match /sops/{sopKey} {
-      allow read: if anyStaff() || (isAI() && can('aiContent.view'));   // Draft 0.74
-      // Any SOP key: lower case, digits and dashes, 2 to 40 long (the first four keep their keys).
-      allow create, update: if can('sops.edit') && sopKey.matches('^[a-z0-9][a-z0-9-]{1,39}$')
+      allow read: if anyStaff();
+      allow create, update: if can('sops.edit') && sopKey in ['attendance', 'advance', 'allowance', 'socso']
         && request.resource.data.updatedByUid == request.auth.uid
-        && request.resource.data.steps is list && request.resource.data.steps.size() > 0
-        && (!('title' in request.resource.data) || (request.resource.data.title is string
-          && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 80))
-        && (!('sub' in request.resource.data) || (request.resource.data.sub is string && request.resource.data.sub.size() <= 200))
-        && (!('icon' in request.resource.data) || (request.resource.data.icon is string && request.resource.data.icon.size() <= 30))
-        // Deleting is a soft delete with a reason.
-        && (!('deleted' in request.resource.data) || (request.resource.data.deleted == true
-          && request.resource.data.deleteReason is string && request.resource.data.deleteReason.size() > 0));
+        && request.resource.data.steps is list && request.resource.data.steps.size() > 0;
       allow delete: if false;
     }
 
     // playbook/businessModel and playbook/onboarding. Everyone reads; HR and Directors edit.
     match /playbook/{pageId} {
-      allow read: if anyStaff() || (isAI() && can('aiContent.view'));   // Draft 0.74
+      allow read: if anyStaff();
       allow create, update: if can('playbook.edit') && pageId in ['businessModel', 'onboarding']
         && request.resource.data.updatedByUid == request.auth.uid;
       allow delete: if false;
@@ -1423,7 +835,7 @@ service cloud.firestore {
     // An anonymous staff complaint has no fromId or fromName anywhere.
     match /complaints/{id} {
       // HR reads everything. Directors read only Director complaints (never staff complaints).
-      allow read: if (isHR() && (resource.data.kind == 'staff' || resource.data.fromId == request.auth.uid)) || (isDirector() && resource.data.kind == 'director');
+      allow read: if isHR() || (isDirector() && resource.data.kind == 'director');
       // The sender of a named complaint follows it under My complaints.
       allow read: if signedIn() && resource.data.kind == 'staff' && resource.data.get('fromId', null) == request.auth.uid;
       // An anonymous sender's browser keeps the (random) id and reads only the status.
@@ -1434,7 +846,7 @@ service cloud.firestore {
           || (request.resource.data.anonymous == true && !('fromId' in request.resource.data)));
       // Director complaints: HR sends (Directors too, so the form can be tried out).
       allow create: if hrOrDir() && request.resource.data.kind == 'director' && request.resource.data.read == false
-        && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'read', 'fromId']) && request.resource.data.get('fromId', null) == request.auth.uid;
+        && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'read']);
       // Draft 0.25: HR opening a New staff complaint marks it Read by HR; the only change ever made to a staff complaint.
       allow update: if isHR() && resource.data.kind == 'staff' && resource.data.status == 'new'
         && changed().hasOnly(['status', 'readAt', 'readBy'])
@@ -1457,27 +869,23 @@ service cloud.firestore {
       // sender's browser reads by the (random) id, like the status. HR writes any time (a closing note goes with the Close);
       // the NAMED sender writes back while it isn't Closed. Text up to 2000 characters (or photos only), never changed.
       match /thread/{tid} {
-        allow read: if (isHR() && complaintNow(id).kind == 'staff')
+        allow read: if isHR()
           || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
           || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
-        allow create: if !isAI() && complaintNow(id).kind == 'staff'
+        allow create: if complaintNow(id).kind == 'staff'
           && newKeysOnly(['text', 'by', 'byName', 'byUid', 'closing', 'imageIds', 'createdAt'])
           && request.resource.data.text is string && request.resource.data.text.size() <= 2000
           && (request.resource.data.text.size() > 0
             || (request.resource.data.get('imageIds', []) is list && request.resource.data.get('imageIds', []).size() > 0))
           && request.resource.data.get('imageIds', []).size() <= 5
-          && ((request.resource.data.get('byUid', '') == request.auth.uid
-              && ((isHR() && request.resource.data.by == 'hr')
-                || (request.resource.data.by == 'sender' && complaintNow(id).get('fromId', null) == request.auth.uid
-                    && complaintNow(id).status != 'closed' && !('closing' in request.resource.data))))
-            // Draft 0.49: the anonymous sender (no uid or name saved)
-            || (anyStaff() && request.resource.data.by == 'sender' && complaintNow(id).get('anonymous', false) == true
-                && complaintNow(id).status != 'closed' && !('byUid' in request.resource.data) && !('byName' in request.resource.data)
-                && !('closing' in request.resource.data)));
+          && request.resource.data.byUid == request.auth.uid
+          && ((isHR() && request.resource.data.by == 'hr')
+            || (request.resource.data.by == 'sender' && complaintNow(id).get('fromId', null) == request.auth.uid
+                && complaintNow(id).status != 'closed' && !('closing' in request.resource.data)));
         // Draft 0.29: a Director complaint's conversation is between HR and the Directors
-        allow read: if dirSide(id);
+        allow read: if hrOrDir() && complaintNow(id).kind == 'director';
         // Draft 0.30: a closing note (closing) comes only from the Directors; HR can't write once it is Closed.
-        allow create: if dirSide(id)
+        allow create: if hrOrDir() && complaintNow(id).kind == 'director'
           && newKeysOnly(['text', 'by', 'byName', 'byUid', 'imageIds', 'closing', 'createdAt'])
           && request.resource.data.text is string && request.resource.data.text.size() <= 2000
           && (request.resource.data.text.size() > 0
@@ -1492,10 +900,10 @@ service cloud.firestore {
       // (an anonymous complaint: no uid, and only in the first 15 minutes after it was sent), or with a reply by HR or the
       // named sender (not once Closed). Each record is one image, at most ~700 KB of text.
       match /images/{img} {
-        allow read: if (isHR() && complaintNow(id).kind == 'staff')
+        allow read: if isHR()
           || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
           || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
-        allow create: if !isAI() && complaintNow(id).kind == 'staff'
+        allow create: if complaintNow(id).kind == 'staff'
           && newKeysOnly(['data', 'w', 'h', 'size', 'scope', 'threadId', 'byUid', 'createdAt'])
           && request.resource.data.data is string && request.resource.data.data.size() <= 700000
           && ((request.resource.data.scope == 'complaint' && !('threadId' in request.resource.data)
@@ -1503,43 +911,15 @@ service cloud.firestore {
                   || (anyStaff() && complaintNow(id).get('anonymous', false) == true && !('byUid' in request.resource.data)
                       && request.time < complaintNow(id).createdAt + duration.value(15, 'm'))))
             || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string
-                && ((request.resource.data.get('byUid', '') == request.auth.uid
-                    && (isHR() || (complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed')))
-                  || (anyStaff() && complaintNow(id).get('anonymous', false) == true && complaintNow(id).status != 'closed'
-                    && !('byUid' in request.resource.data)))));
+                && request.resource.data.get('byUid', '') == request.auth.uid
+                && (isHR() || (complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed'))));
         // Draft 0.29: Director complaints: HR and Directors read and add photos (with the complaint or a reply)
-        allow read: if dirSide(id);
-        allow create: if dirSide(id)
+        allow read: if hrOrDir() && complaintNow(id).kind == 'director';
+        allow create: if hrOrDir() && complaintNow(id).kind == 'director'
           && newKeysOnly(['data', 'w', 'h', 'size', 'scope', 'threadId', 'byUid', 'createdAt'])
           && request.resource.data.data is string && request.resource.data.data.size() <= 700000
           && request.resource.data.get('byUid', '') == request.auth.uid
           && (request.resource.data.scope == 'complaint' || (request.resource.data.scope == 'thread' && request.resource.data.threadId is string));
-        allow update, delete: if false;
-      }
-      // Draft 0.48 (Khairul): documents on a staff complaint. The file is in HR's Google Drive; this is its name and id.
-      match /docs/{did} {
-        allow read: if (isHR() && complaintNow(id).kind == 'staff')
-          || (signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid)
-          || (anyStaff() && complaintNow(id).kind == 'staff' && complaintNow(id).get('anonymous', false) == true);
-        allow create: if !isAI() && complaintNow(id).kind == 'staff'
-          && newKeysOnly(['name', 'fileId', 'mimeType', 'by', 'byUid', 'threadId', 'createdAt'])
-          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
-          && request.resource.data.fileId is string && request.resource.data.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
-          && ((isHR() && request.resource.data.by == 'hr' && request.resource.data.get('byUid', '') == request.auth.uid)
-            || (request.resource.data.by == 'sender' && request.resource.data.get('byUid', '') == request.auth.uid
-                && complaintNow(id).get('fromId', null) == request.auth.uid && complaintNow(id).status != 'closed')
-            // Draft 0.49: an anonymous sender any time while it isn't Closed (was the first 15 minutes only)
-            || (request.resource.data.by == 'anon' && anyStaff() && complaintNow(id).get('anonymous', false) == true
-                && !('byUid' in request.resource.data) && complaintNow(id).status != 'closed'));
-        // Draft 0.49: Director complaints (HR's Drive). The Directors any time; the HR sender while it isn't Closed.
-        allow read: if dirSide(id);
-        allow create: if dirSide(id)
-          && newKeysOnly(['name', 'fileId', 'mimeType', 'by', 'byUid', 'threadId', 'createdAt'])
-          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
-          && request.resource.data.fileId is string && request.resource.data.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
-          && request.resource.data.get('byUid', '') == request.auth.uid
-          && ((isDirector() && request.resource.data.by == 'director')
-            || (isHR() && request.resource.data.by == 'hr' && complaintNow(id).get('status', '') != 'closed'));
         allow update, delete: if false;
       }
       // Draft 0.28 (Khairul): HR's own notes on a staff complaint; nobody else reads them.
@@ -1553,10 +933,7 @@ service cloud.firestore {
         allow update, delete: if false;
       }
       match /private/{docId} {
-        allow read: if isHR() && complaintNow(id).kind == 'staff';
-        allow read: if dirSide(id);
-        // Draft 0.40 backup check: the HR sender reads their own private part by its own fromUid (no get() on the parent)
-        allow read: if isHR() && resource.data.get('fromUid', null) == request.auth.uid;
+        allow read: if isHR() || (isDirector() && complaintNow(id).kind == 'director');
         allow read: if signedIn() && complaintNow(id).kind == 'staff' && complaintNow(id).get('fromId', null) == request.auth.uid;
         // Written once, in the same transaction as the parent. Anonymous: no fromName.
         allow create: if docId == 'main' && anyStaff()
@@ -1577,18 +954,14 @@ service cloud.firestore {
       allow read: if listingViewer() || listingEditor();
       allow create: if listingEditor() && id.matches('NL-[0-9]{4,}')
         && request.resource.data.createdByUid == request.auth.uid
-        && request.resource.data.status in ['inProgress', 'progress'];
+        && request.resource.data.status in ['inProgress', 'live'];
       allow update: if listingEditor()
         && !changed().hasAny(['createdByUid', 'createdByName', 'createdAt'])
-        && request.resource.data.get('status', 'inProgress') in listingStatuses()
-        && listingStatusOk();
-      // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
-      allow update: if stampOnly();
-      allow delete: if isDirector();   // Draft 0.67: Directors only (Delete listing)
+        && request.resource.data.status in ['inProgress', 'live'];
+      allow delete: if false;
       match /private/{docId} {
-        allow read: if listingMover() && listingViewer() && docId == 'main';
-        allow write: if listingMover() && listingEditor() && docId == 'main';
-        allow delete: if isDirector();   // Draft 0.67
+        allow read: if (listingEditor() || (opsRole() && listingViewer())) && docId == 'main';
+        allow write: if listingEditor() && docId == 'main';
       }
     }
 
@@ -1629,22 +1002,6 @@ service cloud.firestore {
     // evaluator from rating the same colleague twice under two different documents.
     // The SCORE is not on this document (see private/scores below) — by business rule, the person being rated
     // never sees the mark a specific evaluator gave them, only that the evaluation happened and who gave it.
-    // Draft 0.78: housekeeping rating pairs per quarter (COH Evaluations > Housekeeping). HR and Directors write.
-    match /cohAssignments/{quarterId} {
-      allow read: if anyStaff();
-      allow write: if hrOrDir()
-        && request.resource.data.keys().hasOnly(['pairs', 'updatedBy', 'updatedByName', 'updatedAt'])
-        && request.resource.data.pairs is map && request.resource.data.pairs.size() <= 300
-        && request.resource.data.updatedBy == request.auth.uid;
-    }
-    // Draft 0.78: a pair with a housekeeper on either side must be one HR listed. Others: allowed as before.
-    function hkPairOk(quarterId, evaluatorId, evaluateeId) {
-      let other = /databases/$(database)/documents/users/$(evaluateeId);
-      let assign = /databases/$(database)/documents/cohAssignments/$(quarterId);
-      return (role() != 'housekeeping' && !(exists(other) && get(other).data.get('role', '') == 'housekeeping'))
-        || (exists(assign) && evaluateeId in get(assign).data.pairs.get(evaluatorId, []));
-    }
-
     match /cohEvaluations/{id} {
       function evalDoc() { return /databases/$(database)/documents/cohEvaluations/$(id); }
 
@@ -1659,8 +1016,7 @@ service cloud.firestore {
         && request.resource.data.evaluateeId != request.auth.uid
         && id == request.resource.data.quarterId + '_' + request.resource.data.evaluatorId + '_' + request.resource.data.evaluateeId
         && request.resource.data.status == 'submitted'
-        && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data)
-        && hkPairOk(request.resource.data.quarterId, request.resource.data.evaluatorId, request.resource.data.evaluateeId);   // Draft 0.78
+        && !('ratings' in request.resource.data) && !('averageRating' in request.resource.data);
       // Resubmit: same pair, saved back as 'submitted'. Draft 0.34: also allowed from 'approved', so an evaluator can
       // answer questions added after they submitted; it then goes back to 'submitted' for HR/Director to review again.
       // The marks themselves are protected in private/scores below (earlier answers can't be dropped once approved).
@@ -1706,9 +1062,21 @@ service cloud.firestore {
     // (resource == null && anyStaff()) lets a getDoc() that's just probing "does this exist yet" return
     // exists:false instead of permission-denied — without it, resource.data errors on a missing document and
     // the whole rule denies, which is what was breaking the KPI page for a brand-new, never-submitted task.
+    // Draft 0.89: HR assigns KPIs like a Director, but never their own and never a Director's.
+    function hrKpiFor(uid) {
+      let u = /databases/$(database)/documents/users/$(uid);
+      return isHR() && uid is string && uid != request.auth.uid
+        && exists(u) && get(u).data.get('role', '') != 'director';
+    }
     match /kpiAssignments/{id} {
-      allow read: if (resource == null && anyStaff()) || isDirector() || resource.data.employeeId == request.auth.uid;
+      // Draft 0.89: HR reads every assignment (the list of who has which KPI).
+      allow read: if (resource == null && anyStaff()) || isDirector() || isHR() || resource.data.employeeId == request.auth.uid;
       allow create, update: if isDirector();
+      // Draft 0.89: HR creates an assignment for another staff member (not a Director, not themselves).
+      allow create: if hrKpiFor(request.resource.data.employeeId);
+      // Draft 0.89: HR edits it; the employee it belongs to can't be switched to someone else.
+      allow update: if hrKpiFor(resource.data.employeeId)
+        && request.resource.data.employeeId == resource.data.employeeId;
       allow delete: if false;
     }
 
@@ -1721,7 +1089,7 @@ service cloud.firestore {
       // done (matches the KPI.vue UI, which hides the submit form at that point) — otherwise
       // an employee could write status back to 'submitted' with nulled-out review fields and erase a
       // reviewer's decision.
-      allow create, update: if !isAI() && (resource == null || (resource.data.employeeId == request.auth.uid && resource.data.status != 'done'))
+      allow create, update: if (resource == null || (resource.data.employeeId == request.auth.uid && resource.data.status != 'done'))
         && request.resource.data.employeeId == request.auth.uid
         && request.resource.data.status == 'submitted'
         && request.resource.data.get('finalApprovedRating', null) == null
@@ -1736,7 +1104,7 @@ service cloud.firestore {
         && request.resource.data.status == 'discussionRequested'
         && changed().hasOnly(['status', 'directorRating', 'directorComments', 'directorId', 'ratedAt', 'discussionStatus', 'history']);
       // The employee's own discussion-status flip, set alongside their replies.
-      allow update: if !isAI() && resource.data.employeeId == request.auth.uid && changed().hasOnly(['discussionStatus']);
+      allow update: if resource.data.employeeId == request.auth.uid && changed().hasOnly(['discussionStatus']);
       allow delete: if false;
     }
 
@@ -1765,7 +1133,7 @@ service cloud.firestore {
     // Discussion requests: the employee who raised it, and HR/Director, read and resolve.
     match /performanceDiscussions/{id} {
       allow read: if (resource == null && anyStaff()) || isDirector() || can('performance.edit') || resource.data.employeeId == request.auth.uid;
-      allow create: if !isAI() && request.resource.data.employeeId == request.auth.uid && request.resource.data.status == 'requested';
+      allow create: if request.resource.data.employeeId == request.auth.uid && request.resource.data.status == 'requested';
       allow update: if isDirector() || can('performance.edit');
       allow delete: if false;
     }
@@ -1883,347 +1251,6 @@ service cloud.firestore {
       allow read: if lodgeStaff();
       allow create, update: if lodgeStaff() && request.resource.data.next is int;
       allow delete: if false;
-    }
-
-    // ================= Salary advances (Draft 0.42, 5 Nov 2026) =================
-    // Data shape and flow: src/pages/HR/advances.js.
-    function hrPath(uid)    { return /databases/$(database)/documents/staffHR/$(uid); }
-    function limitPath(uid) { return /databases/$(database)/documents/advanceLimits/$(uid); }
-    function advPath(id)    { return /databases/$(database)/documents/advances/$(id); }
-    // HR and Directors keep the details; HR can't change their own (a Director does).
-    function hrDetailsEditor(uid) { return hrOrDir(); }   // Draft 0.83: HR may edit their own row too
-
-    // IC, position and monthly salary. Never readable by the staff member.
-    match /staffHR/{uid} {
-      allow read: if hrOrDir();
-      allow create, update: if hrDetailsEditor(uid)
-        && request.resource.data.keys().hasOnly(['ic', 'position', 'salary', 'joinDate', 'updatedAt', 'updatedBy', 'updatedByName'])
-        && request.resource.data.ic is string && request.resource.data.position is string
-        && request.resource.data.salary is number && request.resource.data.salary >= 0
-        && request.resource.data.get('joinDate', '') is string && request.resource.data.get('joinDate', '').size() <= 10
-        && request.resource.data.updatedBy == request.auth.uid
-        && getAfter(limitPath(uid)).data.limit == request.resource.data.salary * 0.5;
-      allow delete: if false;
-    }
-    // The advance limit (50% of the salary): the only part the person reads.
-    match /advanceLimits/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || hrOrDir());
-      allow create, update: if hrDetailsEditor(uid)
-        && request.resource.data.keys().hasOnly(['limit', 'updatedAt'])
-        && request.resource.data.limit == getAfter(hrPath(uid)).data.salary * 0.5;
-      allow delete: if false;
-    }
-
-    match /advances/{id} {
-      function grows()     { return request.resource.data.history is list && request.resource.data.history.size() == resource.data.history.size() + 1; }
-      function from(a, b)  { return resource.data.status == a && request.resource.data.status == b; }
-      function onlyKeys(k) { return changed().hasOnly(['status', 'history', 'updatedAt'].concat(k)); }
-      // HR moves a request on, never their own.
-      function mover()     { return isHR() && resource.data.uid != request.auth.uid; }
-      function limitOfOwner() { return get(hrPath(resource.data.uid)).data.salary * 0.5; }
-      function sub(name, d)   { return /databases/$(database)/documents/advances/$(id)/$(name)/$(d); }
-      function mine()         { return signedIn() && resource.data.uid == request.auth.uid; }
-
-      allow read: if hrOrDir() || (signedIn() && resource.data.uid == request.auth.uid);
-      // Staff: their own request, Submitted, within 50% of the salary HR entered (no salary = refused). Not interns.
-      allow create: if anyStaff() && request.resource.data.uid == request.auth.uid
-        && get(myRecord()).data.get('intern', false) != true
-        && newKeysOnly(['ref', 'uid', 'name', 'amount', 'reason', 'neededBy', 'status', 'history', 'createdAt', 'updatedAt'])
-        && request.resource.data.status == 'submitted'
-        && request.resource.data.ref is string && request.resource.data.name is string
-        && request.resource.data.amount is number && request.resource.data.amount > 0
-        && exists(hrPath(request.auth.uid))
-        && request.resource.data.amount <= get(hrPath(request.auth.uid)).data.salary * 0.5
-        && request.resource.data.reason is string && request.resource.data.reason.size() > 0 && request.resource.data.reason.size() <= 1000
-        && (!('neededBy' in request.resource.data) || request.resource.data.neededBy is string)
-        && request.resource.data.history is list && request.resource.data.history.size() == 1;
-      // HR: make the form for a staff member (byHR), straight at Reviewed; form/main and signatureUses in the same save.
-      allow create: if isHR() && request.resource.data.uid != request.auth.uid
-        && request.resource.data.byHR == true
-        && get(/databases/$(database)/documents/users/$(request.resource.data.uid)).data.get('intern', false) != true
-        && newKeysOnly(['ref', 'uid', 'name', 'amount', 'reason', 'description', 'status', 'byHR', 'approvedAmount', 'reviewedAt',
-          'reviewedBy', 'reviewedByName', 'reviewedDate', 'chloeTold', 'history', 'createdAt', 'updatedAt'])
-        && request.resource.data.status == 'reviewed'
-        && request.resource.data.ref is string && request.resource.data.name is string
-        && request.resource.data.amount is number && request.resource.data.amount > 0
-        && request.resource.data.approvedAmount == request.resource.data.amount
-        && exists(hrPath(request.resource.data.uid))
-        && request.resource.data.amount <= get(hrPath(request.resource.data.uid)).data.salary * 0.5
-        && request.resource.data.reason is string && request.resource.data.reason.size() > 0 && request.resource.data.reason.size() <= 1000
-        && (!('description' in request.resource.data) || (request.resource.data.description is string && request.resource.data.description.size() <= 1000))
-        && request.resource.data.reviewedBy == request.auth.uid
-        && request.resource.data.chloeTold.by == request.auth.uid
-        && request.resource.data.history is list && request.resource.data.history.size() == 1
-        && existsAfter(sub('form', 'main'))
-        && existsAfter(/databases/$(database)/documents/signatureUses/$(id));
-      // Staff: withdraw while Submitted.
-      allow update: if mine() && from('submitted', 'withdrawn')
-        && onlyKeys(['withdrawnAt']) && grows();
-      // HR: reject with a reason, at Submitted or Signed.
-      allow update: if mover() && (from('submitted', 'rejected') || from('signed', 'rejected')) && grows()
-        && onlyKeys(['rejectReason', 'rejectedAt', 'rejectedBy', 'rejectedByName'])
-        && request.resource.data.rejectReason is string && request.resource.data.rejectReason.size() > 0
-        && request.resource.data.rejectedBy == request.auth.uid;
-      // HR: review (within the limit, Director told; form and signature-use line written in the same batch).
-      allow update: if mover() && from('submitted', 'reviewed') && grows()
-        && onlyKeys(['approvedAmount', 'reviewedAt', 'reviewedBy', 'reviewedByName', 'reviewedDate', 'chloeTold'])
-        && request.resource.data.approvedAmount is number && request.resource.data.approvedAmount > 0
-        && request.resource.data.approvedAmount <= limitOfOwner()
-        && request.resource.data.reviewedBy == request.auth.uid
-        && request.resource.data.chloeTold.by == request.auth.uid
-        && existsAfter(sub('form', 'main'))
-        && existsAfter(/databases/$(database)/documents/signatureUses/$(id));
-      // Staff: sign (drawn on screen or a photo of the signed paper form, saved in signed/main in the same batch).
-      allow update: if mine() && from('reviewed', 'signed') && grows()
-        && resource.data.get('byHR', false) != true
-        && onlyKeys(['signMethod', 'signedAt'])
-        && request.resource.data.signMethod in ['drawn', 'upload']
-        && existsAfter(sub('signed', 'main'));
-      // HR: signed outside the PMS; the fully signed document (signed/copy) is required.
-      allow update: if mover() && from('reviewed', 'signed') && grows()
-        && onlyKeys(['signMethod', 'signedAt', 'signedCopyAt'])
-        && request.resource.data.signMethod == 'outside'
-        && existsAfter(sub('signed', 'main')) && existsAfter(sub('signed', 'copy'));
-      // HR: add or replace the fully signed document later (status unchanged).
-      allow update: if mover() && resource.data.status in ['signed', 'approved', 'paid']
-        && request.resource.data.status == resource.data.status && grows()
-        && onlyKeys(['signedCopyAt']) && existsAfter(sub('signed', 'copy'));
-      // HR: approve (pending payment), then paid with type, date and screenshot.
-      allow update: if mover() && from('signed', 'approved') && grows()
-        && onlyKeys(['approvedAt', 'approvedBy', 'approvedByName'])
-        && request.resource.data.approvedBy == request.auth.uid;
-      allow update: if mover() && from('approved', 'paid') && grows()
-        && onlyKeys(['paidDate', 'paymentType', 'paidAt', 'paidBy', 'paidByName'])
-        && request.resource.data.paidDate is string && request.resource.data.paidBy == request.auth.uid
-        && request.resource.data.paymentType in ['tng', 'bank']
-        && existsAfter(sub('payment', 'main'));
-      allow delete: if false;
-
-      // The form as reviewed (IC, salary, Director's signature): the staff member, HR and Directors. Written once, at review.
-      match /form/{doc} {
-        allow read: if hrOrDir() || (signedIn() && get(advPath(id)).data.uid == request.auth.uid);
-        allow create: if isHR() && doc == 'main'
-          && ((!exists(advPath(id)) && getAfter(advPath(id)).data.byHR == true)
-            || get(advPath(id)).data.status == 'submitted')
-          && getAfter(advPath(id)).data.uid != request.auth.uid
-          && getAfter(advPath(id)).data.status == 'reviewed'
-          && request.resource.data.uid == getAfter(advPath(id)).data.uid
-          && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.signature == get(/databases/$(database)/documents/signatures/director).data.image;
-        allow update, delete: if false;
-      }
-      // How it was signed (main) and the fully signed document (copy): the staff member, HR and Directors read.
-      // main: the staff member when signing (drawn / upload), or HR marking it signed outside. Written once.
-      // copy: HR only, required with 'outside', can be added or replaced while signed, approved or paid.
-      match /signed/{doc} {
-        function isImage() { return request.resource.data.image is string && request.resource.data.image.size() < 700000; }
-        allow read: if hrOrDir() || (signedIn() && get(advPath(id)).data.uid == request.auth.uid);
-        allow create: if doc == 'main' && request.resource.data.by == request.auth.uid
-          && get(advPath(id)).data.status == 'reviewed' && getAfter(advPath(id)).data.status == 'signed'
-          && ((get(advPath(id)).data.uid == request.auth.uid && request.resource.data.method in ['drawn', 'upload'] && isImage())
-            || (isHR() && get(advPath(id)).data.uid != request.auth.uid && request.resource.data.method == 'outside'));
-        allow create, update: if doc == 'copy' && isHR() && get(advPath(id)).data.uid != request.auth.uid
-          && request.resource.data.by == request.auth.uid && isImage()
-          && getAfter(advPath(id)).data.status in ['signed', 'approved', 'paid'];
-        allow delete: if false;
-      }
-      // Payment screenshot: HR writes it with Paid; HR and Directors read (for the record, not the staff member).
-      match /payment/{doc} {
-        allow read: if hrOrDir();
-        allow create: if isHR() && doc == 'main' && get(advPath(id)).data.uid != request.auth.uid
-          && request.resource.data.by == request.auth.uid
-          && request.resource.data.image is string && request.resource.data.image.size() < 700000
-          && get(advPath(id)).data.status == 'approved' && getAfter(advPath(id)).data.status == 'paid';
-        allow update, delete: if false;
-      }
-      // HR's own notes. HR writes; HR and Directors read (HR never on their own request).
-      match /notes/{noteId} {
-        allow read: if isDirector() || (isHR() && get(advPath(id)).data.uid != request.auth.uid);
-        allow create: if isHR() && get(advPath(id)).data.uid != request.auth.uid
-          && request.resource.data.keys().hasOnly(['text', 'byName', 'byUid', 'createdAt'])
-          && request.resource.data.byUid == request.auth.uid
-          && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000;
-        allow update, delete: if false;
-      }
-    }
-
-    // The Director's saved signature (default Miss Chloe), put on approved forms. HR uploads it for her; Directors may too.
-    match /signatures/{id} {
-      allow read: if hrOrDir();
-      allow create, update: if hrOrDir() && id == 'director'
-        && request.resource.data.keys().hasOnly(['signerName', 'image', 'updatedAt', 'updatedBy', 'updatedByName'])
-        && request.resource.data.signerName is string && request.resource.data.signerName.size() > 0 && request.resource.data.signerName.size() <= 100
-        && request.resource.data.image is string && request.resource.data.image.size() < 700000
-        && request.resource.data.updatedBy == request.auth.uid;
-      allow delete: if false;
-    }
-    // One line per form that carries the signature (id = the advance). Written with the approval, never changed.
-    match /signatureUses/{id} {
-      allow read: if hrOrDir();
-      allow create: if isHR()
-        && request.resource.data.keys().hasOnly(['advanceId', 'ref', 'staffName', 'signerName', 'createdBy', 'createdByName', 'at'])
-        && request.resource.data.advanceId == id && request.resource.data.createdBy == request.auth.uid
-        && ((!exists(advPath(id)) && getAfter(advPath(id)).data.byHR == true) || get(advPath(id)).data.status == 'submitted')
-        && getAfter(advPath(id)).data.status == 'reviewed';
-      allow update, delete: if false;
-    }
-
-    // ---------------- Staff Attendance (Draft 0.49) ----------------
-    function attCfgPath() { return /databases/$(database)/documents/config/attendance; }
-    // Office settings. Until HR or a Director saves them, the defaults agreed on 11 Nov 2026 (Micasa Shoppes, 250 m, late after 9:10).
-    function attCfg() {
-      return exists(attCfgPath()) ? get(attCfgPath()).data
-        : {'lat': 3.156812, 'lng': 101.722188, 'radiusM': 250, 'cosLat': 0.998483, 'lateAfterMin': 550, 'workDays': [1, 2, 3, 4, 5],
-           'allowOffsite': true};
-    }
-    // Draft 0.54: clocking in / out away from the office is allowed (saved as Off-site, InArea false) unless HR turns it off.
-    // Draft 0.61: Normal (InArea true) means inside the main office (i == -1) or inside places[i]; the server does the
-    // distance sum for the place the phone names, so nobody can mark themselves Normal or name a place they aren't at.
-    // name: 'WIDEBED' or the place's name when Normal, the looked-up address when Off-site (null = an older app).
-    function attPlaces() { return attCfg().get('places', []); }
-    function attSpot(i) { return i == -1 ? attCfg() : attPlaces()[i]; }
-    function attPlaceOk(lat, lng, inArea, i, name) {
-      return lat is number && lng is number && inArea is bool
-        && (inArea
-            ? (i is int && i >= -1 && i < attPlaces().size() && attNear(lat, lng, attSpot(i))
-                && (name == null || name == (i == -1 ? 'WIDEBED' : attSpot(i).name)))
-            : (attCfg().get('allowOffsite', true) == true && (name == null || (name is string && name.size() <= 200))));
-    }
-    function attPad(n) { return n < 10 ? '0' + string(n) : string(n); }
-    // The server's time in Malaysia (UTC+8, no daylight saving).
-    function myNow() { return request.time + duration.value(8, 'h'); }
-    function attToday() { let t = myNow(); return string(t.year()) + '-' + attPad(t.month()) + '-' + attPad(t.day()); }
-    // Inside a place's circle (the main office or one of places), from the phone's reported position
-    // (metres, flat-earth sum: exact enough at these sizes).
-    function attNear(lat, lng, p) {
-      let dy = (lat - p.lat) * 111320;
-      let dx = (lng - p.lng) * 111320 * p.cosLat;
-      return dy * dy + dx * dx <= p.radiusM * p.radiusM;
-    }
-    // Draft 0.59: a holiday counts for you unless HR left you out of it (exceptUids).
-    function attHolidayForMe(date) {
-      let p = /databases/$(database)/documents/attendanceHolidays/$(date);
-      return exists(p) && !(request.auth.uid in get(p).data.get('exceptUids', []));
-    }
-    function attWorkDay(date) {
-      return myNow().dayOfWeek() in attCfg().workDays && !attHolidayForMe(date);
-    }
-    function attLate(date) {
-      let t = myNow();
-      return attWorkDay(date) && t.hours() * 60 + t.minutes() > attCfg().lateAfterMin;
-    }
-    // Draft 0.52: the session before n (today, this person) exists and is clocked out.
-    function attPrevId(n) {
-      return n == 2 ? request.auth.uid + '_' + attToday() : request.auth.uid + '_' + attToday() + '_s' + string(n - 1);
-    }
-    function attPrevClosed(n) {
-      let p = /databases/$(database)/documents/attendance/$(attPrevId(n));
-      return exists(p) && ('clockOut' in get(p).data);
-    }
-
-    match /attendance/{id} {
-      // Your own records (a list query must filter uid == you). resource == null: "has today's record been made yet?"
-      allow read: if hrOrDir() || (anyStaff() && (resource == null || resource.data.uid == request.auth.uid));
-      // Clock in (Draft 0.52: several per day). Session 1 is {uid}_{day} and decides late / off day; going out and coming back
-      // makes session 2, 3… ({uid}_{day}_s2 …, at most 10), allowed only once the one before is clocked out. Never late.
-      allow create: if anyStaff()
-        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'role', 'date', 'session', 'clockIn', 'clockInLat',
-             'clockInLng', 'clockInAccuracy', 'clockInDistance', 'clockInInArea', 'clockInMocked', 'late', 'lateReason', 'offDay',
-             'status', 'platform', 'createdAt', 'updatedAt', 'clockInPlace', 'clockInPlaceIdx'])
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.date == attToday()
-        && request.resource.data.clockIn == request.time
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.clockInMocked == false
-        && attPlaceOk(request.resource.data.clockInLat, request.resource.data.clockInLng, request.resource.data.clockInInArea,
-             request.resource.data.get('clockInPlaceIdx', -1), request.resource.data.get('clockInPlace', null))
-        && request.resource.data.offDay == !attWorkDay(attToday())
-        && request.resource.data.late is bool
-        && ((
-              !('session' in request.resource.data)
-              && id == request.auth.uid + '_' + attToday()
-              && (!attLate(attToday()) || request.resource.data.late == true)
-              && (request.resource.data.late == false
-                  || (request.resource.data.lateReason is string && request.resource.data.lateReason.size() >= 3
-                      && request.resource.data.lateReason.size() <= 300))
-              && request.resource.data.status == (request.resource.data.offDay ? 'offDay' : (request.resource.data.late ? 'late' : 'present'))
-            ) || (
-              request.resource.data.session is int
-              && request.resource.data.session >= 2 && request.resource.data.session <= 10
-              && id == request.auth.uid + '_' + attToday() + '_s' + string(request.resource.data.session)
-              && attPrevClosed(request.resource.data.session)
-              && request.resource.data.late == false
-              && !('lateReason' in request.resource.data)
-              && request.resource.data.status == (request.resource.data.offDay ? 'offDay' : 'present')
-            ));
-      // Clock out: once, the same Malaysia day, with the server's time (in the area, or Off-site if allowed: Draft 0.54).
-      // Then (second save) workedMinutes, which must equal clockOut - clockIn from the two server times (rounded down, 1 min slack).
-      allow update: if anyStaff()
-        && resource.data.uid == request.auth.uid
-        && ((
-              resource.data.date == attToday()
-              && !('clockOut' in resource.data)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clockOut', 'clockOutLat', 'clockOutLng',
-                   'clockOutAccuracy', 'clockOutDistance', 'clockOutInArea', 'clockOutMocked', 'updatedAt', 'clockOutPlace', 'clockOutPlaceIdx'])
-              && request.resource.data.clockOut == request.time
-              && request.resource.data.updatedAt == request.time
-              && request.resource.data.clockOutMocked == false
-              && attPlaceOk(request.resource.data.clockOutLat, request.resource.data.clockOutLng, request.resource.data.clockOutInArea,
-                   request.resource.data.get('clockOutPlaceIdx', -1), request.resource.data.get('clockOutPlace', null))
-            ) || (
-              'clockOut' in resource.data
-              && !('workedMinutes' in resource.data)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['workedMinutes'])
-              && request.resource.data.workedMinutes is int
-              && request.resource.data.workedMinutes >= (resource.data.clockOut.toMillis() - resource.data.clockIn.toMillis()) / 60000 - 1
-              && request.resource.data.workedMinutes <= (resource.data.clockOut.toMillis() - resource.data.clockIn.toMillis()) / 60000 + 1
-            ));
-      // Draft 0.51: HR / Director corrections (PMS Attendance page). Never their own record; the person and the date stay.
-      allow create, update: if hrOrDir()
-        && request.resource.data.uid is string && request.resource.data.uid != request.auth.uid
-        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && (id == request.resource.data.uid + '_' + request.resource.data.date
-            || id == request.resource.data.uid + '_' + request.resource.data.date + '_s' + string(request.resource.data.get('session', 0)))
-        && (resource == null || (resource.data.uid == request.resource.data.uid && resource.data.date == request.resource.data.date))
-        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'role', 'date', 'session', 'clockIn', 'clockInLat', 'clockInLng',
-             'clockInAccuracy', 'clockInDistance', 'clockInInArea', 'clockInMocked', 'late', 'lateReason', 'offDay', 'status',
-             'platform', 'createdAt', 'updatedAt', 'clockOut', 'clockOutLat', 'clockOutLng', 'clockOutAccuracy', 'clockOutDistance',
-             'clockOutInArea', 'clockOutMocked', 'workedMinutes', 'editedBy', 'editedByName', 'editedAt', 'editNote',
-             'clockInPlace', 'clockInPlaceIdx', 'clockOutPlace', 'clockOutPlaceIdx'])
-        && request.resource.data.clockIn is timestamp
-        && (!('clockOut' in request.resource.data)
-            || (request.resource.data.clockOut is timestamp && request.resource.data.clockOut > request.resource.data.clockIn))
-        && (!('workedMinutes' in request.resource.data) || request.resource.data.workedMinutes is int)
-        && request.resource.data.status in ['present', 'late', 'offDay']
-        && request.resource.data.editedBy == request.auth.uid
-        && request.resource.data.editedAt == request.time
-        && request.resource.data.editNote is string && request.resource.data.editNote.size() >= 3 && request.resource.data.editNote.size() <= 300;
-      allow delete: if false;
-    }
-
-    // Public holidays, kept by HR on the PMS Attendance page. id = YYYY-MM-DD.
-    match /attendanceHolidays/{date} {
-      allow read: if anyStaff();
-      // Draft 0.59: exceptUids = staff left out of this holiday (empty or missing = everyone).
-      allow create, update: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.keys().hasOnly(['name', 'exceptUids', 'addedBy', 'addedAt', 'updatedBy', 'updatedAt'])
-        && request.resource.data.name is string && request.resource.data.name.size() <= 80
-        && request.resource.data.get('exceptUids', []) is list && request.resource.data.get('exceptUids', []).size() <= 300;
-      allow delete: if hrOrDir() && date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
-    }
-
-    // Office location, radius and late time for attendance. Draft 0.61: places = the other locations (properties), up to 30.
-    match /config/attendance {
-      allow read: if anyStaff();
-      allow write: if hrOrDir()
-        && request.resource.data.keys().hasOnly(['officeName', 'address', 'lat', 'lng', 'radiusM', 'cosLat', 'workStartMin',
-             'workEndMin', 'lateAfterMin', 'workDays', 'allowOffsite', 'places', 'updatedBy', 'updatedAt'])
-        && request.resource.data.get('places', []) is list && request.resource.data.get('places', []).size() <= 30
-        && request.resource.data.get('allowOffsite', true) is bool
-        && request.resource.data.lat is number && request.resource.data.lng is number
-        && request.resource.data.radiusM is number && request.resource.data.radiusM >= 50 && request.resource.data.radiusM <= 2000
-        && request.resource.data.cosLat is number && request.resource.data.lateAfterMin is int && request.resource.data.workDays is list;
     }
 
   }
