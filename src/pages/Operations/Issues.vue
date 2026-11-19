@@ -49,7 +49,8 @@
                   <td class="nw"><span class="type-badge" :class="typeOf(t)"><svg viewBox="0 0 24 24" aria-hidden="true" v-html="TYPE_ICON[typeOf(t)]"></svg>{{ TYPE_LABEL[typeOf(t)] }}</span></td>
                   <td class="t-title ct-title">{{ t.title }}</td>
                   <td class="nw ct-hide">{{ t.unit || '—' }}</td>
-                  <td><div class="tag-wrap"><template v-for="g in t.tags" :key="g"><span class="tag">{{ tagLabel(g) }}</span></template></div></td>
+                  <!-- 19 Nov 2026: at most 2 tags in the list, then "+N" (hover shows the rest); the ticket shows them all -->
+                  <td><div class="tag-wrap"><template v-for="g in t.tags.slice(0, 2)" :key="g"><span class="tag">{{ tagLabel(g) }}</span></template><span class="tag tag-more" v-if="t.tags.length > 2" :title="t.tags.slice(2).map(tagLabel).join(', ')">{{ `+${t.tags.length - 2}` }}</span></div></td>
                   <td><span class="who"><Avatar :uid="t.raisedByUid" :name="t.raisedBy" :role="t.raisedRole" :size="20" />{{ t.raisedBy }}<span class="tag role-tint" :style="roleTint(t.raisedRole)" v-if="showRole(t.raisedBy, t.raisedRole)">{{ tagLabel(t.raisedRole) }}</span></span></td>
                   <td class="nw">{{ day(raisedDay(t)) }}</td>
                   <td class="nw ct-badge"><span class="pill" :class="STATUS[t.status].cls" :title="statusHint(t)">{{ statusLabel(t) }}</span></td>
@@ -143,7 +144,7 @@
               <div class="acts-menu" v-if="menuOpen" role="menu">
                 <button role="menuitem" v-show="ticket.status === 'open' && canUpdate()" @click="menuOpen = false; setProgress()" :disabled="busy">Mark in progress</button>
                 <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; openEdit()" :disabled="busy">{{ typeOf(ticket) === 'customer' ? 'Edit ticket (people, area, details)' : 'Edit title & description' }}</button>
-                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; switchType()" :disabled="busy">{{ typeOf(ticket) === 'customer' ? 'Change to In-house' : 'Change to Customer' }}</button>
+                <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; switchType()" :disabled="busy">{{ typeOf(ticket) === 'customer' ? 'Change to Office' : 'Change to On-site' }}</button>
                 <button role="menuitem" v-show="ticket.status !== 'done' && canUpdate()" @click="menuOpen = false; openDone()">Mark completed</button>
                 <button role="menuitem" v-if="canDelete && ticket.status === 'done'" @click="menuOpen = false; reopen = { reason: '', error: '' }">Reopen ticket</button>
                 <button role="menuitem" class="danger" v-if="canDelete" @click="menuOpen = false; openDelete()">Delete ticket</button>
@@ -197,8 +198,8 @@
           <div class="notice error" v-show="raise.error">{{ raise.error }}</div>
           <div class="field"><label class="req">Type</label>
             <div class="type-pick" role="radiogroup" aria-label="Ticket type">
-              <button type="button" role="radio" :aria-checked="String(raise.type === 'customer')" :class="{ on: raise.type === 'customer' }" @click="raise.type = 'customer'"><b>Customer</b><small>A guest or tenant's problem at a unit</small></button>
-              <button type="button" role="radio" :aria-checked="String(raise.type === 'inhouse')" :class="{ on: raise.type === 'inhouse' }" @click="raise.type = 'inhouse'"><b>In-house</b><small>Office, staff or company matters</small></button>
+              <button type="button" role="radio" :aria-checked="String(raise.type === 'customer')" :class="{ on: raise.type === 'customer' }" @click="raise.type = 'customer'"><b>On-site</b><small>A tenant, owner or housekeeping problem at a unit</small></button>
+              <button type="button" role="radio" :aria-checked="String(raise.type === 'inhouse')" :class="{ on: raise.type === 'inhouse' }" @click="raise.type = 'inhouse'"><b>Office</b><small>The HQ office, staff or company matters (no unit)</small></button>
             </div></div>
           <div class="field"><label class="req" for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
           <!-- 19 Nov 2026 (Khairul): the date the problem was reported, today by default (Malaysia time); both ticket types -->
@@ -273,7 +274,7 @@
       <template v-if="edit">
         <form class="modal" role="dialog" aria-label="Edit title and description" @submit.prevent="saveEdit()" style="max-width:520px">
           <h2>{{ 'Edit ' + ticket.id }}</h2>
-          <p class="help" v-show="typeOf(ticket) === 'customer' && !ticket.property" style="margin-top:0">This Customer ticket has no property yet, so it has no card in the task system. Choose its property.</p>
+          <p class="help" v-show="typeOf(ticket) === 'customer' && !ticket.property" style="margin-top:0">This On-site ticket has no property yet, so it has no card in the task system. Choose its property.</p>
           <div class="notice error" v-show="edit.error">{{ edit.error }}</div>
           <div class="field"><label class="req" for="eTitle">Title</label><input class="input" id="eTitle" ref="eTitle" v-model="edit.title" maxlength="200"></div>
           <div class="date-pair">
@@ -301,9 +302,9 @@
          Operations and Maintenance are tagged straight away. One write (rules Draft 0.82). -->
     <div class="modal-back" v-show="toCust" @click.self="toCust = null" v-esc="() => { toCust = null }">
       <template v-if="toCust">
-        <form class="modal" role="dialog" :aria-label="'Change ' + ticket.id + ' to Customer'" @submit.prevent="saveToCustomer()" style="max-width:520px">
-          <h2>{{ 'Change ' + ticket.id + ' to Customer' }}</h2>
-          <p class="help" style="margin-top:0">A Customer ticket needs its unit and the people doing the work. Operations and Maintenance are tagged when you save.</p>
+        <form class="modal" role="dialog" :aria-label="'Change ' + ticket.id + ' to On-site'" @submit.prevent="saveToCustomer()" style="max-width:520px">
+          <h2>{{ 'Change ' + ticket.id + ' to On-site' }}</h2>
+          <p class="help" style="margin-top:0">An On-site ticket needs its unit and the people doing the work. Operations and Maintenance are tagged when you save.</p>
           <div class="notice error" v-show="toCust.error">{{ toCust.error }}</div>
           <div class="field"><label class="req" for="cProp">Property</label>
             <OptionPicker v-if="propertyChoices().length" class="full-pick" v-model="toCust.property" :options="propertyOptions()" label="Property" searchable @change="toCust.unit = ''" />
@@ -319,7 +320,7 @@
             <PeoplePicker v-model="toCust.ops" :people="opsFor" placeholder="Search Operations staff" :empty-text="opsNote(toCust.property)" /></div>
           <div class="field"><label>Tags added</label>
             <div class="help" style="margin-top:0">{{ toCustTags().filter(g => !ticket.tags.includes(g)).map(tagLabel).join(', ') || 'None (already tagged)' }}</div></div>
-          <div class="modal-foot"><button type="button" class="btn" @click="toCust = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Change to Customer</button></div>
+          <div class="modal-foot"><button type="button" class="btn" @click="toCust = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Change to On-site</button></div>
         </form>
       </template>
     </div>
@@ -439,10 +440,11 @@ const TAG_ROLE = { Director: 'director', IT: 'it', Admin: 'director', HR: 'hr', 
 const roleForTag = g => TAG_ROLE[g] || Object.keys(CUSTOM_ROLES).find(id => CUSTOM_ROLES[id].name === g) || null;
 // Ticket type (6 Nov 2026): 'customer' (a guest or tenant's problem at a unit) or 'inhouse' (office, staff, company).
 // Tickets from before have no type: one with a unit counts as Customer, one without as In-house, until someone changes it.
-const TYPE_LABEL = { customer: 'Customer', inhouse: 'In-house' };
+// 19 Nov 2026 (Khairul): shown as On-site and Office (the saved values stay 'customer' / 'inhouse')
+const TYPE_LABEL = { customer: 'On-site', inhouse: 'Office' };
 // Told apart by style and icon, not colour, so they work with any theme (custom themes included) and for colour-blind users.
 const TYPE_ICON = { customer: NAV_ICONS.user, inhouse: NAV_ICONS.building };
-const TYPE_TABS = [{ key: '', label: 'All' }, { key: 'customer', label: 'Customer' }, { key: 'inhouse', label: 'In-house' }];
+const TYPE_TABS = [{ key: '', label: 'All' }, { key: 'customer', label: 'On-site' }, { key: 'inhouse', label: 'Office' }];
 const typeOf = t => t.type === 'customer' || t.type === 'inhouse' ? t.type : (t.unit ? 'customer' : 'inhouse');
 // The tab picked is remembered in this browser (Operations mostly sit on Customer).
 const TYPE_KEY = 'wb.issueType';
@@ -764,10 +766,10 @@ export default {
     },
     async saveRaise() {
       const r = this.raise;
-      if (!TYPE_LABEL[r.type]) return r.error = 'Choose Customer or In-house.';
+      if (!TYPE_LABEL[r.type]) return r.error = 'Choose On-site or Office.';
       if (!r.title.trim()) return r.error = 'Give the ticket a title.';
       if (r.type === 'customer' && !r.property.trim()) return r.error = 'Choose the property.';
-      if (r.type === 'customer' && !r.unit.trim()) return r.error = 'Choose the unit for a customer ticket.';
+      if (r.type === 'customer' && !r.unit.trim()) return r.error = 'Choose the unit for an On-site ticket.';
       if (!r.body.trim()) return r.error = 'Describe what happened.';
       if (!/^\d{4}-\d{2}-\d{2}$/.test(r.reportDate || '')) return r.error = 'Choose the date.';
       if (r.reportDate > myDay()) return r.error = 'The date cannot be in the future.';
@@ -902,8 +904,8 @@ export default {
       this.busy = true; this.error = '';
       try {
         await this.change({ type: to }, [`changed the type from ${TYPE_LABEL[from]} to ${TYPE_LABEL[to]}`], 'issue.type', [{ field: 'type', old: TYPE_LABEL[from], new: TYPE_LABEL[to] }]);
-        t.type = to; this.okMsg = `${t.id} is now a ${TYPE_LABEL[to]} ticket.`
-          + (to === 'inhouse' ? ' Its task system card is removed (In-house tickets stay in the PMS).'
+        t.type = to; this.okMsg = `${t.id} is now an ${TYPE_LABEL[to]} ticket.`
+          + (to === 'inhouse' ? ' Its task system card is removed (Office tickets stay in the PMS).'
             : t.property ? '' : ' Choose its property (Edit) so it goes to the task system.');
         this.toTms(t);   // Customer: its card is made; In-house: its card is removed
       } catch (e) { this.error = friendlyError(e, 'change the type'); }
@@ -955,16 +957,16 @@ export default {
         const fields = { type: 'customer', property: propertyName, propertyId, ...(state ? { state } : {}), unit: unit?.unitCode || code, unitId: unit?.id || null,
           tags, assigneeUids: uids, assignees, ...(area ? { area } : {}) };
         const nm = uid => assignees.find(p => p.uid === uid)?.name || 'Staff';
-        await this.change(fields, [`changed the type from In-house to Customer · ${propertyName} · ${fields.unit}`
+        await this.change(fields, [`changed the type from Office to On-site · ${propertyName} · ${fields.unit}`
           + (newTags.length ? ` · tagged ${newTags.map(tagLabel).join(', ')}` : '')
           + ` · Maintenance: ${c.maint.map(nm).join(', ')} · Operations: ${c.ops.map(nm).join(', ')}`], 'issue.type',
-          [{ field: 'type', old: 'In-house', new: 'Customer' }, { field: 'unit', old: t.unit || null, new: fields.unit }, { field: 'people', old: (t.assignees || []).map(p => p.name).join(', ') || null, new: assignees.map(p => p.name).join(', ') }]);
+          [{ field: 'type', old: 'Office', new: 'On-site' }, { field: 'unit', old: t.unit || null, new: fields.unit }, { field: 'people', old: (t.assignees || []).map(p => p.name).join(', ') || null, new: assignees.map(p => p.name).join(', ') }]);
         Object.assign(t, fields);
-        this.toCust = null; this.okMsg = `${t.id} is now a Customer ticket for ${fields.unit}.`;
+        this.toCust = null; this.okMsg = `${t.id} is now an On-site ticket for ${fields.unit}.`;
         this.toTms(t);   // its task system card is made
-        if (newTags.length) this.notify(t, { title: `${t.id} tagged to ${newTags.join(', ')}`, message: `${myLabel} changed "${t.title}" to a Customer ticket (${propertyName} · ${fields.unit}).`, tags: newTags, includeRaiser: false });
+        if (newTags.length) this.notify(t, { title: `${t.id} tagged to ${newTags.join(', ')}`, message: `${myLabel} changed "${t.title}" to an On-site ticket (${propertyName} · ${fields.unit}).`, tags: newTags, includeRaiser: false });
         this.tellPeople(t, added, `You were tagged on ${t.id}`, `${myLabel} tagged you on "${t.title}" (${propertyName} · ${fields.unit}).`);
-      } catch (e) { c.error = friendlyError(e, 'change the ticket to Customer'); }
+      } catch (e) { c.error = friendlyError(e, 'change the ticket to On-site'); }
       this.busy = false;
     },
     addOptionsR() { return [{ value: '', label: '+ Add a role…' }, ...TAGS.filter(x => !this.raise.tags.includes(x)).map(g => ({ value: g, label: tagLabel(g) }))]; },
@@ -1309,6 +1311,7 @@ export default {
     .table td .tag { white-space: nowrap; }
     .tag-wrap { display: flex; flex-wrap: wrap; gap: 4px; max-width: 230px; }
     .tag-wrap .tag { margin: 0; }
+    .tag-wrap .tag-more { background: var(--surface-2, #f1f1f4); color: var(--muted); cursor: default; }
     .table td .who { white-space: nowrap; }
     .kv .tag { color: var(--accent); }   /* the old page's <template> kept the first tag from matching .kv span:first-child */
     .post { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 16px 14px; }
