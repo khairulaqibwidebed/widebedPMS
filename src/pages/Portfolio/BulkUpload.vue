@@ -235,17 +235,40 @@ const FILE_LAYOUT = {
 
 // A date cell -> 'yyyy-mm-dd' ('' when it can't be read). The file is read with dateNF yyyy-mm-dd, so real dates arrive in that form;
 // typed text like 3/1/2026 or 3-Jan-2026 is read day first (Malaysia).
+// 19 Nov 2026: the Willow sheet's dates are text written month first (8/13/26), so the order of a/b/yy dates is worked out
+// per file (dateOrderOf); a date whose month would be over 12 is read the other way round (28/11/26 in a month-first file).
+// A date with no year (16-Aug) takes yearHint. Impossible dates (31 Feb) give ''.
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-function toIso(v) {
+const SLASH = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/;
+let dateOrder = 'dmy';
+function toIso(v, yearHint) {
   const t = String(v ?? '').trim(); if (!t) return '';
   const pad = n => String(n).padStart(2, '0'), year = y => (y < 100 ? 2000 + y : y);
+  const ok = (y, mo, d) => { const x = new Date(Date.UTC(y, mo - 1, d)); return y >= 1900 && x.getUTCMonth() === mo - 1 && x.getUTCDate() === +d ? `${y}-${pad(mo)}-${pad(d)}` : ''; };
   let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
-  m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
-  if (m) return `${year(+m[3])}-${pad(m[2])}-${pad(m[1])}`;
-  m = t.match(/^(\d{1,2})[ -]([A-Za-z]{3})[a-z]*[ -,]*(\d{2,4})/);
-  if (m && MONTHS.includes(m[2].toLowerCase())) return `${year(+m[3])}-${pad(MONTHS.indexOf(m[2].toLowerCase()) + 1)}-${pad(m[1])}`;
+  if (m) return ok(+m[1], +m[2], +m[3]);
+  m = t.match(SLASH);
+  if (m) {
+    let [d, mo] = dateOrder === 'mdy' ? [+m[2], +m[1]] : [+m[1], +m[2]];
+    if (mo > 12) [d, mo] = [mo, d];
+    return ok(year(+m[3]), mo, d);
+  }
+  m = t.match(/^(\d{1,2})[\s-]([A-Za-z]{3})[a-z]*(?:[\s,-]+(\d{2,4}))?/);   // 13-Aug-26, 11 August 2026, 16-Aug
+  if (m && MONTHS.includes(m[2].toLowerCase())) {
+    const y = m[3] ? year(+m[3]) : +yearHint;
+    return y ? ok(y, MONTHS.indexOf(m[2].toLowerCase()) + 1, +m[1]) : '';
+  }
   return '';
+}
+// Month first when more a/b/yy dates in the file have b over 12 than have a over 12; else day first (Malaysia).
+const BOOKING_DATES = ['Check in', 'Check out', 'Renewal Date', 'Current Expiry Date', 'Next Expiry Date'];
+function dateOrderOf(rows) {
+  let mdy = 0, dmy = 0;
+  for (const r of rows) for (const c of BOOKING_DATES) {
+    const m = col(r, c).match(SLASH); if (!m) continue;
+    if (+m[2] > 12 && +m[1] <= 12) mdy++; else if (+m[1] > 12 && +m[2] <= 12) dmy++;
+  }
+  return mdy > dmy ? 'mdy' : 'dmy';
 }
 const money = v => { const n = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
 // Tenant matching (19 Nov 2026): an IC/passport counts only when it looks real (0, 000, 8888 are placeholders)
@@ -256,17 +279,20 @@ const nameKey = v => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
 function mapBookingRow(row) {
   const unit = col(row, 'Unit Number'), property = col(row, 'Property Name');
   if (!unit && !property && !col(row, 'Name')) return null;           // blank lines
-  const checkIn = toIso(col(row, 'Check in')), checkOut = toIso(col(row, 'Check out'));
+  const yr = (col(row, 'Check in') + ' ' + col(row, 'Check out')).match(/(?:^|\D)(20\d{2})(?:\D|$)/)?.[1] || new Date().getFullYear();
+  const checkIn = toIso(col(row, 'Check in'), yr);
+  let checkOut = toIso(col(row, 'Check out'), yr);
+  if (checkOut && checkIn && checkOut < checkIn && !/\d{2,4}\s*$/.test(col(row, 'Check out'))) checkOut = toIso(col(row, 'Check out'), +checkIn.slice(0, 4) + 1);   // 20-Dec to 5-Jan
   return {
     bookingId: col(row, 'ID').toUpperCase(),
     name: col(row, 'Name'), icPassport: col(row, 'IC/passport number', 'IC / Passport'), phone: col(row, 'Phone/WhatsApp', 'Phone'), email: col(row, 'Email'),
     bookingSource: col(row, 'Booking source'), propertyName: property, unitNumber: unit,
     checkIn, checkOut, rawIn: col(row, 'Check in'), rawOut: col(row, 'Check out'),
-    rentalAmount: money(col(row, 'Rental amount')), renewalDate: toIso(col(row, 'Renewal Date')) || checkOut, rentalStatus: col(row, 'Rental Status'),
+    rentalAmount: money(col(row, 'Rental amount')), renewalDate: toIso(col(row, 'Renewal Date'), checkOut.slice(0, 4)) || checkOut, rentalStatus: col(row, 'Rental Status'),
     depositAmount: money(col(row, 'Amount of deposit')), ownerEmail: col(row, 'Owner Email'),
     moveInStatus: col(row, 'Move_In_Status') || 'Ready_to_Send', moveOutStatus: col(row, 'Move_Out_Status') || 'Ready_to_Send',
-    mainDoorPasscode: col(row, 'Main Door Passcode'), currentExpiryDate: toIso(col(row, 'Current Expiry Date')),
-    nextDoorPasscode: col(row, 'Next Door Passcode'), nextExpiryDate: toIso(col(row, 'Next Expiry Date')),
+    mainDoorPasscode: col(row, 'Main Door Passcode'), currentExpiryDate: toIso(col(row, 'Current Expiry Date'), checkOut.slice(0, 4)),
+    nextDoorPasscode: col(row, 'Next Door Passcode'), nextExpiryDate: toIso(col(row, 'Next Expiry Date'), checkOut.slice(0, 4)),
     passwordStatus: col(row, 'Password Status'), whatsappGroupLink: col(row, 'Whatsapp Group Link'), remark: col(row, 'Remark'),
     electricity: money(col(row, 'Electricity')), water: money(col(row, 'Water')), sewerage: money(col(row, 'Sewerage')),
     billPeriod: col(row, 'Electric Bill Period', 'Water Bill Period', 'Sewerage Bill Period'), invoiceBill: col(row, 'Invoice Bill')
@@ -605,6 +631,7 @@ export default {
       const [snap, cSnap] = await Promise.all([getScoped(scoped(collection(db, 'offlineBookings'))), getDocs(collection(db, 'lodgmentCounters'))]);
       const have = new Set(snap.docs.map(d => String(d.data().bookingNo || d.id.replace(/^offline_/, '')).toUpperCase()));
       const next = {}; cSnap.docs.forEach(d => { next[d.id] = d.data().next || 1; });
+      dateOrder = dateOrderOf(lines.map(x => x.r));   // 19 Nov 2026: month first (Willow) or day first, for this file
       const rows = lines.map(({ r, line }) => ({ line, data: mapBookingRow(r) })).filter(x => x.data)
         .map(({ line, data }) => ({ line, data, id: '', status: 'ok', note: '', fixable: false }));
       const used = {};   // typed IDs move the counter on, so new IDs never clash with them
