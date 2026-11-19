@@ -47,8 +47,9 @@
             <!-- 13 Nov 2026 hierarchy: who paid, then where, then what for, then the small print; amount and status on the right -->
             <div class="pc-main">
               <div class="pc-name">{{ r.guest || '—' }}</div>
-              <div class="pc-place"><span class="pc-no" v-if="r.bookingNo">{{ r.bookingNo }}</span><span>{{ [r.propertyName, r.unitCode].filter(Boolean).join(' · ') || 'No property' }}</span></div>
+              <div class="pc-place"><span>{{ [r.propertyName, r.unitCode].filter(Boolean).join(' · ') || 'No property' }}</span></div>
               <div class="pc-purpose clamp" :title="r.purpose"><span class="pc-k">Purpose</span>{{ r.purpose || '—' }}</div>
+              <div class="pc-purpose clamp" :title="r.remarks"><span class="pc-k">Payment Code</span>{{ r.remarks || '—' }}</div>
               <div class="pc-meta">{{ [niceDate(r.date), r.mode, r.submittedByName ? `Submitted by ${r.submittedByName}` : '', r.editedByName ? `Edited by ${r.editedByName}` : ''].filter(Boolean).join(' · ') }}</div>
             </div>
             <div class="pc-side">
@@ -61,13 +62,13 @@
           <p class="muted empty" v-if="!loading && !pageRows.length">No offline payments found.</p>
         </div>
         <div class="table-wrap" v-else :style="pageRows.length ? null : { minHeight: '0' }"><table class="table op-table">
-          <thead><tr><th>Payment Date</th><th>Booking</th><th>Property</th><th>Unit</th><th>Guest</th><th>Purpose</th><th class="num">Amount (RM)</th><th>Status</th><th>Submitted by</th><th></th></tr></thead>
+          <thead><tr><th>Payment Date</th><th>Property</th><th>Unit</th><th>Guest</th><th>Purpose</th><th class="num">Amount (RM)</th><th>Status</th><th>Submitted by</th><th>Payment Code</th></tr></thead>
           <tbody>
             <tr v-for="r in pageRows" :key="r.id">
-              <td>{{ r.date }}</td><td class="strong">{{ r.bookingNo || '—' }}</td><td>{{ r.propertyName || '—' }}</td><td>{{ r.unitCode || '—' }}</td><td>{{ r.guest }}</td><td class="purpose-cell"><span class="clamp" :title="r.purpose">{{ r.purpose || '—' }}</span></td>
+              <td>{{ r.date }}</td><td>{{ r.propertyName || '—' }}</td><td>{{ r.unitCode || '—' }}</td><td>{{ r.guest }}</td><td class="purpose-cell"><span class="clamp" :title="r.purpose">{{ r.purpose || '—' }}</span></td>
               <td class="num">{{ Number(r.amount || 0).toFixed(2) }}</td>
               <td><span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span><div class="who" v-if="r.editedByName">{{ `by ${r.editedByName}` }}</div></td>
-              <td>{{ r.submittedByName || '—' }}</td>
+              <td>{{ r.submittedByName || '—' }}</td><td>{{ r.remarks || '—' }}</td>
               <td class="num"><button type="button" class="btn" @click="openRow(r)">View</button></td>
             </tr>
             <SkeletonRows v-if="loading && !pageRows.length" table :cols="10" />
