@@ -240,7 +240,7 @@ export async function downloadMasterRecord(year, onStep = () => {}) {
     const aoa = [new Array(MASTER_HEADERS.length).fill(''), MASTER_HEADERS];
     for (const t of rows) {
       const c = t.completion || {}, bl = t.billing || {}, o = ownerOf(t), charged = bl.status === 'charged';
-      aoa.push([t.id, o.name, o.email1, o.email2, t.property || props[t.propertyId] || '', t.unit || '', myDate(t.createdAt),
+      aoa.push([t.id, o.name, o.email1, o.email2, t.property || props[t.propertyId] || '', t.unit || '', t.reportDate ? dayDate(t.reportDate) : myDate(t.createdAt),
         t.driveFolderUrl || c.driveFolderUrl || '', t.area || '', t.body || t.title || '', t.raisedBy || '', '', '', myDate(t.createdAt), dayDate(c.actionDate),
         c.solution || '', c.costRemarks || '', '', '', c.fixedByName || '', myDate(c.completedAt), '',
         r2(c.cost), charged ? r2(bl.wbCharge) : '', '', '', charged ? bl.invoiceNo || '' : '', charged ? dayDate(bl.chargedAt) : '']);

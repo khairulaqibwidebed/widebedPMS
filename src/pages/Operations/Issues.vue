@@ -154,6 +154,7 @@
               <div class="kv"><span>Property</span><span>{{ ticket.property || '—' }}</span></div>
               <div class="kv"><span>Unit</span><span>{{ ticket.unit || '—' }}</span></div>
               <div class="kv"><span>Raised by</span><span class="who">{{ ticket.raisedBy }}<span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ tagLabel(ticket.raisedRole) }}</span></span></div>
+              <div class="kv"><span>Date</span><span>{{ day(ticket.reportDate || ticket.raisedAt) }}</span></div>
               <div class="kv"><span>Raised on</span><span>{{ day(ticket.raisedAt) }}</span></div>
               <div class="kv"><span>Tagged</span><span><template v-for="g in ticket.tags" :key="g"><span class="tag">{{ tagLabel(g) }}</span></template></span></div>
               <!-- 18 Nov 2026 (Customer tickets): the area, the people doing the work, and the ticket's Drive folder -->
@@ -197,6 +198,8 @@
               <button type="button" role="radio" :aria-checked="String(raise.type === 'inhouse')" :class="{ on: raise.type === 'inhouse' }" @click="raise.type = 'inhouse'"><b>In-house</b><small>Office, staff or company matters</small></button>
             </div></div>
           <div class="field"><label class="req" for="rTitle">Title</label><input class="input" id="rTitle" ref="rTitle" v-model="raise.title" placeholder="e.g. Aircond leaking in master bedroom"></div>
+          <!-- 19 Nov 2026 (Khairul): the date the problem was reported, today by default (Malaysia time); both ticket types -->
+          <FormField id="rDate" label="Date" type="date" v-model="raise.reportDate" :max="today()" req />
           <!-- Customer tickets only: the property, and the ticket's card goes to that property's board in the task system
                (Maintenance). In-house tickets stay in the PMS and have no property. -->
           <div class="field" v-if="raise.type === 'customer'"><label class="req" for="rProp">Property</label>
@@ -267,6 +270,7 @@
           <p class="help" v-show="typeOf(ticket) === 'customer' && !ticket.property" style="margin-top:0">This Customer ticket has no property yet, so it has no card in the task system. Choose its property.</p>
           <div class="notice error" v-show="edit.error">{{ edit.error }}</div>
           <div class="field"><label class="req" for="eTitle">Title</label><input class="input" id="eTitle" ref="eTitle" v-model="edit.title" maxlength="200"></div>
+          <FormField id="eDate" label="Date" type="date" v-model="edit.reportDate" :max="today()" req />
           <div class="field" v-if="typeOf(ticket) === 'customer'"><label class="req" for="eProp">Property</label>
             <OptionPicker v-if="propertyChoices().length" class="full-pick" v-model="edit.property" :options="propertyOptions(edit.property)" label="Property" searchable />
             <input v-else class="input" id="eProp" v-model="edit.property" maxlength="80"></div>
@@ -725,9 +729,10 @@ export default {
       try { this.boards = await maintenanceBoards(); boardCache = { at: Date.now(), boards: this.boards }; }
       catch (e) { console.error('Task system boards:', e); this.boards = []; }
     },
+    today() { return myDay(); },
     openRaise() {
       this.raise = { rid: (globalThis.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20), type: this.typeTab === 'inhouse' ? 'inhouse' : 'customer', title: '', property: '', unit: '', body: '', tags: startTags(this.typeTab === 'inhouse' ? 'inhouse' : 'customer'), links: [], linkName: '', linkUrl: '', error: '',
-        area: '', areaOther: '', people: [] };
+        area: '', areaOther: '', people: [], reportDate: myDay() };
       this.staffFor = [];
       this.$nextTick(() => this.$refs.rTitle?.focus());
       this.units4raise();
@@ -752,6 +757,8 @@ export default {
       if (r.type === 'customer' && !r.property.trim()) return r.error = 'Choose the property.';
       if (r.type === 'customer' && !r.unit.trim()) return r.error = 'Choose the unit for a customer ticket.';
       if (!r.body.trim()) return r.error = 'Describe what happened.';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(r.reportDate || '')) return r.error = 'Choose the date.';
+      if (r.reportDate > myDay()) return r.error = 'The date cannot be in the future.';
       if (!r.tags.length && !TAGS.includes(myRole)) return r.error = 'Tag at least one role to handle it.';
       if (r.linkUrl.trim()) { this.addLink(r); if (r.error) return; }
       const code = r.type === 'inhouse' ? '' : r.unit.trim().toUpperCase(), unit = this.units.find(u => u.unitCode.toUpperCase() === code) || null;
@@ -787,7 +794,7 @@ export default {
           tx.set(cRef, { next: n + 1 });
 
           tx.set(ref, { type: r.type, title: r.title.trim(), body: r.body.trim(), unit: unit?.unitCode || code, unitId: unit?.id || null,
-            property: propertyName, propertyId, ...(state ? { state } : {}), tags, status: 'open',
+            property: propertyName, propertyId, ...(state ? { state } : {}), tags, status: 'open', reportDate: r.reportDate,
             raisedBy: myLabel, raisedRole: myRole, raisedByUid: me.user.uid, driveRid: r.rid, links: r.links, linkCount: r.links.length, replyCount: 0, lastBy: myLabel,
             ...(r.type === 'customer' ? { area, assigneeUids: assignees.map(p => p.uid), assignees } : {}),
             ...(folder?.folderId ? { driveFolderId: folder.folderId, driveFolderUrl: folder.folderLink } : {}),
@@ -1132,7 +1139,7 @@ export default {
     },
     openEdit() {
       const t = this.ticket, other = t.area && !AREAS.includes(t.area);
-      this.edit = { title: t.title, body: t.body || '', property: t.property || '', error: '',
+      this.edit = { title: t.title, body: t.body || '', property: t.property || '', error: '', reportDate: t.reportDate || (t.raisedAt || '').slice(0, 10),
         area: other ? 'Other' : (t.area || ''), areaOther: other ? t.area : '', people: [...(t.assigneeUids || [])] };
       this.$nextTick(() => this.$refs.eTitle?.focus());
       this.staffFor = [];
@@ -1144,10 +1151,14 @@ export default {
       if (!title) return e.error = 'Give the ticket a title.';
       if (customer && !property) return e.error = 'Choose the property.';
       if (!body) return e.error = 'Describe what happened.';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(e.reportDate || '')) return e.error = 'Choose the date.';
+      if (e.reportDate > myDay()) return e.error = 'The date cannot be in the future.';
       const lines = [], changes = [];
       if (title !== t.title) { lines.push(`changed the title (was "${t.title.slice(0, 80)}")`); changes.push({ field: 'title', old: t.title, new: title }); }
       if (body !== (t.body || '')) { lines.push('changed the description'); changes.push({ field: 'body', old: null, new: null }); }
       const fields = { title, body };
+      const was = t.reportDate || (t.raisedAt || '').slice(0, 10);
+      if (e.reportDate !== was) { fields.reportDate = e.reportDate; lines.push(`changed the date to ${e.reportDate}${was ? ` (was ${was})` : ''}`); changes.push({ field: 'reportDate', old: was || null, new: e.reportDate }); }
       if (property !== (t.property || '')) {
         const propertyId = this.propertyIdOf(property), state = propertyId ? await stateFor(propertyId) : '';
         Object.assign(fields, { property, propertyId, ...(state ? { state } : {}) });
