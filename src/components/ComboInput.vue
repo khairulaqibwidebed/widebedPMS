@@ -21,7 +21,7 @@
 // The typed text is kept as it is, so a value that isn't in the list is still allowed.
 //   <ComboInput v-model="unit" :options="[{ value: 'A-09-23A', hint: 'Property name' }, ...]" placeholder="..." id="rUnit" />
 export default {
-  props: { modelValue: { type: String, default: '' }, options: { type: Array, default: () => [] }, placeholder: { type: String, default: '' }, id: { type: String, default: undefined }, max: { type: Number, default: 8 } },
+  props: { modelValue: { type: String, default: '' }, options: { type: Array, default: () => [] }, placeholder: { type: String, default: '' }, id: { type: String, default: undefined }, max: { type: Number, default: Infinity } },   // 19 Nov 2026: list every match (the popup scrolls)
   emits: ['update:modelValue'],
   data() { return { open: false, hot: -1 }; },
   computed: {
