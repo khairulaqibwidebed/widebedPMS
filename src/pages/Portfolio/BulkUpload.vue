@@ -186,7 +186,7 @@
 import { markRaw } from 'vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PropertyPicker from '@/components/PropertyPicker.vue';
-import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimestamp, runTransaction, arrayUnion } from 'firebase/firestore';
 import { idPrefix } from '@/lib/lodgment.js';
 import { db } from '@/lib/firebase.js';
 import { clearCache } from '@/lib/cache.js';
@@ -196,10 +196,10 @@ import { markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { audit, friendlyError, loadXlsxLib, loadProperties, loadUnits } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
-import { normState, stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, shortState, stateTag } from '@/lib/states.js';
+import { stateFor, normState, stateOf, stateChoices, clashIn, newPropertyId, propertyFields, propertyLabel, shortState, stateTag } from '@/lib/states.js';
 import { loadDriveStates, setUpStates } from '@/lib/drive-states.js';
 import { refreshOwnerStates, freshOwnerNumber, loadOwners, loadUnitTypes, addUnitType, BANK, contactOf } from '@/lib/portfolio-data.js';
-import { guestContact } from '@/lib/offline.js';
+import { guestContact, findTenant, phoneKey, searchWords, num } from '@/lib/offline.js';
 import { matchUnitType, newUnitType, sectionHeading } from '@/lib/bulk-templates.js';
 import { can } from '@/lib/access.js';
 import { scoped, getScoped, giveMeProperties } from '@/lib/property-scope.js';
@@ -248,6 +248,9 @@ function toIso(v) {
   return '';
 }
 const money = v => { const n = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+// Tenant matching (19 Nov 2026): an IC/passport counts only when it looks real (0, 000, 8888 are placeholders)
+const realIc = v => { const k = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return k.length >= 6 && !/^(.)\1+$/.test(k) ? k : ''; };
+const nameKey = v => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 // One row of the Booking Details sheet -> a reservationLodgments record (same field names as the Reservation Lodgment form).
 function mapBookingRow(row) {
@@ -396,7 +399,7 @@ const ROWS_PER_BATCH = 50;   // up to 9 writes per unit-owner row (owner, privat
 const COLS = {
   properties: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }],
   owners: [{ key: 'unit', label: 'Unit' }, { key: 'typeLabel', label: 'Unit type' }, { key: 'fullName', label: 'Full name' }, { key: 'coLabel', label: 'Joint owner' }, { key: 'ic', label: 'IC' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' }, { key: 'bankLabel', label: 'Bank' }, { key: 'feeLabel', label: 'Fee' }, { key: 'autocount', label: 'Autocount' }, { key: 'remark', label: 'Remark' }],
-  bookings: [{ key: 'name', label: 'Name' }, { key: 'propertyName', label: 'Property' }, { key: 'unitNumber', label: 'Unit' }, { key: 'checkIn', label: 'Check in' }, { key: 'checkOut', label: 'Check out' }, { key: 'rentalAmount', label: 'Rental' }]
+  bookings: [{ key: 'name', label: 'Name' }, { key: 'tenantLabel', label: 'Tenant' }, { key: 'propertyName', label: 'Property' }, { key: 'unitNumber', label: 'Unit' }, { key: 'checkIn', label: 'Check in' }, { key: 'checkOut', label: 'Check out' }, { key: 'rentalAmount', label: 'Rental' }]
 };
 
 export default {
@@ -404,7 +407,7 @@ export default {
   components: { PropertyPicker, OptionPicker },
   data() {
     return { base: import.meta.env.BASE_URL, kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
-      properties: [], driveStates: {}, propertyId: '', newProp: { name: '', code: '', state: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null, bankFixes: {}, bankDraft: {}, bankErr: {} };
+      properties: [], driveStates: {}, propertyId: '', newProp: { name: '', code: '', state: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null, bankFixes: {}, bankDraft: {}, bankErr: {}, tenantsMade: 0, tenantsLinked: 0 };
   },
   computed: {
     previewCols() { return COLS[this.kind]; },
@@ -608,7 +611,42 @@ export default {
       for (const r of rows) { const m = r.data.bookingId.match(/^(.*)-(\d+)$/); if (m) used[m[1]] = Math.max(used[m[1]] || 0, +m[2]); }
       this.bkCtx = markRaw({ have, next, used, seen: new Map(), units: {} });
       for (const r of rows) await this.checkBookingRow(r);
+      await this.matchTenants(rows);
       return rows;
+    },
+    // 19 Nov 2026: each booking gets a Tenant ID (Willow has none). Same guest = same phone (also checked against the
+    // tenants in the PMS), else same real IC/passport in this file, else the same name in this file when the row has no
+    // phone. Never by email. New guests get the next TEN number when saved.
+    async matchTenants(rows) {
+      const c = this.bkCtx;
+      if (!c.known) c.known = new Map();
+      if (c.nextTen === undefined) { try { const s = await getDoc(doc(db, 'counters', 'tenants')); c.nextTen = s.exists() ? s.data().next || 1 : 1; } catch (e) { c.nextTen = 0; } }
+      const byPhone = new Map(), byIc = new Map(), byName = new Map(), groups = [];
+      let n = c.nextTen;
+      for (const r of [...rows].sort((a, b) => a.line - b.line)) {
+        delete r.tenant; delete r.data.tenantLabel;
+        if (r.status !== 'ok') continue;
+        const d = r.data, pk = phoneKey(d.phone).length >= 9 ? phoneKey(d.phone) : '', ic = realIc(d.icPassport), nm = nameKey(d.name);
+        let g = (pk && byPhone.get(pk)) || (ic && byIc.get(ic)) || (!pk && nm && byName.get(nm)) || null, how = '';
+        if (g) how = pk && byPhone.get(pk) === g ? 'same phone' : ic && byIc.get(ic) === g ? 'same IC/passport' : 'same name, no phone';
+        else {
+          g = { line: r.line, rows: [], tenantId: null, existing: false, details: d };
+          if (pk) {
+            if (!c.known.has(pk)) c.known.set(pk, await findTenant(d.phone));
+            const k = c.known.get(pk); if (k) Object.assign(g, { tenantId: k.id, existing: true });
+          }
+          if (!g.existing) g.guess = n ? num('TEN', n++) : '';
+          groups.push(g);
+        }
+        g.rows.push(r);
+        if (pk && !byPhone.has(pk)) byPhone.set(pk, g);
+        if (ic && !byIc.has(ic)) byIc.set(ic, g);
+        if (nm && !byName.has(nm)) byName.set(nm, g);
+        r.tenant = markRaw(g);
+        d.tenantLabel = g.line !== r.line ? `Same tenant as row ${g.line} (${how})${g.tenantId ? `, ${g.tenantId}` : ''}`
+          : g.existing ? `${g.tenantId} (already in the PMS, same phone)` : `New tenant${g.guess ? ` ${g.guess}` : ''}`;
+      }
+      c.groups = groups;
     },
     async unitsOf(pid) {
       const c = this.bkCtx;
@@ -671,6 +709,7 @@ export default {
       try {
         const r = f.row; Object.assign(r.data, f.d, { propertyName: this.properties.find(p => p.id === f.d.propertyId)?.name || f.d.propertyName });
         await this.checkBookingRow(r);
+        await this.matchTenants(this.rows);
         if (r.status === 'error') f.error = r.note; else this.fix = null;
       } catch (e) { f.error = friendlyError(e, 'check the row'); }
       if (this.fix) f.busy = false;
@@ -956,6 +995,7 @@ export default {
           const fresh = new Set(ready.filter(r => r.newType && (r.newUnit || r.typeFill)).map(r => r.unitType));
           for (const t of fresh) await addUnitType(t);
         }
+        if (this.kind === 'bookings') await this.saveTenants(ready);
         const made = new Set();   // owners created in this upload (a later row of the same owner only links its unit)
         for (let i = 0; i < ready.length; i += ROWS_PER_BATCH) {
           const b = writeBatch(db);
@@ -980,7 +1020,8 @@ export default {
             for (const r of bills.slice(i, i + 200)) this.writeBill(ub, r);
             await ub.commit();
           }
-          this.done = `Saved ${ready.length} ${ready.length === 1 ? 'booking' : 'bookings'} from ${this.fileName} as Offline bookings (see Portfolio > Bookings)` + (bills.length ? `, with ${bills.length} utility ${bills.length === 1 ? 'bill' : 'bills'}.` : '.');
+          this.done = `Saved ${ready.length} ${ready.length === 1 ? 'booking' : 'bookings'} from ${this.fileName} as Offline bookings (see Portfolio > Bookings)` + (bills.length ? `, with ${bills.length} utility ${bills.length === 1 ? 'bill' : 'bills'}.` : '.')
+            + ` Tenants: ${this.tenantsMade} new, ${this.tenantsLinked} already in the PMS.`;
         } else if (this.kind === 'properties') this.done = `Saved ${ready.length} ${ready.length === 1 ? 'property' : 'properties'} from ${this.fileName}. Add their units on Portfolio, or upload their eZee report.`;
         else if (this.allMode) {
           const n = new Set(ready.map(r => r.sheet)).size;
@@ -1007,7 +1048,7 @@ export default {
     writeBooking(b, r) {
       const d = r.data, id = `offline_${r.id}`, ref = doc(db, 'offlineBookings', id), c = x => Math.round((Number(x) || 0) * 100) / 100;
       const longTerm = d.nights >= 30;
-      b.set(ref, { source: 'import', inquiryId: null, bookingNo: r.id, tenantId: null,
+      b.set(ref, { source: 'import', inquiryId: null, bookingNo: r.id, tenantId: r.tenant?.tenantId || null,
         propertyId: r.pid, propertyName: r.propertyName, unitId: r.unitId, unitCode: r.unitCode, ...stateTag(r.pid),
         arrival: d.checkIn, departure: d.checkOut, nights: d.nights, longTerm,
         amount: longTerm ? 0 : c(d.rentalAmount), monthlyRent: longTerm ? c(d.rentalAmount) : 0, deposit: c(d.depositAmount),
@@ -1020,6 +1061,37 @@ export default {
         mainDoorPasscode: d.mainDoorPasscode, currentExpiryDate: d.currentExpiryDate, nextDoorPasscode: d.nextDoorPasscode, nextExpiryDate: d.nextExpiryDate });
       b.set(doc(ref, 'private', 'contact'), guestContact(d));   // name, phone, email only (17 Nov 2026)
       audit(b, me, { action: 'offlineBooking.create', entity: `offlineBookings/${id}`, propertyId: r.pid, reason: `Bulk upload (${this.fileName})` });
+    },
+    // New guests get a tenant record (one TEN number per save, as the Reservation form does); guests already in the PMS
+    // get this upload's properties and states added. Done before the bookings so each booking can carry its Tenant ID.
+    async saveTenants(ready) {
+      const groups = [...new Set(ready.map(r => r.tenant).filter(Boolean))];
+      this.tenantsMade = 0; this.tenantsLinked = 0;
+      for (const g of groups) {
+        const pids = [...new Set(g.rows.map(r => r.pid))], states = [...new Set((await Promise.all(pids.map(p => stateFor(p)))).filter(Boolean))];
+        const d = g.details, tcRef = doc(db, 'counters', 'tenants');
+        if (g.existing) {
+          const b = writeBatch(db);
+          b.set(doc(db, 'tenants', g.tenantId), { status: 'active', propertyIds: arrayUnion(...pids), ...(states.length ? { states: arrayUnion(...states) } : {}),
+            updatedAt: serverTimestamp(), updatedBy: me.user.uid }, { merge: true });
+          b.set(doc(db, 'tenants', g.tenantId, 'private', 'main'), { propertyIds: arrayUnion(...pids) }, { merge: true });
+          await b.commit(); this.tenantsLinked++;
+          continue;
+        }
+        const details = { kind: 'tenant', name: d.name, phone: d.phone, phoneKey: phoneKey(d.phone), email: d.email, icPassport: d.icPassport,
+          searchWords: searchWords(d.name), propertyIds: pids };
+        g.tenantId = await runTransaction(db, async tx => {
+          const cs = await tx.get(tcRef), n = cs.exists() ? cs.data().next || 1 : 1, id = num('TEN', n), tRef = doc(db, 'tenants', id);
+          if ((await tx.get(tRef)).exists()) throw new Error(`${id} already exists. Ask a Director to check counters/tenants.`);
+          tx.set(tcRef, { next: n + 1 });
+          tx.set(tRef, { status: 'active', firstInquiryId: null, propertyIds: pids, ...(states.length ? { states } : {}), importedFrom: this.fileName,
+            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+          tx.set(doc(tRef, 'private', 'main'), details);
+          tx.set(doc(tRef, 'private', 'contact'), guestContact(details));   // name, phone, email only
+          return id;
+        });
+        this.tenantsMade++;
+      }
     },
     writeBill(b, r) {
       const d = r.data, id = `offline_${r.id}`, c = x => Math.round((Number(x) || 0) * 100) / 100;

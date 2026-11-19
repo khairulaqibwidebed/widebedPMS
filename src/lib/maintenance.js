@@ -62,7 +62,8 @@ export async function roleStaff(roleId, propertyId) {
 // 18 Nov 2026 (Khairul): every Customer ticket is on the Maintenance tab and the Sheet, not only completed ones.
 // A ticket's month: completed -> the month it was completed (as before); in progress / cancelled -> the month it was raised.
 const createdMonth = t => { const v = t.createdAt?.toDate ? t.createdAt.toDate() : typeof t.createdAt === 'string' && t.createdAt ? new Date(t.createdAt) : null; return v && !isNaN(v) ? myMonth(v) : ''; };
-export const ticketMonth = t => (t.status === 'done' && t.completion?.month) || createdMonth(t);
+// Completed: the month it was finished. Not finished: the month of the ticket's Date (19 Nov 2026), else when it was raised.
+export const ticketMonth = t => (t.status === 'done' && t.completion?.month) || (/^\d{4}-\d{2}/.test(t.reportDate || '') ? t.reportDate.slice(0, 7) : createdMonth(t));
 // Its status there: Pending (completed, not charged), Charged, In progress (open or in progress), Cancelled (deleted)
 export const MAINT_STATUS = { pending: 'Pending', charged: 'Charged', progress: 'In progress', cancelled: 'Cancelled' };
 export const maintStatus = t => t.status === 'deleted' ? 'cancelled' : t.status === 'done' && t.completion ? (t.billing?.status === 'charged' ? 'charged' : 'pending') : 'progress';

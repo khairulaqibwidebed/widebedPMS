@@ -1,4 +1,6 @@
 rules_version = '2';
+// Draft 0.89, 19 Nov 2026 (Khairul): issues carry a Deadline (deadline, YYYY-MM-DD), required on Raise a ticket and Edit;
+//   sent to the task system card as its due date (the ticket's Date is the card's start date).
 // Draft 0.88, 19 Nov 2026 (Khairul): issues carry a Date (reportDate, YYYY-MM-DD): set on Raise a ticket (today by
 //   default) and changed in Edit. Used as the Master Record "Report Date".
 // Draft 0.87, 18 Nov 2026 (Khairul): What's New (updates/{id}) post, edit and delete need the "What's New" Full tick
@@ -1193,8 +1195,9 @@ service cloud.firestore {
         // Draft 0.80: People (at most 20) and Area; no completion or billing at raise time
         && request.resource.data.get('assigneeUids', []) is list && request.resource.data.get('assigneeUids', []).size() <= 20
         && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
-        // Draft 0.88: the Date (YYYY-MM-DD) the problem was reported
+        // Draft 0.88: the Date (YYYY-MM-DD) the problem was reported; Draft 0.89: the Deadline (YYYY-MM-DD)
         && request.resource.data.get('reportDate', '') is string && request.resource.data.get('reportDate', '').size() <= 10
+        && request.resource.data.get('deadline', '') is string && request.resource.data.get('deadline', '').size() <= 10
         && !('completion' in request.resource.data) && !('billing' in request.resource.data);
       // A comment (anyone who can see it): counters, last poster and the ticket's audit trail.
       // Draft 0.80: also on completed tickets (follow-up), and the ticket's Drive folder link the first time a file is added.
@@ -1215,7 +1218,7 @@ service cloud.firestore {
       // Draft 0.80: and the tagged people; plus People (assigneeUids, assignees), Area and the Drive folder link.
       allow update: if resource.data.status in ['open', 'progress']
         && changed().hasOnly(['status', 'doneAt', 'doneBy', 'doneByUid', 'title', 'body', 'property', 'propertyId', 'state', 'tmsStatus', 'audit', 'updatedAt',
-          'assigneeUids', 'assignees', 'area', 'driveFolderUrl', 'driveFolderId', 'reportDate'])   // Draft 0.88: reportDate
+          'assigneeUids', 'assignees', 'area', 'driveFolderUrl', 'driveFolderId', 'reportDate', 'deadline'])   // Draft 0.88: reportDate; 0.89: deadline
         && request.resource.data.status in ['open', 'progress', 'done']
         && (request.resource.data.status != 'done' || request.resource.data.get('doneByUid', '') == request.auth.uid)
         && request.resource.data.get('title', '') is string
@@ -1226,6 +1229,7 @@ service cloud.firestore {
         && request.resource.data.get('assigneeUids', []) is list && request.resource.data.get('assigneeUids', []).size() <= 20
         && request.resource.data.get('area', '') is string && request.resource.data.get('area', '').size() <= 60
         && request.resource.data.get('reportDate', '') is string && request.resource.data.get('reportDate', '').size() <= 10
+        && request.resource.data.get('deadline', '') is string && request.resource.data.get('deadline', '').size() <= 10
         && anyStaff() && worksIssue(resource.data);
       // Draft 0.82: Change to Customer (In-house ticket, open or in progress): type, property, unit, tags, people and area in one write.
       allow update: if resource.data.status in ['open', 'progress']
