@@ -99,13 +99,13 @@
             <div class="v-item" v-if="(view.docsLinks || []).length > 1"><span>Receipts (old sheet)</span><b><template v-for="(l, i) in view.docsLinks" :key="l"><a :href="l" target="_blank" rel="noopener">{{ `Receipt ${i + 1}` }}</a>{{ i < view.docsLinks.length - 1 ? ' · ' : '' }}</template></b></div>
             <div class="v-item"><span>Verified by</span><b>{{ view.verifiedByName || '—' }}</b></div>
             <div class="v-item"><span>Verified date</span><b>{{ view.verifiedDate || '—' }}</b></div>
-            <div class="v-item v-purpose" v-if="view.bookingNo"><span>Booking</span><b>{{ view.bookingNo }}</b></div>
+            <div class="v-item v-purpose" v-if="view.bookingNo"><span>Booking</span><b>{{ view.bookingNo }}{{ view.forMonth ? ` · for ${monthName(view.forMonth)}` : '' }}</b></div>
             <div class="v-item" v-if="view.roomType"><span>Room type (old sheet)</span><b>{{ view.roomType }}</b></div>
             <div class="v-item v-purpose"><span>Purpose</span><b>{{ view.purpose || '—' }}</b></div>
             <div class="v-item v-purpose"><span>Payment code</span><b>{{ view.remarks || '—' }}</b></div>
           </div>
           <div class="v-edit-grid" v-else>
-            <div class="notice error" v-show="formError" style="grid-column: 1 / -1">{{ formError }}</div>
+            <div class="notice error" ref="edErr" v-show="formError" style="grid-column: 1 / -1">{{ formError }}</div>
             <FormField label="Payment Date" req type="date" v-model="ed.date" />
             <FormField label="Amount (RM)" req type="number" min="0" step="0.01" v-model="ed.amount" />
             <div class="field"><label>Payment method</label>
@@ -116,6 +116,8 @@
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="ed.unitCode" :disabled="!ed.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
             <FormField label="Guest / tenant name" req v-model="ed.guest" placeholder="Full name as on IC / passport" />
+            <div class="field" v-if="view.bookingId"><label class="req">For month</label>
+              <OptionPicker class="fld-pick" v-model="ed.forMonth" :options="monthOptions(monthsAround(ed.date, ed.forMonth))" label="For month" /></div>
             <FormField v-if="canEdit" label="Payment code" v-model="ed.remarks" placeholder="Add payment code" />
             <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
           </div>
@@ -250,7 +252,7 @@
       <div class="modal-back" @click.self="open = false" v-esc="() => { open = false }">
         <form class="modal" role="dialog" aria-label="New offline payment" @submit.prevent="submit" novalidate>
           <div class="card-head"><h2 style="margin:0">New offline payment</h2></div>
-          <div class="notice error" v-show="formError">{{ formError }}</div>
+          <div class="notice error" ref="newErr" v-show="formError">{{ formError }}</div>
           <div class="grid">
             <div class="field"><label class="req">Status <span class="muted">(Unknown = no receipt)</span></label>
               <OptionPicker class="fld-pick" v-model="f.status" :options="statusOptions('')" label="Status" /></div>
@@ -261,14 +263,24 @@
               <div class="field"><label class="req">Payment method</label>
                 <OptionPicker class="fld-pick" v-model="f.mode" :options="MODES" label="Payment method" /></div>
               <div class="field"><label class="req">Property</label>
-                <PropertyPicker block class="fld-pick" v-model="f.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="loadUnitList" /></div>
+                <PropertyPicker block class="fld-pick" v-model="f.propertyId" :properties="properties" :before="[{ value: '', label: 'Choose property' }]" @change="changeProperty" /></div>
               <div class="field"><label class="req">Unit</label>
                 <OptionPicker class="fld-pick" v-model="f.unitCode" :disabled="!f.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
-              <FormField label="Guest / tenant name" req v-model="f.guest" placeholder="Full name as on IC / passport" />
+              <!-- 19 Nov 2026 (Khairul): pick a booking that is staying now (fills property, unit, name, amount and links the payment
+                   to it, so Bookings shows the month Paid once this is Checked), or type any name -->
+              <!-- the link (or loading note) sits beside the label, so this box stays level with For month -->
+              <div class="field"><div class="lbl-row"><label class="req" for="opGuest">Guest / tenant name</label>
+                  <span class="link-line" v-if="f.bookingId">{{ `Linked to booking ${f.bookingNo}` }} <button type="button" class="link-btn" @click="unlinkBooking">Unlink</button></span>
+                  <span class="link-line muted" v-else-if="bkNote">{{ bkNote }}</span></div>
+                <ComboInput id="opGuest" v-model="f.guest" :options="bookingOptions" placeholder="Search current bookings or type the name" empty-text="No current booking matches. What you typed is kept as it is." @pick="pickBooking" /></div>
+              <!-- 19 Nov 2026: a dropdown of the booking's months, check-in to check-out -->
+              <div class="field" v-if="f.bookingId"><label class="req">For month</label>
+                <OptionPicker class="fld-pick" v-model="f.forMonth" :options="monthOptions(f.bookingMonths, f.monthNotes)" label="For month" /></div>
               <FormField label="Bank reference" v-model="f.bankRef" placeholder="Reference no. on the bank slip" />
               <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
               <div class="field wide"><label class="req">Receipts / documents</label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
-              <div class="field wide"><label>Payment code</label><input class="input" v-model="f.remarks"></div>
+              <!-- 19 Nov 2026: Payment code is filled when checking, so it shows only once the status is Checked -->
+              <div class="field wide" v-if="f.status === 'Checked'"><label>Payment code</label><input class="input" v-model="f.remarks"></div>
             </template>
           </div>
           <div class="modal-foot">
@@ -301,7 +313,11 @@ import DriveFiles from '@/components/DriveFiles.vue';
 import { loadProperties, loadUnits, audit, friendlyError, loadXlsxLib, download, toCSV } from '@/lib/finance-data.js';
 import MonthPicker from '@/components/MonthPicker.vue';
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
-import { monthOffset } from '@/lib/format.js';
+import { monthOffset, monthName } from '@/lib/format.js';
+import ComboInput from '@/components/ComboInput.vue';
+import { payCounts, payMonth } from '@/lib/booking-pay.js';
+import { loadGuestName } from '@/lib/portfolio-data.js';
+import { scoped } from '@/lib/property-scope.js';
 import { liveMixin } from '@/lib/use-live.js';
 import LiveStatus from '@/components/LiveStatus.vue';
 
@@ -312,15 +328,28 @@ const today = () => new Date().toISOString().slice(0, 10);
 // Table or cards, remembered on this browser only (table when nothing is saved)
 const LAYOUT_KEY = 'offlinePayments:layout';
 const savedLayout = () => { try { return localStorage.getItem(LAYOUT_KEY) === 'cards' ? 'cards' : 'table'; } catch { return 'table'; } };
-const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '' });
+// Every month from one date's month to another's (YYYY-MM), at most 60
+const monthsBetween = (a, b) => {
+  if (!/^\d{4}-\d{2}/.test(a || '')) return [];
+  const out = [], last = /^\d{4}-\d{2}/.test(b || '') ? b.slice(0, 7) : a.slice(0, 7);
+  let [y, m] = a.slice(0, 7).split('-').map(Number);
+  for (let i = 0; i < 60; i++) { const k = `${y}-${String(m).padStart(2, '0')}`; if (k > last) break; out.push(k); if (++m > 12) { m = 1; y++; } }
+  return out;
+};
+const blank = () => ({ date: today(), amount: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '', bookingId: '', bookingNo: '', forMonth: '', bookingMonths: [], monthNotes: {} });
 
 export default {
   popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   mixins: [liveMixin],
-  components: { PropertyPicker, FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus },
-  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, imp: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
+  components: { PropertyPicker, FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus, ComboInput },
+  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, imp: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), activeBookings: [], bkNote: '', layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: { view(r) { this.loadHistory(r); } },
   computed: {
+    // The Guest / tenant name suggestions: one per current booking
+    bookingOptions() {
+      return this.activeBookings.map(b => ({ key: b.id, value: b.guestName || b.bookingNo || b.id,
+        hint: [b.bookingNo, b.unitCode || b.unitId, b.propertyName, `${b.arrival} to ${b.departure}`].filter(Boolean).join(' · ') }));
+    },
     isDirector() { return useSession().role === 'director'; },
     // ---- ONE-TIME import (18 Nov 2026) ----
     impRows() { return this.imp?.list ? matchRows(this.imp.list, this.properties, this.imp.allUnits, this.imp.choice, this.imp.map) : []; },
@@ -411,8 +440,86 @@ export default {
     },
     async openForm() {
       this.f = blank(); this.newId = doc(collection(db, 'offlinePayments')).id; this.units = []; this.formError = ''; this.open = true;
+      this.loadActiveBookings();
       if (!this.properties.length) { try { this.properties = await loadProperties(); } catch { this.formError = 'Could not load the property list.'; } }
     },
+    // 19 Nov 2026: offline bookings staying now (checked in, not checked out, not cancelled or awaiting payment), in the
+    // properties this person can see, with the guest's name. Finance and Directors usually see every property, so one query.
+    async loadActiveBookings() {
+      this.activeBookings = []; this.bkNote = 'Loading current bookings…';
+      const day = today(), col = collection(db, 'offlineBookings');
+      try {
+        let snap;
+        try { snap = await getScoped(scoped(query(col, where('departure', '>=', day)))); }
+        catch { snap = await getScoped(scoped(query(col, orderBy('createdAt', 'desc'), limit(300))), { order: ['createdAt', 'desc'], limit: 300 }); }   // no index for the scoped query
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .filter(b => !['cancelled', 'pending'].includes(b.status) && (b.arrival || '') <= day && (b.departure || '') >= day);
+        const names = await Promise.all(list.map(b => loadGuestName(b)));
+        this.activeBookings = list.map((b, i) => ({ ...b, guestName: names[i] || '' })).sort((a, b) => (a.guestName || a.bookingNo || '').localeCompare(b.guestName || b.bookingNo || ''));
+        this.bkNote = this.activeBookings.length ? '' : 'No bookings are staying today. Type the name.';
+      } catch { this.bkNote = 'Current bookings could not be loaded. Type the name.'; }
+    },
+    async pickBooking(o) {
+      const b = this.activeBookings.find(x => x.id === o.key), f = this.f; if (!b) return;
+      f.bookingId = b.id; f.bookingNo = b.bookingNo || b.id; f.forMonth = '';
+      f.bookingMonths = monthsBetween(b.arrival, b.departure); f.monthNotes = {};
+      this.dropPaidMonths(b);
+      f.guest = b.guestName || f.guest;
+      if (!(+f.amount > 0)) f.amount = Number(b.longTerm ? b.monthlyRent : b.rental) || '';
+      if (!f.purpose.trim()) f.purpose = `${b.longTerm ? 'Monthly rent' : 'Rental'} for booking ${f.bookingNo}`;
+      if (f.propertyId !== b.propertyId) {
+        f.propertyId = b.propertyId || ''; this.units = [];
+        try { this.units = f.propertyId ? await loadUnits(f.propertyId) : []; } catch { this.formError = 'Could not load the units.'; }
+      }
+      f.unitCode = b.unitCode || b.unitId || '';
+      if (f.unitCode && !this.units.some(u => u.unitCode === f.unitCode)) this.units = [...this.units, { unitCode: f.unitCode }];
+    },
+    // 19 Nov 2026: the error sits at the top of the popup, so bring it into view (it was missed when scrolled down to Submit)
+    showError(ref) {
+      this.$nextTick(() => {
+        const el = this.$refs[ref]; if (!el) return;
+        if (document.activeElement && el.closest('form, .modal')?.contains(document.activeElement)) document.activeElement.blur();   // a focused box would hold the scroll
+        for (let p = el.parentElement; p; p = p.parentElement) if (p.scrollHeight > p.clientHeight + 1) p.scrollTop = 0;   // the popup and its backdrop, to the top
+      });
+    },
+    unlinkBooking() { Object.assign(this.f, { bookingId: '', bookingNo: '', forMonth: '', bookingMonths: [], monthNotes: {} }); },
+    // 19 Nov 2026: months already paid (Checked payments cover the rent) are left out of For month; part-paid and
+    // Pending ones stay, with a note. Short term: the whole rental is due in the check-in month.
+    async dropPaidMonths(b) {
+      let rows = [];
+      try {
+        const q = b.propertyId ? query(collection(db, 'offlinePayments'), where('bookingId', '==', b.id), where('propertyId', '==', b.propertyId))
+          : query(collection(db, 'offlinePayments'), where('bookingId', '==', b.id));
+        rows = (await getDocs(q)).docs.map(d => d.data());
+      } catch { return; }   // can't read them: every month stays
+      const f = this.f; if (f.bookingId !== b.id) return;   // picked another booking meanwhile
+      const months = f.bookingMonths, first = months[0];
+      const due = Number(b.longTerm ? b.monthlyRent : b.rental) || 0;
+      const sum = (m, ok) => rows.filter(x => ok(x) && (b.longTerm ? payMonth(x) === m : m === first)).reduce((a, x) => a + (Number(x.amount) || 0), 0);
+      const notes = {};
+      f.bookingMonths = months.filter(m => {
+        if (!b.longTerm && m !== first) return sum(first, payCounts) < due - 0.005 || due <= 0;   // short term paid in full: no month left
+        const paid = sum(m, payCounts), waiting = sum(m, x => x.status === 'Pending' || x.status === 'Edited');
+        if (due > 0 && paid >= due - 0.005) return false;
+        notes[m] = [paid > 0 ? `RM ${paid.toFixed(2)} of ${due.toFixed(2)} paid` : '', waiting > 0 ? `RM ${waiting.toFixed(2)} pending` : ''].filter(Boolean).join(', ');
+        return true;
+      });
+      f.monthNotes = notes;
+      if (f.forMonth && !f.bookingMonths.includes(f.forMonth)) f.forMonth = '';
+    },
+    monthOptions(list, notes = {}) {
+      if (!(list || []).length) return [{ value: '', label: 'Every month is paid' }];
+      return [{ value: '', label: 'Choose month' }, ...list.map(m => ({ value: m, label: notes[m] ? `${monthName(m)} (${notes[m]})` : monthName(m) }))];
+    },
+    // Edit: 12 months either side of the payment date, plus the saved month
+    monthsAround(date, cur) {
+      const d = /^\d{4}-\d{2}/.test(date || '') ? date : today(), y = +d.slice(0, 4), m = +d.slice(5, 7);
+      const from = `${m === 12 ? y : y - 1}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}`, to = `${y + 1}-${d.slice(5, 7)}`;
+      const list = monthsBetween(from + '-01', to + '-01');
+      return cur && !list.includes(cur) ? [cur, ...list].sort() : list;
+    },
+    changeProperty() { if (this.f.bookingId) this.unlinkBooking(); this.loadUnitList(); },   // another property: no longer that booking
+    monthName,
     async loadUnitList() {
       this.f.unitCode = ''; this.units = [];
       if (!this.f.propertyId) return;
@@ -425,17 +532,19 @@ export default {
       this.formError = !f.date ? 'Choose the payment date.' : !(+f.amount > 0) ? 'Enter the amount.'
         : unk ? '' : !f.propertyId ? 'Choose the property.' : !f.guest.trim() ? 'Enter the guest name.' : !f.purpose.trim() ? 'Enter the purpose.'
         : !f.mode ? 'Choose the payment method.'
+        : (f.bookingId && !/^\d{4}-\d{2}$/.test(f.forMonth || '')) ? 'Choose the month this payment is for.'
         : !f.docsLink.trim() ? 'Upload the receipt. It is required unless the status is Unknown.'
         : (f.docsLink.trim() && !/^https?:\/\//i.test(f.docsLink.trim())) ? 'The documents link should start with https://' : '';
-      if (this.formError) return;
+      if (this.formError) return this.showError('newErr');
       this.busy = true;
       try {
         const prop = this.properties.find(p => p.id === f.propertyId), ref = doc(db, 'offlinePayments', this.newId), batch = writeBatch(db);
         const st = await stateFor(f.propertyId);   // the payment carries its property's state
         batch.set(ref, { ...(st ? { state: st } : {}), date: f.date, amount: Math.round(+f.amount * 100) / 100, propertyId: f.propertyId, propertyName: prop?.name || '', unitCode: f.unitCode,
-          guest: f.guest.trim(), purpose: f.purpose.trim(), mode: f.mode, bankRef: f.bankRef.trim(), docsLink: f.docsLink.trim(), remarks: f.remarks.trim(),
-          status: f.status, verifiedByName: f.status === 'Pending' ? '' : me.name, verifiedDate: f.status === 'Pending' ? '' : today(), createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name });
-        audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${ref.id}`, propertyId: f.propertyId, changes: [['amount', +f.amount], ['date', f.date], ['propertyName', prop?.name || ''], ['unitCode', f.unitCode], ['guest', f.guest.trim()], ['purpose', f.purpose.trim()], ['bankRef', f.bankRef.trim()], ['status', f.status]].filter(([, v]) => v !== '').map(([field, v]) => ({ field, old: null, new: v })) });
+          guest: f.guest.trim(), purpose: f.purpose.trim(), mode: f.mode, bankRef: f.bankRef.trim(), docsLink: f.docsLink.trim(), remarks: f.status === 'Checked' ? f.remarks.trim() : '',
+          status: f.status, verifiedByName: f.status === 'Pending' ? '' : me.name, verifiedDate: f.status === 'Pending' ? '' : today(), createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name,
+          ...(f.bookingId && !unk ? { bookingId: f.bookingId, bookingNo: f.bookingNo, forMonth: f.forMonth } : {}) });
+        audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${ref.id}`, propertyId: f.propertyId, changes: [['amount', +f.amount], ['date', f.date], ['propertyName', prop?.name || ''], ['unitCode', f.unitCode], ['guest', f.guest.trim()], ['purpose', f.purpose.trim()], ['bankRef', f.bankRef.trim()], ['status', f.status], ...(f.bookingId && !unk ? [['bookingNo', f.bookingNo], ['forMonth', f.forMonth]] : [])].filter(([, v]) => v !== '').map(([field, v]) => ({ field, old: null, new: v })) });
         await batch.commit();
         this.open = false; toast('Changes saved'); this.done = 'Offline payment submitted as ' + f.status + '.';
         if (f.status === 'Unknown') this.tellOperations({ id: ref.id, amount: +f.amount, guest: f.guest.trim(), unitCode: f.unitCode, date: f.date });
@@ -452,7 +561,7 @@ export default {
     },
     async startEdit() {
       const r = this.view;
-      this.ed = { date: r.date, amount: r.amount, propertyId: r.propertyId || '', unitCode: r.unitCode || '', guest: r.guest, purpose: r.purpose, mode: r.mode || '', bankRef: r.bankRef || '', remarks: r.remarks || '' };
+      this.ed = { date: r.date, amount: r.amount, propertyId: r.propertyId || '', unitCode: r.unitCode || '', guest: r.guest, purpose: r.purpose, mode: r.mode || '', bankRef: r.bankRef || '', remarks: r.remarks || '', forMonth: r.forMonth || '' };
       this.formError = ''; this.editing = true;   // a receipt uploaded before pressing Add details is kept
       try {
         if (!this.properties.length) this.properties = await loadProperties();
@@ -467,11 +576,11 @@ export default {
     async saveEdit() {
       const e = this.ed, r = this.view;
       this.formError = !e.date ? 'Choose the payment date.' : !(+e.amount > 0) ? 'Enter the amount.' : !e.propertyId ? 'Choose the property.' : !String(e.guest).trim() ? 'Enter the guest name.' : !String(e.purpose).trim() ? 'Enter the purpose.'
-        : '';
-      if (this.formError) return;
+        : (r.bookingId && !/^\d{4}-\d{2}$/.test(e.forMonth || '')) ? 'Choose the month this payment is for.' : '';
+      if (this.formError) return this.showError('edErr');
       const prop = this.properties.find(p => p.id === e.propertyId);
       const data = { date: e.date, amount: Math.round(+e.amount * 100) / 100, propertyId: e.propertyId, propertyName: prop?.name || r.propertyName || '', unitCode: e.unitCode,
-        guest: String(e.guest).trim(), purpose: String(e.purpose).trim(), mode: e.mode || '', bankRef: String(e.bankRef).trim(), ...(this.canEdit ? { remarks: String(e.remarks || '').trim() } : {}) };
+        guest: String(e.guest).trim(), purpose: String(e.purpose).trim(), mode: e.mode || '', bankRef: String(e.bankRef).trim(), ...(this.canEdit ? { remarks: String(e.remarks || '').trim() } : {}), ...(r.bookingId ? { forMonth: e.forMonth } : {}) };
       const ops = this.opsEdit(r);
       if (ops && this.pendingLink) data.docsLink = this.pendingLink;
       const changes = Object.keys(data).filter(k => (r[k] ?? '') !== data[k]).map(k => ({ field: k, old: r[k] ?? '', new: data[k] }));
@@ -779,8 +888,9 @@ export default {
 .del-btn:hover:not(:disabled) { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; }
 .modal .field { margin-bottom: 0; }
 .modal .field label { margin-bottom: 4px; }
-.modal .input { min-height: 44px; font-size: 15px; }
-.modal .field label { font-size: 14px; }
+/* 19 Nov 2026: :deep so the inputs and labels inside FormField / ComboInput match the pickers (44px, 14px labels) */
+.modal :deep(.input) { min-height: 44px; font-size: 15px; }
+.modal :deep(.field label) { font-size: 14px; margin-bottom: 4px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin-bottom: 12px; }
 @media (max-width: 640px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 /* ONE-TIME import popup (18 Nov 2026) */
@@ -806,4 +916,7 @@ export default {
 .imp-u-name span { font-size: 12.5px; }
 .imp-unit > .input, .imp-unit > .imp-u-wide { grid-column: 2; }
 @media (max-width: 640px) { .imp-unit { grid-template-columns: 1fr; } .imp-unit > .input, .imp-unit > .imp-u-wide { grid-column: auto; } }
+.lbl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.link-line { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; }
 </style>
