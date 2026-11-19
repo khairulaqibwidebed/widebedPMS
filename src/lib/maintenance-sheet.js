@@ -73,7 +73,7 @@ export function sheetRow(t, ctx) {
   const c = t.completion || {}, bl = t.billing || {}, o = ctx.ownerOf(t), charged = bl.status === 'charged', cost = t.completion ? r2(c.cost) : '';
   return {
     ID: t.id, "Owner's Name": o.name, "Owner's Email Address1": o.email1, "Owner's Email Address2": o.email2,
-    Property_Name: t.property || ctx.props[t.propertyId] || '', 'Unit No': t.unit || '', 'Report Date': ymd(t.createdAt),
+    Property_Name: t.property || ctx.props[t.propertyId] || '', 'Unit No': t.unit || '', 'Report Date': day(t.reportDate) || ymd(t.createdAt),   // 19 Nov 2026: the ticket's Date when set
     'Google Drive Link': t.driveFolderUrl || c.driveFolderUrl || '', Area: t.area || '', Description: t.body || t.title || '',
     'Raised by': t.raisedBy || '', Raise_Date_Time: dmyHm(t.createdAt), 'Action Date': day(c.actionDate),
     'Solution/Action Taken': c.solution || '', 'Cost Remarks': c.costRemarks || '', 'Fixed by': c.fixedByName || '',
