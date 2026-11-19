@@ -73,6 +73,35 @@ export async function clearCache(prefix = '') {
   cacheState.loadedAt = 0;
 }
 
+// Per-record copies kept with the stamp they were read for (19 Nov 2026, Firestore reads): e.g. each owner's private
+// part, kept with its owner record's updatedAt. Only records whose stamp moved (or that were never read) are read again;
+// there is no time limit, because every save of the private part also moves the stamp (same batch). Cleared like
+// everything else by clearCache (same key prefix), Refresh and Log out.
+//   const privs = await keepFresh('ownerPriv:main', owners, o => stampOf(o), o => readPriv(o.id), { prune: true });
+// items: records with an id. load(item) throwing = not saved (read again next time); the old copy is used if there is one.
+// prune: drop saved ids that are not in items (when items is the whole list).
+export async function keepFresh(key, items, stampOf, load, { prune = false } = {}) {
+  const k = full(key);
+  let saved = mem.get(k)?.value;
+  if (!saved) {
+    const s = await run('readonly', st => st.get(k));
+    try { saved = s ? dec(s.json) : {}; } catch (e) { saved = {}; }
+  }
+  const out = {}, next = prune ? {} : { ...saved };
+  let changed = false;
+  await Promise.all(items.map(async it => {
+    const s = String(stampOf(it) ?? ''), hit = saved[it.id];
+    if (hit && hit.s === s) { out[it.id] = hit.v; if (prune) next[it.id] = hit; return; }
+    try { const v = await load(it); out[it.id] = v; next[it.id] = { s, v }; changed = true; }
+    catch (e) { if (hit) { out[it.id] = hit.v; if (prune) next[it.id] = hit; } }   // old copy shown, old stamp kept: read again next time
+  }));
+  if (prune && Object.keys(next).length !== Object.keys(saved).length) changed = true;
+  const value = changed ? next : saved, at = mem.get(k)?.at || Date.now();
+  mem.set(k, { at, value });
+  if (changed) run('readwrite', st => st.put({ at, json: enc(value) }, k));
+  return out;
+}
+
 // Change one saved value in place (e.g. one owner in the owners list) instead of throwing it away and reading it all
 // again. The saved copy keeps its age. Nothing saved under that key = nothing to do (the next read is fresh anyway).
 export async function patchCache(key, change) {
