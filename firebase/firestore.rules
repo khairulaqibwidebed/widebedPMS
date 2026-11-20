@@ -1,9 +1,16 @@
 rules_version = '2';
+// Draft 0.94, 20 Nov 2026 (Khairul): Marketing > Agent Database (agents/{id}). New access row 'agents' (Agent Database,
+//   Marketing group): Marketing have Base + Full by default (presetFor). Base reads the list and profiles; Full adds, edits
+//   and reads bank details. Bank holder and account number sit in agents/{id}/private/bank (Full, plus Accounting read for
+//   commission payments); the parent keeps only bankName and acctLast4 for the list. Business card files are in Google Drive
+//   (cardFront / cardBack: name, fileId, mimeType). Directors delete. KEEP IN STEP WITH PRESETS in lib/access.js.
+// Draft 0.93, 20 Nov 2026 (Khairul): cohGroups/{id} { name, members, updatedBy, updatedByName, updatedAt }: COH rater groups
+//   (COH Evaluations > Settings), quick picks on Assigned raters. HR and Directors read and write; nobody else.
 // Draft 0.92, 19 Nov 2026 (Khairul): COH assigned raters in three groups (COH Evaluations > Assigned raters): Interns
 //   (users/{uid}.intern), Housekeeping (role) and General (cohAssignments/{quarterId}.general, a list HR keeps). Anyone in
 //   a group rates, and is rated by, only the pairs HR listed (hkPairOk). cohAssignments may now carry general.
-// Draft 0.91, 19 Nov 2026 (Khairul): HR and Directors delete a COH evaluation and its marks (cohEvaluations/{id} and
-//   private/scores), from COH Evaluations > All evaluations, with an audit log line. Nobody else can.
+// Draft 0.91, 19 Nov 2026 (Khairul): withdrawn 20 Nov 2026 with COH > All evaluations (never published). Nobody deletes
+//   a COH evaluation or its marks, as before.
 // Draft 0.90, 19 Nov 2026 (Neo, "KPI HR", commits f6d860d / d80e472): HR reads every KPI assignment and creates or edits
 //   one for another staff member (not a Director, not themselves). Neo's commit replaced the whole file with an old copy
 //   and left merge markers; this file is 1000b91 (up to Draft 0.89) with only that change brought across (was labelled 0.89).
@@ -378,7 +385,7 @@ service cloud.firestore {
         : r == 'it' ? ['split.v2']
         : r == 'hr' ? ['playbook.edit', 'sops.edit', 'split.v2']
         : r == 'procurement' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
-        : r == 'marketing' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
+        : r == 'marketing' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'agents.view', 'agents.edit', 'split.v2']   // Draft 0.94: agents
         : r == 'ai' ? ['portfolio.view', 'split.v2']
         : r == 'housekeeping' ? ['split.v2']   // Draft 0.78
         : [];
@@ -542,7 +549,8 @@ service cloud.firestore {
     // their own rules below.
     match /{parent=**}/private/{docId} {
       allow read, write: if finOrDir() && parent[0] != 'complaints' && parent[0] != 'newOwnerListings'
-        && parent[0] != 'cohEvaluations' && parent[0] != 'owners';   // Draft 0.73: owners follow Owners Full
+        && parent[0] != 'cohEvaluations' && parent[0] != 'owners'   // Draft 0.73: owners follow Owners Full
+        && parent[0] != 'agents';   // Draft 0.94: agents' bank details have their own rule (Accounting read only)
       // Returning tenant search: collectionGroup('private') where kind == 'tenant'. kind is written only on
       // tenants/{id}/private/main; Operations can't add it to an inquiry's private doc.
       allow read: if (guestFull() || finOrDir()) && resource.data.get('kind', '') == 'tenant';   // Draft 0.73: Full only
@@ -1609,6 +1617,55 @@ service cloud.firestore {
       }
     }
 
+    // ================= Marketing: Agent Database (Draft 0.94) =================
+    // agents/{id}: property agents, travel agents, MM2H and others. Agent Database Base reads; Full adds and edits.
+    // Bank holder and account number in private/bank (Full; Accounting reads to pay commission). Directors delete.
+    match /agents/{agentId} {
+      function agentKeys() {
+        return ['name', 'company', 'agency', 'agencyOther', 'mobile', 'email', 'address', 'bankName', 'acctLast4',
+          'cardFront', 'cardBack', 'active', 'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'updatedBy', 'updatedByName'];
+      }
+      function cardOk(k) {
+        let c = request.resource.data.get(k, null);
+        return c == null || (c is map && c.keys().hasOnly(['name', 'fileId', 'mimeType'])
+          && c.fileId is string && c.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
+          && c.get('name', '') is string && c.get('name', '').size() <= 200);
+      }
+      function agentOk() {
+        let d = request.resource.data;
+        return d.name is string && d.name.size() > 0 && d.name.size() <= 120
+          && d.agency in ['property', 'travel', 'mm2h', 'other']
+          && d.get('agencyOther', '') is string && d.get('agencyOther', '').size() <= 60
+          && (d.agency != 'other' || d.get('agencyOther', '').size() > 0)
+          && d.mobile is string && d.mobile.size() > 0 && d.mobile.size() <= 30
+          && d.get('company', '') is string && d.get('company', '').size() <= 120
+          && d.get('email', '') is string && d.get('email', '').size() <= 120
+          && d.get('address', '') is string && d.get('address', '').size() <= 500
+          && d.get('bankName', '') is string && d.get('bankName', '').size() <= 60
+          && d.get('acctLast4', '') is string && d.get('acctLast4', '').matches('^[0-9]{0,4}$')
+          && d.get('active', true) is bool
+          && cardOk('cardFront') && cardOk('cardBack')
+          && d.updatedBy == request.auth.uid;
+      }
+      allow read: if !isAI() && canAny(['agents.view', 'agents.edit']);
+      allow create: if can('agents.edit') && newKeysOnly(agentKeys()) && agentOk()
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if can('agents.edit') && request.resource.data.keys().hasOnly(agentKeys()) && agentOk()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDirector();
+      match /private/{docId} {
+        allow read: if docId == 'bank' && (can('agents.edit') || finView());
+        allow create, update: if docId == 'bank' && can('agents.edit')
+          && request.resource.data.keys().hasOnly(['bank', 'holder', 'accountNo', 'updatedAt', 'updatedBy'])
+          && request.resource.data.get('bank', '') is string && request.resource.data.get('bank', '').size() <= 60
+          && request.resource.data.get('holder', '') is string && request.resource.data.get('holder', '').size() <= 120
+          && request.resource.data.get('accountNo', '') is string && request.resource.data.get('accountNo', '').matches('^[0-9]{0,20}$')
+          && request.resource.data.updatedBy == request.auth.uid;
+        allow delete: if isDirector();
+      }
+    }
+
     // ================= Performance management (Stage 1+2 security/revision fixes, 3 Nov 2026) =================
     // performance.edit is not yet in presetFor()/PRESETS ΓÇö until it's added, only the Director can write.
     // Everyone reads quarter config (deadlines, status) so excluded employees can be told why they see nothing further.
@@ -1655,6 +1712,15 @@ service cloud.firestore {
         && request.resource.data.get('general', []) is list && request.resource.data.get('general', []).size() <= 300
         && request.resource.data.updatedBy == request.auth.uid;
     }
+    // Draft 0.93: COH rater groups (Settings), HR and Directors only
+    match /cohGroups/{id} {
+      allow read, delete: if hrOrDir();
+      allow create, update: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['name', 'members', 'updatedBy', 'updatedByName', 'updatedAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.members is list && request.resource.data.members.size() <= 300
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
     // Draft 0.78: a pair with a housekeeper on either side must be one HR listed. Others: allowed as before.
     // Draft 0.92: the same for interns (users/{uid}.intern) and for anyone in the quarter's General list.
     function hkPairOk(quarterId, evaluatorId, evaluateeId) {
@@ -1695,8 +1761,7 @@ service cloud.firestore {
       // HR/Director approve: only the review fields change.
       allow update: if (isDirector() || can('performance.edit'))
         && changed().hasOnly(['status', 'reviewedBy', 'reviewedAt']) && request.resource.data.status == 'approved';
-      // Draft 0.91: HR and Directors delete an evaluation (COH > All evaluations), with its marks below.
-      allow delete: if isDirector() || isHR();
+      allow delete: if false;
 
       // The actual marks: readable by the evaluator (it's their own input) and HR/Director (monitoring and
       // official score calculation, see results.js::cohScoreFor) ΓÇö never by the evaluatee. Immutable once
@@ -1723,7 +1788,7 @@ service cloud.firestore {
                 && getAfter(evalDoc()).data.status == 'submitted'
                 && request.resource.data.ratings.size() > resource.data.ratings.size()))
           && request.resource.data.ratings is list && request.resource.data.averageRating is number;
-        allow delete: if isDirector() || isHR();   // Draft 0.91, with the evaluation above
+        allow delete: if false;
       }
     }
 

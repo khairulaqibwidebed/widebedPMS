@@ -23,6 +23,8 @@ const PORTFOLIO = G('Portfolio', 'layers', [P('Owners', '/Portfolio/owners', 'us
 const LEADS = G('Leads & Agreements', 'handshake', [P('Owner Leads', '/Procurement/listing-flow', 'home'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'),
   P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'refresh')]);
 const LEADS_DIR = G('Leads & Agreements', 'handshake', [...LEADS.items, P('Agreement Setup', '/Agreements/setup', 'filePen')]);
+// Marketing (20 Nov 2026): Agent Database follows its access tick (Marketing have it by default).
+const MARKETING = G('Marketing', 'megaphone', [P('Agent Database', '/Marketing/agents', 'users')]);
 // Month-end order.
 const ACCOUNTING = G('Accounting', 'calculator', [P('Upload eZee Report', '/Finance/upload', 'upload'), P('Expenses & Others', '/Finance/expenses', 'receipt'),
   P('Month-End Payout', '/Finance/month-end', 'banknote'), P('Invoices & Receipts', '/Finance/invoices', 'files'), P('Reports', '/Reports', 'pieChart')]);
@@ -47,7 +49,7 @@ const MY_ACCOUNT = G('My Account', 'userCircle', [P('Profile & Appearance', '/Se
 
 export const NAV = {
   finance: [TOP, PORTFOLIO, LEADS, ACCOUNTING, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
-  director: [TOP, PORTFOLIO, LEADS_DIR, ACCOUNTING_DIR, PERFORMANCE_ADMIN, PLAYBOOK, HR_DIR,
+  director: [TOP, PORTFOLIO, LEADS_DIR, MARKETING, ACCOUNTING_DIR, PERFORMANCE_ADMIN, PLAYBOOK, HR_DIR,
     G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'userCog'), P('Google Drive Folders', '/Settings/states', 'files'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
     MY_ACCOUNT],
   // Portfolio is view-only for Operations, Procurement and Marketing (no fees, payouts or owner contact details).
@@ -59,7 +61,7 @@ export const NAV = {
     G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Audit Log', '/Settings/audit-log', 'history')]),
     MY_ACCOUNT],
   procurement: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
-  marketing: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
+  marketing: [TOP, PORTFOLIO, LEADS, MARKETING, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   // Housekeeping (17 Nov 2026): like IT to start; pages ticked for them are added by navFor()
   housekeeping: [TOP, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT]
 };

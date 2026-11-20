@@ -15,7 +15,7 @@
 // The deterministic evaluation id (one per evaluator/evaluatee/quarter) makes "no duplicate submission" a
 // property of the document path, not application logic: a second submit overwrites the first rather than
 // creating a second row, and firestore.rules can check "does this id already exist" cheaply.
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, limit, serverTimestamp, addDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, limit, serverTimestamp, addDoc, writeBatch, deleteDoc } from 'firebase/firestore';
 import { questionsOf, hasOwnSet, sharedSet, planOwnSet, planCopyFrom } from './cohQuestions.js';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
@@ -115,9 +115,12 @@ export async function deleteQuestion(id, title = '') {
 // Each person's current role and intern tick, from the staff list (the rules read the same users/{uid} fields).
 export async function loadStaffFlags() {
   const snap = await getDocs(collection(db, 'users'));
-  const roles = {}, interns = new Set();
-  for (const d of snap.docs) { roles[d.id] = d.data().role || ''; if (d.data().intern === true) interns.add(d.id); }   // as the rules read it
-  return { roles, interns };
+  const roles = {}, interns = new Set(), names = {};
+  for (const d of snap.docs) {
+    roles[d.id] = d.data().role || ''; if (d.data().intern === true) interns.add(d.id);   // as the rules read it
+    names[d.id] = d.data().displayName || d.data().email || '';   // 20 Nov 2026: real names (a participant can be saved as just "Staff")
+  }
+  return { roles, interns, names };
 }
 export async function loadRoles() { return (await loadStaffFlags()).roles; }
 export async function loadAssignment(quarterId) {
@@ -129,9 +132,9 @@ export async function loadAssignment(quarterId) {
 export async function loadPairs(quarterId) { return (await loadAssignment(quarterId)).pairs; }
 // The quarter's rating rules in one go: roleOf(uid), isIntern(uid), general, special(uid) (intern or General) and pairs.
 export async function loadRatingRules(quarterId) {
-  const [{ roles, interns }, { pairs, general }] = await Promise.all([loadStaffFlags(), loadAssignment(quarterId)]);
+  const [{ roles, interns, names }, { pairs, general }] = await Promise.all([loadStaffFlags(), loadAssignment(quarterId)]);
   const isIntern = uid => interns.has(uid);
-  return { roleOf: uid => roles[uid] || '', isIntern, general, special: uid => isIntern(uid) || general.includes(uid), pairs };
+  return { roleOf: uid => roles[uid] || '', nameOf: uid => names[uid] || '', isIntern, general, special: uid => isIntern(uid) || general.includes(uid), pairs };
 }
 // Saves the pairs and the General list. General keeps only quarter participants who are not interns or housekeepers.
 export async function savePairs(quarterId, pairs, uids, roleOf, isIntern = () => false, general = []) {
@@ -142,6 +145,24 @@ export async function savePairs(quarterId, pairs, uids, roleOf, isIntern = () =>
   const n = Object.values(clean).reduce((a, l) => a + l.length, 0);
   audit('performance.coh.housekeeping.pairs', `cohAssignments/${quarterId}`, `${n} assigned rating pair(s), ${gen.length} in General`);
   return { pairs: clean, general: gen };
+}
+
+// ---- Rater groups (20 Nov 2026, Draft 0.93): cohGroups/{id} { name, members: [uid], updatedBy, updatedByName, updatedAt } ----
+// Quick picks on Assigned raters (COH Evaluations > Settings). A person can be in several groups.
+export async function listGroups() {
+  const snap = await getDocs(collection(db, 'cohGroups'));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+export async function saveGroup(id, name, members) {
+  const s = me(), ref = id ? doc(db, 'cohGroups', id) : doc(collection(db, 'cohGroups'));
+  const data = { name: String(name).trim().slice(0, 60), members: [...new Set(members)].slice(0, 300), updatedBy: s.user.uid, updatedByName: s.name, updatedAt: serverTimestamp() };
+  await setDoc(ref, data);
+  audit('performance.coh.group.save', `cohGroups/${ref.id}`, `${data.name}: ${data.members.length} people`);
+  return ref.id;
+}
+export async function deleteGroup(id, name = '') {
+  await deleteDoc(doc(db, 'cohGroups', id));
+  audit('performance.coh.group.delete', `cohGroups/${id}`, name);
 }
 
 // ---- Eligibility: active participants in the quarter, minus myself ----

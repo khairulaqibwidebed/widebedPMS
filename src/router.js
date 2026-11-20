@@ -63,6 +63,9 @@ const routes = [
   ...['/Procurement/new-owner-listings', '/Procurement/new-listings'].map(path => ({ path, redirect: to =>
     to.query.id ? { path: `/Procurement/listing-flow/${to.query.id}`, query: {} } : 'new' in to.query ? { path: '/Procurement/listing-flow/new', query: {} } : { path: '/Procurement/listing-flow', query: {} } })),
 
+  // Marketing > Agent Database (20 Nov 2026): property agents, travel agents, MM2H and others. Agent Database tick.
+  ticked('/Marketing/agents', () => import('./pages/Marketing/AgentDatabase.vue'), 'Agent Database', 'agents'),
+
   // Agreements: every role fills in forms and sees records. Setup (forms, formulas, templates, designer) needs its tick.
   page('/Agreements', () => import('./pages/Agreements/Records.vue'), 'Agreements', ALL),
   page('/Agreements/renewals', () => import('./pages/Agreements/Renewals.vue'), 'Renewals', ALL, { title: 'Agreement renewals' }),
