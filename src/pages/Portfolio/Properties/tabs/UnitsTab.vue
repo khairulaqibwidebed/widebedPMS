@@ -28,13 +28,14 @@
                 <td class="num">{{ row.info?.sizeSqft ?? '—' }}</td>
               </tr>
               <tr class="clickable" :class="{ future: futureOf(row) }" @click="$emit('open', row)" v-else>
-                <td class="strong">{{ row.unitCode }}</td>
-                <td><span class="muted" v-if="!occReady">…</span><template v-else>{{ sourceOf(occOf(row).now) || '—' }}</template></td>
-                <td class="num nw"><span class="muted" v-if="!occReady">…</span><template v-else-if="rentOf(occOf(row).now)">{{ amt(rentOf(occOf(row).now).amount) }}<small class="muted">{{ rentOf(occOf(row).now).per }}</small></template><template v-else>—</template></td>
+                <!-- 20 Nov 2026 (Khairul): owner muted under the unit code (search finds owners too); empty cells show a light-grey dash -->
+                <td class="strong">{{ row.unitCode }}<div class="owner-sub" v-if="labelOf(row.ownerId)">{{ labelOf(row.ownerId) }}</div></td>
+                <td><span class="muted" v-if="!occReady">…</span><template v-else-if="sourceOf(occOf(row).now)">{{ sourceOf(occOf(row).now) }}</template><span class="dash" v-else>—</span></td>
+                <td class="num nw"><span class="muted" v-if="!occReady">…</span><template v-else-if="rentOf(occOf(row).now)">{{ amt(rentOf(occOf(row).now).amount) }}<small class="muted">{{ rentOf(occOf(row).now).per }}</small></template><span v-else class="dash">—</span></td>
                 <td><span class="muted" v-if="!occReady">…</span><template v-else><span class="pill" :class="occOf(row).now ? 'green' : 'grey'">{{ occOf(row).now ? 'Tenanted' : 'Vacant' }}</span><small class="muted term-tag" v-if="occOf(row).now">{{ TERM_LABEL[termOf(occOf(row).now)] }}</small></template></td>
-                <td class="nw">{{ occReady ? dayName(occOf(row).now?.departure) : '' }}</td>
-                <td class="nw">{{ occReady ? dayName(occOf(row).next?.arrival) : '' }}<span class="muted" v-if="occReady && occOf(row).next?.status === 'pending'" title="Saved before payment; the unit is held"> (awaiting payment)</span></td>
-                <td class="nw">{{ !occReady || occOf(row).now ? (occReady ? '—' : '') : occOf(row).last ? dayName(occOf(row).last.departure) : 'Never booked' }}</td>
+                <td class="nw"><template v-if="occReady && occOf(row).now?.departure">{{ dayName(occOf(row).now.departure) }}</template><span class="dash" v-else-if="occReady">—</span></td>
+                <td class="nw"><template v-if="occReady && occOf(row).next?.arrival">{{ dayName(occOf(row).next.arrival) }}</template><span class="dash" v-else-if="occReady">—</span><span class="muted" v-if="occReady && occOf(row).next?.status === 'pending'" title="Saved before payment; the unit is held"> (awaiting payment)</span></td>
+                <td class="nw"><template v-if="occReady"><span class="dash" v-if="occOf(row).now">—</span><template v-else>{{ occOf(row).last ? dayName(occOf(row).last.departure) : 'Never booked' }}</template></template></td>
                 <td class="num"><button class="editlink" @click.stop="$emit('open', row)">Edit ›</button></td>
               </tr>
             </template>
@@ -173,6 +174,8 @@ export default {
 </script>
 
 <style scoped>
+.dash { color: #cbd5e1; }   /* 20 Nov 2026: empty cells fade back */
+.owner-sub { font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 2px; }
 /* 16 Nov 2026: Vacant only tick box beside the filter drop-down; the drop-down button and its list are the same width */
 .uf-pick { width: 220px; flex: none; }
 .term-tag { display: block; margin-top: 2px; font-size: 11px; }

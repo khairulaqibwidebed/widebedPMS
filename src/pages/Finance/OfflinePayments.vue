@@ -30,8 +30,7 @@
         <div class="field"><label>Month</label><MonthPicker v-model="month" all-label="All months" @change="pickMonth" /></div>
         <FormField label="From date" type="date" v-model="from" @input="month = ''" />
         <FormField label="To date" type="date" v-model="to" @input="month = ''" />
-        <div class="field"><label>Status</label>
-          <OptionPicker v-model="status" :options="STATUS_OPTS" label="Status" /></div>
+        <!-- 20 Nov 2026 (Khairul): Status drop-down removed; the status cards above filter the list (click again or Total submissions to clear) -->
       </div>
       <div class="list-head">
         <p class="help">{{ loading ? 'Loading…' : `${shown.length} record${shown.length === 1 ? '' : 's'}` }}</p>
@@ -49,31 +48,39 @@
             <div class="pc-main">
               <div class="pc-name">{{ r.guest || '—' }}</div>
               <div class="pc-place"><span>{{ [r.propertyName, r.unitCode].filter(Boolean).join(' · ') || 'No property' }}</span></div>
+              <div class="pc-meta">{{ [niceDate(r.date), r.mode, r.submittedByName || '', r.editedByName ? `Edited: ${r.editedByName}` : ''].filter(Boolean).join(' · ') }}</div>
+            </div>
+            <!-- 20 Nov 2026 (Khairul): what for, in the middle column (fixed width, centred); Payment code only when there is one -->
+            <div class="pc-mid">
               <div class="pc-purpose clamp" :title="r.purpose"><span class="pc-k">Purpose</span>{{ r.purpose || '—' }}</div>
-              <div class="pc-purpose clamp" :title="r.remarks"><span class="pc-k">Payment Code</span>{{ r.remarks || '—' }}</div>
-              <div class="pc-meta">{{ [niceDate(r.date), r.mode, r.submittedByName ? `Submitted by ${r.submittedByName}` : '', r.editedByName ? `Edited by ${r.editedByName}` : ''].filter(Boolean).join(' · ') }}</div>
+              <div class="pc-purpose pc-one" :title="r.remarks" v-if="r.remarks"><span class="pc-k">Payment Code</span>{{ r.remarks }}</div>
             </div>
             <div class="pc-side">
               <b class="pc-amt">{{ `RM ${Number(r.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }}</b>
               <span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span>
             </div>
-            <button type="button" class="btn pc-view" @click.stop="openRow(r)">View</button>
+            <button type="button" class="pc-eye" title="View payment" aria-label="View payment" @click.stop="openRow(r)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-7.2a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z"/></svg></button>
           </div>
           <SkeletonRows v-if="loading && !pageRows.length" :cols="4" />
           <p class="muted empty" v-if="!loading && !pageRows.length">No offline payments found.</p>
         </div>
         <div class="table-wrap" v-else :style="pageRows.length ? null : { minHeight: '0' }"><table class="table op-table">
-          <thead><tr><th>Payment Date</th><th>Property</th><th>Unit</th><th>Guest</th><th>Purpose</th><th class="num">Amount (RM)</th><th>Status</th><th>Submitted by</th><th>Payment Code</th></tr></thead>
+          <!-- 20 Nov 2026 (Khairul): fits a laptop screen: Unit under Property, Payment code under Purpose (only when there is one), whole row opens the payment, eye instead of View -->
+          <colgroup><col style="width:112px"><col style="width:20%"><col style="width:16%"><col><col style="width:105px"><col style="width:110px"><col style="width:105px"><col style="width:40px"></colgroup>
+          <thead><tr><th>Payment Date</th><th>Property · Unit</th><th>Guest</th><th>Purpose</th><th class="num">Amount (RM)</th><th>Status</th><th>Submitted by</th><th class="eye-col"></th></tr></thead>
           <tbody>
-            <tr v-for="r in pageRows" :key="r.id">
-              <td>{{ r.date }}</td><td>{{ r.propertyName || '—' }}</td><td>{{ r.unitCode || '—' }}</td><td>{{ r.guest }}</td><td class="purpose-cell"><span class="clamp" :title="r.purpose">{{ r.purpose || '—' }}</span></td>
-              <td class="num">{{ Number(r.amount || 0).toFixed(2) }}</td>
+            <tr class="clickable" v-for="r in pageRows" :key="r.id" @click="openRow(r)">
+              <td>{{ r.date }}</td>
+              <td><div>{{ r.propertyName || '—' }}</div><div class="who" v-if="r.unitCode">{{ r.unitCode }}</div></td>
+              <td>{{ r.guest }}</td>
+              <td class="purpose-cell"><span class="clamp" :title="r.purpose">{{ r.purpose || '—' }}</span><div class="op-code" v-if="r.remarks" :title="r.remarks"><span class="pc-k">Code</span>{{ r.remarks }}</div></td>
+              <td class="num amt">{{ Number(r.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</td>
               <td><span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span><div class="who" v-if="r.editedByName">{{ `by ${r.editedByName}` }}</div></td>
-              <td>{{ r.submittedByName || '—' }}</td><td>{{ r.remarks || '—' }}</td>
-              <td class="num"><button type="button" class="btn" @click="openRow(r)">View</button></td>
+              <td>{{ r.submittedByName || '—' }}</td>
+              <td class="num eye-col"><button type="button" class="pc-eye" title="View payment" aria-label="View payment" @click.stop="openRow(r)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-7.2a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z"/></svg></button></td>
             </tr>
-            <SkeletonRows v-if="loading && !pageRows.length" table :cols="10" />
-            <tr v-if="!loading && !pageRows.length"><td colspan="10" class="muted empty">No offline payments found.</td></tr>
+            <SkeletonRows v-if="loading && !pageRows.length" table :cols="8" />
+            <tr v-if="!loading && !pageRows.length"><td colspan="8" class="muted empty">No offline payments found.</td></tr>
           </tbody>
         </table></div>
       </Paged>
@@ -822,9 +829,19 @@ export default {
 .filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 8px; }
 .filters .grow { flex: 1; min-width: 220px; }
 .field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
-.op-table td, .op-table th { white-space: nowrap; }
-.op-table td.purpose-cell { white-space: normal; width: 30%; min-width: 180px; }
+/* 20 Nov 2026 (Khairul): fixed column widths so the table fits a laptop screen with no sideways scroll; long text ends in … */
+.op-table { table-layout: fixed; width: 100%; }
+.op-table td, .op-table th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 10px; padding-right: 10px; }
+.op-table td > div { overflow: hidden; text-overflow: ellipsis; }
+.op-table td.purpose-cell { white-space: normal; }
+.op-table td:first-child, .op-table th:first-child { padding-left: 16px; }
 .op-table .num { text-align: right; }
+.op-table .amt { font-variant-numeric: tabular-nums; }
+.op-table .eye-col { padding-left: 0; padding-right: 8px; }
+/* 20 Nov 2026 (Khairul): payment code readable: normal-size dark text on a light chip, one line, full text on hover */
+.op-code { display: block; width: fit-content; max-width: 100%; margin-top: 4px; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.op-code .pc-k { font-family: inherit; font-size: 10px; margin-right: 6px; }
+.op-table tr.clickable:hover .pc-eye svg { fill: var(--accent); }
 .op-table .empty { text-align: center; padding: 28px 16px; }
 .op-table td :deep(.op-btn) { min-width: 110px; }
 .tag { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: 500; background: var(--head); color: var(--muted); }
@@ -862,24 +879,31 @@ export default {
 .list-head .help { margin: 0; }
 .layout-seg { margin: 0; width: 180px; }
 .pay-list { display: flex; flex-direction: column; gap: 10px; }
-.pay-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 20px;
+/* 20 Nov 2026 (Khairul): same layout as Offline bookings cards: who | what for (fixed, centred) | amount | eye */
+.pay-card { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.35fr) auto auto; align-items: center; gap: 20px;
   border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; cursor: pointer; background: var(--surface); transition: border-color var(--fast), box-shadow var(--fast); }
-.pay-card:hover, .pay-card:focus-visible { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0, 0, 0, .06); outline: none; }
+.pay-card:hover, .pay-card:focus-visible { border-color: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: 0 4px 14px rgba(0, 0, 0, .07); outline: none; }
 /* Level 1: guest and amount. Level 2: booking and place. Level 3: purpose. Level 4: date, method, who. */
 .pc-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .pc-name { font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.3; }
 .pc-place { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; font-weight: 500; color: var(--text-2); }
 .pc-no { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 6px; background: var(--chip); color: var(--text); letter-spacing: .02em; }
-.pc-purpose { font-size: 13px; color: var(--text); margin-top: 2px; }
+.pc-purpose { font-size: 13px; color: var(--text); }
+.pc-one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* long bank refs stay on one line; full text on hover */
+.pc-mid { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .pc-k { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 6px; }
-.pc-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.pc-meta { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pc-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .pc-amt { font-size: 18px; font-weight: 700; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.pc-view { height: 34px; padding: 0 14px; font-size: 13px; }
+.pc-eye { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; padding: 0; }
+.pc-eye svg { width: 20px; height: 20px; fill: var(--muted); transition: fill var(--fast); }
+.pay-card:hover .pc-eye svg, .pay-card:focus-visible .pc-eye svg { fill: var(--accent); }
 .pay-list .empty { text-align: center; padding: 28px 16px; }
 @media (max-width: 640px) {
   .pay-card { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
-  .pc-view { grid-column: 1 / -1; justify-self: start; }
+  .pc-main, .pc-mid { grid-column: 1; }
+  .pc-side { grid-column: 2; grid-row: 1 / span 2; }
+  .pc-eye { grid-column: 1 / -1; justify-self: start; }
 }
 .modal { max-width: 920px; width: min(920px, 100%); }
 .modal { padding: 18px 24px 0; }

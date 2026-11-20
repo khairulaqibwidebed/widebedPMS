@@ -6,6 +6,11 @@
       <form class="drawer-body" id="unitForm" @submit.prevent="save()">
         <div class="notice error" v-show="u.error">{{ u.error }}</div>
         <p class="help from-listing" v-if="u.fromListing">{{ `From listing ${u.fromListing.listingId}. Check, then save.` }}</p>
+        <!-- 20 Nov 2026 (Khairul): the form is split into tabs (same look as the booking view). Every tab is still saved together by Save unit. -->
+        <div class="tabs ud-tabs" role="tablist">
+          <button type="button" v-for="t in udTabs" :key="t.key" role="tab" :aria-selected="String(udTab === t.key)" :class="{ on: udTab === t.key }" @click="udTab = t.key">{{ t.label }}</button>
+        </div>
+        <div v-show="udTab === 'unit'">
         <div class="ud-2">
         <div class="field"><label for="uCode" class="req">Unit code</label>
           <!-- 16 Nov 2026: Directors may change an existing unit's code (e.g. a dual key split into N-11-07A and N-11-07B) -->
@@ -38,7 +43,8 @@
           <div class="field"><label for="uSize">Size (sq ft)</label><input class="input" id="uSize" type="number" min="0" v-model="u.info.sizeSqft"></div>
           <div class="field"><label for="uPark">Car parks</label><input class="input" id="uPark" type="number" min="0" v-model="u.info.carParks"></div>
         </div>
-        <div class="form-sec">Bills and management</div>
+        </div>
+        <div v-show="udTab === 'bills'">
         <div class="ud-4">
           <div class="field"><label for="uTnb">TNB account</label><input class="input" id="uTnb" v-model="u.info.tnb"></div>
           <div class="field"><label for="uWater">Water bill account</label><input class="input" id="uWater" v-model="u.info.water"></div>
@@ -55,8 +61,9 @@
         <!-- 16 Nov 2026: free notes on the unit (Finance's Owner List Remark column comes here through Bulk Upload). Same people as the Autocount no. -->
         <div class="field"><label for="uRem">Remarks</label>
           <textarea class="input" id="uRem" rows="3" v-model="u.remarks" :readonly="acc.viewOnly" placeholder="e.g. Fixed Rental - RM 1,300, start from January 2023"></textarea></div>
+        </div>
+        <div v-show="udTab === 'rent'">
         <template v-if="!acc.viewOnly">
-          <hr class="divider">
           <div class="ud-2">
           <div class="field"><label for="uArr">Arrangement</label>
             <OptionPicker class="full-pick" v-model="u.arrangement" :options="arrangementOptions" label="Arrangement" searchable />
@@ -85,17 +92,18 @@
           </div>
         </template>
         <p class="help" v-else>Rent and fees are set by Accounting or a Director.</p>
-        <div class="field"><label for="uWhy" class="req">Reason (audit log)</label><textarea class="input" id="uWhy" v-model="u.reason" placeholder="e.g. New owner agreement from June"></textarea></div>
-        <template v-if="!acc.viewOnly">
-          <hr class="divider">
-          <h3 style="margin:0 0 6px;font-size:14px">Settings history</h3>
+        </div>
+        <div v-show="udTab === 'history'" v-if="!acc.viewOnly">
           <div class="rows history-list">
             <template v-for="h in u.history" :key="h.id">
               <div class="row"><span>{{ `From ${h.effectiveFrom === '2000-01' ? 'the start' : monthName(h.effectiveFrom)} · ${arrLabel(h.arrangement)}` + (h.fixedRentAmount ? ` RM ${amt(h.fixedRentAmount)}` : '') + (h.reason ? ` · ${h.reason}` : '') }}</span><span class="r help">{{ h.createdByName || '' }}</span></div>
             </template>
             <div class="empty" v-show="!u.history?.length">No settings yet.</div>
           </div>
-        </template>
+        </div>
+        <!-- The reason is asked once, under every tab -->
+        <hr class="divider">
+        <div class="field"><label for="uWhy" class="req">Reason (audit log)</label><textarea class="input" id="uWhy" v-model="u.reason" placeholder="e.g. New owner agreement from June"></textarea></div>
       </form>
       <div class="drawer-foot">
         <button class="icon-btn trash" style="margin-right:auto" v-if="acc.isDirector && !u.isNew" @click="remove()" :disabled="busy" title="Delete this unit from the system" aria-label="Delete unit">🗑</button>
@@ -141,6 +149,7 @@ export default {
   data() {
     const unit = this.unit, t = unit?.terms || {};
     return {
+      udTab: 'unit',   // 20 Nov 2026: which tab of the form is showing
       FEE_TYPES, busy: false, driveLink: '', driveMsg: 'checking…', drivePlan: null, arrangements: arrangementsOf(null),   // the built-in list until this property's list is read
       u: {
         isNew: !unit, id: unit?.id || null, original: unit, unitCode: unit?.unitCode || `${this.property.code || ''} `,
@@ -170,6 +179,7 @@ export default {
     }
   },
   computed: {
+    udTabs() { return [{ key: 'unit', label: 'Unit' }, { key: 'bills', label: 'Bills & management' }, { key: 'rent', label: 'Rent & fees' }, ...(this.acc.viewOnly || this.u.isNew ? [] : [{ key: 'history', label: 'History' }])]; },
     renamed() { const u = this.u; return !u.isNew && u.original && u.unitCode.trim().replace(/\s+/g, ' ') !== u.original.unitCode; },
     monthOptions() { return this.months.map(m => ({ value: m, label: monthName(m) })); },
     arrangementOptions() { return arrangementOptions(this.arrangements); },
@@ -320,6 +330,8 @@ export default {
 
 <style scoped>
 .drive-plan { overflow-wrap: anywhere; }
+.ud-tabs { margin: -6px 0 18px; overflow: visible; }
+.ud-tabs button { padding: 10px 14px; }
 .drive-plan .seg-new { color: var(--accent); }
 .drive-plan .seg-new small { font-size: 10px; font-weight: 600; text-transform: uppercase; }
 .drive-plan .seg-make { color: var(--accent); }

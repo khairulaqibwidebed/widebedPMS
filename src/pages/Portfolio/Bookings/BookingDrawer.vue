@@ -13,6 +13,27 @@
           </span>
         </div>
         <div class="notice warn" v-if="cancelled">{{ `Cancelled${bk.cancelledReason ? ': ' + bk.cancelledReason : ''}. It is left out of the lists, the Dashboard and the forms. Restore it, or delete it for good.` }}</div>
+        <!-- 20 Nov 2026 (Khairul): early termination -->
+        <div class="notice warn et-note" v-if="et">
+          <div class="et-text">
+          <div><b>{{ `Terminated early on ${dmy(et.date)}` }}</b>{{ ` (check-out was ${dmy(et.originalDeparture)}) · ${et.type === 'sudden' ? 'Sudden, no notice' : `With notice${et.noticeDate ? ' given ' + dmy(et.noticeDate) : ''}`}` }}</div>
+          <div>{{ `Reason: ${et.reason || '—'}` }}</div>
+          <div v-if="deposit > 0">{{ depositLine }}</div>
+          <div v-if="et.refundNote">{{ `Refund note: ${et.refundNote}` }}</div>
+          <div class="et-files" v-if="(et.files || []).length">Tenant's notice: <button type="button" class="et-link" v-for="x in et.files" :key="x.id || x.url" @click="viewNotice(x)">{{ x.name }}</button></div>
+          </div>
+          <div class="et-acts" v-if="canTerminate || isDirector">
+            <label class="btn btn-sm" v-if="canTerminate" :class="{ disabled: bk.busy }">{{ term.upBusy ? `Uploading… ${Math.round(term.progress * 100)}%` : 'Add notice image' }}<input type="file" accept="image/*" multiple hidden :disabled="bk.busy" @change="addNotice($event)"></label>
+            <button type="button" class="btn btn-sm" v-if="canTerminate && et.type === 'notice' && deposit > 0 && !refund.open" @click="startRefund()" :disabled="bk.busy">Update refund</button>
+            <button type="button" class="btn btn-sm" v-if="isDirector" @click="undoTerm()" :disabled="bk.busy">Restore original check-out</button>
+          </div>
+          <div class="et-refund" v-if="refund.open">
+            <div class="field"><label for="etCharges">Property charges taken off the deposit (RM)</label><input class="input" id="etCharges" type="number" min="0" step="0.01" v-model="refund.charges" placeholder="0.00"></div>
+            <div class="field"><label for="etRefNote">Note</label><input class="input" id="etRefNote" v-model="refund.note" placeholder="e.g. Repaint bedroom wall, cleaning"></div>
+            <p class="help">{{ `Refund: RM ${amt(deposit)} − RM ${amt(+refund.charges || 0)} = RM ${amt(Math.max(0, deposit - (+refund.charges || 0)))}` }}</p>
+            <button type="button" class="btn btn-primary" @click="saveRefund()" :disabled="bk.busy || !(+refund.charges >= 0) || +refund.charges > deposit">Save refund</button> <button type="button" class="btn" @click="refund.open = false">Cancel</button>
+          </div>
+        </div>
         <p class="help" v-if="bk.inquiryId && acc.canOpenInquiry"><RouterLink class="navlink" :to="`/Operations/offline-inquiries?id=${bk.inquiryId}`">{{ `Open inquiry ${bk.inquiryId}` }}</RouterLink></p>
         <!-- 20 Nov 2026 (Khairul): the popup in tabs (was one long page) -->
         <div class="tabs bk-tabs" role="tablist">
@@ -131,13 +152,34 @@
           <div class="field" style="margin-bottom:10px"><label for="bkCancelWhy" class="req">Why cancel this booking?</label><input class="input" id="bkCancelWhy" v-model="cancelReason" placeholder="e.g. Guest cancelled, booked by mistake"></div>
           <button type="button" class="btn btn-primary" @click="cancelBooking()" :disabled="bk.busy || !cancelReason.trim()">Cancel booking</button> <button type="button" class="btn" @click="cancelling = false">Keep booking</button>
         </div>
+        <div class="confirm-box et-box" v-if="terminating">
+          <div class="form-sec" style="margin-top:0">Early termination</div>
+          <div class="et-grid">
+            <div class="field"><label for="etDate" class="req">Move-out date</label><input class="input" type="date" id="etDate" v-model="term.date" :min="nextDay(bk.arrival)" :max="prevDay(bk.departure)"></div>
+            <div class="field"><label for="etType" class="req">Type</label>
+              <select class="input" id="etType" v-model="term.type"><option value="" disabled>Choose…</option><option value="notice">With notice (tenant gave notice)</option><option value="sudden">Sudden (no notice)</option></select></div>
+            <div class="field" v-if="term.type === 'notice'"><label for="etNoticeDate" class="req">Notice given on</label><input class="input" type="date" id="etNoticeDate" v-model="term.noticeDate" :max="term.date || undefined"></div>
+          </div>
+          <div class="field"><label for="etWhy" class="req">Reason</label><textarea class="input" id="etWhy" rows="2" v-model="term.reason" placeholder="e.g. Tenant relocating for work"></textarea></div>
+          <div class="field"><label for="etFiles">Tenant's notice (images, optional)</label>
+            <div class="et-pick">
+              <label class="btn" :class="{ disabled: bk.busy }"><input type="file" id="etFiles" accept="image/*" multiple hidden :disabled="bk.busy" @change="pickNotice($event)">Choose images</label>
+              <span class="help" v-if="!term.files.length">The notice letter or message from the tenant. JPG or PNG. Can be added later too.</span>
+              <span class="et-chip" v-for="(x, i) in term.files" :key="x.name + i">{{ x.name }}<button type="button" :aria-label="`Remove ${x.name}`" @click="term.files = term.files.filter((_, j) => j !== i)">×</button></span>
+            </div>
+          </div>
+          <p class="help" v-for="l in termPreview" :key="l">{{ l }}</p>
+          <button type="button" class="btn btn-danger" @click="terminate()" :disabled="bk.busy || !!termProblem">{{ term.upBusy ? `Uploading… ${Math.round(term.progress * 100)}%` : bk.busy ? 'Saving…' : 'Terminate early' }}</button> <button type="button" class="btn" @click="terminating = false" :disabled="bk.busy">Keep booking</button>
+          <p class="help" v-if="termProblem && (term.date || term.type)">{{ termProblem }}</p>
+        </div>
         <p class="help" v-if="cancelled && acc.bkEdit && deleteBlock">{{ deleteBlock }}</p>
         <p class="help" v-if="bk.error" style="color:var(--red)">{{ bk.error }}</p>
       </form>
       <div class="drawer-foot">
-        <template v-if="acc.bkEdit && !cancelled">
-          <button class="btn" style="margin-right:auto" v-show="!cancelling" @click="startCancel()" :disabled="bk.busy">Cancel booking</button>
-        </template>
+        <span class="foot-left" v-if="(acc.bkEdit && !cancelled) || termAllowed">
+          <button class="btn" v-if="acc.bkEdit && !cancelled" v-show="!cancelling && !terminating" @click="startCancel()" :disabled="bk.busy">Cancel booking</button>
+          <button class="btn" v-if="termAllowed" v-show="!cancelling && !terminating" @click="startTerm()" :disabled="bk.busy || !bk.loaded">Early termination</button>
+        </span>
         <template v-if="acc.bkEdit && cancelled">
           <button class="icon-btn trash" style="margin-right:auto" @click="remove()" :disabled="bk.busy || !!deleteBlock || !bk.loaded" :title="deleteBlock || 'Delete this booking for good'" aria-label="Delete booking for good">🗑</button>
           <button class="btn btn-primary" @click="restore()" :disabled="bk.busy">Restore booking</button>
@@ -146,6 +188,7 @@
         <button class="btn btn-primary" type="submit" form="bkForm" v-if="editable" :disabled="bk.busy">{{ bk.busy ? 'Saving…' : 'Save booking' }}</button>
       </div>
     </aside>
+    <FileViewer ref="viewer" />
     <InvoiceDialog v-if="invoice" :invoice="invoice" :booking-no="bk.bookingNo || ''" @close="invoice = null" />
   </div>
 </template>
@@ -160,17 +203,27 @@ import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { toast } from '@/lib/toast.js';
 import { askConfirm } from '@/lib/confirm.js';
-import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking, setBookingCancelled, deleteOfflineBooking } from '@/lib/portfolio-data.js';
+import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking, setBookingCancelled, deleteOfflineBooking, terminateBooking, updateTermination, undoTermination } from '@/lib/portfolio-data.js';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { can } from '@/lib/access.js';
-import { invoiceOf, propertyAddressOf, FEE_LABELS, chargeLabel, legacyCharges, allMonthCharges, addInto } from '@/lib/booking-invoice.js';
+import { invoiceOf, propertyAddressOf, FEE_LABELS, chargeLabel, legacyCharges, allMonthCharges, addInto, depositOf } from '@/lib/booking-invoice.js';
 import InvoiceDialog from '@/components/InvoiceDialog.vue';
+import FileViewer from '@/components/FileViewer.vue';
+import { uploadForLink } from '@/lib/drive.js';
 
 const me = useSession();
 const PRIV = ['name', 'phone', 'email', 'icPassport', 'mainDoorPasscode', 'currentExpiryDate', 'nextDoorPasscode', 'nextExpiryDate'];
 const GUEST = ['name', 'phone', 'email', 'icPassport'];
 // Month charges as saved: months in order, empty months and zero amounts left out
+// Dates as YYYY-MM-DD (20 Nov 2026, early termination)
+const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const shiftDay = (d, n) => { if (!d) return ''; const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+const addMonthsIso = (d, n) => { const t = new Date(d + 'T00:00:00Z'), day = t.getUTCDate(); t.setUTCDate(1); t.setUTCMonth(t.getUTCMonth() + n);
+  t.setUTCDate(Math.min(day, new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate())); return t.toISOString().slice(0, 10); };
+// Days in the last part month: from the last monthly anniversary of check-in up to the move-out (0 when it lands on one)
+const partDays = (arrival, out) => { let from = arrival; for (let i = 1; i <= 240; i++) { const n = addMonthsIso(arrival, i); if (n > out) break; from = n; } return daysBetween(from, out); };
 const cleanCharges = mc => Object.fromEntries(Object.entries(mc || {}).sort(([a], [b]) => a.localeCompare(b))
   .map(([m, l]) => [m, (Array.isArray(l) ? l : []).filter(x => Number(x.amount) > 0)]).filter(([, l]) => l.length));
 // 20 Nov 2026 (Khairul): the deposit and fees live in the month charges only. An older booking's deposit and fee fields are
@@ -182,20 +235,59 @@ export default {
     booking: { type: Object, required: true },   // the row from the bookings list
     acc: { type: Object, required: true }
   },
-  components: { InvoiceDialog },
-  emits: ['close', 'saved', 'deleted'],
+  components: { InvoiceDialog, FileViewer },
+  emits: ['close', 'saved', 'deleted', 'patched'],
   data() {
     const r = this.booking, rm = c => (c ? Number(c).toFixed(2) : '');
     const f = { name: '', phone: '', email: '', icPassport: '', mainDoorPasscode: '', currentExpiryDate: '', nextDoorPasscode: '', nextExpiryDate: '',
       arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : ''),
       bookingSource: r.bookingSource || '', rentalStatus: r.rentalStatus || '', ezeeReservationNo: r.ezeeReservationNo || '', remark: r.remark || '',
       monthCharges: cleanCharges(allMonthCharges(r)) };
-    return { MONTH_PAY, FEE_LABELS, tab: 'details', mpFilter: 'all', yearsShut: {}, add: { m: '', key: '', amount: '', note: '' }, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '', bk: { ...r, f, hasPrivate: false, bill: null, reason: '', error: '', busy: false, loaded: false } };
+    return { MONTH_PAY, FEE_LABELS, tab: 'details', mpFilter: 'all', yearsShut: {}, add: { m: '', key: '', amount: '', note: '' }, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '',
+      terminating: false, term: { date: '', type: '', noticeDate: '', reason: '', files: [], upBusy: false, progress: 0 }, refund: { open: false, charges: '', note: '' }, bk: { ...r, f, hasPrivate: false, bill: null, reason: '', error: '', busy: false, loaded: false } };
   },
   computed: {
     // Guest details on a tenant record can only be changed by Accounting and Directors; on an imported booking Operations can too
     cancelled() { return this.bk.status === 'cancelled'; },
     pending() { return this.bk.status === 'pending'; },
+    // 20 Nov 2026 (Khairul): early termination. The Early termination tick (Directors always); undo is Directors only.
+    et() { const e = this.bk.earlyTermination; return e && e.date ? e : null; },
+    canTerminate() { return can(me, 'earlyTermination.edit'); },
+    isDirector() { return me.role === 'director'; },
+    // A stay that has started and not ended (not cancelled, not awaiting payment, not already terminated)
+    termAllowed() {
+      const b = this.bk, today = todayIso();
+      return this.canTerminate && !this.cancelled && !this.pending && !this.et && !!b.arrival && !!b.departure && b.arrival <= today && today < b.departure;
+    },
+    deposit() { return depositOf(this.bk); },
+    depositLine() {
+      const e = this.et, d = this.deposit, c = Number(e?.refundCharges) || 0;
+      if (!e || !(d > 0)) return '';
+      if (e.type === 'sudden') return `Deposit RM ${amt(d)}: forfeited (no notice).`;
+      if (c > 0 || e.refundNote) return `Deposit RM ${amt(d)} − property charges RM ${amt(c)} = refund RM ${amt(Math.max(0, d - c))}.`;
+      return `Deposit RM ${amt(d)}: to refund after any property charges.`;
+    },
+    termProblem() {
+      const t = this.term, b = this.bk;
+      if (!t.date) return 'Pick the move-out date.';
+      if (!(t.date > b.arrival && t.date < b.departure)) return 'The move-out date must be after check-in and before the current check-out.';
+      if (!t.type) return 'Pick the type: with notice or sudden.';
+      if (t.type === 'notice' && !t.noticeDate) return 'Enter the date the tenant gave notice.';
+      if (t.type === 'notice' && t.noticeDate > t.date) return 'The notice date must be on or before the move-out date.';
+      if (!t.reason.trim()) return 'Enter the reason.';
+      return '';
+    },
+    termPreview() {
+      const t = this.term, b = this.bk, out = [];
+      if (!t.date || !(t.date > b.arrival && t.date < b.departure)) return out;
+      out.push(`Check-out moves from ${dmy(b.departure)} to ${dmy(t.date)}. Months after the move-out drop off.`);
+      const rent = Number(b.monthlyRent) || 0, days = partDays(b.arrival, t.date);
+      if (t.type === 'notice' && t.noticeDate && t.noticeDate <= t.date) out.push(`Notice period: ${daysBetween(t.noticeDate, t.date)} days.`);
+      if (b.longTerm && rent > 0 && days > 0 && t.type) out.push(t.type === 'sudden' ? `Last month (${days} days) is charged in full: RM ${amt(rent)}.` : `Last month is charged by days: ${days} days = RM ${amt(rent / 30 * days)}.`);
+      if (this.deposit > 0 && t.type) out.push(t.type === 'sudden' ? `Deposit RM ${amt(this.deposit)} is forfeited.` : `Deposit RM ${amt(this.deposit)} is refunded after any property charges (Update refund).`);
+      out.push('No termination fee.');
+      return out;
+    },
     tabs() {
       return [{ key: 'details', label: 'Guest & stay' }, ...(this.bk.hasPrivate ? [{ key: 'passcodes', label: 'Door passcodes' }] : []),
         { key: 'payments', label: 'Payments' }, { key: 'invoice', label: this.pending ? 'Utility bill' : 'Invoice & utility' }];
@@ -222,7 +314,9 @@ export default {
         if (mo > 12) { mo = 1; y++; }
         const m = `${y}-${String(mo).padStart(2, '0')}`; if (m > last) break;
         const paid = b.payments.filter(x => payCounts(x) && (long ? payMonth(x) === m : i === 0)).reduce((s, x) => s + (Number(x.amount) || 0), 0);   // Checked only (19 Nov 2026)
-        const due = long ? rent : (i === 0 ? rental : 0);
+        let due = long ? rent : (i === 0 ? rental : 0);
+        // 20 Nov 2026: terminated early with notice: the last part month is rent / 30 x days (sudden: in full)
+        if (long && m === last && this.et?.type === 'notice') { const d = partDays(f.arrival, f.departure); if (d > 0) due = Math.round(rent / 30 * d * 100) / 100; }
         const extra = (f.monthCharges[m] || []).reduce((s, x) => s + (Number(x.amount) || 0), 0), all = due + extra;   // 20 Nov 2026: month charges
         out.push({ m, paid, due, extra, status: all > 0 ? (paid >= all - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid') : (paid > 0 ? 'paid' : 'unpaid') });
       }
@@ -307,8 +401,74 @@ export default {
         { name: f.name, email: f.email, phone: f.phone }, { propertyName: b.propertyName, unitCode: b.unitCode || b.unitId, unitType, propertyAddress });
       this.invBusy = false;
     },
+    nextDay(d) { return shiftDay(d, 1); },
+    prevDay(d) { return shiftDay(d, -1); },
+    startTerm() {
+      this.term = { date: '', type: '', noticeDate: '', reason: '', files: [], upBusy: false, progress: 0 };
+      this.terminating = true; this.cancelling = false;
+      this.$nextTick(() => { const el = document.getElementById('etDate'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); } });
+    },
+    async uploadNotice(files) {
+      const b = this.bk;
+      this.term.upBusy = true; this.term.progress = 0;
+      try {
+        const up = await uploadForLink('terminations', files, p => { this.term.progress = p; }, b.id, `${b.bookingNo || b.id} notice`);
+        return up.map(x => ({ name: x.name, id: x.id, url: x.url }));
+      } finally { this.term.upBusy = false; }
+    },
+    async terminate() {
+      const b = this.bk, t = this.term; b.error = '';
+      if (this.termProblem) return;
+      b.busy = true;
+      try {
+        const files = t.files.length ? await this.uploadNotice(t.files) : [];
+        const fields = await terminateBooking(me, b, { date: t.date, type: t.type, noticeDate: t.noticeDate, reason: t.reason.trim(), files });
+        toast('Booking terminated early');
+        this.$emit('saved', fields);
+      } catch (e) { b.error = friendlyError(e, 'terminate the booking'); }
+      b.busy = false;
+    },
+    async addNotice(ev) {
+      const files = [...(ev.target.files || [])].filter(x => x.type.startsWith('image/')); ev.target.value = '';
+      if (!files.length) return;
+      const b = this.bk; b.error = ''; b.busy = true;
+      try {
+        const up = await this.uploadNotice(files);
+        await this.patchTerm({ files: [...(this.et.files || []), ...up] }, 'Notice image added');
+        toast('Notice added');
+      } catch (e) { b.error = friendlyError(e, 'add the notice'); }
+      b.busy = false;
+    },
+    pickNotice(ev) { const add = [...(ev.target.files || [])].filter(x => x.type.startsWith('image/')); ev.target.value = ''; this.term.files = [...this.term.files, ...add]; },
+    startRefund() { const e = this.et; this.refund = { open: true, charges: e.refundCharges ? String(e.refundCharges) : '', note: e.refundNote || '' }; },
+    async saveRefund() {
+      const b = this.bk, c = Math.round((Number(this.refund.charges) || 0) * 100) / 100; b.error = ''; b.busy = true;
+      try {
+        await this.patchTerm({ refundCharges: c, refundNote: this.refund.note.trim() }, `Deposit refund: RM ${amt(Math.max(0, this.deposit - c))}`);
+        this.refund.open = false; toast('Refund saved');
+      } catch (e) { b.error = friendlyError(e, 'save the refund'); }
+      b.busy = false;
+    },
+    // Changes the termination and keeps the popup open (the list row is updated too)
+    async patchTerm(patch, reason) {
+      const fields = await updateTermination(me, this.bk, patch, reason);
+      this.bk.earlyTermination = fields.earlyTermination;
+      this.$emit('patched', fields);
+    },
+    async undoTerm() {
+      const b = this.bk, e = this.et; b.error = '';
+      if (!await askConfirm({ title: 'Restore the original check-out?', message: `The check-out goes back to ${dmy(e.originalDeparture)} and the early termination is removed. The notice images stay in Drive. The audit log keeps a line.`, confirmText: 'Restore check-out' })) return;
+      b.busy = true;
+      try {
+        const fields = await undoTermination(me, b, `Early termination undone (was ${e.date})`);
+        toast('Original check-out restored');
+        this.$emit('saved', fields);
+      } catch (x) { b.error = friendlyError(x, 'undo the termination'); }
+      b.busy = false;
+    },
+    viewNotice(x) { this.$refs.viewer.open({ name: x.name, url: x.url, id: x.id, kind: 'terminations', recordId: this.bk.id }); },
     startCancel() {
-      this.cancelling = true;
+      this.cancelling = true; this.terminating = false;
       this.$nextTick(() => { const el = document.getElementById('bkCancelWhy'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); } });
     },
     async cancelBooking() {
@@ -380,8 +540,26 @@ export default {
 </script>
 
 <style scoped>
+.foot-left { margin-right: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.et-note { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-left: 3px solid #d08a00; }
+.et-text { display: grid; gap: 2px; flex: 1 1 320px; }
+.et-note .et-refund { flex-basis: 100%; }
+.et-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.et-pick label.btn { cursor: pointer; }
+.et-pick label.btn.disabled { opacity: .5; pointer-events: none; }
+.et-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface, #fff); font-size: 12px; color: var(--text); }
+.et-chip button { border: 0; background: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.et-chip button:hover { color: var(--danger); }
+.et-files { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.et-link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+.et-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.et-acts label.btn { cursor: pointer; }
+.et-acts label.btn.disabled { opacity: .5; pointer-events: none; }
+.et-refund { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.et-box { margin-top: 14px; }
+.et-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 12px; }
 .bk-where { font-size: 14px; font-weight: 400; margin: 0; }   /* 20 Nov 2026: property, unit and source beside the booking no. */
-.bk-tabs { margin: -6px 0 18px; position: sticky; top: -20px; z-index: 2; background: var(--surface, #fff); box-shadow: 0 -20px 0 var(--surface, #fff); }   /* covers the body's top padding while stuck */
+.bk-tabs { margin: -6px 0 18px; overflow: visible; }   /* 20 Nov 2026 (Khairul): no sticking or scrolling; the tabs stay in place */
 .bk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
 .bk-grid > .form-sec, .bk-grid > .help, .bk-grid > .field:has(textarea) { grid-column: 1 / -1; }
 @media (max-width: 640px) { .bk-grid { grid-template-columns: 1fr; } }

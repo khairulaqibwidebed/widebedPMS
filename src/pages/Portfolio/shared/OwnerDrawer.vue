@@ -7,11 +7,15 @@
         <div class="notice error" v-show="o.error">{{ o.error }}</div>
         <p class="help from-listing" v-if="o.fromListing">{{ `Filled in from new owner listing ${o.fromListing.listingId}. Check the details, then Add owner.` }}</p>
         <div class="notice warn" v-show="o.active === false">{{ `Deactivated${o.deactivatedReason ? ': ' + o.deactivatedReason : ''}. Their history stays; they can't be linked to new units.` }}</div>
-        <template v-if="!o.isNew && full && !acc.viewOnly">
-          <div>
+        <!-- 20 Nov 2026 (Khairul): the form is split into tabs: Contact info, Credentials (IC, birth date, address, bank) and Units & payouts. Save owner saves every tab. -->
+        <div class="tabs od-tabs" role="tablist">
+          <button type="button" v-for="t in odTabs" :key="t.key" role="tab" :aria-selected="String(odTab === t.key)" :class="{ on: odTab === t.key }" @click="odTab = t.key">{{ t.label }}</button>
+        </div>
+        <template v-if="showPayouts">
+          <div v-show="odTab === 'units'">
             <div class="summary-grid">
               <div><b>{{ myUnits.length }}</b><span>Units</span></div>
-              <div><b :class="{ 'neg-amt': carriedAmt < 0 }">{{ amt(carriedAmt) }}</b><span>{{ `Carried forward into ${shortName(asOf)} (RM)` }}</span></div>
+              <div><b :class="{ 'neg-amt': carriedAmt < 0 }">{{ `RM ${amt(carriedAmt)}` }}</b><span>{{ `Carried forward (${shortName(asOf)})` }}</span></div>
               <div><b>{{ o.payouts.length }}</b><span>Payouts on record</span></div>
             </div>
             <div class="form-sec">Properties and units</div>
@@ -20,39 +24,44 @@
               <div class="empty" v-show="!myUnits.length">No units linked. Link them from a property's Units tab.</div>
             </div>
             <div class="form-sec">Payout history</div>
-            <div class="rows">
+            <div class="rows od-pay">
               <template v-for="h in o.payouts.slice(0, 12)" :key="h.id"><div class="row"><span>{{ `${shortName(h.month)} · ${h.unitCode}` }}</span><span class="r" :class="{ neg: h.payout < 0 }">{{ `RM ${amt(h.payout)}` }}</span></div></template>
               <div class="empty" v-show="!o.payouts.length">No payouts yet.</div>
             </div>
           </div>
         </template>
-        <div class="form-sec">Personal details <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">{{ full ? '· private: IC, date of birth, address and bank details are Owners Full only' : o.isNew ? '· private: once saved, IC, date of birth and address are seen only with Owners Full' : '· names and contact only (Owners Base)' }}</span></div>
+        <div v-show="odTab === 'contact'">
         <!-- 16 Nov 2026: Owners Base see names and contact only, read only; Marketing still edit names and contact -->
         <fieldset style="display:contents" :disabled="readOnly">
         <div class="grid-fields">
           <div class="field"><label for="oName" class="req">{{ o.coOwners.length ? 'Full name (owner 1)' : 'Full name' }}</label><input class="input" id="oName" v-model="o.fullName" placeholder="Full name as on IC / passport"></div>
-          <div class="field" v-if="showSensitive"><label for="oIc">IC / passport</label><input class="input" id="oIc" v-model="o.ic" placeholder="e.g. 900101-14-5678 or A12345678"></div>
           <div class="field"><label for="oEmail">Email</label><input class="input" id="oEmail" type="email" v-model="o.email" placeholder="name@email.com"></div>
           <div class="field"><label for="oPhone">Phone number</label><input class="input" id="oPhone" v-model="o.phone" placeholder="e.g. 012-345 6789"></div>
-          <div class="field" v-if="showSensitive"><label for="oDob">Date of birth</label><input class="input" id="oDob" type="date" v-model="o.dob"></div>
           <div class="field"><label for="oWa">WhatsApp</label><input class="input" id="oWa" v-model="o.whatsapp" placeholder="e.g. 012-345 6789"></div>
           <div class="field"><label for="oWc">WeChat ID</label><input class="input" id="oWc" v-model="o.wechat" placeholder="WeChat ID"></div>
-          <div></div>
-          <div class="field" style="grid-column:1/-1" v-if="showSensitive"><label for="oAddr">Correspondence address</label><textarea class="input" id="oAddr" v-model="o.address" placeholder="Street, postcode, city, state"></textarea></div>
         </div>
         <!-- Joint owners: same owner code, bank and units; each extra person has their own name and contact -->
         <template v-for="(c, i) in o.coOwners" :key="c.key">
           <div class="co-owner-head"><span class="form-sec" style="margin:0">{{ `Owner ${i + 2}` }}</span><button type="button" class="btn btn-sm" v-if="coEditable" @click="removeCoOwner(i)">Remove</button></div>
           <div class="grid-fields">
             <div class="field"><label :for="`coName${i}`" class="req">Full name</label><input class="input" :id="`coName${i}`" v-model="c.fullName" placeholder="Full name as on IC / passport"></div>
-            <div class="field" v-if="showSensitive"><label :for="`coIc${i}`">IC / passport</label><input class="input" :id="`coIc${i}`" v-model="c.ic" placeholder="e.g. 900101-14-5678 or A12345678"></div>
             <div class="field"><label :for="`coEmail${i}`">Email</label><input class="input" :id="`coEmail${i}`" type="email" v-model="c.email" placeholder="name@email.com"></div>
             <div class="field"><label :for="`coPhone${i}`">Phone number</label><input class="input" :id="`coPhone${i}`" v-model="c.phone" placeholder="e.g. 012-345 6789"></div>
           </div>
         </template>
-        <div><button type="button" class="btn" v-if="coEditable" @click="addCoOwner()">+ Add another owner</button>
+        <div class="od-add"><button type="button" class="btn" v-if="coEditable" @click="addCoOwner()">+ Add another owner</button>
           <p class="help" style="margin-top:6px" v-if="o.coOwners.length">Joint owners share this owner code, bank account and units. Lists show the names joined with "&amp;".</p></div>
         </fieldset>
+        <p class="help" style="margin-top:12px" v-if="!showSensitive">IC, date of birth, address and bank details are seen and changed only with Owners Full access.</p>
+        </div>
+        <div v-show="odTab === 'creds'" v-if="showSensitive">
+          <p class="help" style="margin:0 0 12px">{{ o.isNew ? 'Private: once saved, only Owners Full can see or change these.' : 'Private: Owners Full only.' }}</p>
+          <div class="grid-fields">
+            <div class="field"><label for="oIc">{{ o.coOwners.length ? 'IC / passport (owner 1)' : 'IC / passport' }}</label><input class="input" id="oIc" v-model="o.ic" placeholder="e.g. 900101-14-5678 or A12345678"></div>
+            <div class="field"><label for="oDob">Date of birth</label><input class="input" id="oDob" type="date" v-model="o.dob"></div>
+            <div class="field" style="grid-column:1/-1"><label for="oAddr">Correspondence address</label><textarea class="input" id="oAddr" v-model="o.address" placeholder="Street, postcode, city, state"></textarea></div>
+            <div class="field" v-for="(c, i) in o.coOwners" :key="c.key"><label :for="`coIc${i}`">{{ `IC / passport (owner ${i + 2}${c.fullName ? ' · ' + c.fullName : ''})` }}</label><input class="input" :id="`coIc${i}`" v-model="c.ic" :disabled="!coEditable" placeholder="e.g. 900101-14-5678 or A12345678"></div>
+          </div>
         <template v-if="full">
           <div class="form-sec">Bank</div>
           <div class="grid-3">
@@ -61,8 +70,8 @@
             <div class="field"><label for="oAcc">Bank account</label><input class="input" id="oAcc" v-model="o.bankAccount" inputmode="numeric" placeholder="Account number"></div>
           </div>
         </template>
-        <p class="help" v-else>IC, date of birth, address and bank details are seen and changed only with Owners Full access.</p>
-        <div class="field" v-show="!o.isNew && !readOnly"><label for="oWhy" class="req">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
+        </div>
+        <div class="field od-reason" v-show="!o.isNew && !readOnly && odTab !== 'units'"><label for="oWhy" class="req">Reason (audit log)</label><input class="input" id="oWhy" v-model="o.reason" placeholder="e.g. Owner changed bank"></div>
         <template v-if="!o.isNew && o.active !== false && full">
           <div class="confirm-box" v-show="o.deactivating">
             <div class="field" style="margin-bottom:10px"><label for="oDeact" class="req">Why deactivate this owner?</label><input class="input" id="oDeact" v-model="o.deactivateReason" placeholder="e.g. Sold the unit"></div>
@@ -71,11 +80,11 @@
         </template>
       </form>
       <div class="drawer-foot">
-        <button class="icon-btn trash" style="margin-right:auto" v-if="acc.isDirector && !o.isNew" @click="remove()" :disabled="busy" title="Delete this owner from the system" aria-label="Delete owner">🗑</button>
+        <button class="icon-btn trash od-trash" style="margin-right:auto" v-if="acc.isDirector && !o.isNew" @click="remove()" :disabled="busy" title="Delete this owner from the system" aria-label="Delete owner">🗑</button>
         <button class="btn" v-show="full && !o.isNew && o.active !== false && !o.deactivating" @click="startDeactivate()">Deactivate</button>
         <button class="btn btn-primary" v-show="full && !o.isNew && o.active === false" @click="reactivate()" :disabled="busy">Reactivate</button>
         <button class="btn" @click="$emit('close')">{{ readOnly ? 'Close' : 'Cancel' }}</button>
-        <button class="btn btn-primary" type="submit" form="ownerForm" v-if="!readOnly" :disabled="busy">{{ o.isNew ? 'Add owner' : 'Save owner' }}</button>
+        <button class="btn btn-primary" type="submit" form="ownerForm" v-if="!readOnly" v-show="odTab !== 'units'" :disabled="busy">{{ o.isNew ? 'Add owner' : 'Save owner' }}</button>
       </div>
     </aside>
   </div>
@@ -115,6 +124,7 @@ export default {
     const own = this.owner, p = own?.private || {};
     return {
       busy: false,
+      odTab: 'contact',   // 20 Nov 2026: which tab of the form is showing
       o: { isNew: !own, id: own?.id || null, code: own?.code || own?.id || '', active: own ? own.active !== false : true,
         deactivatedReason: own?.deactivatedReason || '', original: own, payouts: [], reason: '', error: '', deactivating: false, deactivateReason: '',
         ...Object.fromEntries(PRIVATE.map(k => [k, p[k] ?? (k === 'fullName' ? (own?.name || '') : '')])), coOwners: (p.coOwners || []).map(blankCo), ...(this.prefill || {}) }
@@ -128,12 +138,14 @@ export default {
     // Marketing (canEdit) still change names and contact. Anyone adding an owner fills in every field once (no bank).
     full() { return this.acc.ownerFull; },
     readOnly() { return !this.o.isNew && !this.full && !this.acc.canEdit; },
-    showSensitive() { return this.full || this.o.isNew; },
-    coEditable() { return this.full || this.o.isNew; }
+    showSensitive() { return this.acc.ownerCreds || this.o.isNew; },   // Credentials tab (20 Nov 2026: own permission, = Owners Full for now)
+    showPayouts() { return !this.o.isNew && this.acc.ownerPayouts && !this.acc.viewOnly; },   // Units & payouts tab
+    coEditable() { return this.full || this.o.isNew; },
+    odTabs() { return [{ key: 'contact', label: 'Contact info' }, ...(this.showSensitive ? [{ key: 'creds', label: 'Credentials' }] : []), ...(this.showPayouts ? [{ key: 'units', label: 'Units & payouts' }] : [])]; }
   },
   async created() {
     // Accounting and Directors see the owner's payouts
-    if (this.owner && this.full && !this.acc.viewOnly) this.o.payouts = await loadPayouts(this.myUnits.map(x => x.id));
+    if (this.owner && this.showPayouts) this.o.payouts = await loadPayouts(this.myUnits.map(x => x.id));
   },
   methods: {
     amt, shortName, arrLabel, jointName,
@@ -224,3 +236,17 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+.od-tabs { margin: -20px 0 18px; padding-top: 14px; overflow: visible; }
+/* 20 Nov 2026 (Khairul): the tab bar always shows; it stays at the top while the form scrolls */
+.od-tabs { position: sticky; top: -20px; z-index: 3; background: var(--surface); }
+.od-tabs button { padding: 10px 14px; }
+/* 20 Nov 2026 (Khairul): room around + Add another owner, and the reason set apart below a line */
+.od-add { margin: 6px 0 4px; }
+/* 20 Nov 2026 (Khairul): quieter delete (red outline, solid red on hover); no double line under the last payout; Save hidden on the read-only Units & payouts tab */
+.drawer-foot .od-trash { background: transparent; color: #DC2626; border: 1px solid #FCA5A5; box-shadow: none; }
+.drawer-foot .od-trash:hover:not(:disabled) { background: #DC2626; color: #fff; border-color: #DC2626; }
+.od-pay > .row:nth-last-child(2), .od-pay > .row:last-child { border-bottom: 0; }
+.od-reason { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+</style>

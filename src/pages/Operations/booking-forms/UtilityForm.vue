@@ -18,7 +18,8 @@
         <div v-show="step === 0">
           <h3>Booking</h3>
           <div class="field"><label class="req">Booking ID</label>
-            <OptionPicker class="fld-pick" v-model="bookingId" :options="bookingOptions" label="Booking ID" searchable columns="minmax(0, 1.6fr) minmax(0, 1.2fr) minmax(0, .8fr) minmax(0, 1.5fr) 44px" /></div>
+            <OptionPicker class="fld-pick" v-model="bookingId" :options="bookingOptions" label="Booking ID" placeholder="Choose booking ID…" searchable columns="minmax(0, 1.4fr) minmax(0, .6fr) minmax(0, 1.2fr) minmax(0, .8fr) minmax(0, 1.5fr) 44px"
+              :column-heads="['Tenant', 'Booking no.', 'Property', 'Unit', 'Stay', 'Bill']" :column-classes="['', 'muted', '', '', '', 'muted']" /></div>
           <p class="help loading-line" v-if="loading">Loading bookings…</p>
           <p class="help" v-else-if="!bookings.length">No bookings found.</p>
           <p class="help ok-note" v-else-if="existing">A bill is already saved for this booking and has been filled in on the Bills step. Change anything and press Save to update it.</p>
@@ -36,7 +37,8 @@
         <!-- 2. Bills -->
         <div v-show="step === 1">
           <h3>Bills</h3>
-          <div class="bills">
+          <!-- 20 Nov 2026 (Khairul): cards wrap to fit the screen; amount boxes have no spinner and ignore the mouse wheel -->
+          <div class="bills" @wheel.capture="noWheel">
             <div class="bill" v-for="u in KINDS" :key="u.key" :class="{ has: +f[u.key] > 0 }">
               <div class="bill-head"><b>{{ u.label }}</b></div>
               <FormField :id="'u' + u.key" :label="`Amount (RM)`" type="number" min="0" step="0.01" v-model="f[u.key]" placeholder="0.00" />
@@ -45,7 +47,7 @@
             </div>
           </div>
           <p class="help">Add at least one amount. Each bill with an amount needs its own period. A bill left at 0 is saved as 0. The bill photos below are shared by all the bills on this booking.</p>
-          <div class="field"><label>Utility bills <span class="muted">(photos or PDFs, saved to Google Drive)</span></label>
+          <div class="field"><label>Utility bills <span class="muted">(photos, PDFs or videos, saved to Google Drive)</span></label>
             <p class="help" v-if="!bookingId">Choose a booking first (step 1).</p>
             <DriveFiles v-else :key="bookingId" kind="utility-bills" :record-id="bookingId" :label="`${picked?.unitCode || ''} ${bookingId}`" @folder="l => f.invoiceLink = l" /></div>
           <p class="total">Total utility amount: <b>{{ rm(total) }}</b></p>
@@ -125,10 +127,11 @@ export default {
     // Name | Property | Unit | Date. Property and unit come from the booking, or are looked up when the booking lacks them (load()).
     bookingOptions() {
       // 16 Nov 2026: shown in lined-up columns in the list (cols); label is still what search and the closed picker use
-      return [{ value: '', label: 'Choose booking ID…' }, ...this.bookings.map(b => {
-        const cols = [this.names[b.tenantId || b.id] || b.id, b.propertyName || '—', b.unitCode || b.unitId || '—', `${b.arrival || ''} to ${b.departure || ''}`, this.bills[b.id] ? { icon: 'fileCheck', title: 'Bill saved' } : ''];
-        return { value: b.id, cols, label: `${cols[0]} | ${cols[1]} | ${cols[2]} | ${cols[3]}${cols[4] ? ' · bill saved' : ''}` };
-      })];
+      return this.bookings.map(b => {   // 20 Nov 2026: no 'Choose booking ID' row; the picker's placeholder says it
+        // 20 Nov 2026 (Khairul): + booking no. column, header row, and a dash in Bill when no bill is saved
+        const cols = [this.names[b.tenantId || b.id] || b.id, b.bookingNo || '—', b.propertyName || '—', b.unitCode || b.unitId || '—', `${b.arrival || ''} to ${b.departure || ''}`, this.bills[b.id] ? { icon: 'fileCheck', title: 'Bill saved' } : '—'];
+        return { value: b.id, cols, label: `${cols[0]}${b.bookingNo ? ' · ' + b.bookingNo : ''} | ${cols[2]} | ${cols[3]} | ${cols[4]}${this.bills[b.id] ? ' · bill saved' : ''}` };
+      });
     },
     // The bills that have an amount
     billed() { return KINDS.filter(u => cents(this.f[u.key]) > 0); },
@@ -182,6 +185,8 @@ export default {
   },
   async mounted() { await this.load(); },
   methods: {
+    // 20 Nov 2026: scrolling over a focused amount box scrolls the page instead of changing the number
+    noWheel(e) { if (e.target.type === 'number' && e.target === document.activeElement) e.target.blur(); },
     rm(n) { return `RM ${Number(n || 0).toFixed(2)}`; },
     move(by) { this.step = Math.min(this.steps.length - 1, Math.max(0, this.step + by)); window.scrollTo({ top: 0, behavior: 'smooth' }); },
     periodText(key) { const a = this.f[key + 'From'], z = this.f[key + 'To']; return a && z ? `${a} to ${z}` : 'no period'; },
@@ -301,18 +306,20 @@ export default {
 .util-body { margin-top: 14px; }
 .util-body h3 { font-size: 15px; margin: 0 0 12px; }
 .util-body h4 { font-size: 14px; margin: 0; }
-.bills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
-.bill { border: 1px solid var(--border); border-radius: 10px; padding: 12px 12px 0; }
+.bills { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.bill { border: 1px solid var(--border); border-radius: 10px; padding: 12px 12px 0; min-width: 0; }
+.bill :deep(input[type=number]) { -moz-appearance: textfield; appearance: textfield; }
+.bill :deep(input[type=number]::-webkit-outer-spin-button), .bill :deep(input[type=number]::-webkit-inner-spin-button) { -webkit-appearance: none; margin: 0; }
 .bill.has { border-color: var(--accent); }
 .bill-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; }
 .bill .field { margin-bottom: 12px; }
-.period { display: flex; align-items: center; gap: 6px; }
-.period .input { flex: 1; min-width: 0; }
+.period { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.period .input { flex: 1 1 120px; min-width: 0; width: 100%; }
 .field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
 .kvs { margin-top: 12px; }
 .ok-note { color: var(--accent); }
 .warn { color: var(--danger, #c0392b); }
-.total { margin: 12px 0 0; font-size: 14px; }
+.total { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: 14px; }
 .fld-pick { display: block; width: 100%; }
 .fld-pick :deep(.op-btn), .fld-pick :deep(.op-input) { width: 100%; min-height: 40px; }
 .fld-pick :deep(.op-pop) { max-width: none; width: 100%; }
