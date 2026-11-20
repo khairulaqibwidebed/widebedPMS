@@ -1,9 +1,11 @@
 rules_version = '2';
+// Draft 0.93, 20 Nov 2026 (Khairul): cohGroups/{id} { name, members, updatedBy, updatedByName, updatedAt }: COH rater groups
+//   (COH Evaluations > Settings), quick picks on Assigned raters. HR and Directors read and write; nobody else.
 // Draft 0.92, 19 Nov 2026 (Khairul): COH assigned raters in three groups (COH Evaluations > Assigned raters): Interns
 //   (users/{uid}.intern), Housekeeping (role) and General (cohAssignments/{quarterId}.general, a list HR keeps). Anyone in
 //   a group rates, and is rated by, only the pairs HR listed (hkPairOk). cohAssignments may now carry general.
-// Draft 0.91, 19 Nov 2026 (Khairul): HR and Directors delete a COH evaluation and its marks (cohEvaluations/{id} and
-//   private/scores), from COH Evaluations > All evaluations, with an audit log line. Nobody else can.
+// Draft 0.91, 19 Nov 2026 (Khairul): withdrawn 20 Nov 2026 with COH > All evaluations (never published). Nobody deletes
+//   a COH evaluation or its marks, as before.
 // Draft 0.90, 19 Nov 2026 (Neo, "KPI HR", commits f6d860d / d80e472): HR reads every KPI assignment and creates or edits
 //   one for another staff member (not a Director, not themselves). Neo's commit replaced the whole file with an old copy
 //   and left merge markers; this file is 1000b91 (up to Draft 0.89) with only that change brought across (was labelled 0.89).
@@ -1655,6 +1657,15 @@ service cloud.firestore {
         && request.resource.data.get('general', []) is list && request.resource.data.get('general', []).size() <= 300
         && request.resource.data.updatedBy == request.auth.uid;
     }
+    // Draft 0.93: COH rater groups (Settings), HR and Directors only
+    match /cohGroups/{id} {
+      allow read, delete: if hrOrDir();
+      allow create, update: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['name', 'members', 'updatedBy', 'updatedByName', 'updatedAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.members is list && request.resource.data.members.size() <= 300
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
     // Draft 0.78: a pair with a housekeeper on either side must be one HR listed. Others: allowed as before.
     // Draft 0.92: the same for interns (users/{uid}.intern) and for anyone in the quarter's General list.
     function hkPairOk(quarterId, evaluatorId, evaluateeId) {
@@ -1695,8 +1706,7 @@ service cloud.firestore {
       // HR/Director approve: only the review fields change.
       allow update: if (isDirector() || can('performance.edit'))
         && changed().hasOnly(['status', 'reviewedBy', 'reviewedAt']) && request.resource.data.status == 'approved';
-      // Draft 0.91: HR and Directors delete an evaluation (COH > All evaluations), with its marks below.
-      allow delete: if isDirector() || isHR();
+      allow delete: if false;
 
       // The actual marks: readable by the evaluator (it's their own input) and HR/Director (monitoring and
       // official score calculation, see results.js::cohScoreFor) ΓÇö never by the evaluatee. Immutable once
@@ -1723,7 +1733,7 @@ service cloud.firestore {
                 && getAfter(evalDoc()).data.status == 'submitted'
                 && request.resource.data.ratings.size() > resource.data.ratings.size()))
           && request.resource.data.ratings is list && request.resource.data.averageRating is number;
-        allow delete: if isDirector() || isHR();   // Draft 0.91, with the evaluation above
+        allow delete: if false;
       }
     }
 

@@ -37,7 +37,7 @@
 // Add `picked-first` (with multiple): each time the list opens, the ticked ones are listed first. While it is open nothing
 // moves, so a row just ticked or unticked stays where it is until the list is opened again.
 export default {
-  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, pickedFirst: { type: Boolean, default: false }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' },
+  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, pickedFirst: { type: Boolean, default: false }, down: { type: Boolean, default: false }, display: { type: String, default: '' }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' },
     // 16 Nov 2026: columns = a CSS grid-template-columns; an option with cols: [...] is shown as lined-up columns (search and the button still use label)
     columns: { type: String, default: '' } },
   emits: ['update:modelValue', 'change', 'add'],
@@ -54,6 +54,7 @@ export default {
       return k ? this.sorted.filter(o => this.norm(o.label).includes(k)) : this.sorted;
     },
     current() {
+      if (this.display) return this.display;   // 20 Nov 2026: fixed text on the bar (e.g. "9 people chosen"), the page lists the picks itself
       if (this.multiple) return this.options.filter(o => this.isOn(o.value)).map(o => o.label).join(', ');
       return this.options.find(o => o.value === this.modelValue)?.label || '';
     }
@@ -72,6 +73,8 @@ export default {
     place() {
       const pop = this.$refs.pop, root = this.$refs.root;
       if (!pop || !root) return;
+      // 20 Nov 2026: `down` always opens below (the page scrolls to show it)
+      if (this.down) { this.up = false; pop.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
       const r = root.getBoundingClientRect(), h = Math.min(pop.scrollHeight + 14, 340);
       // Any ancestor that clips (a table, a form card) would cut the list off, so only flip up when it fits inside that ancestor
       let clipTop = 0;

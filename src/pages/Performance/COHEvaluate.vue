@@ -5,9 +5,9 @@
     <div class="pills" role="group" style="margin-bottom:12px;" v-if="canManageQuestions">
       <button class="pill-btn" :class="{ on: tab === 'evaluate' }" @click="tab = 'evaluate'">Evaluate</button>
       <button class="pill-btn" :class="{ on: tab === 'monitor' }" @click="tab = 'monitor'">Team overview</button>
-      <button class="pill-btn" :class="{ on: tab === 'all' }" @click="tab = 'all'">All evaluations</button>
       <button class="pill-btn" :class="{ on: tab === 'questions' }" @click="tab = 'questions'">Manage questions</button>
       <button class="pill-btn" :class="{ on: tab === 'housekeeping' }" @click="tab = 'housekeeping'">Assigned raters</button>
+      <button class="pill-btn" :class="{ on: tab === 'settings' }" @click="tab = 'settings'">Settings</button>
     </div>
 
 
@@ -192,8 +192,9 @@
     </template>
 
     <!-- 19 Nov 2026 (Khairul): who rated who and each mark, any quarter, for data cleaning -->
-    <template v-else-if="tab === 'all' && canManageQuestions">
-      <CohAllEvaluations :quarters="quartersAll" :start-id="quarter ? quarter.id : ''" />
+    <!-- Settings (20 Nov 2026): rater groups for quick picking on Assigned raters -->
+    <template v-else-if="tab === 'settings' && canManageQuestions">
+      <CohGroupsSettings />
     </template>
 
     <template v-else-if="tab === 'monitor' && canManageQuestions">
@@ -318,7 +319,7 @@
 
       <p class="muted" v-if="hk.loading">Loading…</p>
       <template v-else><div class="card" style="margin-bottom:16px;" v-for="sec in hkSections" :key="sec.key">
-        <div class="coh-q-bar" style="margin-bottom:8px;">
+        <div class="coh-q-bar hk-sec-bar" style="margin-bottom:8px;">
           <h3 style="margin:0;">{{ sec.title }} <small class="hk-count" style="display:inline;">{{ sec.rows.length }}</small></h3>
           <span class="push"></span>
           <!-- General: HR adds people by hand (not interns or housekeepers, who have their own groups) -->
@@ -333,21 +334,35 @@
             :title="'Adds ' + hkBosses.map(p => p.name).join(', ') + ' to the raters of everyone in ' + sec.title">Directors and HR rate everyone here</button>
         </div>
         <p class="sub" style="margin:0 0 12px;">{{ sec.hint }}</p>
-        <div class="table-wrap" v-if="sec.rows.length">
-          <table class="table hk-table">
-            <colgroup><col style="width:22%"><col><col></colgroup>
-            <thead><tr><th>{{ sec.who }}</th><th>Rated by</th><th>Rates</th></tr></thead>
-            <tbody>
-              <tr v-for="r in sec.rows" :key="r.uid">
-                <td><b>{{ r.name }}</b><small class="hk-count">{{ r.ratedBy.length }} rater{{ r.ratedBy.length === 1 ? '' : 's' }} · rates {{ r.rates.length }}</small>
-                  <button v-if="sec.key === 'general'" type="button" class="link-btn" :disabled="hk.saving" @click="hkRemoveGeneral(r.uid)">Remove from General</button></td>
-                <td><PeoplePicker compact :model-value="r.ratedBy" :staff="hkPeople.filter(p => p.uid !== r.uid)" :disabled="hk.saving" :label="'Add someone who rates ' + r.name"
-                  @update:model-value="list => hkSetRatedBy(r.uid, list)" /></td>
-                <td><PeoplePicker compact :model-value="r.rates" :staff="hkPeople.filter(p => p.uid !== r.uid)" :disabled="hk.saving" :label="'Add someone ' + r.name + ' rates'"
-                  @update:model-value="list => hkSetRates(r.uid, list)" /></td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- 20 Nov 2026: one block per person instead of a table. Names read as plain text; "Choose people" (tick several,
+             type to search) and "+ Add group" edit each list. -->
+        <div class="hk-list" v-if="sec.rows.length">
+          <div class="hk-person" v-for="r in sec.rows" :key="r.uid">
+            <!-- 20 Nov 2026 (option D, scales to many people): one compact line per person with the two counts; click a count
+                 to open that list underneath (names in columns) with Choose people and + Add group -->
+            <div class="hk-row">
+              <span class="hk-who"><b>{{ r.name }}</b>
+                <button v-if="sec.key === 'general'" type="button" class="link-btn" :disabled="hk.saving" @click="hkRemoveGeneral(r.uid)">Remove from General</button></span>
+              <button v-for="side in HK_SIDES" :key="side.key" type="button" class="hk-tog" :class="{ on: hkOpen[r.uid] === side.key, zero: !r[side.key].length }"
+                :aria-expanded="String(hkOpen[r.uid] === side.key)" @click="hkOpen[r.uid] = hkOpen[r.uid] === side.key ? '' : side.key">
+                {{ side.label }} <b>{{ r[side.key].length }}</b> <span aria-hidden="true">{{ hkOpen[r.uid] === side.key ? '▴' : '▾' }}</span></button>
+            </div>
+            <template v-for="side in HK_SIDES" :key="side.key">
+              <div class="hk-panel" v-if="hkOpen[r.uid] === side.key">
+                <div class="hk-panel-bar">
+                  <span class="hk-lbl">{{ side.key === 'ratedBy' ? `Who rates ${r.name}` : `Who ${r.name} rates` }}</span>
+                  <span class="hk-ctl">
+                    <OptionPicker multiple searchable picked-first down display="Choose people" :model-value="r[side.key].map(p => p.uid)" :options="hkOptions(r.uid)"
+                      :label="side.label + ': ' + r.name" :disabled="hk.saving" @update:model-value="list => hkSetSide(r.uid, side.key, list)" />
+                    <OptionPicker v-if="hk.groups.length" down display="+ Add group" model-value="" :options="hkGroupOptions(r, side.key)"
+                      :label="'Add a group to ' + side.label + ': ' + r.name" :disabled="hk.saving" @update:model-value="g => hkAddGroup(r, side.key, g)" />
+                  </span>
+                </div>
+                <ul class="hk-cols" v-if="r[side.key].length"><li v-for="p in [...r[side.key]].sort((x, y) => x.name.localeCompare(y.name))" :key="p.uid">{{ p.name }}</li></ul>
+                <p class="hk-none" v-else>Nobody yet. Use Choose people or + Add group.</p>
+              </div>
+            </template>
+          </div>
         </div>
         <p class="muted" v-else>{{ sec.empty }}</p>
       </div></template>
@@ -360,17 +375,17 @@
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue';
 import RatingPicker from '@/components/RatingPicker.vue';
 import FormField from '@/components/FormField.vue';
-import CohAllEvaluations from '@/components/CohAllEvaluations.vue';
+import CohGroupsSettings from '@/components/CohGroupsSettings.vue';
 import { NAV_ICONS } from '@/components/NavIcons.js';
 import { useSession } from '@/stores/session.js';
 import { listQuarters, listParticipants } from '@/lib/performance/quarters.js';
 import { normalizeStatus } from '@/lib/performance/quarterStatus.js';
 import {
   listQuestions, listQuestionsFor, quarterHasEvaluations, ensureOwnSet, copyQuestionsFrom, createQuestion, saveQuestion, deleteQuestion,
-  listEvaluatees, listGiven, listReceived, listAllForQuarter, getEvaluation, submitEvaluation, loadRatingRules, savePairs
+  listEvaluatees, listGiven, listReceived, listAllForQuarter, getEvaluation, submitEvaluation, loadRatingRules, savePairs, listGroups
 } from '@/lib/performance/coh.js';
 import { nextOrder } from '@/lib/performance/cohQuestions.js';
-import PeoplePicker from '@/components/agreements/PeoplePicker.vue';
+import OptionPicker from '@/components/OptionPicker.vue';
 import { HK_ROLE, ratersOf, ratedByList, ratesList, setRatedBy, setRates } from '@/lib/housekeeping.js';
 import { ROLE_LABEL } from '@/lib/firebase.js';
 import { dropIndex, moveTo } from '@/lib/agreements/fields.js';
@@ -568,9 +583,11 @@ async function load() {
 onMounted(load);
 
 // ---- Assigned raters (17 Nov 2026 Housekeeping; 19 Nov 2026 Interns, Housekeeping, General), HR and Directors ----
-const hk = reactive({ quarterId: '', parts: [], roleOf: () => '', isIntern: () => false, general: [], pairs: {}, dirty: false, loading: false, saving: false, error: '', ok: '' });
-const hkPeople = computed(() => hk.parts.map(p => ({ uid: p.employeeId, name: p.employeeName || 'Staff', role: hk.roleOf(p.employeeId) || p.role || '' })));
-const nameOfUid = uid => hkPeople.value.find(p => p.uid === uid)?.name || 'Staff';
+const hk = reactive({ quarterId: '', parts: [], groups: [], roleOf: () => '', nameOf: () => '', isIntern: () => false, general: [], pairs: {}, dirty: false, loading: false, saving: false, error: '', ok: '' });
+// 20 Nov 2026: names from Staff accounts first (a participant can be saved with just "Staff"); someone still in a list
+// who no longer takes part in this quarter shows as "(not in this quarter)" and is dropped when you save
+const hkPeople = computed(() => hk.parts.map(p => ({ uid: p.employeeId, name: hk.nameOf(p.employeeId) || (p.employeeName !== 'Staff' && p.employeeName) || 'No name on Staff accounts', role: hk.roleOf(p.employeeId) || p.role || '' })));
+const nameOfUid = uid => hkPeople.value.find(p => p.uid === uid)?.name || `${hk.nameOf(uid) || 'Former staff'} (not in this quarter)`;
 const asPeople = uids => uids.map(uid => ({ uid, name: nameOfUid(uid) }));
 // One group each: housekeepers by role, interns by the HR details tick, General by hand (a person can't be in two)
 const hkGroupOf = p => p.role === HK_ROLE ? 'housekeeping' : hk.isIntern(p.uid) ? 'intern' : hk.general.includes(p.uid) ? 'general' : '';
@@ -604,14 +621,30 @@ async function hkLoad() {
     const [parts, rules] = await Promise.all([listParticipants(id), loadRatingRules(id)]);
     if (id !== hk.quarterId) return;
     hk.parts = parts.filter(p => p.participationStatus === 'active');
-    hk.roleOf = rules.roleOf; hk.isIntern = rules.isIntern; hk.general = [...rules.general]; hk.pairs = rules.pairs;
+    try { hk.groups = await listGroups(); } catch (e) { hk.groups = []; }   // rater groups (Settings); none before Draft 0.93 is published
+    hk.roleOf = rules.roleOf; hk.nameOf = rules.nameOf; hk.isIntern = rules.isIntern; hk.general = [...rules.general]; hk.pairs = rules.pairs;
   } catch (e) { hk.error = e.message; }
   hk.loading = false;
 }
 watch(() => hk.quarterId, hkLoad);
 watch(tab, t => { if (t === 'housekeeping' && !hk.quarterId) hk.quarterId = (quarter.value || quartersAll.value[0])?.id || ''; });
-function hkSetRatedBy(uid, list) { hk.pairs = setRatedBy(hk.pairs, uid, list.map(p => p.uid)); hk.dirty = true; hk.ok = ''; }
-function hkSetRates(uid, list) { hk.pairs = setRates(hk.pairs, uid, list.map(p => p.uid)); hk.dirty = true; hk.ok = ''; }
+// 20 Nov 2026: the two lists per person, edited with a multi-select (uids) and group quick picks (Settings > Rater groups)
+const HK_SIDES = [{ key: 'ratedBy', label: 'Rated by' }, { key: 'rates', label: 'Rates' }];
+const hkOpen = reactive({});   // uid -> 'ratedBy' | 'rates' | '' (which list is open under that person)
+function hkSetSide(uid, key, uids) { hk.pairs = key === 'ratedBy' ? setRatedBy(hk.pairs, uid, uids) : setRates(hk.pairs, uid, uids); hk.dirty = true; hk.ok = ''; }
+const hkOptions = uid => hkPeople.value.filter(p => p.uid !== uid)
+  .map(p => ({ value: p.uid, label: `${p.name} (${ROLE_LABEL[p.role] || p.role || 'Staff'})` })).sort((a, b) => a.label.localeCompare(b.label));
+// Who a group would add to this list: members taking part in the quarter, not the person themself, not already listed
+function hkGroupAdds(r, key, g) {
+  const have = new Set(r[key].map(p => p.uid)), inQ = new Set(hkPeople.value.map(p => p.uid));
+  return (g.members || []).filter(u => u !== r.uid && inQ.has(u) && !have.has(u));
+}
+const hkGroupOptions = (r, key) => hk.groups.map(g => { const n = hkGroupAdds(r, key, g).length;
+  return { value: g.id, label: n ? `${g.name} (adds ${n})` : `${g.name} (all in already)`, disabled: !n }; });
+function hkAddGroup(r, key, gid) {
+  const g = hk.groups.find(x => x.id === gid); if (!g) return;
+  hkSetSide(r.uid, key, [...r[key].map(p => p.uid), ...hkGroupAdds(r, key, g)]);
+}
 function hkAddBosses(rows) {
   for (const r of rows) hk.pairs = setRatedBy(hk.pairs, r.uid, [...new Set([...r.ratedBy.map(p => p.uid), ...hkBosses.value.map(p => p.uid)])]);
   hk.dirty = true; hk.ok = '';
@@ -794,9 +827,31 @@ async function dropRow() {
 </script>
 
 <style scoped>
-.hk-table td { vertical-align: middle; }
-.hk-table td b { display: block; }
-.hk-count { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+/* 20 Nov 2026: Assigned raters as one block per person: name line, then Rated by / Rates with names as text and the pickers on the right */
+.hk-sec-bar select { max-width: 100%; }
+.hk-list { border: 1px solid var(--border); border-radius: 10px; }
+.hk-person { padding: 10px 16px; border-top: 1px solid var(--border); }
+.hk-person:first-child { border-top: 0; }
+.hk-count { font-size: 12px; color: var(--muted); }
+.hk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.hk-who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 15px; min-width: 0; }
+.hk-tog { display: inline-flex; align-items: center; gap: 6px; min-width: 120px; justify-content: space-between; padding: 6px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface); font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
+.hk-tog b { color: var(--text); font-size: 14px; }
+.hk-tog.zero b { color: var(--danger); }
+.hk-tog:hover { border-color: var(--accent); }
+.hk-tog.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.hk-tog.on b { color: var(--accent); }
+.hk-panel { margin-top: 10px; padding: 12px 14px; border-radius: 10px; background: var(--bg, #f6f7f9); border: 1px solid var(--border); }
+.hk-panel-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.hk-lbl { font-size: 13px; font-weight: 600; color: var(--text); }
+.hk-cols { columns: 180px auto; column-gap: 24px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.hk-cols li { padding: 3px 0; break-inside: avoid; border-bottom: 1px dashed var(--border); }
+.hk-none { margin: 0; font-size: 13px; color: var(--muted); font-style: italic; }
+.hk-ctl { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.hk-ctl :deep(.op-btn) { min-width: 150px; }
+.hk-ctl :deep(.op-pop) { left: auto; right: 0; }   /* the pickers sit on the right: open the list leftwards so it stays on screen */
+@media (max-width: 760px) { .hk-row { grid-template-columns: 1fr 1fr; } .hk-who { grid-column: 1 / -1; } .hk-ctl { justify-content: flex-start; } }
 .coh-q-bar .push { flex: 1; }
 .coh-q-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .coh-q-bar label { font-size: 13px; font-weight: 600; }
@@ -809,7 +864,7 @@ tr.coh-after td { box-shadow: inset 0 -3px 0 var(--accent); }
 .coh-del .muted { margin-right: 6px; font-size: 12px; }
 /* Follows the account's selected theme (Settings > Appearance) throughout — var(--bg)/var(--surface)/
    var(--accent) etc. already flip for light/dark mode and brand colour, so nothing here is a fixed palette. */
-.hk-table .link-btn { display: block; background: none; border: 0; padding: 0; margin-top: 4px; font: inherit; font-size: 12px; color: var(--danger); cursor: pointer; }
+.hk-who .link-btn { display: inline; background: none; border: 0; padding: 0; margin-top: 0; font: inherit; font-size: 12px; color: var(--danger); cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .coh-panel { position: relative; }
 .coh-muted { color: var(--muted); }
