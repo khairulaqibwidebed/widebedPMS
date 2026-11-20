@@ -48,3 +48,20 @@ describe('COH pairs', () => {
     expect(clean).toEqual({ ops: ['hk1'] });   // office pairs need no listing; self and people not in the quarter dropped
   });
 });
+
+// 19 Nov 2026: interns and General work like housekeepers (special(uid))
+describe('Interns and General', () => {
+  const special = uid => uid === 'fin';   // say fin is an intern or in General
+  const pairs = { boss: ['fin'], fin: ['ops'] };
+  it('only assigned people rate them, and they rate only whom HR listed', () => {
+    expect(H.canRate('ops', 'fin', roleOf, pairs, special)).toBe(false);
+    expect(H.canRate('boss', 'fin', roleOf, pairs, special)).toBe(true);
+    expect(H.canRate('fin', 'ops', roleOf, pairs, special)).toBe(true);
+    expect(H.canRate('fin', 'hr1', roleOf, pairs, special)).toBe(false);
+    expect(H.canRate('ops', 'hr1', roleOf, pairs, special)).toBe(true);
+    expect(H.ratersOf('fin', uids, roleOf, pairs, special)).toEqual(['boss']);
+  });
+  it('keeps their pairs when tidying', () => {
+    expect(H.cleanPairs({ boss: ['fin', 'ops'], fin: ['ops'] }, uids, roleOf, special)).toEqual({ boss: ['fin'], fin: ['ops'] });
+  });
+});
