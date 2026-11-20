@@ -55,37 +55,43 @@
         </div>
 
         <!-- Profile -->
-        <div class="drawer-body" v-if="drawer.mode === 'view'">
-          <div class="ag-tags"><span class="pill" :class="agencyColor(drawer.agent)">{{ agencyLabel(drawer.agent) }}</span><span class="muted">{{ drawer.agent.company }}</span></div>
-          <div class="form-sec">Contact</div>
-          <div class="kv"><span>Mobile number</span><span><a :href="`tel:${drawer.agent.mobile}`">{{ drawer.agent.mobile }}</a></span></div>
-          <div class="kv"><span>Email</span><span><a v-if="drawer.agent.email" :href="`mailto:${drawer.agent.email}`">{{ drawer.agent.email }}</a><template v-else>—</template></span></div>
-          <div class="kv"><span>Company name</span><span>{{ drawer.agent.company || '—' }}</span></div>
-          <div class="kv"><span>Address</span><span class="pre">{{ drawer.agent.address || '—' }}</span></div>
+        <!-- 20 Nov 2026: agent details on the left, business card on the right (stacked on a phone) -->
+        <div class="drawer-body ag-view" v-if="drawer.mode === 'view'">
+          <div class="ag-view-info">
+            <div class="ag-tags"><span class="pill" :class="agencyColor(drawer.agent)">{{ agencyLabel(drawer.agent) }}</span><span class="muted">{{ drawer.agent.company }}</span></div>
+            <div class="form-sec">Contact</div>
+            <div class="kv"><span>Mobile number</span><span><a :href="`tel:${drawer.agent.mobile}`">{{ drawer.agent.mobile }}</a></span></div>
+            <div class="kv"><span>Email</span><span><a v-if="drawer.agent.email" :href="`mailto:${drawer.agent.email}`">{{ drawer.agent.email }}</a><template v-else>—</template></span></div>
+            <div class="kv"><span>Company name</span><span>{{ drawer.agent.company || '—' }}</span></div>
+            <div class="kv"><span>Address</span><span class="pre">{{ drawer.agent.address || '—' }}</span></div>
 
-          <div class="form-sec ag-sec-row">Bank details
-            <button type="button" class="link" v-if="drawer.bank && drawer.bank.accountNo" @click="drawer.showAcct = !drawer.showAcct">{{ drawer.showAcct ? 'Hide number' : 'Show number' }}</button>
-          </div>
-          <div class="kv"><span>Bank</span><span>{{ drawer.agent.bankName || '—' }}</span></div>
-          <template v-if="canEdit">
-            <div class="kv"><span>Account holder</span><span>{{ drawer.bankLoading ? 'Loading…' : drawer.bank?.holder || '—' }}</span></div>
-            <div class="kv"><span>Account number</span><span class="mono">{{ drawer.bankLoading ? 'Loading…' : acctText }}</span></div>
-            <p class="help" v-if="drawer.bankError">{{ drawer.bankError }}</p>
-          </template>
-          <div class="kv" v-else><span>Account number</span><span class="mono">{{ drawer.agent.acctLast4 ? `···· ${drawer.agent.acctLast4}` : '—' }}</span></div>
-
-          <div class="form-sec">Business card</div>
-          <div class="ag-cards" v-if="drawer.agent.cardFront || drawer.agent.cardBack">
-            <template v-for="side in SIDES" :key="side.key">
-              <button type="button" class="ag-card" v-if="drawer.agent[side.key]" @click="viewCard(drawer.agent[side.key])" :aria-label="`Open ${side.label.toLowerCase()} of the business card`">
-                <img v-if="drawer.previews[side.key]" :src="drawer.previews[side.key]" :alt="`${side.label} of ${drawer.agent.name}'s business card`">
-                <span class="ag-card-ph" v-else>{{ drawer.previewError[side.key] ? 'Click to open' : isPdf(drawer.agent[side.key]) ? 'PDF · click to open' : 'Loading…' }}</span>
-                <span class="ag-card-label">{{ side.label }}</span>
-              </button>
+            <div class="form-sec ag-sec-row">Bank details
+              <button type="button" class="link" v-if="drawer.bank && drawer.bank.accountNo" @click="drawer.showAcct = !drawer.showAcct">{{ drawer.showAcct ? 'Hide number' : 'Show number' }}</button>
+            </div>
+            <div class="kv"><span>Bank</span><span>{{ drawer.agent.bankName || '—' }}</span></div>
+            <template v-if="canEdit">
+              <div class="kv"><span>Account holder</span><span>{{ drawer.bankLoading ? 'Loading…' : drawer.bank?.holder || '—' }}</span></div>
+              <div class="kv"><span>Account number</span><span class="mono">{{ drawer.bankLoading ? 'Loading…' : acctText }}</span></div>
+              <p class="help" v-if="drawer.bankError">{{ drawer.bankError }}</p>
             </template>
+            <div class="kv" v-else><span>Account number</span><span class="mono">{{ drawer.agent.acctLast4 ? `···· ${drawer.agent.acctLast4}` : '—' }}</span></div>
+            <p class="help ag-meta">{{ metaText }}</p>
           </div>
-          <p class="muted" v-else>No business card attached.</p>
-          <p class="help ag-meta">{{ metaText }}</p>
+
+          <div class="ag-view-card">
+            <div class="form-sec">Business card</div>
+            <div class="ag-card-stack" v-if="drawer.agent.cardFront || drawer.agent.cardBack">
+              <template v-for="side in SIDES" :key="side.key">
+                <button type="button" class="ag-card" v-if="drawer.agent[side.key]" @click="viewCard(drawer.agent[side.key])" :aria-label="`Open ${side.label.toLowerCase()} of the business card`">
+                  <img v-if="drawer.previews[side.key]" :src="drawer.previews[side.key]" :alt="`${side.label} of ${drawer.agent.name}'s business card`">
+                  <span class="ag-card-ph" v-else>{{ drawer.previewError[side.key] ? 'Click to open' : isPdf(drawer.agent[side.key]) ? 'PDF · click to open' : 'Loading…' }}</span>
+                  <span class="ag-card-label">{{ side.label }}</span>
+                </button>
+              </template>
+              <p class="help">Click a card to see it full size.</p>
+            </div>
+            <div class="ag-card-none" v-else>No business card attached.</div>
+          </div>
         </div>
         <div class="drawer-foot" v-if="drawer.mode === 'view'">
           <button type="button" class="btn btn-danger" v-if="isDirector" @click="remove(drawer.agent)" :disabled="busy">Delete</button>
@@ -346,9 +352,17 @@ export default {
 .ag-up .file-line { display: flex; justify-content: space-between; gap: 8px; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .ag-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ag-card { position: relative; aspect-ratio: 1.75 / 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--hover); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.ag-card img { width: 100%; height: 100%; object-fit: cover; }
+.ag-card img { width: 100%; height: 100%; object-fit: contain; }
 .ag-card-ph { color: var(--muted); font-size: 12px; }
 .ag-card-label { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
 .ag-meta { margin-top: 16px; }
+/* Profile: details left, business card right */
+.ag-view { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+.ag-view .kv span:last-child { overflow-wrap: anywhere; }
+.ag-view-card { position: sticky; top: 0; }
+.ag-card-stack { display: grid; gap: 12px; }
+.ag-card-stack .ag-card { width: 100%; }
+.ag-card-none { border: 1.5px dashed var(--border); border-radius: 10px; aspect-ratio: 1.75 / 1; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+@media (max-width: 860px) { .ag-view { grid-template-columns: minmax(0, 1fr); gap: 8px; } .ag-view-card { position: static; } }
 @media (max-width: 720px) { .ag-agency, .ag-bank, .ag-cards { grid-template-columns: minmax(0, 1fr); } }
 </style>
