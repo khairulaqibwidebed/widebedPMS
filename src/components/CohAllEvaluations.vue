@@ -5,7 +5,6 @@
         <h3 style="margin:0">All evaluations</h3>
         <p class="sub" style="margin:4px 0 0">Who rated who and when, to remove evaluations that spoil the tally. Marks are not shown here. Delete removes the evaluation and its marks for good.</p>
       </div>
-      <button type="button" class="btn" :disabled="!shown.length" @click="downloadCsv">Download CSV</button>
     </div>
     <div class="ae-filters">
       <div class="field"><label>Quarter</label>
@@ -49,7 +48,7 @@ import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import Paged from '@/components/Paged.vue';
-import { download, toCSV, audit, friendlyError } from '@/lib/finance-data.js';
+import { audit, friendlyError } from '@/lib/finance-data.js';
 import { askConfirm, showNotice } from '@/lib/confirm.js';
 import { toast } from '@/lib/toast.js';
 
@@ -104,12 +103,6 @@ export default {
         showNotice("Couldn't delete", err?.code === 'permission-denied' ? 'Firestore refused this. The latest security rules (Draft 0.91) need to be published first.' : friendlyError(err, 'delete the evaluation'));
       }
       this.busy = '';
-    },
-    downloadCsv() {
-      const qName = this.quarters.find(x => x.id === this.quarterId)?.name || this.quarterId;
-      const head = ['Quarter', 'Evaluation ID', 'Evaluator', 'Evaluator ID', 'Employee', 'Employee ID', 'Submitted'];
-      const body = this.shown.map(e => [qName, e.id, e.evaluatorNameSnapshot || '', e.evaluatorId || '', e.evaluateeNameSnapshot || '', e.evaluateeId || '', this.when(e.submittedAt)]);
-      download(`COH evaluations ${qName}.csv`, toCSV([head, ...body]));
     }
   }
 };
