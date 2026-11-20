@@ -15,8 +15,8 @@ export const INVOICE_DEFAULTS = {
   header: [
     'PJ Centrestage By Widebed',
     '3A, Jalan 13/2, Seksyen 13, 46200 Petaling Jaya, Selangor, Malaysia',
-    'Phone: +60125867200 · Email: booking@widebed.com',
-    'URL: https://klshortstay.com.my'
+    'Phone: +60125253141 · Email: booking@widebed.com',   // 20 Nov 2026: new number, and shortstay.com.my added
+    'URL: https://klshortstay.com.my · https://shortstay.com.my'
   ].join('\n'),
   terms: [
     'TERMS & CONDITIONS – MONTHLY & DAILY RENTAL',
@@ -82,22 +82,100 @@ export async function saveInvoiceDefaults({ header, terms, bank }) {
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const day = iso => (iso ? `${+iso.slice(8, 10)} ${MON[+iso.slice(5, 7) - 1]} ${iso.slice(0, 4)}` : '');
 const num = v => Math.round((+v || 0) * 1000) / 1000;   // 3 decimals in sums; 2 on the page
-export const FEE_LABELS = [['utilityDeposit', 'Utility deposit'], ['internetFee', 'Internet fees'], ['carparkFee', 'Carpark fees'], ['cleaningFee', 'Cleaning fees'],
+// 20 Nov 2026 (Khairul): the security deposit and other fees typed on the booking form are saved as charges on the first month
+// in the booking's Payments tab (b.monthCharges), so there is one place for them and nothing is counted twice.
+export const FEE_LABELS = [['securityDeposit', 'Security deposit'], ['utilityDeposit', 'Utility deposit'], ['internetFee', 'Internet fees'], ['carparkFee', 'Carpark fees'], ['cleaningFee', 'Cleaning fees'],
   ['taFee', 'Tenancy agreement fees'], ['taStampFee', 'Tenancy agreement stamping fees'],
   ['gatewayFee', 'Payment gateway charges'], ['cardFee', 'Credit card charges'], ['othersFee', 'Others']];
 
+// Months from the move-in date: the same day each month (31 Jan -> 28/29 Feb when the month is shorter); the rest is a part month
+const iso = d => d.toISOString().slice(0, 10);
+function addMonths(a, n) {
+  const [y, m, d] = a.split('-').map(Number), t = new Date(Date.UTC(y, m - 1 + n, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(d, last)); return iso(t);
+}
+function monthsOf(arrival, departure, rent) {
+  if (!arrival || !departure || departure <= arrival) return [];
+  const out = [];
+  let from = arrival;
+  for (let i = 1; i <= 120; i++) {
+    const to = addMonths(arrival, i);
+    if (to > departure) break;
+    out.push({ label: `Month ${i}`, from, to, days: 0, rent: num(rent) }); from = to;
+  }
+  if (from < departure) {
+    const days = Math.round((Date.parse(departure) - Date.parse(from)) / 86400000);
+    out.push({ label: `Month ${out.length + 1}`, from, to: departure, days, rent: num(rent / 30 * days) });
+  }
+  return out;
+}
+// Older bookings (saved before 20 Nov 2026) kept the deposit and fees as fields on the booking (securityDeposit or deposit,
+// utilityDeposit, carparkFee, ...). Until the booking is saved again they are read as charges on the check-in month.
+// A booking saved since then has feesInPayments: true and keeps them in monthCharges only (the old fields are left as they were).
+export function legacyCharges(b) {
+  if (!b || b.feesInPayments) return [];
+  const note = String(b.othersNote || '').trim();
+  return FEE_LABELS.map(([k, label]) => ({ key: k, label, amount: num(k === 'securityDeposit' ? (b.securityDeposit || b.deposit) : b[k]), ...(k === 'othersFee' && note ? { note } : {}) }))
+    .filter(c => c.amount > 0).map(c => ({ ...c, amount: Math.round(c.amount * 100) / 100 }));
+}
+// 20 Nov 2026 (Khairul): one line per charge in a month. A charge of the same kind (Others: same note too) is added into the
+// line already there instead of making a second one.
+const sameCharge = (a, b) => a.key === b.key && (a.key !== 'othersFee' || String(a.note || '').trim() === String(b.note || '').trim());
+export function addInto(list, c) {
+  const out = (list || []).map(x => ({ ...x })), at = out.find(x => sameCharge(x, c));
+  if (at) at.amount = Math.round(((+at.amount || 0) + (+c.amount || 0)) * 100) / 100; else out.push({ ...c });
+  return out;
+}
+export const mergeCharges = list => (list || []).reduce((out, c) => addInto(out, c), []);
+// Every charge on the booking by month { 'YYYY-MM': [...] }: the old fields (if any) first on the check-in month, then the month charges
+export function allMonthCharges(b) {
+  const out = {};
+  Object.entries(b?.monthCharges || {}).forEach(([m, l]) => { if (Array.isArray(l)) out[m] = l.map(x => ({ ...x })); });
+  const old = legacyCharges(b), m = String(b?.arrival || '').slice(0, 7);
+  if (old.length && m) out[m] = [...old, ...(out[m] || [])];
+  Object.keys(out).forEach(k => { out[k] = mergeCharges(out[k]); });   // same kind in a month = one line
+  return out;
+}
+// The security deposit on a booking: Security deposit charges in every month
+export const depositOf = b => Object.values(allMonthCharges(b)).flat().filter(c => c.key === 'securityDeposit').reduce((t, c) => t + num(c.amount), 0);
+const span = (a, b) => `${day(a)} – ${day(b)}`;
+// A month charge's name: "Others (note)" when Others has a note; the label saved with it, else the fee's own label
+export const chargeLabel = c => {
+  const note = String(c?.note || '').trim();
+  if (c?.key === 'othersFee') return note ? `Others (${note})` : 'Others';
+  return c?.label || FEE_LABELS.find(([k]) => k === c?.key)?.[1] || 'Charge';
+};
+
 // b = the booking's fields as saved (offlineBookings) or as on the form; t = tenant { name, email, phone }; unitType from the unit (info.type)
-export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '' } = {}) {
+// 20 Nov 2026: propertyAddress (properties/{id}.info) heads the invoice with the property's own name and address
+export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '', propertyAddress = '' } = {}) {
   const nights = b.arrival && b.departure ? Math.round((Date.parse(b.departure) - Date.parse(b.arrival)) / 86400000) : null;
   const longTerm = nights != null && nights >= 30;
   const rental = num(longTerm ? (b.monthlyRent || b.rental) : b.rental);
-  const deposit = num(b.securityDeposit || b.deposit);
-  const amounts = [
-    [longTerm ? 'Monthly rent' : 'Rental', rental],
-    ['Security deposit', deposit],
-    ...FEE_LABELS.map(([k, label]) => [k === 'othersFee' && String(b.othersNote || '').trim() ? `Others (${String(b.othersNote).trim()})` : label, num(b[k])])
-  ].filter(([, v]) => v > 0);
+  // 20 Nov 2026 (Khairul): a stay longer than one month gets a page per month after the summary page. Months run from the
+  // move-in date (19 Oct - 19 Nov is month 1, 19 Nov - 19 Dec month 2); a last part month is charged by days (rent / 30 x days).
+  // 20 Nov 2026: the deposit and fees are month charges too (older bookings: their old fields on the check-in month, see allMonthCharges).
+  const months = longTerm && rental > 0 ? monthsOf(b.arrival, b.departure, rental) : [];
+  // 20 Nov 2026: extra charges added to a month on the booking (Portfolio > Bookings > Total Payments), b.monthCharges
+  // { 'YYYY-MM': [{ key, label, amount, note }] }. On a multi-month invoice each goes on the month that starts in that
+  // calendar month (a later calendar month with no invoice month of its own goes on the last one).
+  const extras = Object.entries(allMonthCharges(b)).sort(([x], [y]) => x.localeCompare(y))
+    .flatMap(([ym, list]) => (Array.isArray(list) ? list : []).map(c => ({ ym, label: chargeLabel(c), v: num(c.amount) }))).filter(c => c.v > 0);
+  let amounts;
+  if (months.length > 1) {
+    const slot = ym => { let at = 0; months.forEach((m, i) => { if (m.from.slice(0, 7) <= ym) at = i; }); return at; };
+    months.forEach((m, i) => {
+      m.amounts = [[m.days ? `Rent (${m.days} day${m.days === 1 ? '' : 's'})` : 'Monthly rent', m.rent], ...extras.filter(c => slot(c.ym) === i).map(c => [c.label, c.v])].filter(([, v]) => v > 0);
+      m.total = m.amounts.reduce((t, [, v]) => t + v, 0);
+    });
+    amounts = [...months.map(m => [`${m.label} rent (${span(m.from, m.to)})`, m.rent]),
+      ...extras.map(c => [`${months[slot(c.ym)].label}: ${c.label}`, c.v])].filter(([, v]) => v > 0);
+  } else amounts = [[longTerm ? 'Monthly rent' : 'Rental', rental],
+    ...extras.map(c => [c.ym === String(b.arrival || '').slice(0, 7) ? c.label : `${c.label} (${MON[+c.ym.slice(5, 7) - 1]} ${c.ym.slice(0, 4)})`, c.v])].filter(([, v]) => v > 0);
   return {
+    months: months.length > 1 ? months : [], monthlyRent: rental,
+    propertyName: propertyName || b.propertyName || '', propertyAddress,
     tenant: [['Name', t?.name], ['Email', t?.email], ['Phone number', t?.phone]],
     property: [['Property', propertyName || b.propertyName], ['Unit', unitCode || b.unitCode], ['Type', unitType]],
     terms: [['Type of rent', rentTermLabel(b.rentType)], ['Move-in date', day(b.arrival)], ['Move-out date', day(b.departure)], ['Total nights', nights == null || nights < 0 ? '' : String(nights)]],
@@ -112,17 +190,80 @@ const money = v => 'RM ' + (+v || 0).toLocaleString('en-MY', { minimumFractionDi
 const safe = s => String(s ?? '').replace(/[\r\n\t]+/g, ' ').trim();
 const lines = s => String(s || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
 
-// inv from invoiceOf(); { header, terms, bank } text (terms may be changed for this invoice)
-export async function buildInvoicePdf(inv, { header, terms, bank }) {
-  const { lib, fontkit, fonts: bytes } = await loadPdfKit();
-  const pdf = await lib.PDFDocument.create();
-  pdf.registerFontkit(fontkit);
-  const reg = await pdf.embedFont(bytes.regular, { subset: true }), bold = await pdf.embedFont(bytes.bold, { subset: true });
-  pdf.setTitle('Invoice'); pdf.setAuthor('Widebed'); pdf.setCreator('Widebed PMS'); pdf.setProducer('Widebed PMS');
+// 20 Nov 2026 (Khairul): the invoice goes to customers, so it uses Inter (the PMS screen font, public/fonts, from Google
+// Fonts, SIL Open Font License) instead of the statements' Roboto Condensed. If the files can't be loaded, Roboto is used.
+const INVOICE_FONTS = { regular: '/fonts/Inter-Regular.ttf', bold: '/fonts/Inter-Bold.ttf' };
+let interFonts;
+function loadInvoiceFonts() {
+  interFonts ||= Promise.all(Object.values(INVOICE_FONTS).map(async url => {
+    const res = await fetch(url), bytes = new Uint8Array(await res.arrayBuffer());
+    if (!res.ok || bytes[0] === 0x3c) throw new Error('Invoice font missing');   // a missing file comes back as the app's page
+    return bytes;
+  })).then(([regular, bold]) => ({ regular, bold })).catch(e => { interFonts = null; throw e; });
+  return interFonts;
+}
+
+// The address line of a property: properties/{id}.info address and city (the city only when the address doesn't name it)
+export const propertyAddressOf = p => {
+  const i = p?.info || {}, a = String(i.address || '').trim(), c = String(i.city || '').trim();
+  return [a, c && !a.toLowerCase().includes(c.toLowerCase()) ? c : ''].filter(Boolean).join(', ');
+};
+// The header: the property's name ("<name> By Widebed") and address, then the contact lines (phone, email, URL) from
+// Invoice settings. Without a property name, the Invoice settings header is printed as it is.
+function headerLines(inv, header) {
+  const all = lines(header), name = String(inv.propertyName || '').trim();
+  if (!name) return all;
+  const contact = all.filter(l => /^(phone|tel|e-?mail|url|web)/i.test(l) || /@|https?:\/\//i.test(l));
+  return [/widebed/i.test(name) ? name : `${name} By Widebed`, inv.propertyAddress, ...contact].filter(Boolean);
+}
+const SIGN_NOTE = 'NO SIGNATURE REQUIRED, COMPUTER GENERATED';
+const FOOT = 48;   // space kept at the bottom of every page for the signature line
+
+// inv from invoiceOf(); { header, terms, bank } text (terms may be changed for this invoice); folio = the booking number
+// 20 Nov 2026 (Khairul): the invoice must fit on one page (a multi-month stay: one page each for the summary and every
+// month). Text and spacing start 10% smaller than before and shrink in steps (to 60% at the least) until every part fits its page.
+const FIT_STEPS = [0.9, 0.84, 0.78, 0.72, 0.66, 0.6];
+export async function buildInvoicePdf(inv, opts) {
+  const [{ lib, fontkit, fonts: roboto }, inter] = await Promise.all([loadPdfKit(), loadInvoiceFonts().catch(() => null)]);
+  const bytes = inter || roboto, kit = { lib, fontkit, bytes, subset: !inter, measure: makeMeasure(fontkit, bytes) };
+  // 20 Nov 2026: the sizes are tried as a dry run (measuring only, no PDF, no font embedding), then the PDF is made once.
+  // Making a full PDF for every try froze the browser on a 14-month invoice.
+  let k = FIT_STEPS[FIT_STEPS.length - 1];
+  for (const step of FIT_STEPS) {
+    if ((await layoutInvoice(kit, inv, opts, step, true)).fits) { k = step; break; }
+    await new Promise(r => setTimeout(r));   // let the page breathe between tries
+  }
+  return (await layoutInvoice(kit, inv, opts, k)).pdf.save();
+}
+
+// Text widths straight from the font files, each word measured once and reused (also across tries). Same advance widths
+// pdf-lib uses, so the dry run and the real PDF break lines the same way.
+function makeMeasure(fontkit, bytes) {
+  const fonts = { r: fontkit.create(bytes.regular), b: fontkit.create(bytes.bold) }, cache = new Map();
+  const unit = (w, b) => {
+    const key = (b ? 'b|' : 'r|') + w;
+    let v = cache.get(key);
+    if (v == null) { const f = b ? fonts.b : fonts.r; v = f.layout(w).advanceWidth / f.unitsPerEm; cache.set(key, v); }
+    return v;
+  };
+  return (s, size, b) => { let t = 0; String(s).split(' ').forEach((p, i) => { if (i) t += unit(' ', b); if (p) t += unit(p, b); }); return t * size; };
+}
+const DRY_PAGE = { drawText() {}, drawRectangle() {} };
+
+async function layoutInvoice({ lib, fontkit, bytes, subset, measure }, inv, { header, terms, bank, folio = '', only = null }, k, dry = false) {
+  const z = n => n * k;   // every font size and gap is scaled by k
+  let pdf = null, reg = null, bold = null, count = 0;
+  if (!dry) {
+    pdf = await lib.PDFDocument.create();
+    pdf.registerFontkit(fontkit);
+    // Inter is embedded whole: pdf-lib's font subsetting drops most of Inter's letters (tested 20 Nov 2026). About 350 KB a PDF.
+    reg = await pdf.embedFont(bytes.regular, { subset }); bold = await pdf.embedFont(bytes.bold, { subset });
+    pdf.setTitle('Invoice'); pdf.setAuthor('Widebed'); pdf.setCreator('Widebed PMS'); pdf.setProducer('Widebed PMS');
+  }
 
   let page, y;
-  const width = (s, size, b) => (b ? bold : reg).widthOfTextAtSize(String(s), size);
-  const text = (s, x, yy, { size = 10, b = false, color = INK, align = 'left' } = {}) => {
+  const width = measure;
+  const text = (s, x, yy, { size = z(10), b = false, color = INK, align = 'left' } = {}) => {
     s = safe(s); if (!s) return;
     const w = width(s, size, b), x0 = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
     page.drawText(s, { x: x0, y: yy, size, font: b ? bold : reg, color: lib.rgb(...color) });
@@ -136,104 +277,154 @@ export async function buildInvoicePdf(inv, { header, terms, bank }) {
     }
     return out;
   };
-  const newPage = () => { page = pdf.addPage([W, H]); y = H - 40; };
-  const room = need => { if (y - need < 36) newPage(); };
-  const heading = s => { room(34); y -= 6; text(s, M, y, { size: 10.5, b: true }); y -= 6; rule(y); y -= 15; };
+  // 20 Nov 2026: addresses break after a comma and the lines come out about the same length (no lone "Kuala Lumpur" on
+  // its own line). A part longer than the width falls back to breaking between words.
+  const wrapAddr = (s, w, size) => {
+    const parts = safe(s).split(/(?<=,)\s+/).filter(Boolean);
+    if (!parts.length) return [];
+    if (parts.some(p => width(p, size) > w)) return wrap(s, w, size);
+    const fill = max => { const out = []; for (const p of parts) { const last = out[out.length - 1];
+      if (last != null && width(`${last} ${p}`, size) <= max) out[out.length - 1] = `${last} ${p}`; else out.push(p); } return out; };
+    const n = fill(w).length;
+    let lo = Math.max(...parts.map(p => width(p, size))), hi = w;
+    while (hi - lo > 1) { const mid = (lo + hi) / 2; if (fill(mid).length <= n) hi = mid; else lo = mid; }
+    return fill(hi);
+  };
+  const newPage = () => { page = dry ? DRY_PAGE : pdf.addPage([W, H]); count++; y = H - 40; };
+  const room = need => { if (y - need < FOOT) newPage(); };
+  const heading = s => { room(z(34)); y -= z(6); text(s, M, y, { size: z(10.5), b: true }); y -= z(6); rule(y); y -= z(15); };
+  const LBL = 140;   // label column width in Rent & Terms
   const kv = (label, value) => {
-    const ls = wrap(value, W - 2 * M - 140, 10);
-    room(ls.length * 13);
+    const ls = wrap(value, W - 2 * M - LBL, z(10));
+    room(ls.length * z(13));
     text(label, M, y, { color: GREY });
-    ls.forEach((ln, i) => text(ln, M + 140, y - i * 13));
-    y -= ls.length * 13 + 2;
-  };
-  const block = (title, rows) => {
-    const shown = rows.filter(([, v]) => String(v ?? '').trim());
-    if (!shown.length) return;
-    heading(title);
-    shown.forEach(([l, v]) => kv(l, v));
-    y -= 6;
+    ls.forEach((ln, i) => text(ln, M + LBL, y - i * z(13)));
+    y -= ls.length * z(13) + z(2);
   };
 
-  newPage();
-  // Header: the first line is the name, the rest small underneath (all centred, as on the folio)
-  lines(header).forEach((ln, i) => {
-    if (i === 0) { text(ln, W / 2, y, { size: 15, b: true, align: 'center' }); y -= 18; }
-    else wrap(ln, W - 2 * M, 9).forEach(w => { text(w, W / 2, y, { size: 9, color: GREY, align: 'center' }); y -= 12; });
-  });
-  y -= 14;
-  text('I N V O I C E', W / 2, y, { size: 14, b: true, align: 'center' });
-  const now = new Date();
-  text(`Date: ${now.getDate()} ${MON[now.getMonth()]} ${now.getFullYear()}`, W - M, y, { size: 9, color: GREY, align: 'right' });
-  y -= 26;
-
-  // Tenant and Property particulars side by side (keeps the invoice to one page where it can)
-  const cols = [['Tenant Particulars', inv.tenant], ['Property Particulars', inv.property]]
-    .map(([t, rows]) => [t, rows.filter(([, v]) => String(v ?? '').trim())]).filter(([, rows]) => rows.length);
-  if (cols.length) {
-    const cw = (W - 2 * M - 24) / 2;
-    room(40); y -= 6;
-    const top = y;
-    let low = y;
-    cols.forEach(([t, rows], i) => {
-      const x = M + i * (cw + 24);
-      let yy = top;
-      text(t, x, yy, { size: 10.5, b: true }); yy -= 6;
-      page.drawRectangle({ x, y: yy, width: cw, height: 0.6, color: lib.rgb(...LINE) }); yy -= 15;
-      for (const [l, v] of rows) {
-        const ls = wrap(v, cw - 85, 10);
-        text(l, x, yy, { color: GREY });
-        ls.forEach((ln, k) => text(ln, x + 85, yy - k * 13));
-        yy -= ls.length * 13 + 2;
-      }
-      low = Math.min(low, yy);
+  const drawTop = (sub) => {
+    // Header: the first line is the name, the rest small underneath (all centred, as on the folio)
+    headerLines(inv, header).forEach((ln, i) => {
+      if (i === 0) { text(ln, W / 2, y, { size: z(15), b: true, align: 'center' }); y -= z(18); }
+      else wrapAddr(ln, 360, z(9)).forEach(w => { text(w, W / 2, y, { size: z(9), color: GREY, align: 'center' }); y -= z(12); });
     });
-    y = low - 8;
-  }
-  const termRows = inv.terms.filter(([, v]) => String(v ?? '').trim());
-  if (termRows.length || inv.amounts.length) {
-    heading('Rent & Terms');
-    termRows.forEach(([l, v]) => kv(l, v));
-    if (inv.amounts.length) {
-      y -= 4;
-      for (const [label, v] of inv.amounts) { room(15); text(label, M, y); text(money(v), W - M, y, { align: 'right' }); y -= 14; }
-      room(24); rule(y + 9, 0.8, INK); y -= 6;
-      text('Total', M, y, { b: true, size: 11 }); text(money(inv.total), W - M, y, { b: true, size: 11, align: 'right' }); y -= 18;
+    y -= z(14);
+    text('I N V O I C E', W / 2, y, { size: z(14), b: true, align: 'center' });
+    const now = new Date();
+    text(`Date: ${now.getDate()} ${MON[now.getMonth()]} ${now.getFullYear()}`, W - M, y + (folio ? z(6) : 0), { size: z(9), color: GREY, align: 'right' });
+    if (folio) text(`Folio No: ${folio}`, W - M, y - z(6), { size: z(9), b: true, align: 'right' });   // 20 Nov 2026: the booking number (per property)
+    if (sub) { y -= z(20); text(sub, W / 2, y, { size: z(10), b: true, color: GREY, align: 'center' }); }
+    y -= z(26);
+  };
+  const drawParticulars = () => {
+    // Tenant and Property particulars side by side
+    const cols = [['Tenant Particulars', inv.tenant], ['Property Particulars', inv.property]]
+      .map(([t, rows]) => [t, rows.filter(([, v]) => String(v ?? '').trim())]).filter(([, rows]) => rows.length);
+    if (cols.length) {
+      const cw = (W - 2 * M - 24) / 2, lw = 85;
+      room(z(40)); y -= z(6);
+      const top = y;
+      let low = y;
+      cols.forEach(([t, rows], i) => {
+        const x = M + i * (cw + 24);
+        let yy = top;
+        text(t, x, yy, { size: z(10.5), b: true }); yy -= z(6);
+        page.drawRectangle({ x, y: yy, width: cw, height: 0.6, color: lib.rgb(...LINE) }); yy -= z(15);
+        for (const [l, v] of rows) {
+          const ls = wrap(v, cw - lw, z(10));
+          text(l, x, yy, { color: GREY });
+          ls.forEach((ln, j) => text(ln, x + lw, yy - j * z(13)));
+          yy -= ls.length * z(13) + z(2);
+        }
+        low = Math.min(low, yy);
+      });
+      y = low - z(8);
     }
-    y -= 6;
-  }
+  };
+  const drawRent = (title, rows, amounts, total, totalLabel) => {
+    const termRows = rows.filter(([, v]) => String(v ?? '').trim());
+    if (termRows.length || amounts.length) {
+      heading(title);
+      termRows.forEach(([l, v]) => kv(l, v));
+      if (amounts.length) {
+        y -= z(4);
+        for (const [label, v] of amounts) { room(z(15)); text(label, M, y); text(money(v), W - M, y, { align: 'right' }); y -= z(14); }
+        room(z(24)); rule(y + z(9), 0.8, INK); y -= z(6);
+        text(totalLabel, M, y, { b: true, size: z(11) }); text(money(total), W - M, y, { b: true, size: z(11), align: 'right' }); y -= z(18);
+      }
+      y -= z(6);
+    }
+  };
+  const drawTerms = () => {
+    // T&Cs: section lines ("A. INTERPRETATION" or all capitals) in bold; numbered lines hang under their number
+    const tl = lines(terms);
+    if (tl.length) {
+      room(z(40)); y -= z(6);
+      for (const ln of tl) {
+        const numbered = ln.match(/^(\d+[.)])\s+(.*)$/);
+        const isHead = !numbered && (/^[A-Z][.)]\s/.test(ln) || ln === ln.toUpperCase());
+        if (isHead) { room(z(20)); y -= z(3); wrap(ln, W - 2 * M, z(8), true).forEach(w => { text(w, M, y, { size: z(8), b: true }); y -= z(10); }); continue; }
+        const body = numbered ? numbered[2] : ln, x = numbered ? M + z(14) : M;
+        const ws = wrap(body, W - M - x, z(7.5));
+        room(ws.length * z(9.5));
+        if (numbered) text(numbered[1], M, y, { size: z(7.5) });
+        ws.forEach(w => { text(w, x, y, { size: z(7.5) }); y -= z(9.5); });
+      }
+      y -= z(8);
+    }
+  };
+  const drawBank = () => {
+    const bl = lines(bank);
+    if (bl.length) {
+      room(z(14) + bl.length * z(9.5));   // its real height, so it stays on the page above the signature line
+      text('BANK DETAILS', M, y, { size: z(8), b: true }); y -= z(11);
+      for (const ln of bl) {
+        // "Label: value": a wrapped value hangs under the value, not under the label; addresses break at commas
+        const lv = ln.match(/^([^:]{1,24}:)\s+(.*)$/), lab = lv ? lv[1] + ' ' : '', x = M + z(14) + (lab ? width(lab, z(7.5)) : 0);
+        const ws = wrapAddr(lv ? lv[2] : ln, Math.min(300, W - M - x), z(7.5));
+        room(ws.length * z(9.5));
+        text('•', M, y, { size: z(7.5) });
+        if (lab) text(lab, M + z(14), y, { size: z(7.5) });
+        ws.forEach(w => { text(w, x, y, { size: z(7.5) }); y -= z(9.5); });
+      }
+    }
+  };
 
-  // T&Cs: section lines ("A. INTERPRETATION" or all capitals) in bold; numbered lines hang under their number
-  const tl = lines(terms);
-  if (tl.length) {
-    room(40); y -= 6;
-    for (const ln of tl) {
-      const numbered = ln.match(/^(\d+[.)])\s+(.*)$/);
-      const isHead = !numbered && (/^[A-Z][.)]\s/.test(ln) || ln === ln.toUpperCase());
-      if (isHead) { room(20); y -= 3; wrap(ln, W - 2 * M, 8, true).forEach(w => { text(w, M, y, { size: 8, b: true }); y -= 10; }); continue; }
-      const body = numbered ? numbered[2] : ln, x = numbered ? M + 14 : M;
-      const ws = wrap(body, W - M - x, 7.5);
-      room(ws.length * 9.5);
-      if (numbered) text(numbered[1], M, y, { size: 7.5 });
-      ws.forEach(w => { text(w, x, y, { size: 7.5 }); y -= 9.5; });
-    }
-    y -= 8;
+  // Page 1: the whole stay. A stay over one month (inv.months) adds a page per month: rent and that month's charges (deposit, fees).
+  // 20 Nov 2026: only = a month's index downloads that month's page alone (Invoice popup > What to download)
+  const multi = inv.months?.length > 1, one = multi && only != null && inv.months[only] ? only : null;
+  if (one == null) {
+    newPage();
+    drawTop('');
+    drawParticulars();
+    drawRent('Rent & Terms', multi ? [...inv.terms, ['Monthly rent', money(inv.monthlyRent)]] : inv.terms, inv.amounts, inv.total, multi ? 'Total for the stay' : 'Total');
+    drawTerms();
+    drawBank();
   }
-
-  const bl = lines(bank);
-  if (bl.length) {
-    room(24 + bl.length * 10);
-    text('BANK DETAILS', M, y, { size: 8, b: true }); y -= 11;
-    for (const ln of bl) {
-      const ws = wrap(ln, W - 2 * M - 14, 7.5);
-      room(ws.length * 9.5);
-      text('•', M, y, { size: 7.5 });
-      ws.forEach(w => { text(w, M + 14, y, { size: 7.5 }); y -= 9.5; });
-    }
-  }
-  return pdf.save();
+  if (multi) inv.months.forEach((m, i) => {
+    if (one != null && i !== one) return;
+    newPage();
+    drawTop(`${m.label} of ${inv.months.length}`);
+    drawParticulars();
+    drawRent(`${m.label}`, [['Period', span(m.from, m.to)], ...(m.days ? [['Days', `${m.days} (monthly rent / 30 x days)`]] : [])], m.amounts, m.total, `Total for ${m.label.toLowerCase()}`);
+    drawTerms();   // 20 Nov 2026 (Khairul): month pages carry the full T&Cs too
+    drawBank();
+  });
+  const expected = one != null ? 1 : 1 + (multi ? inv.months.length : 0);
+  if (dry) return { fits: count === expected };
+  // 20 Nov 2026: a signature line at the bottom right of every page, with the computer-generated note in bold under it
+  const pages = pdf.getPages();
+  pages.forEach((p, i) => {
+    page = p;
+    const lw = 200, x0 = W - M - lw;
+    page.drawRectangle({ x: x0, y: 36, width: lw, height: 0.7, color: lib.rgb(...INK) });
+    text(SIGN_NOTE, x0 + lw / 2, 26, { size: 7.5, b: true, align: 'center' });
+    if (pages.length > 1) text(`Page ${i + 1} of ${pages.length}`, M, 26, { size: 7.5, color: GREY });
+  });
+  return { pdf, fits: pages.length === expected };
 }
 
-export const invoiceFileName = (inv, bookingNo = '') => {
-  const name = inv.tenant.find(([l]) => l === 'Name')?.[1] || '';
-  return `Invoice ${[bookingNo, name].filter(Boolean).join(' ')}`.replace(/[\\/:*?"<>|]+/g, '').trim() + '.pdf';
+export const invoiceFileName = (inv, bookingNo = '', only = null) => {
+  const name = inv.tenant.find(([l]) => l === 'Name')?.[1] || '', part = only != null && inv.months?.[only] ? inv.months[only].label : '';
+  return `Invoice ${[bookingNo, name, part].filter(Boolean).join(' ')}`.replace(/[\\/:*?"<>|]+/g, '').trim() + '.pdf';
 };

@@ -164,7 +164,7 @@
               <div class="kv"><span>Type</span><span>{{ booking.longTerm ? 'Long-term lease' : 'Short stay' }}</span></div>
               <template v-if="booking.longTerm">
                 <div class="kv"><span>Monthly rent</span><span>{{ rm(booking.monthlyRent) }}</span></div>
-                <div class="kv"><span>Deposit (2 months)</span><span>{{ rm(booking.deposit) }}</span></div>
+                <div class="kv" v-if="depositOf(booking) > 0"><span>Security deposit</span><span>{{ rm(depositOf(booking)) }}</span></div>
               </template>
               <div class="kv" v-else-if="booking.amount"><span>Total paid</span><span>{{ rm(booking.amount) }}</span></div>
               <div class="kv"><span>Payments</span><span>Accounting › Offline Payments</span></div>
@@ -232,6 +232,8 @@
             <div class="kv"><span>Property</span><span>{{ lead.propertyName || 'Any' }}</span></div>
             <div class="kv"><span>Budget</span><span>{{ lead.budget || '—' }}</span></div>
             <div class="kv"><span>Preferred viewing</span><span>{{ lead.viewing ? short(lead.viewing) : '—' }}</span></div>
+            <!-- 20 Nov 2026: the note typed in Log inquiry, read-only -->
+            <div class="lead-note"><span>Note</span><p>{{ leadNote(lead) || '—' }}</p></div>
             <button class="btn" style="width:100%;margin-top:12px" @click="histOpen = true">{{ `History (${lead.history.length})` }}</button>
           </section>
         </div>
@@ -273,6 +275,7 @@ import { scoped, countScoped } from '@/lib/property-scope.js';
 import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf, guestContact } from '@/lib/offline.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
+import { depositOf } from '@/lib/booking-invoice.js';   // 20 Nov 2026: the deposit is a month charge on the booking
 
 const me = useSession();
 
@@ -329,6 +332,7 @@ export default {
     who() { const t = this.tenant, l = this.lead || {}; return t ? { name: t.name, phone: t.phone, email: t.email } : { name: l.contactName, phone: l.phone, email: l.email }; },
   },
   methods: {
+    depositOf,
     discardUpdate() { const l = this.lead; this.upd = { assignedToUid: l.assignedToUid || '', status: l.status, note: '' }; this.formError = ''; },
     // Everyone who should hear about a new inquiry or a status change
     // (the roles must match NOTIFY_ROLES / the Firestore rules)
@@ -445,6 +449,13 @@ export default {
     rm(v) { return 'RM ' + (+v || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
     canSeeContact(ld) { return CONTACT_ALL.includes(me.role) || ld.loggedByUid === me.user.uid || ld.assignedToUid === me.user.uid; },
     canEdit(ld) { return this.canSeeContact(ld) && (!this.tenant || CONTACT_ALL.includes(me.role)); },
+    // The Log inquiry note: saved as its own field from 20 Nov 2026; older leads only have it in the first history line.
+    leadNote(ld) {
+      if (ld.note) return ld.note;
+      const first = (ld.history || [])[0]?.text || '';
+      const m = first.match(/^Logged the inquiry[^.]*\.\s+([\s\S]+)$/);
+      return m ? m[1].trim() : '';
+    },
     canBook(ld) { return ld.status === 'interested' && !ld.bookingId && this.canSeeContact(ld); },
     entry(text) { return { at: nowIso(), by: me.name, text }; },
 
@@ -497,7 +508,7 @@ export default {
           tx.set(cRef, { next: n + 1 });
           tx.set(ref, { ...(prop ? { propertyId: prop.id, propertyName: prop.name, state: stateOf(prop) || f.state || null } : f.state ? { state: f.state } : {}), lookingFor: f.lookingFor.trim(), source: f.source, budget: f.budget.trim(), viewing: f.viewing, status: f.status,
             assignedToUid: who?.uid || null, assignedToName: who?.name || null, loggedByUid: me.user.uid, loggedByName: me.name,
-            tenantId: known?.id || null, bookingId: null, history: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+            tenantId: known?.id || null, bookingId: null, note: f.note.trim(), history: [h], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
           tx.set(doc(ref, 'private', 'main'), { contactName: f.contactName.trim(), phone: f.phone.trim(), phoneKey: phoneKey(f.phone), email: f.email.trim() });
           audit(tx, me, { action: 'offlineInquiry.create', entity: `offlineInquiries/${id}`,
             changes: [{ field: 'status', old: null, new: f.status }, ...(who ? [{ field: 'assignedTo', old: null, new: who.name }] : [])] });
@@ -678,6 +689,9 @@ export default {
     .masked { color: var(--muted); }
     .ten-id { font-size: 11px; color: var(--muted); }
     .wrap { overflow-wrap: anywhere; }
+    .lead-note { padding: 7px 0; font-size: 13px; }
+    .lead-note span { color: var(--text-2); }
+    .lead-note p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
     .pill.accent { background: var(--accent-soft); color: var(--accent); }
     .readonly { display: flex; align-items: center; background: var(--chip); color: var(--text); }
     .ezee-add { padding-top: 8px; font-size: 13px; }

@@ -1,4 +1,7 @@
 rules_version = '2';
+// Draft 0.95, 20 Nov 2026 (Khairul): the booking form (Portfolio > Bookings > New booking) picks the agent when the booking
+//   source is Agent, so agents/{id} (the list, not private/bank) is also read by Accounting, Directors, Operations and
+//   anyone with the Booking Forms tick. Bookings save agentId, agentName, agentCompany (no rule change on offlineBookings).
 // Draft 0.94, 20 Nov 2026 (Khairul): Marketing > Agent Database (agents/{id}). New access row 'agents' (Agent Database,
 //   Marketing group): Marketing have Base + Full by default (presetFor). Base reads the list and profiles; Full adds, edits
 //   and reads bank details. Bank holder and account number sit in agents/{id}/private/bank (Full, plus Accounting read for
@@ -1647,7 +1650,7 @@ service cloud.firestore {
           && cardOk('cardFront') && cardOk('cardBack')
           && d.updatedBy == request.auth.uid;
       }
-      allow read: if !isAI() && canAny(['agents.view', 'agents.edit']);
+      allow read: if !isAI() && (canAny(['agents.view', 'agents.edit']) || finOrDir() || isOps() || can('bookingForms.view'));   // 0.95
       allow create: if can('agents.edit') && newKeysOnly(agentKeys()) && agentOk()
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if can('agents.edit') && request.resource.data.keys().hasOnly(agentKeys()) && agentOk()
