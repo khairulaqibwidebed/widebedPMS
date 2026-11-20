@@ -366,7 +366,8 @@ export default {
 @media (max-width: 520px) { .kpis-5 { grid-template-columns: minmax(0, 1fr); } }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .view-seg { margin: 0; width: 100%; }
-.set-pop { left: auto; right: 0; width: 260px; max-height: none; padding: 6px 10px 12px; }
+/* 20 Nov 2026: stronger selectors than portfolio.css (.pf .mm-pop), which loads after this file on the live site */
+.pf .mm-pop.set-pop { left: auto; right: 0; width: 300px; max-height: none; padding: 6px 10px 12px; }
 .set-pop .seg { margin-bottom: 4px; }
 .set-pop .flt-opt:disabled { cursor: default; color: var(--text-2); }
 .set-pop .flt-opt:disabled:hover { background: none; }
@@ -381,7 +382,7 @@ export default {
 .head-acts { display: flex; align-items: center; gap: 10px; }
 .list-card > .toolbar .input[type=search] { flex: 1 1 320px; max-width: 460px; }
 .flt-btn.on { border-color: var(--accent); color: var(--accent); }
-.flt-pop { width: 250px; }
+.pf .mm-pop.flt-pop { width: 250px; }
 .flt-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 8px 10px 4px; }
 .flt-opt { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; border: 0; background: none; border-radius: 8px; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; text-align: left; }
 .flt-opt:hover { background: var(--bg, #f5f5f7); }
