@@ -95,7 +95,8 @@ function addMonths(a, n) {
   const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
   t.setUTCDate(Math.min(d, last)); return iso(t);
 }
-function monthsOf(arrival, departure, rent) {
+// fullLast (20 Nov 2026): an early termination with no notice pays the last part month in full
+function monthsOf(arrival, departure, rent, fullLast = false) {
   if (!arrival || !departure || departure <= arrival) return [];
   const out = [];
   let from = arrival;
@@ -106,9 +107,17 @@ function monthsOf(arrival, departure, rent) {
   }
   if (from < departure) {
     const days = Math.round((Date.parse(departure) - Date.parse(from)) / 86400000);
-    out.push({ label: `Month ${out.length + 1}`, from, to: departure, days, rent: num(rent / 30 * days) });
+    out.push({ label: `Month ${out.length + 1}`, from, to: departure, days: fullLast ? 0 : days, rent: num(fullLast ? rent : rent / 30 * days) });
   }
   return out;
+}
+// 20 Nov 2026: a stay ended early WITH notice pays its last part month by days. { m: 'YYYY-MM' (the move-out month), due }
+// or null (no termination, sudden, or the move-out lands on a monthly anniversary). Used by the Bookings list.
+export function termLastDue(b) {
+  const e = b?.earlyTermination;
+  if (!e?.date || e.type !== 'notice' || !b.longTerm) return null;
+  const ms = monthsOf(b.arrival, b.departure, Number(b.monthlyRent) || 0), l = ms[ms.length - 1];
+  return l && l.days ? { m: String(b.departure).slice(0, 7), due: Math.round(l.rent * 100) / 100 } : null;
 }
 // Older bookings (saved before 20 Nov 2026) kept the deposit and fees as fields on the booking (securityDeposit or deposit,
 // utilityDeposit, carparkFee, ...). Until the booking is saved again they are read as charges on the check-in month.
@@ -156,7 +165,8 @@ export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '
   // 20 Nov 2026 (Khairul): a stay longer than one month gets a page per month after the summary page. Months run from the
   // move-in date (19 Oct - 19 Nov is month 1, 19 Nov - 19 Dec month 2); a last part month is charged by days (rent / 30 x days).
   // 20 Nov 2026: the deposit and fees are month charges too (older bookings: their old fields on the check-in month, see allMonthCharges).
-  const months = longTerm && rental > 0 ? monthsOf(b.arrival, b.departure, rental) : [];
+  const et = b.earlyTermination && b.earlyTermination.date ? b.earlyTermination : null;
+  const months = longTerm && rental > 0 ? monthsOf(b.arrival, b.departure, rental, et?.type === 'sudden') : [];
   // 20 Nov 2026: extra charges added to a month on the booking (Portfolio > Bookings > Total Payments), b.monthCharges
   // { 'YYYY-MM': [{ key, label, amount, note }] }. On a multi-month invoice each goes on the month that starts in that
   // calendar month (a later calendar month with no invoice month of its own goes on the last one).
@@ -178,7 +188,8 @@ export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '
     propertyName: propertyName || b.propertyName || '', propertyAddress,
     tenant: [['Name', t?.name], ['Email', t?.email], ['Phone number', t?.phone]],
     property: [['Property', propertyName || b.propertyName], ['Unit', unitCode || b.unitCode], ['Type', unitType]],
-    terms: [['Type of rent', rentTermLabel(b.rentType)], ['Move-in date', day(b.arrival)], ['Move-out date', day(b.departure)], ['Total nights', nights == null || nights < 0 ? '' : String(nights)]],
+    terms: [['Type of rent', rentTermLabel(b.rentType)], ['Move-in date', day(b.arrival)], ['Move-out date', day(b.departure)], ['Total nights', nights == null || nights < 0 ? '' : String(nights)],
+      ...(et ? [['Early termination', `${et.type === 'sudden' ? 'Without notice' : 'With notice'} (was ${day(et.originalDeparture)})`]] : [])],
     amounts,
     total: amounts.reduce((s, [, v]) => s + v, 0)
   };

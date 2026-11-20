@@ -1,4 +1,6 @@
 rules_version = '2';
+// Draft 1.00, 20 Nov 2026 (Khairul): Early termination tick (earlyTermination.edit): offlineBookings may change departure, nights and
+//   earlyTermination only (check-out only earlier, not on a cancelled booking). Bookings Full may no longer change earlyTermination.
 // Draft 0.99, 20 Nov 2026 (Khairul): agents/{id} may hold remarks (free text about the agent, up to 1000).
 // Draft 0.98, 20 Nov 2026 (Khairul): agents/{id} may hold licenseNo (the agent's license number, e.g. REN 37139; text, up to 60).
 // Draft 0.97, 20 Nov 2026 (Khairul): the booking form (Portfolio > Bookings > New booking) picks the agent when the booking
@@ -1187,7 +1189,14 @@ service cloud.firestore {
         && changed().hasOnly(['ezeeReservationNo', 'updatedAt', 'updatedBy']);
       // Operations edit any booking's details (Portfolio > Bookings > open a booking); who, source and the inquiry link stay as they were.
       // Draft 0.73: Bookings Full (was any Operations)
-      allow update: if can('bookings.edit') && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId']);
+      // Draft 1.00: earlyTermination is set only through the Early termination rule below (or Accounting / Directors above).
+      allow update: if can('bookings.edit') && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId', 'earlyTermination']);
+      // Draft 1.00: Early termination tick: end a stay early, add the tenant's notice images, record the deposit refund.
+      // Undo (earlyTermination removed, check-out back) is Accounting / Directors only (finOrDir above).
+      allow update: if can('earlyTermination.edit') && resource.data.get('status', '') != 'cancelled'
+        && changed().hasOnly(['departure', 'nights', 'earlyTermination', 'updatedAt', 'updatedBy'])
+        && request.resource.data.earlyTermination is map && request.resource.data.departure is string
+        && (!changed().hasAny(['departure']) || request.resource.data.departure < resource.data.departure);
       // Direct booking (Portfolio > Bookings > + New booking).
       allow create: if (finOrDir() || isOps()) && bookingId.matches('offline_BK-[0-9]+')
         && request.resource.data.source == 'direct' && request.resource.data.inquiryId == null

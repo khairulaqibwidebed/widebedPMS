@@ -19,6 +19,8 @@ export const PAGES = [
   { key: 'bookingForms',     label: 'Utility Lodgment Form & New booking',                 group: 'Portfolio',   to: ['/Operations/booking-forms'], viewOnly: true },
   { key: 'offlinePayments',  label: 'Offline Payments',              group: 'Portfolio',   to: ['/Finance/offline-payments'] },
   { key: 'bulkUpload',       label: 'Bulk Upload',                   group: 'Portfolio',   to: ['/Portfolio/bulk-upload'] },
+  // 20 Nov 2026 (Khairul): end a stay early (Portfolio > Bookings > open a booking > Early termination). No page of its own.
+  { key: 'earlyTermination', label: 'Early termination (end a stay early)', group: 'Portfolio', to: [], editOnly: true },
   { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/listing-flow', '/Procurement/owner-leads'] },
   { key: 'offlineInquiries', label: 'Tenant Leads',                  group: 'Leads & Agreements', to: ['/Operations/offline-inquiries'] },
   { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Leads & Agreements', to: ['/Agreements/setup'], viewOnly: true },
@@ -91,7 +93,7 @@ export const rowPerms = row => row.keys.flatMap(k => { const p = PAGES.find(x =>
 // One line under some groups in the access table, so it's clear what a level really gives.
 export const GROUP_NOTES = {
   Accounting: 'Any Accounting page lets them read the finance data. Any Accounting Full lets them change it.',
-  Portfolio: 'Owners Base: names and contact only. Owners Full: also IC, date of birth, address and bank details, and can edit. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data.',
+  Portfolio: 'Owners Base: names and contact only. Owners Full: also IC, date of birth, address and bank details, and can edit. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data. Early termination: end a booking early (move-out date, reason, the notice from the tenant) and record the deposit refund; they also need Bookings to open the booking. Only Directors can undo it.',
   Content: 'Everyone can read these. Full lets them change the text (What\'s New: post, edit and delete updates).',
   'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
   'Company Settings': 'Google Drive Folders Base: see each state\'s folder and which properties and units are linked. Full: set a state\'s folder, create unit folders and change a property\'s units folder.',

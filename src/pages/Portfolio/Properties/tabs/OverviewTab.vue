@@ -10,23 +10,24 @@
       </template>
     </section>
     <section class="card">
-      <div class="card-head"><h2>Property details</h2><button class="editlink" @click="$emit('edit')" v-if="!acc.viewOnly || acc.canEdit">Edit ›</button></div>
+      <!-- 20 Nov 2026 (Khairul): one place to edit: the Edit property button at the top of the page -->
+      <div class="card-head"><h2>Property details</h2></div>
       <div class="info-grid">
         <div>
           <div class="kv"><span>Property name</span><span>{{ property.name }}</span></div>
           <div class="kv"><span>Short code</span><span>{{ property.code || '—' }}</span></div>
           <div class="kv"><span>Address</span><span>{{ info.address || '—' }}</span></div>
-          <div class="kv"><span>City · State</span><span>{{ `${info.city || '—'} · ${info.state || '—'}` }}</span></div>
+          <div class="kv"><span>City · State</span><span>{{ [info.city, info.state].filter(Boolean).join(' · ') || '—' }}</span></div>
         </div>
         <div>
           <div class="kv"><span>eZee account number</span><span>{{ info.ezeeAccount || '—' }}</span></div>
           <div class="kv"><span>Name in the eZee report</span><span>{{ info.ezeeName || '—' }}</span></div>
           <!-- 17 Nov 2026: the property's folder in its state's Drive folder (Settings > States). Read-only. -->
-          <div class="kv"><span>Google Drive folder</span><span><a v-if="driveLink" :href="driveLink" target="_blank" rel="noopener">Open folder</a><template v-else>{{ driveMsg }}</template></span></div>
+          <div class="kv"><span>Google Drive folder</span><span><a class="ext-link" v-if="driveLink" :href="driveLink" target="_blank" rel="noopener">Open folder ↗</a><template v-else>{{ driveMsg }}</template></span></div>
           <!-- 17 Nov 2026: where this property's unit folders are (issue photos go to <units folder>/<unit>/Maintenance).
                Usually <property>/Owner; a property can have its own (e.g. D Majestic: Profit Sharing). Directors and Operations change it. -->
           <div class="kv"><span>Units folder</span><span>
-            <a v-if="own" :href="own.link" target="_blank" rel="noopener">{{ own.folderName || 'Open folder' }}</a>
+            <a class="ext-link" v-if="own" :href="own.link" target="_blank" rel="noopener">{{ `${own.folderName || 'Open folder'} ↗` }}</a>
             <template v-else>Owner (usual)</template>
             <button type="button" class="link uf-btn" v-if="canSetUnits && !unitsEdit" @click="openUnits()">Change</button>
           </span></div>
@@ -108,6 +109,9 @@ export default {
 
 <style scoped>
 .uf-btn { margin-left: 8px; font-size: 13px; }
+/* 20 Nov 2026: Drive links look like links (magenta), not plain values */
+.ext-link { color: var(--accent); text-decoration: none; }
+.ext-link:hover { text-decoration: underline; }
 .uf-edit { display: grid; gap: 8px; margin: 4px 0 12px; }
 .uf-row { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>

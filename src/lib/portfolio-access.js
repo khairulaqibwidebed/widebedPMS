@@ -45,6 +45,14 @@ export function levelAccess(me) {
   return {
     ownerLevel: full ? 'edit' : me && can(me, 'owners.view') ? 'view' : 'none',
     ownerFull: full,
+    // 20 Nov 2026 (Khairul): one permission per tab of the owner form.
+    //   Contact info (BASE)  = ownerNames: names, email, phone, WhatsApp, WeChat (owners.view or more)
+    //   Credentials          = ownerCreds: IC, date of birth, address, bank details
+    //   Units & payouts      = ownerPayouts: units summary, carried forward, payout history
+    // For now both follow Owners Full. To split them later: add ticks 'owners.credentials' / 'owners.payouts' in lib/access.js
+    // (PAGES + role defaults), swap the two lines below to can(me, ...), and split the rules (private/main holds IC, address and bank today).
+    ownerCreds: full,
+    ownerPayouts: full,
     ownerNames: full || (!!me && can(me, 'owners.view')),   // reads names (private/contact or private/main)
     bkView: !!me && can(me, 'bookings.view'),
     bkEdit: bkFull,

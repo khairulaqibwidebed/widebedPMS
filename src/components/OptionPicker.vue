@@ -1,11 +1,13 @@
 <template>
   <div class="op" ref="root">
-    <input v-if="searchable && open" ref="q" type="text" class="select op-input" v-model="q" :placeholder="current || 'Type to search'" :aria-label="label" aria-expanded="true" autocomplete="off" @mousedown.prevent="open = false" @input="hot = 0" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown.esc.stop.prevent="open = false">
+    <input v-if="searchable && open" ref="q" type="text" class="select op-input" v-model="q" :placeholder="current || placeholder || 'Type to search'" :aria-label="label" aria-expanded="true" autocomplete="off" @mousedown.prevent="open = false" @input="hot = 0" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown.esc.stop.prevent="open = false">
     <button type="button" class="select op-btn" :class="{ searching: searchable && open }" :disabled="disabled" :aria-expanded="String(open)" aria-haspopup="listbox" :aria-label="label" @click="toggle" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown="typeAhead">
       <span class="op-val" :class="{ ph: !current && placeholder }">{{ current || placeholder }}</span>
     </button>
     <ul class="op-pop" :class="{ up }" ref="pop" v-if="open" role="listbox" :aria-label="label" :aria-multiselectable="multiple ? 'true' : null" @keydown.esc="open = false">
       <li v-if="!list.length" class="op-none" role="presentation">No match</li>
+      <!-- 20 Nov 2026: column-heads = a header row for column lists; it stays pinned while the list scrolls -->
+      <li v-else-if="columns && columnHeads.length" class="op-head" role="presentation"><span class="op-cols" :style="{ gridTemplateColumns: columns }"><span v-for="(h, j) in columnHeads" :key="j">{{ h }}</span></span></li>
       <template v-for="(o, i) in list" :key="o.value">
         <li role="option" :aria-selected="String(isOn(o.value))" class="op-item" :class="{ on: isOn(o.value), hot: i === hot && !o.disabled, off: o.disabled }" :aria-disabled="String(!!o.disabled)"
           @mouseenter="hot = i" @click="!o.disabled && pick(o.value)">
@@ -13,7 +15,7 @@
             <!-- A column can be an icon: { icon: 'fileCheck', title: 'Bill saved' } (title shows on hover) -->
             <span v-if="c && typeof c === 'object'" class="op-ico" :title="c.title" :aria-label="c.title" role="img">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="m9 15 2 2 4-4" /></svg></span>
-            <span v-else :title="c">{{ c }}</span>
+            <span v-else :title="c" :class="columnClasses[j]">{{ c }}</span>
           </template></span>
           <span v-else>{{ o.label }}</span>
           <svg v-if="isOn(o.value)" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
@@ -39,7 +41,9 @@
 export default {
   props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, options: { type: Array, required: true }, label: { type: String, default: '' }, disabled: { type: Boolean, default: false }, searchable: { type: Boolean, default: false }, pickedFirst: { type: Boolean, default: false }, down: { type: Boolean, default: false }, display: { type: String, default: '' }, addLabel: { type: String, default: '' }, placeholder: { type: String, default: '' },
     // 16 Nov 2026: columns = a CSS grid-template-columns; an option with cols: [...] is shown as lined-up columns (search and the button still use label)
-    columns: { type: String, default: '' } },
+    columns: { type: String, default: '' },
+    // 20 Nov 2026: header labels for the columns, and a class per column ('strong' = bold, 'muted' = grey)
+    columnHeads: { type: Array, default: () => [] }, columnClasses: { type: Array, default: () => [] } },
   emits: ['update:modelValue', 'change', 'add'],
   data() { return { open: false, hot: 0, q: '', up: false, adding: false, newText: '', order: null }; },
   computed: {
@@ -143,6 +147,12 @@ export default {
 .op-addform .btn { height: 36px; }
 .op-val.ph { color: var(--muted); font-weight: 400; }
 .op-none { padding: 9px 12px; font-size: 13px; color: var(--muted); }
+.op-head { position: sticky; top: -6px; z-index: 1; display: flex; padding: 10px 12px 8px; margin: -6px -6px 4px; background: var(--surface); border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.op-head .op-cols { padding: 0 6px; }
+.op-cols > .strong { font-weight: 600; }
+.op-cols > .muted { color: var(--muted); }
+.op-item.on .op-cols > .muted, .op-item.hot .op-cols > .muted { color: inherit; }
 .op-cols { flex: 1; min-width: 0; display: grid; gap: 14px; }
 .op-cols > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A thin line between columns, and between rows */

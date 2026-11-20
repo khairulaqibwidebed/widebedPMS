@@ -406,6 +406,46 @@ export async function setBookingCancelled(me, b, cancel, reason) {
     changes: [{ field: 'status', old: cancel ? 'active' : 'cancelled', new: cancel ? 'cancelled' : 'active' }], reason });
   await batch.commit();
 }
+// ---------- early termination (20 Nov 2026, Khairul) ----------
+// The stay ends early: the check-out becomes the move-out date and earlyTermination keeps the original check-out, the type
+// ('notice' = the tenant gave notice, last part month by days, deposit refunded after property charges; 'sudden' = no notice,
+// last month in full, deposit forfeited), the reason and the tenant's notice images (Drive, kind 'terminations').
+// Returns the fields for the list. Rules: the Early termination tick may change only these fields.
+const nightsBetween = (a, d) => Math.max(1, Math.round((Date.parse(d) - Date.parse(a)) / 86400000));
+const termText = t => (t.type === 'sudden' ? 'Sudden (no notice)' : `With notice${t.noticeDate ? ` given ${t.noticeDate}` : ''}`);
+export async function terminateBooking(me, b, t) {
+  const batch = writeBatch(db), nights = nightsBetween(b.arrival, t.date);
+  const et = { date: t.date, originalDeparture: b.departure, type: t.type, noticeDate: t.type === 'notice' ? t.noticeDate || null : null,
+    reason: t.reason, files: t.files || [], refundCharges: 0, refundNote: '', by: me.user.uid, byName: me.name || '', at: serverTimestamp() };
+  batch.update(doc(db, 'offlineBookings', b.id), { departure: t.date, nights, earlyTermination: et, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+  audit(batch, me, { action: 'offlineBooking.terminate', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
+    changes: [{ field: 'departure', old: b.departure || '', new: t.date }, { field: 'earlyTermination', old: '', new: termText(t) }], reason: t.reason });
+  await batch.commit();
+  return { departure: t.date, nights, earlyTermination: { ...et, at: new Date() } };
+}
+// Later changes to a termination: more notice images, or the deposit refund (property charges taken off, and a note)
+export async function updateTermination(me, b, patch, reason) {
+  const batch = writeBatch(db), old = b.earlyTermination || {}, et = { ...old, ...patch };
+  const upd = { updatedAt: serverTimestamp(), updatedBy: me.user.uid };
+  Object.entries(patch).forEach(([k, v]) => { upd[`earlyTermination.${k}`] = v; });
+  batch.update(doc(db, 'offlineBookings', b.id), upd);
+  audit(batch, me, { action: 'offlineBooking.terminationUpdate', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
+    changes: Object.keys(patch).map(k => (k === 'files'
+      ? { field: 'earlyTermination.files', old: (old.files || []).map(f => f.name).join(', '), new: (patch.files || []).map(f => f.name).join(', ') }
+      : { field: `earlyTermination.${k}`, old: old[k] ?? '', new: patch[k] })), reason });
+  await batch.commit();
+  return { earlyTermination: et };
+}
+// Directors: undo it (the original check-out comes back)
+export async function undoTermination(me, b, reason) {
+  const batch = writeBatch(db), back = b.earlyTermination?.originalDeparture || b.departure, nights = nightsBetween(b.arrival, back);
+  batch.update(doc(db, 'offlineBookings', b.id), { departure: back, nights, earlyTermination: deleteField(), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+  audit(batch, me, { action: 'offlineBooking.terminationUndo', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
+    changes: [{ field: 'departure', old: b.departure || '', new: back }, { field: 'earlyTermination', old: termText(b.earlyTermination || {}), new: '' }], reason });
+  await batch.commit();
+  return { departure: back, nights, earlyTermination: null };
+}
+
 // Delete a cancelled booking for good: the booking, its private part and its utility bill. The page only offers it when
 // no payment is recorded. The audit entry keeps the booking no., unit and dates, never the guest's details.
 export async function deleteOfflineBooking(me, b, reason) {

@@ -17,7 +17,7 @@
       </div>
     </div>
 
-    <nav class="tabs" aria-label="Property sections">
+    <nav class="tabs" style="overflow-y: hidden" aria-label="Property sections">   <!-- 20 Nov 2026: no stray scrollbar line at the right end -->
       <template v-for="t in acc.PTABS" :key="t.key"><button :class="{ on: ptab === t.key }" @click="setPtab(t.key)">{{ t.label }}</button></template>
     </nav>
 

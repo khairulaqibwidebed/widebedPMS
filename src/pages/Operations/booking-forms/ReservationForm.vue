@@ -103,19 +103,11 @@
               <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" placeholder="Choose type of rent…" /></div>
           </div>
           <div class="grid-fields">
-            <template v-if="yearly">
-              <!-- 20 Nov 2026 (Khairul): the PMS month selector (any browser) and the years typed in -->
-              <div class="field" id="bIn"><label class="req">Move-in month</label>
-                <MonthPicker :model-value="String(bk.arrival || '').slice(0, 7)" :ahead="60" block placeholder="Choose month…" @update:model-value="setYearly($event)" /></div>
-              <FormField id="bYears" label="Number of years" req type="number" min="1" max="30" step="1" placeholder="e.g. 2" v-model="bk.years" />
-            </template>
-            <template v-else>
-              <FormField id="bIn" label="Check-in" req type="date" v-model="bk.arrival" />
-              <FormField id="bOut" label="Check-out" req type="date" v-model="bk.departure" />
-            </template>
+            <!-- 20 Nov 2026 (Khairul): reverted; every type of rent (Yearly too) uses check-in and check-out dates again -->
+            <FormField id="bIn" label="Check-in" req type="date" v-model="bk.arrival" />
+            <FormField id="bOut" label="Check-out" req type="date" v-model="bk.departure" />
           </div>
-          <p class="help" v-if="yearly && hasStay">{{ `Lease ${full(bk.arrival)} to ${full(leaseEnd)} (${bk.years} year${+bk.years === 1 ? '' : 's'}) · check-out ${full(bk.departure)}` }}</p>
-          <p class="help" v-else-if="hasStay">{{ nights === 0 ? 'Same-day check-out (0 nights) · Daily Lease' : `${nights} night${nights === 1 ? '' : 's'} · ${leaseLabel(nights)} (${leaseHint(nights)})` }}</p>
+          <p class="help" v-if="hasStay">{{ nights === 0 ? 'Same-day check-out (0 nights) · Daily Lease' : `${nights} night${nights === 1 ? '' : 's'} · ${leaseLabel(nights)} (${leaseHint(nights)})` }}</p>
           </fieldset>
         </div>
 
@@ -523,8 +515,7 @@ export default {
       if (!this.bk.rentType) this.bk.rentType = termValue({ nights: n });
     },
     // Yearly Lease: the move-in moves to the 1st of its month and check-out follows the number of years
-    'bk.rentType'(v, old) { if (v === 'Yearly' && old !== undefined && !this.resume) this.setYearly(String(this.bk.arrival || '').slice(0, 7)); },
-    'bk.years'(v) { if (this.yearly && !this.resume && +v >= 1 && Number.isInteger(+v)) this.setYearly(String(this.bk.arrival || '').slice(0, 7)); },
+    // 20 Nov 2026 (Khairul): Yearly Lease no longer sets the dates from a month + years (setYearly kept, unused)
     'steps.length'(n) { if (this.step > n - 1) this.step = Math.max(0, n - 1); },
     dirty: { handler(v) { this.$emit('dirty', v); }, immediate: true },
     // Name search: waits until typing stops (one query per pause, not per key), only while no tenant has been picked
@@ -886,8 +877,6 @@ export default {
         : b.bookingSource === 'Agent' && !b.agentId ? 'Choose the agent (booking source is Agent).'
         : !b.rentalStatus ? 'Choose the rental status.'
         : !b.arrival || !b.departure ? 'Add the check-in and check-out dates.'
-        : b.rentType === 'Yearly' && !(Number.isInteger(+b.years) && +b.years >= 1 && +b.years <= 30) ? 'Type the number of years for the Yearly Lease (1 to 30).'
-        : b.rentType === 'Yearly' && (b.arrival.slice(8) !== '01' || b.departure !== plusYears(b.arrival, b.years)) ? 'A Yearly Lease starts on the 1st: choose the move-in month and the years again.'
         : this.nights < 0 ? "Check-out can't be before check-in."
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent.' : '';
       const err = base || (pending ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'

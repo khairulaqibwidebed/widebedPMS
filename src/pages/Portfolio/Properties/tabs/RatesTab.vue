@@ -2,14 +2,15 @@
   <div>
     <!-- Fees & rates: fee arrangements by stay length (lib/fee-types.js has the types and their maths). Saved per property,
          or (no propertyId) the shared set for every property on Portfolio > Fees & Rates (lib/shared-rates.js). -->
-    <div class="notice" v-if="!isShared">Fee arrangements, OTA commissions and rules are set once for every property on Portfolio › Fees & Rates. Pool Sharing is set here, for this property only.
-      <router-link to="/Portfolio/fees-rates">Open Fees & Rates</router-link></div>
+    <!-- 20 Nov 2026 (Khairul): one light callout with a clear link, instead of plain text -->
+    <div class="fr-callout" v-if="!isShared">Fee arrangements, OTA commissions and rules are shared by every property. Pool Sharing below is for this property only.
+      <router-link class="fr-link" to="/Portfolio/fees-rates">Open Fees & Rates ›</router-link></div>
     <div class="notice" v-if="isShared && !rates.hasShared && loaded">There is no shared set yet, so every property still uses the settings it had. A Director builds the shared set once from every property's settings (Build shared set, top right).</div>
     <div class="notice" v-else-if="isShared && rates.sharedStart && asOf < rates.sharedStart">{{ `The shared set starts in ${monthName(rates.sharedStart)}. Before that each property's own settings apply. Pick ${monthName(rates.sharedStart)} or later to see it.` }}</div>
     <template v-if="mode === 'rates'">
       <div class="fees-intro"><p class="card-intro">{{ isShared
         ? 'One set of fee arrangements for every property, split by stay length. Each unit picks one on its property\'s Units tab, and a unit can still have its own rate there. Pool Sharing is set on each property (its Pool sharing tab). Changes start from the month you pick and are kept in the Audit log.'
-        : 'This property\'s own Pool Sharing arrangements. The pot is only this property\'s Pool units: no other property shares it. Units pick an arrangement on the Units tab.' }}</p>
+        : 'Units pick an arrangement on the Units tab.' }}</p>
         <button class="btn info-btn" type="button" @click="howOpen = true" aria-label="How each fee type is worked out" title="How each fee type is worked out"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></button></div>
 
       <!-- How each fee type is worked out: same look as Staff accounts > What each role can do. Text from FEE_TYPES (formula, example). -->
@@ -352,6 +353,9 @@ export default {
 </script>
 
 <style scoped>
+.fr-callout { background: var(--accent-soft, #FBEFF8); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: var(--text-2); }
+.fr-link { color: var(--accent); font-weight: 600; margin-left: 6px; text-decoration: none; white-space: nowrap; }
+.fr-link:hover { text-decoration: underline; }
 /* A field with a help line under it (Applies from) makes its row taller; keep the field next to it at the top, not spread down */
 .grid-fields { align-items: start; }
 .info-btn { padding: 8px 10px; color: var(--accent); border: 1.5px solid var(--accent); flex: none; }
