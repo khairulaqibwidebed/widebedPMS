@@ -4,6 +4,11 @@
       <div class="card-head"><h2 style="margin:0">Invoice</h2><button type="button" class="icon-btn" @click="$emit('close')" aria-label="Close">×</button></div>
       <p class="help" style="margin:0 0 12px">{{ intro || 'Download the invoice and send it to the prospect. Empty fields are left out.' }}</p>
       <div class="notice error" v-show="error">{{ error }}</div>
+      <!-- 20 Nov 2026: a stay over one month: the full invoice (summary + every month) or one month's page -->
+      <div class="field" v-if="parts.length > 1">
+        <label for="invPart">What to download</label>
+        <OptionPicker id="invPart" v-model="part" :options="parts" label="What to download" />
+      </div>
       <div class="field">
         <div class="inv-top">
           <label for="invTerms">Terms &amp; conditions</label>
@@ -26,11 +31,22 @@
 import { loadInvoiceDefaults, buildInvoicePdf, invoiceFileName } from '@/lib/booking-invoice.js';
 import { downloadBytes } from '@/lib/agreements/bytes.js';
 import { useSession } from '@/stores/session.js';
+import OptionPicker from '@/components/OptionPicker.vue';
 
 export default {
   props: { invoice: { type: Object, required: true }, bookingNo: { type: String, default: '' }, intro: { type: String, default: '' } },
+  components: { OptionPicker },
   emits: ['close', 'downloaded'],
-  data() { return { defs: null, terms: '', busy: false, error: '', isDirector: useSession().role === 'director' }; },
+  data() { return { defs: null, terms: '', busy: false, error: '', part: 'all', isDirector: useSession().role === 'director' }; },
+  computed: {
+    parts() {
+      const ms = this.invoice.months || [];
+      if (ms.length < 2) return [];
+      const d = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      return [{ value: 'all', label: `Full invoice (summary + ${ms.length} months)` }, ...ms.map((m, i) => ({ value: String(i), label: `${m.label} only (${d(m.from)} – ${d(m.to)})` }))];
+    },
+    only() { return this.part === 'all' || !this.parts.length ? null : Number(this.part); }
+  },
   async mounted() {
     try { this.defs = await loadInvoiceDefaults(true); this.terms = this.defs.terms; } catch { this.error = 'Could not load the invoice settings. Check your connection and try again.'; }
   },
@@ -38,8 +54,8 @@ export default {
     async download() {
       this.busy = true; this.error = '';
       try {
-        const bytes = await buildInvoicePdf(this.invoice, { header: this.defs.header, terms: this.terms, bank: this.defs.bank });
-        downloadBytes(bytes, invoiceFileName(this.invoice, this.bookingNo));
+        const bytes = await buildInvoicePdf(this.invoice, { header: this.defs.header, terms: this.terms, bank: this.defs.bank, folio: this.bookingNo, only: this.only });
+        downloadBytes(bytes, invoiceFileName(this.invoice, this.bookingNo, this.only));
         this.$emit('downloaded');
       } catch (e) { this.error = `Could not make the invoice PDF: ${e.message || e}`; }
       this.busy = false;

@@ -104,7 +104,9 @@
         <!-- 3. Rent & deposit -->
         <div v-show="cur === 'rent'">
           <h3>Rent &amp; deposit</h3>
-          <p class="help" style="margin:0 0 10px" v-if="hasStay">{{ longTerm ? `${leaseLabel(nights)}: the security deposit is 2 months of rent.` : 'Short term: no 2-month deposit.' }}</p>
+          <!-- 20 Nov 2026 (Khairul): the 2-month deposit is worked out for Long-term leases only (365+ nights) and can be typed over;
+               Monthly term and Short term: the deposit is optional -->
+          <p class="help" style="margin:0 0 10px" v-if="hasStay">{{ autoDeposit ? `${leaseLabel(nights)}: the security deposit is 2 months of rent. Type another amount to change it.` : `${leaseLabel(nights)}: a security deposit is optional.` }}</p>
           <!-- 16 Nov 2026 (Khairul): grouped and compact - Booking and Rent three across, the fees as a two-column list -->
           <div class="rd-sec">Booking</div>
           <div class="rd-3">
@@ -112,13 +114,19 @@
             <div class="field"><label class="req">Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" placeholder="Choose status…" /></div>
             <div class="field"><label for="bRentType">Type of rent</label>
               <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" placeholder="Choose type of rent…" /></div>
+            <!-- 20 Nov 2026 (Khairul): booking source Agent = pick the agent from Marketing > Agent Database, for their commission -->
+            <div class="field" v-if="bk.bookingSource === 'Agent'"><label class="req">Agent</label>
+              <OptionPicker class="fld-pick" v-model="bk.agentId" :options="agentOptions" label="Agent" searchable :placeholder="agentsMsg || 'Choose agent…'" />
+              <p class="help" style="margin:4px 0 0" v-if="agentsMsg">{{ agentsMsg }}</p></div>
           </div>
           <div class="rd-sec">Rent</div>
           <div class="rd-3">
             <FormField v-if="longTerm" id="bRent" label="Rental (RM)" req type="number" min="0" step="0.01" placeholder="0.00" v-model="bk.monthlyRent" />
             <FormField v-else id="bRental" label="Rental (RM)" req type="number" min="0" step="0.01" placeholder="0.00" v-model="bk.rental" />
-            <div class="field" v-if="longTerm"><label class="req">Security deposit (2 months)</label><div class="input readonly">{{ rm(deposit) }}</div></div>
-            <FormField v-else id="bSec" label="Security deposit (RM)" type="number" min="0" step="0.01" placeholder="0.00" v-model="bk.securityDeposit" />
+            <div class="field"><label for="bSec">{{ autoDeposit ? 'Security deposit (RM, 2 months)' : 'Security deposit (RM)' }}</label>
+              <input class="input" id="bSec" type="number" min="0" step="0.01" :placeholder="autoDeposit ? autoDepositAmt.toFixed(2) : '0.00'" v-model="bk.securityDeposit">
+              <p class="help" style="margin:4px 0 0" v-if="depositChanged">
+                Changed from {{ rm(autoDepositAmt) }}. <button type="button" class="link-btn" @click="bk.securityDeposit = ''">Use 2 months</button></p></div>
           </div>
           <div class="rd-sec">Other fees (RM) <span>· leave empty if not charged</span></div>
           <div class="rd-fees">
@@ -129,6 +137,9 @@
             <div class="rd-fee rd-total"><span>Total (rental, deposit &amp; fees)</span><b>{{ rm(grandTotal) }}</b></div>
           </div>
           <FormField v-if="+bk.othersFee > 0" id="bOthersNote" label="Others: what is it for?" v-model="bk.othersNote" style="margin-top:12px" />
+          <!-- 20 Nov 2026 (Khairul): the deposit and fees typed here are saved as charges on the first month of the booking's Payments tab
+               (offlineBookings.monthCharges), the same place "+" adds a charge, so nothing is entered or counted twice -->
+          <p class="help" style="margin:8px 0 0">The security deposit and fees are saved as charges on the first month in the booking's Payments tab. Change them or add more there later.</p>
         </div>
 
         <!-- 4. Invoice (16 Nov 2026): what the invoice shows; not paid yet = save as Awaiting payment and download it -->
@@ -260,7 +271,7 @@ import PropertyPicker from '@/components/PropertyPicker.vue';
 import FormField from '@/components/FormField.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import StepStrip from '@/components/StepStrip.vue';
-import { RENT_TERMS, rentTermLabel } from '@/lib/rent-term.js';
+import { RENT_TERMS, rentTermLabel, termOf } from '@/lib/rent-term.js';
 import { leaseLabel, leaseTerm, LEASE_HINT } from '@/lib/lease-term.js';
 import FormSaved from '@/components/FormSaved.vue';
 import { idPrefix } from '@/lib/lodgment.js';
@@ -271,7 +282,8 @@ import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { can } from '@/lib/access.js';
 import { askConfirm } from '@/lib/confirm.js';
 import InvoiceDialog from '@/components/InvoiceDialog.vue';
-import { invoiceOf } from '@/lib/booking-invoice.js';
+import { invoiceOf, propertyAddressOf, legacyCharges, allMonthCharges } from '@/lib/booking-invoice.js';
+import { loadAgents, agencyLabel } from '@/pages/Marketing/agents.js';
 
 const me = useSession();
 const LONG_TERM_NIGHTS = 30;
@@ -281,10 +293,20 @@ const SOURCES_BK = ['Offline', 'Website', 'Agent', 'OTA'].map(x => ({ value: x, 
 const RENTAL_STATUSES = [{ value: 'Paid', label: 'Paid' }, { value: 'Unpaid', label: 'Unpaid' }];
 // 16 Nov 2026: shown as Short / Mid / Long term; saved as Daily / Monthly / Yearly (lib/rent-term.js)
 const RENT_TYPES = RENT_TERMS.map(x => ({ value: x.value, label: x.label }));
+// The Type of rent value (Daily / Monthly / Yearly) for a stay's nights or dates (termOf in lib/rent-term.js)
+const termValue = b => RENT_TERMS.find(x => x.key === termOf({ nights: b.nights, arrival: b.arrival, departure: b.departure }))?.value || '';
 const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x }));
 const FEES = [{ key: 'utilityDeposit', label: 'Utility deposit' }, { key: 'internetFee', label: 'Internet fees' }, { key: 'carparkFee', label: 'Carpark fees' },
   { key: 'cleaningFee', label: 'Cleaning fees' }, { key: 'taFee', label: 'Tenancy agreement fees', short: 'Tenancy agreement' }, { key: 'taStampFee', label: 'Tenancy agreement stamping fees', short: 'TA stamping' },
   { key: 'gatewayFee', label: 'Payment gateway charges', short: 'Payment gateway' }, { key: 'cardFee', label: 'Credit card charges' }, { key: 'othersFee', label: 'Others' }];
+// 20 Nov 2026: what is in the deposit and fee boxes, to tell whether they were changed (finishing an Awaiting payment booking)
+const feeSnap = b => JSON.stringify([b.securityDeposit, ...FEES.map(f => b[f.key]), b.othersNote]);
+// A booking's first-month charges added up by kind { securityDeposit: 7080, carparkFee: 101, ... } and the Others note
+const firstMonthFees = d => {
+  const t = {}, list = allMonthCharges(d)[String(d.arrival || '').slice(0, 7)] || [];
+  list.forEach(c => { t[c.key] = Math.round(((t[c.key] || 0) + (+c.amount || 0)) * 100) / 100; });
+  return { t, note: list.find(c => c.key === 'othersFee' && c.note)?.note || '' };
+};
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const toCents = v => Math.round((+v || 0) * 100) / 100;
 const emailOk = e => !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
@@ -306,7 +328,7 @@ export default {
     return {
       GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, PAY_MODES, FEES,
       lead: null, tenant: null, bk: {}, properties: [], units: [], start: '', nameHits: [], nameTimer: null,
-      draft: null, draftBusy: false, draftMsg: '', resume: null, pendingSaved: false, invoice: null, invoiceNo: '',
+      draft: null, draftBusy: false, draftMsg: '', resume: null, resumeFees: '', agents: null, agentsMsg: '', pendingSaved: false, invoice: null, invoiceNo: '',
       step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'bookings.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
     };
   },
@@ -339,10 +361,25 @@ export default {
     // Both dates set and check-out not before check-in (a same-day check-out, 0 nights, is allowed)
     hasStay() { return !!(this.bk.arrival && this.bk.departure) && this.nights >= 0; },
     longTerm() { return this.nights >= LONG_TERM_NIGHTS; },
-    deposit() { return toCents(this.bk.monthlyRent) * 2; },
+    // 20 Nov 2026: 2 months of rent is worked out for a Long-term lease (365+ nights) only; an amount typed in the box wins.
+    // Monthly term and Short term: only what is typed (empty = no deposit).
+    autoDeposit() { return leaseTerm(this.nights) === 'long'; },
+    autoDepositAmt() { return toCents(this.bk.monthlyRent) * 2; },
+    depositChanged() { const t = this.bk.securityDeposit; return this.autoDeposit && t !== '' && t != null && toCents(t) !== this.autoDepositAmt; },
+    deposit() { const t = this.bk.securityDeposit; return t !== '' && t != null ? toCents(t) : this.autoDeposit ? this.autoDepositAmt : 0; },
     // Other fees on the Rent & deposit step (not the rental or security deposit); 3 decimals in the sum, 2 on screen
     // 16 Nov 2026: the total on Rent & deposit = rental + security deposit + other fees (same amounts the booking saves)
-    grandTotal() { const b = this.bk, rent = this.longTerm ? toCents(b.monthlyRent) + this.deposit : toCents(b.rental) + toCents(b.securityDeposit); return Math.round((rent + this.feesTotal) * 1000) / 1000; },
+    // 20 Nov 2026: the deposit and fees as first-month charges { 'YYYY-MM': [...] } (lib/booking-invoice.js)
+    // Active agents (and the one already on the booking), "Name · Company · Property agent"
+    agentOptions() {
+      return (this.agents || []).filter(a => a.active !== false || a.id === this.bk.agentId)
+        .map(a => ({ value: a.id, label: [a.name, a.company, agencyLabel(a)].filter(x => x && x !== '—').join(' · ') }));
+    },
+    formCharges() {
+      const b = this.bk, m = String(b.arrival || '').slice(0, 7), list = legacyCharges({ ...b, securityDeposit: this.deposit, deposit: 0, feesInPayments: false });
+      return m && list.length ? { [m]: list } : {};
+    },
+    grandTotal() { const b = this.bk, rent = (this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental)) + this.deposit; return Math.round((rent + this.feesTotal) * 1000) / 1000; },
     feesTotal() { return Math.round(FEES.reduce((t, f) => t + (+this.bk[f.key] || 0), 0) * 1000) / 1000; },
     dirty() { return this.ready && !this.saved && typed(this.bk) !== this.start; },
     // The steps and what each needs, taken from the checks in saveBooking() (which still runs on Save)
@@ -370,7 +407,8 @@ export default {
         { key: 'stay', label: 'Stay', problem: b.arrival && b.departure && this.nights < 0 ? "Check-out can't be before check-in." : '', required: [
           { label: 'Property', filled: filled(b.propertyId) }, { label: 'Unit', filled: filled(b.unitId) }, { label: 'Check-in', filled: filled(b.arrival) }, { label: 'Check-out', filled: filled(b.departure) }] },
         { key: 'rent', label: 'Rent & deposit', required: [
-          { label: 'Booking source', filled: filled(b.bookingSource) }, { label: 'Rental status', filled: filled(b.rentalStatus) },
+          { label: 'Booking source', filled: filled(b.bookingSource) }, ...(b.bookingSource === 'Agent' ? [{ label: 'Agent', filled: filled(b.agentId) }] : []),
+          { label: 'Rental status', filled: filled(b.rentalStatus) },
           ...(this.longTerm ? [{ label: 'Monthly rent', filled: +b.monthlyRent > 0 }] : [])] },
         { key: 'invoice', label: 'Invoice', required: [] },
         { key: 'payment', label: 'Payment', notNeeded: this.unpaid && !paid, required: [
@@ -404,8 +442,8 @@ export default {
           ...(b.existing ? [['Existing tenant', b.existing.id]] : []), ...(b.coTenants.length ? [['Other tenants', b.coTenants.map(c => c.name || '(no name)').join(', ')]] : [])] },
         { key: 'stay', label: 'Stay', rows: [['Property', prop?.name || '—'], ['Unit', this.units.find(u => u.id === b.unitId)?.unitCode || d(b.unitId)], ['Check-in', b.arrival ? this.full(b.arrival) : '—'], ['Check-out', b.departure ? this.full(b.departure) : '—'],
           ['Nights', this.hasStay ? (this.nights === 0 ? '0 · Same-day check-out' : `${this.nights} · ${leaseLabel(this.nights)}`) : '—']] },
-        { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ['Rental status', d(b.rentalStatus)], ['Type of rent', d(rentTermLabel(b.rentType))],
-          ['Rental', money(this.longTerm ? b.monthlyRent : b.rental)], ['Security deposit', this.longTerm ? this.rm(this.deposit) : money(b.securityDeposit)], ...fees,
+        { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ...(b.bookingSource === 'Agent' ? [['Agent', d(this.agentOf(b.agentId)?.name)]] : []), ['Rental status', d(b.rentalStatus)], ['Type of rent', d(rentTermLabel(b.rentType))],
+          ['Rental', money(this.longTerm ? b.monthlyRent : b.rental)], ['Security deposit', this.rm(this.deposit)], ...fees,
           ...(+b.othersFee > 0 ? [['Others is for', d(b.othersNote)]] : [])] },
         { key: 'payment', label: 'Payment', rows: [['Amount', money(b.amount)], ['Mode', d(b.payMode)], ['Payment Date', b.payDate ? this.full(b.payDate) : '—'], ['Reference', d(b.paymentRef)],
           ['eZee reservation no.', d(b.ezeeNo)], ['Purpose', d(b.note)], ['Receipt', b.docsLink ? 'Uploaded' : 'None']] },
@@ -414,6 +452,14 @@ export default {
     }
   },
   watch: {
+    'bk.bookingSource'(v) { if (v === 'Agent') this.loadAgentList(); },
+    // 20 Nov 2026 (Khairul): Type of rent fills itself from the stay dates (under 30 nights Short term, 30 to 364 Mid term,
+    // 365+ Long term) and follows them when the dates change; it can still be picked by hand afterwards.
+    // A saved booking opened again keeps its own Type of rent until its dates are changed.
+    nights(n, old) {
+      if (!this.hasStay || n <= 0) return;
+      if (old > 0 || !this.bk.rentType) this.bk.rentType = termValue({ nights: n });
+    },
     'steps.length'(n) { if (this.step > n - 1) this.step = Math.max(0, n - 1); },
     dirty: { handler(v) { this.$emit('dirty', v); }, immediate: true },
     // Name search: waits until typing stops (one query per pause, not per key), only while no tenant has been picked
@@ -487,7 +533,7 @@ export default {
     async startBooking() {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
       this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null, matchUsed: false,
-        rentType: '', bookingSource: '',   // 16 Nov 2026: starts empty (placeholder)
+        rentType: '', bookingSource: '', agentId: '',   // 16 Nov 2026: starts empty (placeholder)
         rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', gatewayFee: '', cardFee: '', othersFee: '', othersNote: '',
         payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
@@ -503,11 +549,28 @@ export default {
     // The invoice of what is on the form (lib/booking-invoice.js); the long-term deposit is the worked-out 2 months
     formInvoice() {
       const b = this.bk, prop = this.properties.find(p => p.id === b.propertyId), unit = this.units.find(u => u.id === b.unitId);
-      return invoiceOf({ ...b, securityDeposit: this.longTerm ? this.deposit : b.securityDeposit },
+      return invoiceOf({ ...b, feesInPayments: true, monthCharges: this.chargesFor(this.resume) },
         { name: b.name.trim(), email: b.email.trim(), phone: b.phone.trim() },
-        { propertyName: prop?.name || '', unitCode: unit?.unitCode || b.unitId || '', unitType: unit?.info?.type || '' });
+        { propertyName: prop?.name || '', unitCode: unit?.unitCode || b.unitId || '', unitType: unit?.info?.type || '', propertyAddress: propertyAddressOf(prop) });
     },
     openInvoice() { this.invoice = this.formInvoice(); },
+    agentOf(id) { return (this.agents || []).find(a => a.id === id) || null; },
+    // 20 Nov 2026: the agents list (Marketing > Agent Database), loaded once when Agent is picked as the booking source
+    async loadAgentList() {
+      if (this.agents) return;
+      this.agents = []; this.agentsMsg = 'Loading agents…';
+      try { this.agents = await loadAgents(); this.agentsMsg = this.agents.length ? '' : 'No agents yet. Add them on Marketing › Agent Database.'; }
+      catch (e) { this.agents = null; this.agentsMsg = e.code === 'permission-denied' ? "You can't see the agent list yet (Firestore rules Draft 0.95 needs publishing)." : 'Could not load the agents. Check your connection.'; }
+    },
+    // The month charges to save: a new booking gets the form's deposit and fees on its first month. Finishing an Awaiting payment
+    // booking keeps its charges as they are, unless the deposit or fee boxes were changed: then the first month is replaced by them.
+    chargesFor(base) {
+      if (!base) return this.formCharges;
+      const all = allMonthCharges(base), m = String(base.arrival || '').slice(0, 7);
+      if (feeSnap(this.bk) === this.resumeFees) return all;
+      delete all[m];
+      return { ...all, ...this.formCharges };
+    },
     // Opens a booking saved as Awaiting payment, filled in, at the Payment step
     async loadResume(id) {
       const snap = await getDoc(doc(db, 'offlineBookings', id)).catch(e => { if (e.code === 'permission-denied') return null; throw e; });
@@ -519,16 +582,18 @@ export default {
       const pc = await getDoc(doc(db, 'offlineBookings', id, 'private', 'main')).catch(() => null), pp = pc?.exists() ? pc.data() : {};
       if (d.inquiryId) await this.loadLead(d.inquiryId).catch(() => {});   // the inquiry is marked booked on save (when it can be read)
       const v = x => (x || x === 0 ? String(x) : '');
+      const fm = firstMonthFees(d);   // 20 Nov 2026: the boxes show the first month's charges on the Payments tab
       this.bk = { name: tp.name || '', phone: tp.phone || '', email: tp.email || '', icPassport: tp.icPassport || '', nationality: tp.nationality || '', dob: tp.dob || '',
         gender: tp.gender || '', genderOther: tp.genderOther || '', coTenants: [], existing: null, matchUsed: true,
-        rentType: d.rentType || 'Daily', bookingSource: d.bookingSource || '', rentalStatus: 'Paid',   // finishing = paid (16 Nov 2026)
+        rentType: d.rentType || termValue(d) || 'Daily', bookingSource: d.bookingSource || '', agentId: d.agentId || '', rentalStatus: 'Paid',   // finishing = paid (16 Nov 2026)
         mainPasscode: pp.mainDoorPasscode || '', currentExpiry: pp.currentExpiryDate || '', nextPasscode: pp.nextDoorPasscode || '', nextExpiry: pp.nextExpiryDate || '',
-        rental: d.longTerm ? '' : v(d.rental), monthlyRent: d.longTerm ? v(d.monthlyRent || d.rental) : '', securityDeposit: d.longTerm ? '' : v(d.securityDeposit),
-        ...Object.fromEntries(FEES.map(f => [f.key, d[f.key] > 0 ? v(d[f.key]) : ''])), othersNote: d.othersNote || '',
+        rental: d.longTerm ? '' : v(d.rental), monthlyRent: d.longTerm ? v(d.monthlyRent || d.rental) : '', securityDeposit: fm.t.securityDeposit ? v(fm.t.securityDeposit) : (d.longTerm ? '0' : ''),
+        ...Object.fromEntries(FEES.map(f => [f.key, fm.t[f.key] > 0 ? v(fm.t[f.key]) : ''])), othersNote: fm.note || d.othersNote || '',
         payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
         propertyId: d.propertyId || '', unitId: d.unitId || '', arrival: d.arrival || '', departure: d.departure || '', amount: '', paymentRef: '', ezeeNo: d.ezeeReservationNo || '', note: '' };
       try { this.properties = await loadProperties(); } catch { this.properties = []; }
       if (d.propertyId) { try { this.units = await loadUnits(d.propertyId); } catch { this.units = []; } }
+      this.resumeFees = feeSnap(this.bk);
       this.invoiceNo = d.bookingNo || '';
       this.step = Math.max(0, this.steps.findIndex(x => x.key === 'payment'));
       this.start = typed(this.bk);
@@ -547,7 +612,7 @@ export default {
         await runTransaction(db, async tx => {
           const cur = await tx.get(bRef);
           if (!cur.exists() || cur.data().status !== 'pending') throw stop(`${r.bookingNo || r.id} is not awaiting payment any more. Someone may have finished it already.`);
-          tx.update(bRef, { ...ex, monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
+          tx.update(bRef, { ...ex, monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, monthCharges: this.chargesFor(cur.data()),   // its charges as saved now
             ezeeReservationNo: b.ezeeNo.trim(), status: 'active', paidAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
           if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), { ...this.payRecord(prop, unitCode, r.id, r.bookingNo), ...tag });
@@ -686,11 +751,10 @@ export default {
     // Booking details and payment details that are saved on every offline booking
     extra(coIds = []) {
       const b = this.bk;
-      return { coTenantIds: coIds, bookingSource: b.bookingSource, rentalStatus: b.rentalStatus, moveInStatus: 'Ready_to_Send', moveOutStatus: 'Ready_to_Send',
+      const ag = b.bookingSource === 'Agent' ? this.agentOf(b.agentId) : null;   // 20 Nov 2026: the agent, for commission
+      return { coTenantIds: coIds, bookingSource: b.bookingSource, agentId: ag?.id || '', agentName: ag?.name || '', agentCompany: ag?.company || '', rentalStatus: b.rentalStatus, moveInStatus: 'Ready_to_Send', moveOutStatus: 'Ready_to_Send',
         passwordStatus: b.mainPasscode.trim() && b.currentExpiry ? 'Ready_to_Send' : '', rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
-        securityDeposit: this.longTerm ? this.deposit : toCents(b.securityDeposit),
-        utilityDeposit: toCents(b.utilityDeposit), internetFee: toCents(b.internetFee), carparkFee: toCents(b.carparkFee), cleaningFee: toCents(b.cleaningFee),
-        taFee: toCents(b.taFee), taStampFee: toCents(b.taStampFee), gatewayFee: toCents(b.gatewayFee), cardFee: toCents(b.cardFee), othersFee: toCents(b.othersFee), othersNote: +b.othersFee > 0 ? b.othersNote.trim() : ''};
+        feesInPayments: true, monthCharges: this.formCharges };   // 20 Nov 2026: deposit and fees saved as first-month charges (Payments tab)
     },
     // The unit code for the booking, read from the unit itself when the loaded list doesn't have it
     async unitCodeOf(unitId) { try { const u = await getDoc(doc(db, 'units', unitId)); return u.exists() ? u.data().unitCode || '' : ''; } catch { return ''; } },
@@ -699,7 +763,7 @@ export default {
       const s = this.steps.findIndex(x => x.key === (STEP_OF.find(([re]) => re.test(msg)) || [])[1]);
       if (s >= 0) this.step = s;
       const MAP = [[/^Add the tenant/, '#bName'], [/^Add a full phone/, '#bPhone'], [/email address/, '#bEmail'], [/^Add the IC/, '#bIc'], [/^Type the gender/, '#bGenderOther'],
-        [/^Choose the property and unit/, '[aria-label="Property"]'], [/^Choose the booking source/, '[aria-label="Booking source"]'], [/^Choose the rental status/, '[aria-label="Rental status"]'],
+        [/^Choose the property and unit/, '[aria-label="Property"]'], [/^Choose the agent/, '[aria-label="Agent"]'], [/^Choose the booking source/, '[aria-label="Booking source"]'], [/^Choose the rental status/, '[aria-label="Rental status"]'],
         [/check-in and check-out|^Check-out can/, '#bIn'], [/^Add the monthly rent/, '#bRent'], [/^Add the amount paid/, '#bAmt'], [/^Choose the mode of payment/, '[aria-label="Mode of payment"]'],
         [/^Add the purpose/, '#bNote'], [/receipt/, '#bReceipt'], [/main door passcode/, '#bExp'], [/next door passcode/, '#bNextExp']];
       const sel = (MAP.find(([re]) => re.test(msg)) || [])[1];
@@ -745,10 +809,11 @@ export default {
         : b.gender === 'Other' && !b.genderOther.trim() ? 'Type the gender, or pick another option.'
         : !b.unitId ? 'Choose the property and unit.'
         : !b.bookingSource ? 'Choose the booking source.'
+        : b.bookingSource === 'Agent' && !b.agentId ? 'Choose the agent (booking source is Agent).'
         : !b.rentalStatus ? 'Choose the rental status.'
         : !b.arrival || !b.departure ? 'Add the check-in and check-out dates.'
         : this.nights < 0 ? "Check-out can't be before check-in."
-        : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent. The 2-month deposit is worked out from it.' : '';
+        : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent.' : '';
       const err = base || (pending ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
         : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
         : +b.amount > 0 && !b.note.trim() ? 'Add the purpose of the payment.'
@@ -799,7 +864,7 @@ export default {
           tx.set(bRef, { source: 'offline', inquiryId: ld.id, bookingNo, tenantId,
             propertyId: b.propertyId, ...tag, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
-            monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
+            monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0,
             ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: pending ? 'pending' : 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
@@ -890,7 +955,7 @@ export default {
           tx.set(bRef, { source: 'direct', inquiryId: null, bookingNo, tenantId,
             propertyId: b.propertyId, ...tag, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
-            monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, deposit: this.longTerm ? this.deposit : 0,
+            monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0,
             ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: pending ? 'pending' : 'active',
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
@@ -976,4 +1041,5 @@ export default {
 .hit { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 6px 8px; cursor: pointer; font: inherit; color: inherit; }
 .hit:hover, .hit:focus-visible { background: var(--accent-soft, rgba(0, 128, 128, .08)); }
 .hit span { font-size: 12px; color: var(--muted); }
+.link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); font-weight: 600; cursor: pointer; }
 </style>

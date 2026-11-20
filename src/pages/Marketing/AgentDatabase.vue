@@ -25,19 +25,20 @@
       <Paged :items="shown" v-slot="{ pageRows }">
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Agent</th><th>Agency</th><th>Mobile</th><th>Email</th><th>Bank</th><th>Business card</th><th></th></tr></thead>
+            <thead><tr><th>Agent</th><th>Agency</th><th>Mobile</th><th>Email</th><th>Commission</th><th>Bank</th><th>Business card</th><th></th></tr></thead>
             <tbody>
               <tr class="clickable" v-for="a in pageRows" :key="a.id" @click="openView(a)">
                 <td><div class="strong">{{ a.name }}</div><div class="muted small">{{ a.company || '—' }}</div></td>
                 <td><span class="pill" :class="agencyColor(a)">{{ agencyLabel(a) }}</span></td>
                 <td class="nowrap">{{ a.mobile || '—' }}</td>
                 <td>{{ a.email || '—' }}</td>
+                <td class="nowrap"><template v-if="a.commDaily != null || a.commMonthly != null"><div>{{ `Daily ${pctText(a.commDaily)}` }}</div><div>{{ `Monthly ${pctText(a.commMonthly)}` }}</div></template><span class="muted" v-else>Not set</span></td>
                 <td class="nowrap">{{ a.bankName || '—' }}<div class="muted small" v-if="a.acctLast4">{{ `···${a.acctLast4}` }}</div></td>
                 <td><span class="pill green" v-if="a.cardFront || a.cardBack">Attached</span><span class="muted" v-else>None</span></td>
                 <td class="num"><button type="button" class="navlink" @click.stop="openView(a)">View</button></td>
               </tr>
-              <SkeletonRows v-if="loading && !agents.length" table :cols="7" />
-              <tr v-show="!loading && !shown.length"><td colspan="7" class="muted">{{ agents.length ? 'No agents match this search.' : canEdit ? 'No agents yet. Use + Add agent.' : 'No agents yet.' }}</td></tr>
+              <SkeletonRows v-if="loading && !agents.length" table :cols="8" />
+              <tr v-show="!loading && !shown.length"><td colspan="8" class="muted">{{ agents.length ? 'No agents match this search.' : canEdit ? 'No agents yet. Use + Add agent.' : 'No agents yet.' }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -64,6 +65,13 @@
             <div class="kv"><span>Email</span><span><a v-if="drawer.agent.email" :href="`mailto:${drawer.agent.email}`">{{ drawer.agent.email }}</a><template v-else>—</template></span></div>
             <div class="kv"><span>Company name</span><span>{{ drawer.agent.company || '—' }}</span></div>
             <div class="kv"><span>Address</span><span class="pre">{{ drawer.agent.address || '—' }}</span></div>
+
+            <div class="form-sec">Commission</div>
+            <div class="kv"><span>Daily rental</span><span>{{ pctText(drawer.agent.commDaily) }}</span></div>
+            <div class="kv"><span>Monthly rental</span><span>{{ pctText(drawer.agent.commMonthly) }}</span></div>
+            <button type="button" class="btn ag-hist-btn" @click="drawer.histOpen = true">
+              View commission history<span class="muted" v-if="!drawer.histLoading && drawer.history.length">{{ ` · ${drawer.history.length}` }}</span>
+            </button>
 
             <div class="form-sec ag-sec-row">Bank details
               <button type="button" class="link" v-if="drawer.bank && drawer.bank.accountNo" @click="drawer.showAcct = !drawer.showAcct">{{ drawer.showAcct ? 'Hide number' : 'Show number' }}</button>
@@ -121,6 +129,15 @@
           </div>
           <div class="field"><label for="agAddress">Address</label><textarea class="input" id="agAddress" v-model="f.address" rows="3" placeholder="Street, city, postcode, state" maxlength="500"></textarea></div>
 
+          <div class="form-sec">Commission <span class="help ag-sec-note">· % the agent earns; leave empty if not agreed</span></div>
+          <div class="ag-bank">
+            <div class="field"><label for="agDaily">Daily rental (%)</label><input class="input" id="agDaily" type="number" inputmode="decimal" min="0" max="100" step="0.01" v-model="f.commDaily" placeholder="e.g. 10"></div>
+            <div class="field"><label for="agMonthly">Monthly rental (%)</label><input class="input" id="agMonthly" type="number" inputmode="decimal" min="0" max="100" step="0.01" v-model="f.commMonthly" placeholder="e.g. 5"></div>
+            <div class="field" v-if="commChanged"><label for="agFrom" class="req">Effective from</label><input class="input" id="agFrom" type="date" v-model="f.commFrom"></div>
+          </div>
+          <div class="field" v-if="commChanged && drawer.agent"><label for="agNote">Reason for change</label><input class="input" id="agNote" v-model="f.commNote" placeholder="e.g. New agreement signed" maxlength="200"></div>
+          <p class="help" v-if="commChanged">This change is added to the commission history when you save.</p>
+
           <div class="form-sec">Bank details <span class="help ag-sec-note">· kept private: the list shows only the last 4 digits</span></div>
           <p class="help" v-if="f.bankLoading">Loading the saved bank details…</p>
           <div class="ag-bank">
@@ -151,6 +168,40 @@
           <button type="submit" form="agentForm" class="btn btn-primary" :disabled="busy || f.bankLoading || anyUploading">{{ busy ? 'Saving…' : drawer.agent ? 'Save changes' : 'Save agent' }}</button>
         </div>
       </aside>
+
+      <!-- Commission history popup, on top of the agent profile -->
+      <div class="ag-pop-back" v-if="drawer.mode === 'view' && drawer.histOpen" @click.self="drawer.histOpen = false">
+        <div class="ag-pop" role="dialog" aria-modal="true" :aria-label="`Commission history of ${drawer.agent.name}`">
+          <div class="ag-pop-head">
+            <div>
+              <h3>Commission history</h3>
+              <div class="muted small">{{ `${drawer.agent.name} · now Daily ${pctText(drawer.agent.commDaily)}, Monthly ${pctText(drawer.agent.commMonthly)}` }}</div>
+            </div>
+            <button type="button" class="icon-btn" @click="drawer.histOpen = false" aria-label="Close">×</button>
+          </div>
+          <div class="ag-pop-body">
+            <p class="help" v-if="drawer.histLoading">Loading…</p>
+            <p class="help" v-else-if="drawer.histError">{{ drawer.histError }}</p>
+            <p class="help" v-else-if="!drawer.history.length">No commission set yet.</p>
+            <div class="table-wrap" v-else>
+              <table class="table ag-hist-table">
+                <thead><tr><th>Effective from</th><th class="num">Daily</th><th class="num">Monthly</th><th>Changed by</th></tr></thead>
+                <tbody>
+                  <tr v-for="h in drawer.history" :key="h.id">
+                    <td class="nowrap">{{ dateText(h.effectiveFrom) }}<div class="muted small" v-if="h.note">{{ h.note }}</div></td>
+                    <td class="num">{{ pctText(h.daily) }}<div class="muted small" v-if="h.rev > 1 && h.daily !== h.prevDaily">{{ `was ${pctText(h.prevDaily)}` }}</div></td>
+                    <td class="num">{{ pctText(h.monthly) }}<div class="muted small" v-if="h.rev > 1 && h.monthly !== h.prevMonthly">{{ `was ${pctText(h.prevMonthly)}` }}</div></td>
+                    <td>{{ h.byName || '—' }}<div class="muted small">{{ stampText(h.at) }}</div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="ag-pop-foot">
+            <button type="button" class="btn" @click="drawer.histOpen = false">Close</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <FileViewer ref="viewer" />
@@ -168,14 +219,17 @@ import { askConfirm } from '@/lib/confirm.js';
 import { ensureFolders, uploadForLink, fileBlob } from '@/lib/drive.js';
 import RefreshButton from '@/components/RefreshButton.vue';
 import FileViewer from '@/components/FileViewer.vue';
-import { AGENCIES, BANKS, agencyLabel, agencyColor, loadAgents, loadBank, saveAgent, deleteAgent, newAgentId } from './agents.js';
+import { AGENCIES, BANKS, agencyLabel, agencyColor, loadAgents, loadBank, loadCommissionHistory, pct, pctText, saveAgent, deleteAgent, newAgentId } from './agents.js';
 
 const me = useSession();
 const SIDES = [{ key: 'cardFront', label: 'Front of card' }, { key: 'cardBack', label: 'Back of card', optional: true }];
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const numOrEmpty = v => (v === null || v === undefined ? '' : v);
 function blankForm() {
   return { id: '', name: '', company: '', agency: 'property', agencyOther: '', mobile: '', email: '', address: '', bankName: '', holder: '', accountNo: '',
+    commDaily: '', commMonthly: '', commFrom: today(), commNote: '', commStart: [null, null],
     cardFront: null, cardBack: null, active: true, error: '', bankLoading: false, uploading: { cardFront: false, cardBack: false }, pct: { cardFront: 0, cardBack: 0 } };
 }
 
@@ -196,6 +250,8 @@ export default {
         && (!q || [a.name, a.company, a.mobile, a.email, a.agencyOther].some(v => (v || '').toLowerCase().includes(q))
           || (a.mobile || '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '¬')));
     },
+    // The rates differ from what was saved (or are set on a new agent)
+    commChanged() { return pct(this.f.commDaily) !== this.f.commStart[0] || pct(this.f.commMonthly) !== this.f.commStart[1]; },
     anyUploading() { return this.f.uploading.cardFront || this.f.uploading.cardBack; },
     acctText() {
       const n = this.drawer?.bank?.accountNo || '';
@@ -216,7 +272,13 @@ export default {
   },
   unmounted() { this.dropPreviews(); },
   methods: {
-    agencyLabel, agencyColor,
+    agencyLabel, agencyColor, pctText,
+    dateText(ymd) {
+      if (!ymd) return '—';
+      const [y, m, d] = ymd.split('-').map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' });
+    },
+    stampText(t) { return t?.toDate ? t.toDate().toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; },
     async go() {
       this.loading = true; this.error = '';
       try { this.agents = await loadAgents(); }
@@ -228,8 +290,11 @@ export default {
     // ---- Profile ----
     async openView(a) {
       this.dropPreviews();
-      this.drawer = { mode: 'view', agent: a, bank: null, bankLoading: this.canEdit, bankError: '', showAcct: false, previews: {}, previewError: {} };
+      this.drawer = { mode: 'view', agent: a, bank: null, bankLoading: this.canEdit, bankError: '', showAcct: false, previews: {}, previewError: {},
+        history: [], histLoading: true, histError: '', histOpen: false };
       const d = this.drawer;
+      loadCommissionHistory(a.id).then(h => { d.history = h; }).catch(e => { d.histError = friendlyError(e, 'load the commission history'); })
+        .finally(() => { d.histLoading = false; });
       if (this.canEdit) {
         try { d.bank = await loadBank(a.id); }
         catch (e) { d.bankError = friendlyError(e, 'load the bank details'); }
@@ -246,6 +311,8 @@ export default {
     dropPreviews() { Object.values(this.drawer?.previews || {}).forEach(u => URL.revokeObjectURL(u)); },
     viewCard(c) { this.$refs.viewer.open({ name: c.name, id: c.fileId, kind: 'agents' }); },
     async closeDrawer() {
+      // Esc / backdrop with the commission history open: close just the popup
+      if (this.drawer?.histOpen) { this.drawer.histOpen = false; return; }
       if (this.drawer?.mode === 'edit' && this.dirty() && !await askConfirm({ title: 'Close without saving?', message: 'Your changes to this agent will be lost.', confirmText: 'Close', danger: true })) return;
       this.dropPreviews();
       this.drawer = null;
@@ -257,7 +324,8 @@ export default {
       this.f = blankForm();
       const f = this.f;   // the reactive copy, so the form updates as the bank details arrive
       if (a) Object.assign(f, { id: a.id, name: a.name || '', company: a.company || '', agency: a.agency || 'property', agencyOther: a.agencyOther || '', mobile: a.mobile || '',
-        email: a.email || '', address: a.address || '', bankName: a.bankName || '', cardFront: a.cardFront || null, cardBack: a.cardBack || null, active: a.active !== false, bankLoading: true });
+        email: a.email || '', address: a.address || '', bankName: a.bankName || '', cardFront: a.cardFront || null, cardBack: a.cardBack || null, active: a.active !== false, bankLoading: true,
+        commDaily: numOrEmpty(a.commDaily), commMonthly: numOrEmpty(a.commMonthly), commStart: [a.commDaily ?? null, a.commMonthly ?? null] });
       else f.id = newAgentId();
       this.drawer = { mode: 'edit', agent: a };
       if (a) {
@@ -267,7 +335,7 @@ export default {
       }
       this.start = this.snap();
     },
-    snap() { const f = this.f; return JSON.stringify([f.name, f.company, f.agency, f.agencyOther, f.mobile, f.email, f.address, f.bankName, f.holder, f.accountNo, f.cardFront?.fileId, f.cardBack?.fileId]); },
+    snap() { const f = this.f; return JSON.stringify([f.name, f.company, f.agency, f.agencyOther, f.mobile, f.email, f.address, f.bankName, f.holder, f.accountNo, f.cardFront?.fileId, f.cardBack?.fileId, pct(f.commDaily), pct(f.commMonthly)]); },
     dirty() { return this.drawer?.mode === 'edit' && this.snap() !== this.start; },
     async upload(key, e) {
       const file = e.target.files[0]; e.target.value = '';
@@ -288,6 +356,12 @@ export default {
       if (f.agency === 'other' && !f.agencyOther.trim()) return 'Agency is Others: say what kind (e.g. Relocation company).';
       if (!f.mobile.trim()) return 'Enter a mobile number.';
       if (f.email.trim() && !EMAIL.test(f.email.trim())) return 'The email address doesn\'t look right.';
+      for (const [v, label] of [[f.commDaily, 'Daily'], [f.commMonthly, 'Monthly']]) {
+        if (String(v ?? '').trim() === '') continue;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0 || n > 100) return `${label} commission must be a % from 0 to 100.`;
+      }
+      if (this.commChanged && !/^\d{4}-\d{2}-\d{2}$/.test(f.commFrom || '')) return 'Pick the date the new commission starts (Effective from).';
       if (f.accountNo && /[^\d\s-]/.test(f.accountNo)) return 'The bank account number may have digits only.';
       if (f.accountNo.replace(/\D/g, '').length > 20) return 'The bank account number is too long (20 digits at most).';
       return '';
@@ -325,7 +399,7 @@ export default {
 </script>
 
 <style scoped>
-.form-sec { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 18px 0 10px; }
+.form-sec { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 24px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .drawer-body > .form-sec:first-child, .notice + .form-sec { margin-top: 0; }
 .head-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .toolbar .input { max-width: 320px; }
@@ -356,6 +430,16 @@ export default {
 .ag-card-ph { color: var(--muted); font-size: 12px; }
 .ag-card-label { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
 .ag-meta { margin-top: 16px; }
+.ag-hist-btn { margin: 8px 0 4px; width: 100%; justify-content: center; }
+.ag-hist-table { font-size: 13px; }
+.ag-hist-table th, .ag-hist-table td { padding: 8px 10px; vertical-align: top; }
+/* Commission history popup */
+.ag-pop-back { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.ag-pop { background: var(--card, #fff); border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.25); width: min(640px, 100%); max-height: 85vh; display: flex; flex-direction: column; }
+.ag-pop-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--border); }
+.ag-pop-head h3 { margin: 0 0 2px; font-size: 17px; }
+.ag-pop-body { padding: 16px 20px; overflow: auto; }
+.ag-pop-foot { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--border); }
 /* Profile: details left, business card right */
 .ag-view { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
 .ag-view .kv span:last-child { overflow-wrap: anywhere; }
