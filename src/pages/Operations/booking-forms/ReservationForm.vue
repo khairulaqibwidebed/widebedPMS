@@ -97,14 +97,14 @@
             <FormField id="bIn" label="Check-in" req type="date" v-model="bk.arrival" />
             <FormField id="bOut" label="Check-out" req type="date" v-model="bk.departure" />
           </div>
-          <p class="help" v-if="hasStay">{{ nights === 0 ? 'Same-day check-out (0 nights) · Short stay' : `${nights} night${nights === 1 ? '' : 's'} · ${longTerm ? 'Long-term lease (30 nights or more)' : 'Short stay (29 nights or less)'}` }}</p>
+          <p class="help" v-if="hasStay">{{ nights === 0 ? 'Same-day check-out (0 nights) · Short term' : `${nights} night${nights === 1 ? '' : 's'} · ${leaseLabel(nights)} (${leaseHint(nights)})` }}</p>
           </fieldset>
         </div>
 
         <!-- 3. Rent & deposit -->
         <div v-show="cur === 'rent'">
           <h3>Rent &amp; deposit</h3>
-          <p class="help" style="margin:0 0 10px" v-if="hasStay">{{ longTerm ? 'Long-term lease: the security deposit is 2 months of rent.' : 'Short stay: no 2-month deposit.' }}</p>
+          <p class="help" style="margin:0 0 10px" v-if="hasStay">{{ longTerm ? `${leaseLabel(nights)}: the security deposit is 2 months of rent.` : 'Short term: no 2-month deposit.' }}</p>
           <!-- 16 Nov 2026 (Khairul): grouped and compact - Booking and Rent three across, the fees as a two-column list -->
           <div class="rd-sec">Booking</div>
           <div class="rd-3">
@@ -261,6 +261,7 @@ import FormField from '@/components/FormField.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import StepStrip from '@/components/StepStrip.vue';
 import { RENT_TERMS, rentTermLabel } from '@/lib/rent-term.js';
+import { leaseLabel, leaseTerm, LEASE_HINT } from '@/lib/lease-term.js';
 import FormSaved from '@/components/FormSaved.vue';
 import { idPrefix } from '@/lib/lodgment.js';
 import { loadProperties, loadUnits, audit, friendlyError } from '@/lib/finance-data.js';
@@ -402,7 +403,7 @@ export default {
         { key: 'tenant', label: 'Tenant', rows: [['Name', d(b.name)], ['Phone', d(b.phone)], ['Email', d(b.email)], ['IC / Passport', d(b.icPassport)], ['Nationality', d(b.nationality)],
           ...(b.existing ? [['Existing tenant', b.existing.id]] : []), ...(b.coTenants.length ? [['Other tenants', b.coTenants.map(c => c.name || '(no name)').join(', ')]] : [])] },
         { key: 'stay', label: 'Stay', rows: [['Property', prop?.name || '—'], ['Unit', this.units.find(u => u.id === b.unitId)?.unitCode || d(b.unitId)], ['Check-in', b.arrival ? this.full(b.arrival) : '—'], ['Check-out', b.departure ? this.full(b.departure) : '—'],
-          ['Nights', this.hasStay ? (this.nights === 0 ? '0 · Same-day check-out' : `${this.nights} · ${this.longTerm ? 'Long-term lease' : 'Short stay'}`) : '—']] },
+          ['Nights', this.hasStay ? (this.nights === 0 ? '0 · Same-day check-out' : `${this.nights} · ${leaseLabel(this.nights)}`) : '—']] },
         { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ['Rental status', d(b.rentalStatus)], ['Type of rent', d(rentTermLabel(b.rentType))],
           ['Rental', money(this.longTerm ? b.monthlyRent : b.rental)], ['Security deposit', this.longTerm ? this.rm(this.deposit) : money(b.securityDeposit)], ...fees,
           ...(+b.othersFee > 0 ? [['Others is for', d(b.othersNote)]] : [])] },
@@ -428,6 +429,8 @@ export default {
   },
   beforeUnmount() { clearTimeout(this.nameTimer); },
   methods: {
+    leaseLabel,
+    leaseHint(n) { return LEASE_HINT[leaseTerm(n)]; },
     short(iso) { if (!iso) return ''; const [, m, dd] = iso.slice(0, 10).split('-'); return `${+dd} ${MON[+m - 1]}`; },
     full(iso) { return iso ? `${this.short(iso)} ${iso.slice(0, 4)}` : ''; },
     rm(v) { return 'RM ' + (+v || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
@@ -714,6 +717,7 @@ export default {
       return { date: b.payDate || today(), amount: toCents(b.amount), mode: b.payMode, propertyId: b.propertyId, propertyName: prop?.name || '', unitCode: unitCode || b.unitId || '', unitId: b.unitId || '',
         guest: b.name.trim(), purpose: b.note.trim() || `Booking ${bookingNo}`, bankRef: b.paymentRef.trim(), docsLink: b.docsLink || '', remarks: '',
         status: 'Pending', verifiedByName: '', verifiedDate: '', bookingId, bookingNo,
+        forMonth: (b.arrival || b.payDate || today()).slice(0, 7),   // 19 Nov 2026: the booking's first payment is for its check-in month
         createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name };
     },
     // An existing booking on this unit whose dates overlap: offline bookings, and eZee bookings in the months around the stay.

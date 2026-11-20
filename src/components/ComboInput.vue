@@ -4,10 +4,10 @@
       role="combobox" :aria-expanded="String(open && shown.length > 0)" aria-autocomplete="list"
       @input="onInput" @focus="open = true" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)"
       @keydown.enter="enter" @keydown.esc="open = false">
-    <ul class="cb-pop" v-if="open && modelValue.trim() && !shown.length" role="status"><li class="cb-more">No unit matches. What you typed is kept as it is.</li></ul>
+    <ul class="cb-pop" v-if="open && modelValue.trim() && !shown.length" role="status"><li class="cb-more">{{ emptyText }}</li></ul>
     <ul class="cb-pop" v-if="open && shown.length" role="listbox">
-      <template v-for="(o, i) in shown" :key="o.value">
-        <li role="option" class="cb-item" :class="{ hot: i === hot }" @mousedown.prevent="pick(o.value)" @mouseenter="hot = i">
+      <template v-for="(o, i) in shown" :key="o.key || o.value">
+        <li role="option" class="cb-item" :class="{ hot: i === hot }" @mousedown.prevent="pick(o)" @mouseenter="hot = i">
           <b>{{ o.value }}</b><small v-if="o.hint">{{ o.hint }}</small>
         </li>
       </template>
@@ -21,8 +21,8 @@
 // The typed text is kept as it is, so a value that isn't in the list is still allowed.
 //   <ComboInput v-model="unit" :options="[{ value: 'A-09-23A', hint: 'Property name' }, ...]" placeholder="..." id="rUnit" />
 export default {
-  props: { modelValue: { type: String, default: '' }, options: { type: Array, default: () => [] }, placeholder: { type: String, default: '' }, id: { type: String, default: undefined }, max: { type: Number, default: Infinity } },   // 19 Nov 2026: list every match (the popup scrolls)
-  emits: ['update:modelValue'],
+  props: { modelValue: { type: String, default: '' }, options: { type: Array, default: () => [] }, placeholder: { type: String, default: '' }, id: { type: String, default: undefined }, max: { type: Number, default: Infinity }, emptyText: { type: String, default: 'No unit matches. What you typed is kept as it is.' } },   // 19 Nov 2026: list every match (the popup scrolls)
+  emits: ['update:modelValue', 'pick'],   // pick: the whole option ({ value, hint, key }) when one is chosen (19 Nov 2026)
   data() { return { open: false, hot: -1 }; },
   computed: {
     matches() { const q = this.modelValue.trim().toLowerCase(); return this.options.filter(o => !q || o.value.toLowerCase().includes(q) || (o.hint || '').toLowerCase().includes(q)); },
@@ -34,8 +34,8 @@ export default {
     away(e) { if (this.open && !this.$refs.root.contains(e.target)) this.open = false; },
     onInput(e) { this.$emit('update:modelValue', e.target.value); this.open = true; this.hot = -1; },
     move(d) { this.open = true; if (this.shown.length) this.hot = (this.hot + d + this.shown.length) % this.shown.length; },
-    enter(e) { if (this.open && this.hot >= 0 && this.shown[this.hot]) { e.preventDefault(); this.pick(this.shown[this.hot].value); } },
-    pick(v) { this.$emit('update:modelValue', v); this.open = false; this.hot = -1; }
+    enter(e) { if (this.open && this.hot >= 0 && this.shown[this.hot]) { e.preventDefault(); this.pick(this.shown[this.hot]); } },
+    pick(o) { this.$emit('update:modelValue', o.value); this.$emit('pick', o); this.open = false; this.hot = -1; }
   }
 };
 </script>

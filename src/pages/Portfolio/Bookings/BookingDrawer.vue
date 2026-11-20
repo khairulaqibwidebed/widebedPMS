@@ -43,8 +43,8 @@
         <div class="form-sec">Payments <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· from Accounting › Offline Payments</span></div>
         <template v-if="bk.payments">
           <p class="help" v-if="!bk.payments.length">{{ bk.amount ? `No payment records. Older booking: RM ${amt(bk.amount)} paid.` : 'No payment recorded yet.' }}</p>
-          <div class="pay-row" v-for="x in bk.payments" :key="x.id"><span>{{ `${dmy(x.date)}${x.mode ? ' · ' + x.mode : ''}${x.bankRef ? ' · ' + x.bankRef : ''}` }}</span><b>{{ `RM ${amt(x.amount)}` }}</b><span class="tag">{{ x.status }}</span></div>
-          <p class="help" v-if="bk.payments.length > 1">{{ `Total RM ${amt(totalPaid)}` }}</p>
+          <div class="pay-row" v-for="x in bk.payments" :key="x.id"><span>{{ `${dmy(x.date)}${x.forMonth ? ' · for ' + monthName(x.forMonth) : ''}${x.mode ? ' · ' + x.mode : ''}${x.bankRef ? ' · ' + x.bankRef : ''}` }}</span><b>{{ `RM ${amt(x.amount)}` }}</b><span class="tag">{{ x.status }}</span></div>
+          <p class="help" v-if="bk.payments.length > 1">{{ `Total Checked RM ${amt(totalPaid)}` }}</p>
         </template>
         <p class="help" v-else>Payments are visible to Accounting, Directors and Operations.</p>
         <template v-if="bk.payments && cal.length">
@@ -56,7 +56,7 @@
           <div class="cal-row"><span><b>Total paid</b></span><b>{{ `RM ${amt(totalPaid)}` }}</b></div>
           <div class="form-sec">Total Payments</div>
           <div class="cal-row" v-for="c in cal" :key="c.m"><span>{{ shortName(c.m) }}</span><span class="pill" :class="MONTH_PAY[c.status].cls">{{ MONTH_PAY[c.status].label }}</span><b>{{ `RM ${amt(c.paid)}` }}<small v-if="c.due > 0">{{ ` / ${amt(c.due)}` }}</small></b></div>
-          <p class="help">{{ isLong ? 'Long-term: each month is rent against payments dated in that month.' : 'Short stay: the rental is due in the check-in month; payments count in the month they are dated.' }}</p>
+          <p class="help">{{ isLong ? `${leaseLabel(nightsNow)}: each month is rent against the Checked payments for that month.` : 'Short term: the rental is due in the check-in month; Checked payments count in the month they are for.' }}</p>
         </template>
         <div class="form-sec">Utility bill</div>
         <p class="help" v-if="!bk.bill">No utility bill saved yet. Add it on Portfolio > Utility Lodgment Form.</p>
@@ -90,9 +90,11 @@
 </template>
 
 <script>
+import { leaseLabel } from '@/lib/lease-term.js';
+import { payCounts, payMonth } from '@/lib/booking-pay.js';
 // Booking drawer (Portfolio › Bookings): an offline booking's details, rent summary and payments; Accounting,
 // Directors and Operations can edit it. Tells the page "saved" with the changed fields so it can update its list.
-import { amt, dmy } from '@/lib/format.js';
+import { amt, dmy, monthName } from '@/lib/format.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
 import { toast } from '@/lib/toast.js';
@@ -138,8 +140,9 @@ export default {
       return '';
     },
     guestEditable() { const b = this.bk; return this.editable && !!b.guestOk && (!b.tenantId || this.acc.guestOnTenant); },
+    nightsNow() { const f = this.bk.f; return Math.max(0, Math.round((new Date(f.departure) - new Date(f.arrival)) / 86400000)) || 0; },
     isLong() { const f = this.bk.f; return Math.round((new Date(f.departure) - new Date(f.arrival)) / 86400000) >= 30; },
-    // Calendar of months for the booking: paid in the month (by payment date) against what is due
+    // Calendar of months for the booking: Checked payments for the month (For month, else payment date) against what is due
     cal() {
       const b = this.bk, f = b.f; if (!f.arrival || !f.departure || !b.payments) return [];
       const long = this.isLong, rent = Number(f.rent) || Number(b.monthlyRent) || 0, rental = Number(b.rental) || 0;
@@ -147,7 +150,7 @@ export default {
       for (let i = 0; i < 48; i++, mo++) {
         if (mo > 12) { mo = 1; y++; }
         const m = `${y}-${String(mo).padStart(2, '0')}`; if (m > last) break;
-        const paid = b.payments.filter(x => (x.date || '').slice(0, 7) === m).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+        const paid = b.payments.filter(x => payCounts(x) && (long ? payMonth(x) === m : i === 0)).reduce((s, x) => s + (Number(x.amount) || 0), 0);   // Checked only (19 Nov 2026)
         const due = long ? rent : (i === 0 ? rental : 0);
         out.push({ m, paid, due, status: due > 0 ? (paid >= due - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid') : (paid > 0 ? 'paid' : 'unpaid') });
       }
@@ -161,7 +164,7 @@ export default {
     },
     otherTotal() { return this.charges.reduce((a, c) => a + c.v, 0); },
     totalDue() { return this.cal.reduce((a, c) => a + c.due, 0); },
-    totalPaid() { return (this.bk.payments || []).reduce((a, x) => a + (Number(x.amount) || 0), 0); }
+    totalPaid() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + (Number(x.amount) || 0), 0); }
   },
   async created() {
     try {
@@ -176,6 +179,7 @@ export default {
     } catch (e) { this.bk.error = friendlyError(e, 'load the booking'); }
   },
   methods: {
+    leaseLabel, monthName,
     amt, dmy, shortName,
     billRows(b) {
       return [['electricity', 'Electricity'], ['water', 'Water'], ['sewerage', 'Sewerage']].filter(([k]) => Number(b[k]) > 0).map(([k, label]) => {

@@ -19,10 +19,12 @@
     </div>
 
 
-    <section class="kpis">
+    <section class="kpis kpis-5">
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ inView.length }}</div><div class="hint">Made from Tenant leads</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term tenants</div><div class="value">{{ inView.filter(x => x.longTerm).length }}</div><div class="hint">30 nights or more</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short stays</div><div class="value">{{ inView.filter(x => !x.longTerm).length }}</div><div class="hint">29 nights or less</div></button>
+      <!-- 19 Nov 2026 (Khairul): three lease terms by nights (lib/lease-term.js) -->
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term lease</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'long').length }}</div><div class="hint">365 nights or more</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'monthly' }" @click="bookingKind = 'monthly'; toList()"><div class="label">Monthly term lease</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'monthly').length }}</div><div class="hint">30 to 364 nights</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short term</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'short').length }}</div><div class="hint">29 nights or less</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: notInEzee }">{{ notInEzee }}</div><div class="hint">No eZee reservation no. linked</div></button>
     </section>
     <section class="card">
@@ -61,7 +63,7 @@
               <span class="pill amber" v-else-if="row.status === 'pending'" title="Saved before payment; open it to download the invoice or finish it">Awaiting payment</span>
               <span class="pill amber" v-else-if="!row.ezeeReservationNo" title="No eZee reservation no. linked">Not in eZee</span></div>
             <div class="bk-stay"><span class="bk-k">Stay</span>{{ `${niceDate(row.arrival) || '—'} to ${niceDate(row.departure) || '—'}` }}</div>
-            <div class="bk-meta">{{ [row.longTerm ? 'Long-term lease' : 'Short stay', nights(row) ? `${nights(row)} ${nights(row) === 1 ? 'night' : 'nights'}` : '', row.ezeeReservationNo ? `eZee ${row.ezeeReservationNo}` : ''].filter(Boolean).join(' · ') }}</div>
+            <div class="bk-meta">{{ [leaseLabel(bookingNights(row)), nights(row) ? `${nights(row)} ${nights(row) === 1 ? 'night' : 'nights'}` : '', row.ezeeReservationNo ? `eZee ${row.ezeeReservationNo}` : ''].filter(Boolean).join(' · ') }}</div>
           </div>
           <div class="bk-side" v-if="acc.bkView">
             <b class="bk-amt">{{ row.longTerm ? `RM ${amt(row.monthlyRent)}` : (paidOf(row) === '—' ? '—' : `RM ${paidOf(row)}`) }}<small>{{ row.longTerm ? ' /month' : ' paid' }}</small></b>
@@ -83,7 +85,7 @@
                 <td class="nw">{{ guestName(row) }}</td>
                 <td class="nw">{{ dmy(row.arrival) }}</td>
                 <td class="nw">{{ dmy(row.departure) }}</td>
-                <td class="nw">{{ row.longTerm ? 'Long-term lease' : 'Short stay' }} <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span><span class="pill amber" v-else-if="row.status === 'pending'">Awaiting payment</span></td>
+                <td class="nw">{{ leaseLabel(bookingNights(row)) }} <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span><span class="pill amber" v-else-if="row.status === 'pending'">Awaiting payment</span></td>
                 <td class="num nw" v-if="acc.bkView">{{ row.longTerm ? `${amt(row.monthlyRent)} /M` : paidOf(row) }}</td>
                 <td v-if="acc.bkView"><div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length || wholeYear ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template><span class="muted" v-if="!payMonths.some(m => monthStatus(row, m))">—</span></div></td>
                 <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
@@ -102,6 +104,7 @@
 </template>
 
 <script>
+import { leaseLabel, leaseTerm, bookingNights } from '@/lib/lease-term.js';
 // Portfolio › Bookings: offline bookings (stays made outside eZee), for every property or the one picked, with
 // the month payment status of each and the booking drawer.
 const yearOf = m => Array.from({ length: 12 }, (_, i) => `${m.slice(0, 4)}-${String(i + 1).padStart(2, '0')}`);
@@ -170,7 +173,7 @@ export default {
       const q = this.search.trim().toLowerCase();
       const k = this.bookingKind;
       const list = k === 'cancelled' ? this.bookings.filter(x => x.status === 'cancelled') : this.active;
-      return list.filter(x => (q || this.inPicked(x)) && (k === 'all' || k === 'cancelled' || (k === 'long' && x.longTerm) || (k === 'short' && !x.longTerm) || (k === 'noEzee' && !x.ezeeReservationNo && x.status !== 'pending') || (k === 'pending' && x.status === 'pending'))
+      return list.filter(x => (q || this.inPicked(x)) && (k === 'all' || k === 'cancelled' || (['long', 'monthly', 'short'].includes(k) && this.termOfRow(x) === k) || (k === 'noEzee' && !x.ezeeReservationNo && x.status !== 'pending') || (k === 'pending' && x.status === 'pending'))
         && (!q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo, this.names[x.id]].some(v => (v || '').toLowerCase().includes(q))));
     }
   },
@@ -190,6 +193,8 @@ export default {
   },
   mounted() { this.go(); },
   methods: {
+    leaseLabel, bookingNights,
+    termOfRow(x) { return leaseTerm(bookingNights(x)); },
     amt, dmy,
     setView(v) { this.view = v; try { localStorage.setItem(VIEW_KEY, v); } catch { /* not remembered */ } },
     niceDate(d) { if (!d) return ''; const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']; return `${+d.slice(8, 10)} ${M[+d.slice(5, 7) - 1] || ''} ${d.slice(0, 4)}`; },
@@ -264,7 +269,7 @@ export default {
     stays(b, m) { return (b.arrival || '') <= m + '-31' && (b.departure || '9999') >= m + '-01'; },
     // 'Nov' when one month is shown, 'Nov 26' once the picked months span years
     payTag(m) { const y = new Set(this.payMonths.map(x => x.slice(0, 4))).size > 1; return y ? `${shortName(m).split(' ')[0]} ${m.slice(2, 4)}` : shortName(m).split(' ')[0]; },
-    // Paid, part paid or unpaid for one month. Long-term: that month's rent against payments dated in the month.
+    // Paid, part paid or unpaid for one month. Long-term: that month's rent against the Checked payments for that month.
     // Short stay: the whole rental against everything paid. null = not in that month, or no access to payments.
     monthStatus(b, m) {
       if (!this.pays || !this.stays(b, m)) return null;
@@ -272,10 +277,10 @@ export default {
       if (due > 0) return paid >= due - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid';
       return paid > 0 ? 'paid' : 'unpaid';
     },
-    paidIn(b, m) { const list = this.pays?.[b.id] || []; return (b.longTerm ? list.filter(x => (x.date || '').slice(0, 7) === m) : list).reduce((s, x) => s + x.amount, 0); },
+    paidIn(b, m) { const list = this.pays?.[b.id] || []; return (b.longTerm ? list.filter(x => x.month === m) : list).reduce((s, x) => s + x.amount, 0); },   // Checked only, by For month
     monthPayTip(b, m) {
       const due = b.longTerm ? Number(b.monthlyRent) || 0 : Number(b.rental) || 0;
-      return `${monthName(m)}: paid RM ${amt(this.paidIn(b, m))}${due > 0 ? ` of RM ${amt(due)}` : ''}${b.longTerm ? ' (payments dated in this month)' : ''}`;
+      return `${monthName(m)}: paid RM ${amt(this.paidIn(b, m))}${due > 0 ? ` of RM ${amt(due)}` : ''}${b.longTerm ? ' (Checked payments for this month)' : ''}`;
     },
     inPicked(x) {
       const sel = this.selMonths;
@@ -300,6 +305,9 @@ export default {
 </script>
 
 <style scoped>
+.kpis-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }   /* 19 Nov 2026: five cards (three lease terms) */
+@media (max-width: 1000px) { .kpis-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .kpis-5 { grid-template-columns: minmax(0, 1fr); } }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .view-seg { margin: 0; width: 180px; }
 .bk-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }

@@ -1,6 +1,7 @@
 // Portfolio (Owners, Properties, Bookings): every Firestore read and write the Portfolio pages make, plus the
 // constants and small helpers they share. The pages and drawers keep only screen logic and form checks.
 // Moved out of the old single pages/Portfolio/Portfolio.vue on 4 Nov 2026; the reads and writes are unchanged.
+import { payCounts, payMonth } from '@/lib/booking-pay.js';
 import { markRaw } from 'vue';
 import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, arrayRemove, serverTimestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
@@ -309,6 +310,14 @@ export async function hasRefs(list, id) {
 // ---------- offline bookings (made from Offline inquiries, the Booking Form or the Willow upload) ----------
 // Kept in offlineBookings, never in bookings, so month-end (which pays from eZee) can't count them.
 // What was paid comes from Accounting's Offline Payments only; without access to them paid / pays are null.
+// 19 Nov 2026 (Khairul): only Checked payments count as paid; a long-term month is the payment's For month (lib/booking-pay.js).
+// A booking with linked payments none of which is Checked yet shows 0 paid (not the older booking amount).
+function addPay(paid, pays, x) {
+  if (!x.bookingId) return;
+  const amt = payCounts(x) ? Number(x.amount) || 0 : 0;
+  paid[x.bookingId] = (paid[x.bookingId] || 0) + amt;
+  if (amt) (pays[x.bookingId] ||= []).push({ date: x.date || '', month: payMonth(x), amount: amt });
+}
 export async function loadOfflineBookings(propertyId) {
   const col = collection(db, 'offlineBookings');
   const snap = await getScoped(propertyId === 'all' ? scoped(query(col, orderBy('createdAt', 'desc'), limit(300)))
@@ -322,7 +331,7 @@ export async function loadOfflineBookings(propertyId) {
     const ps = await getScoped(propertyId === 'all' ? scopedOrBlank(query(pc, orderBy('createdAt', 'desc'), limit(500))) : query(pc, where('propertyId', '==', propertyId), limit(500)),
       propertyId === 'all' ? { order: ['createdAt', 'desc'], limit: 500 } : {});
     paid = {}; pays = {};
-    ps.docs.forEach(d => { const x = d.data(); if (x.bookingId) { paid[x.bookingId] = (paid[x.bookingId] || 0) + (Number(x.amount) || 0); (pays[x.bookingId] ||= []).push({ date: x.date || '', amount: Number(x.amount) || 0 }); } });
+    ps.docs.forEach(d => addPay(paid, pays, d.data()));
   } catch (e) { paid = null; pays = null; /* no access to payments: the amount shows a dash */ }
   return { bookings, paid, pays };
 }
@@ -338,7 +347,7 @@ export function watchOfflineBookings(propertyId, onData, onError) {
     }, { onError }),
     listen(query(collection(db, 'offlinePayments'), where('propertyId', '==', propertyId), limit(500)), rows => {
       paid = {}; pays = {};
-      rows.forEach(x => { if (x.bookingId) { paid[x.bookingId] = (paid[x.bookingId] || 0) + (Number(x.amount) || 0); (pays[x.bookingId] ||= []).push({ date: x.date || '', amount: Number(x.amount) || 0 }); } });
+      rows.forEach(x => addPay(paid, pays, x));
       payReady = true; push();
     }, { onError: () => { paid = null; pays = null; payReady = true; push(); } })   // no access to payments: the amount shows a dash
   ];
