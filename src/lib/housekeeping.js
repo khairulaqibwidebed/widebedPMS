@@ -8,6 +8,9 @@
 //   pairs = { [evaluatorUid]: [evaluateeUid, ...] }
 // A pair where either person is a housekeeper is allowed only when HR listed it there. Everyone else rates everyone else
 // as before. firestore.rules (Draft 0.78, hkPairOk) checks the same thing.
+// 19 Nov 2026 (Draft 0.92): three groups work this way (COH Evaluations > Assigned raters): Interns (users/{uid}.intern,
+// ticked on HR details), Housekeeping (role) and General (cohAssignments/{quarterId}.general, people HR adds by hand).
+// `special(uid)` says whether someone is an intern or in General; housekeepers are found by role as before.
 
 export const HK_ROLE = 'housekeeping';
 export const HK_DOMAIN = 'housekeeping.widebed.com';
@@ -30,24 +33,27 @@ export const passwordProblem = pw => {
 
 // ---------- COH pairs (pure; tested in lib/__tests__/housekeeping.test.js) ----------
 const isHk = role => role === HK_ROLE;
-// May `evaluator` rate `evaluatee`? roleOf: uid -> role. pairs: { evaluatorUid: [evaluateeUid] }.
-export function canRate(evaluator, evaluatee, roleOf, pairs = {}) {
+const none = () => false;
+// Is `uid` rated only by assigned people? (a housekeeper, an intern or someone in General)
+export const assigned = (uid, roleOf, special = none) => isHk(roleOf(uid)) || !!special(uid);
+// May `evaluator` rate `evaluatee`? roleOf: uid -> role. pairs: { evaluatorUid: [evaluateeUid] }. special: see above.
+export function canRate(evaluator, evaluatee, roleOf, pairs = {}, special = none) {
   if (!evaluator || !evaluatee || evaluator === evaluatee) return false;
-  if (!isHk(roleOf(evaluator)) && !isHk(roleOf(evaluatee))) return true;
+  if (!assigned(evaluator, roleOf, special) && !assigned(evaluatee, roleOf, special)) return true;
   return (pairs[evaluator] || []).includes(evaluatee);
 }
 // The people `uid` should rate, from the quarter's active participant uids
-export const rateesOf = (uid, uids, roleOf, pairs) => uids.filter(x => canRate(uid, x, roleOf, pairs));
+export const rateesOf = (uid, uids, roleOf, pairs, special) => uids.filter(x => canRate(uid, x, roleOf, pairs, special));
 // The people who should rate `uid`
-export const ratersOf = (uid, uids, roleOf, pairs) => uids.filter(x => canRate(x, uid, roleOf, pairs));
+export const ratersOf = (uid, uids, roleOf, pairs, special) => uids.filter(x => canRate(x, uid, roleOf, pairs, special));
 
 // Tidy pairs before saving: only pairs that involve a housekeeper (others need no listing), no self-pairs, no repeats,
 // only people who are in the list `uids`, sorted, and no empty entries.
-export function cleanPairs(pairs, uids, roleOf) {
+export function cleanPairs(pairs, uids, roleOf, special = none) {
   const inQ = new Set(uids), out = {};
   for (const [a, list] of Object.entries(pairs || {})) {
     if (!inQ.has(a)) continue;
-    const keep = [...new Set(list || [])].filter(b => inQ.has(b) && b !== a && (isHk(roleOf(a)) || isHk(roleOf(b)))).sort();
+    const keep = [...new Set(list || [])].filter(b => inQ.has(b) && b !== a && (assigned(a, roleOf, special) || assigned(b, roleOf, special))).sort();
     if (keep.length) out[a] = keep;
   }
   return out;

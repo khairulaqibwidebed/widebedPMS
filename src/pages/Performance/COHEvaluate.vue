@@ -5,8 +5,9 @@
     <div class="pills" role="group" style="margin-bottom:12px;" v-if="canManageQuestions">
       <button class="pill-btn" :class="{ on: tab === 'evaluate' }" @click="tab = 'evaluate'">Evaluate</button>
       <button class="pill-btn" :class="{ on: tab === 'monitor' }" @click="tab = 'monitor'">Team overview</button>
+      <button class="pill-btn" :class="{ on: tab === 'all' }" @click="tab = 'all'">All evaluations</button>
       <button class="pill-btn" :class="{ on: tab === 'questions' }" @click="tab = 'questions'">Manage questions</button>
-      <button class="pill-btn" :class="{ on: tab === 'housekeeping' }" @click="tab = 'housekeeping'">Housekeeping</button>
+      <button class="pill-btn" :class="{ on: tab === 'housekeeping' }" @click="tab = 'housekeeping'">Assigned raters</button>
     </div>
 
 
@@ -190,6 +191,11 @@
       </div>
     </template>
 
+    <!-- 19 Nov 2026 (Khairul): who rated who and each mark, any quarter, for data cleaning -->
+    <template v-else-if="tab === 'all' && canManageQuestions">
+      <CohAllEvaluations :quarters="quartersAll" :start-id="quarter ? quarter.id : ''" />
+    </template>
+
     <template v-else-if="tab === 'monitor' && canManageQuestions">
       <div class="card">
         <h3 style="margin-top:0;">Team COH overview — {{ quarter ? quarter.name : 'no evaluation period open' }}</h3>
@@ -290,12 +296,13 @@
       </div>
     </template>
 
-    <!-- Housekeeping (17 Nov 2026): HR picks who rates each housekeeper, and whom each housekeeper rates. Nobody else
-         rates a housekeeper, and a housekeeper rates nobody else (firestore.rules checks the same pairs). -->
+    <!-- Assigned raters (17 Nov 2026 Housekeeping; 19 Nov 2026 three groups: Interns, Housekeeping, General). HR picks who
+         rates each person in a group, and whom they rate. Nobody else rates them, and they rate nobody else
+         (firestore.rules hkPairOk checks the same pairs, Draft 0.92). -->
     <template v-else-if="tab === 'housekeeping' && canManageQuestions">
       <div class="card" style="margin-bottom:16px;">
-        <h3 style="margin-top:0;">Housekeeping raters</h3>
-        <p class="sub" style="margin:0 0 12px;">Housekeepers use the same questions as everyone else. Only the people you pick here rate a housekeeper, and a housekeeper rates only the people you pick for them. Other staff don't see housekeepers on their list.</p>
+        <h3 style="margin-top:0;">Assigned raters</h3>
+        <p class="sub" style="margin:0 0 12px;">Interns, housekeepers and anyone in General use the same questions as everyone else. Only the people you pick here rate them, and they rate only the people you pick for them. Other staff don't see them on their list.</p>
         <div class="coh-q-bar">
           <label for="hkQuarter">Quarter</label>
           <select id="hkQuarter" class="select" v-model="hk.quarterId" :disabled="hk.saving">
@@ -303,22 +310,37 @@
           </select>
           <span class="pill amber" v-if="hk.dirty">Not saved yet</span>
           <span class="push"></span>
-          <button class="btn" :disabled="hk.saving || hk.loading || !hkRows.length || !hkBosses.length" @click="hkAddBosses"
-            :title="'Adds ' + hkBosses.map(p => p.name).join(', ') + ' to every housekeeper\'s raters'">Directors and HR rate every housekeeper</button>
           <button class="btn btn-primary" :disabled="hk.saving || !hk.dirty" @click="hkSave">{{ hk.saving ? 'Saving…' : 'Save' }}</button>
         </div>
         <div class="notice error" v-if="hk.error">{{ hk.error }}</div>
         <div class="notice ok" v-if="hk.ok">{{ hk.ok }}</div>
       </div>
 
-      <div class="card">
-        <div class="table-wrap" v-if="hkRows.length">
+      <p class="muted" v-if="hk.loading">Loading…</p>
+      <template v-else><div class="card" style="margin-bottom:16px;" v-for="sec in hkSections" :key="sec.key">
+        <div class="coh-q-bar" style="margin-bottom:8px;">
+          <h3 style="margin:0;">{{ sec.title }} <small class="hk-count" style="display:inline;">{{ sec.rows.length }}</small></h3>
+          <span class="push"></span>
+          <!-- General: HR adds people by hand (not interns or housekeepers, who have their own groups) -->
+          <template v-if="sec.key === 'general'">
+            <label class="sr-only" for="hkGenAdd">Add a person to General</label>
+            <select id="hkGenAdd" class="select" :disabled="hk.saving || !hkGeneralLeft.length" @change="hkAddGeneral($event)">
+              <option value="">{{ hkGeneralLeft.length ? '+ Add a person to General' : 'Everyone added' }}</option>
+              <option v-for="p in hkGeneralLeft" :key="p.uid" :value="p.uid">{{ p.name }}</option>
+            </select>
+          </template>
+          <button class="btn" :disabled="hk.saving || !sec.rows.length || !hkBosses.length" @click="hkAddBosses(sec.rows)"
+            :title="'Adds ' + hkBosses.map(p => p.name).join(', ') + ' to the raters of everyone in ' + sec.title">Directors and HR rate everyone here</button>
+        </div>
+        <p class="sub" style="margin:0 0 12px;">{{ sec.hint }}</p>
+        <div class="table-wrap" v-if="sec.rows.length">
           <table class="table hk-table">
             <colgroup><col style="width:22%"><col><col></colgroup>
-            <thead><tr><th>Housekeeper</th><th>Rated by</th><th>Rates</th></tr></thead>
+            <thead><tr><th>{{ sec.who }}</th><th>Rated by</th><th>Rates</th></tr></thead>
             <tbody>
-              <tr v-for="r in hkRows" :key="r.uid">
-                <td><b>{{ r.name }}</b><small class="hk-count">{{ r.ratedBy.length }} rater{{ r.ratedBy.length === 1 ? '' : 's' }} · rates {{ r.rates.length }}</small></td>
+              <tr v-for="r in sec.rows" :key="r.uid">
+                <td><b>{{ r.name }}</b><small class="hk-count">{{ r.ratedBy.length }} rater{{ r.ratedBy.length === 1 ? '' : 's' }} · rates {{ r.rates.length }}</small>
+                  <button v-if="sec.key === 'general'" type="button" class="link-btn" :disabled="hk.saving" @click="hkRemoveGeneral(r.uid)">Remove from General</button></td>
                 <td><PeoplePicker compact :model-value="r.ratedBy" :staff="hkPeople.filter(p => p.uid !== r.uid)" :disabled="hk.saving" :label="'Add someone who rates ' + r.name"
                   @update:model-value="list => hkSetRatedBy(r.uid, list)" /></td>
                 <td><PeoplePicker compact :model-value="r.rates" :staff="hkPeople.filter(p => p.uid !== r.uid)" :disabled="hk.saving" :label="'Add someone ' + r.name + ' rates'"
@@ -327,10 +349,9 @@
             </tbody>
           </table>
         </div>
-        <p class="muted" v-else-if="hk.loading">Loading…</p>
-        <p class="muted" v-else>No housekeepers in this quarter. Add them as participants on Quarterly Management first (their role must be Housekeeping on Staff accounts).</p>
-        <p class="note">Only people taking part in this quarter can be picked. A housekeeper with nobody under "Rated by" gets no COH marks.</p>
-      </div>
+        <p class="muted" v-else>{{ sec.empty }}</p>
+      </div></template>
+      <p class="note" v-if="!hk.loading">Only people taking part in this quarter can be picked. Someone in a group with nobody under "Rated by" gets no COH marks.</p>
     </template>
   </main>
 </template>
@@ -339,6 +360,7 @@
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue';
 import RatingPicker from '@/components/RatingPicker.vue';
 import FormField from '@/components/FormField.vue';
+import CohAllEvaluations from '@/components/CohAllEvaluations.vue';
 import { NAV_ICONS } from '@/components/NavIcons.js';
 import { useSession } from '@/stores/session.js';
 import { listQuarters, listParticipants } from '@/lib/performance/quarters.js';
@@ -350,6 +372,7 @@ import {
 import { nextOrder } from '@/lib/performance/cohQuestions.js';
 import PeoplePicker from '@/components/agreements/PeoplePicker.vue';
 import { HK_ROLE, ratersOf, ratedByList, ratesList, setRatedBy, setRates } from '@/lib/housekeeping.js';
+import { ROLE_LABEL } from '@/lib/firebase.js';
 import { dropIndex, moveTo } from '@/lib/agreements/fields.js';
 import { startDragScroll } from '@/lib/agreements/drag-scroll.js';
 
@@ -464,15 +487,15 @@ const notYetEvaluatedMeCount = computed(() => Math.max(0, myRaterCount.value - e
 // ---- Director/HR: team overview (every employee's received-evaluation count and average, not just your own) ----
 const monitorParticipants = ref([]);
 const allEvaluations = ref([]);
-const rateRules = ref({ roleOf: () => '', pairs: {} });
+const rateRules = ref({ roleOf: () => '', special: () => false, pairs: {} });
 const monitorRows = computed(() => {
-  const uids = monitorParticipants.value.map(p => p.employeeId), { roleOf, pairs } = rateRules.value;
+  const uids = monitorParticipants.value.map(p => p.employeeId), { roleOf, pairs, special } = rateRules.value;
   return monitorParticipants.value.map(p => {
     const theirs = allEvaluations.value.filter(e => e.evaluateeId === p.employeeId && (e.status === 'submitted' || e.status === 'approved'));
     return {
       employeeId: p.employeeId, employeeName: p.employeeName,
       evaluatedBy: theirs.length,
-      notYet: Math.max(0, ratersOf(p.employeeId, uids, roleOf, pairs).length - theirs.length),
+      notYet: Math.max(0, ratersOf(p.employeeId, uids, roleOf, pairs, special).length - theirs.length),
       average: theirs.length ? Math.round((theirs.reduce((s, e) => s + e.averageRating, 0) / theirs.length) * 100) / 100 : null
     };
   }).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
@@ -529,7 +552,7 @@ async function load() {
     const [parts, rules] = await Promise.all([listParticipants(quarter.value.id), loadRatingRules(quarter.value.id)]);
     const activeParts = parts.filter(p => p.participationStatus === 'active');
     rateRules.value = rules;
-    myRaterCount.value = ratersOf(session.user.uid, activeParts.map(p => p.employeeId), rules.roleOf, rules.pairs).length;
+    myRaterCount.value = ratersOf(session.user.uid, activeParts.map(p => p.employeeId), rules.roleOf, rules.pairs, rules.special).length;
     if (canManageQuestions.value) {
       monitorParticipants.value = activeParts;
       allEvaluations.value = await listAllForQuarter(quarter.value.id);
@@ -544,14 +567,33 @@ async function load() {
 }
 onMounted(load);
 
-// ---- Housekeeping raters (17 Nov 2026), HR and Directors ----
-const hk = reactive({ quarterId: '', parts: [], roleOf: () => '', pairs: {}, dirty: false, loading: false, saving: false, error: '', ok: '' });
+// ---- Assigned raters (17 Nov 2026 Housekeeping; 19 Nov 2026 Interns, Housekeeping, General), HR and Directors ----
+const hk = reactive({ quarterId: '', parts: [], roleOf: () => '', isIntern: () => false, general: [], pairs: {}, dirty: false, loading: false, saving: false, error: '', ok: '' });
 const hkPeople = computed(() => hk.parts.map(p => ({ uid: p.employeeId, name: p.employeeName || 'Staff', role: hk.roleOf(p.employeeId) || p.role || '' })));
 const nameOfUid = uid => hkPeople.value.find(p => p.uid === uid)?.name || 'Staff';
 const asPeople = uids => uids.map(uid => ({ uid, name: nameOfUid(uid) }));
-const hkRows = computed(() => hkPeople.value.filter(p => p.role === HK_ROLE)
+// One group each: housekeepers by role, interns by the HR details tick, General by hand (a person can't be in two)
+const hkGroupOf = p => p.role === HK_ROLE ? 'housekeeping' : hk.isIntern(p.uid) ? 'intern' : hk.general.includes(p.uid) ? 'general' : '';
+const hkRowsOf = key => hkPeople.value.filter(p => hkGroupOf(p) === key)
   .map(p => ({ uid: p.uid, name: p.name, ratedBy: asPeople(ratedByList(p.uid, hk.pairs)), rates: asPeople(ratesList(p.uid, hk.pairs)) }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+const hkSections = computed(() => [
+  { key: 'intern', title: 'Interns', who: 'Intern', rows: hkRowsOf('intern'),
+    hint: 'Added on their own: anyone ticked Intern on Staff accounts > HR details who takes part in this quarter.',
+    empty: 'No interns in this quarter. Tick Intern on Staff accounts > HR details, and add them as participants on Quarterly Management.' },
+  { key: 'housekeeping', title: 'Housekeeping', who: 'Housekeeper', rows: hkRowsOf('housekeeping'),
+    hint: 'Added on their own: anyone whose role is Housekeeping on Staff accounts who takes part in this quarter.',
+    empty: 'No housekeepers in this quarter. Add them as participants on Quarterly Management first (their role must be Housekeeping on Staff accounts).' },
+  { key: 'general', title: 'General', who: 'Person', rows: hkRowsOf('general'),
+    hint: 'Anyone else whose raters you want to pick by hand. Once added, only the people you pick rate them.',
+    empty: 'Nobody in General. Use "+ Add a person to General".' }
+]);
+// Who can still go into General: participants not already in a group
+const hkGeneralLeft = computed(() => hkPeople.value.filter(p => !hkGroupOf(p)).map(p => ({ ...p, name: `${p.name} (${ROLE_LABEL[p.role] || p.role || 'Staff'})` }))
   .sort((a, b) => a.name.localeCompare(b.name)));
+function hkAddGeneral(e) { const uid = e.target.value; e.target.value = ''; if (!uid) return; hk.general = [...hk.general, uid]; hk.dirty = true; hk.ok = ''; }
+// Their pairs with people outside the groups are dropped when you save (everyone rates them as usual again)
+function hkRemoveGeneral(uid) { hk.general = hk.general.filter(u => u !== uid); hk.dirty = true; hk.ok = ''; }
 // Directors and HR taking part in the quarter
 const hkBosses = computed(() => hkPeople.value.filter(p => p.role === 'director' || p.role === 'hr'));
 async function hkLoad() {
@@ -562,7 +604,7 @@ async function hkLoad() {
     const [parts, rules] = await Promise.all([listParticipants(id), loadRatingRules(id)]);
     if (id !== hk.quarterId) return;
     hk.parts = parts.filter(p => p.participationStatus === 'active');
-    hk.roleOf = rules.roleOf; hk.pairs = rules.pairs;
+    hk.roleOf = rules.roleOf; hk.isIntern = rules.isIntern; hk.general = [...rules.general]; hk.pairs = rules.pairs;
   } catch (e) { hk.error = e.message; }
   hk.loading = false;
 }
@@ -570,17 +612,18 @@ watch(() => hk.quarterId, hkLoad);
 watch(tab, t => { if (t === 'housekeeping' && !hk.quarterId) hk.quarterId = (quarter.value || quartersAll.value[0])?.id || ''; });
 function hkSetRatedBy(uid, list) { hk.pairs = setRatedBy(hk.pairs, uid, list.map(p => p.uid)); hk.dirty = true; hk.ok = ''; }
 function hkSetRates(uid, list) { hk.pairs = setRates(hk.pairs, uid, list.map(p => p.uid)); hk.dirty = true; hk.ok = ''; }
-function hkAddBosses() {
-  for (const r of hkRows.value) hk.pairs = setRatedBy(hk.pairs, r.uid, [...new Set([...r.ratedBy.map(p => p.uid), ...hkBosses.value.map(p => p.uid)])]);
+function hkAddBosses(rows) {
+  for (const r of rows) hk.pairs = setRatedBy(hk.pairs, r.uid, [...new Set([...r.ratedBy.map(p => p.uid), ...hkBosses.value.map(p => p.uid)])]);
   hk.dirty = true; hk.ok = '';
 }
 async function hkSave() {
   hk.saving = true; hk.error = ''; hk.ok = '';
   try {
-    hk.pairs = await savePairs(hk.quarterId, hk.pairs, hk.parts.map(p => p.employeeId), hk.roleOf);
+    const saved = await savePairs(hk.quarterId, hk.pairs, hk.parts.map(p => p.employeeId), hk.roleOf, hk.isIntern, hk.general);
+    hk.pairs = saved.pairs; hk.general = saved.general;
     hk.dirty = false; hk.ok = 'Saved. Each person sees the change the next time they open COH Evaluations.';
     if (quarter.value?.id === hk.quarterId) load();   // the overview and your own list follow the new pairs
-  } catch (e) { hk.error = e.code === 'permission-denied' ? 'Firestore refused the save. Publish security rules Draft 0.78 first.' : e.message; }
+  } catch (e) { hk.error = e.code === 'permission-denied' ? 'Firestore refused the save. Publish security rules Draft 0.92 first.' : e.message; }
   hk.saving = false;
 }
 
@@ -766,6 +809,7 @@ tr.coh-after td { box-shadow: inset 0 -3px 0 var(--accent); }
 .coh-del .muted { margin-right: 6px; font-size: 12px; }
 /* Follows the account's selected theme (Settings > Appearance) throughout — var(--bg)/var(--surface)/
    var(--accent) etc. already flip for light/dark mode and brand colour, so nothing here is a fixed palette. */
+.hk-table .link-btn { display: block; background: none; border: 0; padding: 0; margin-top: 4px; font: inherit; font-size: 12px; color: var(--danger); cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .coh-panel { position: relative; }
 .coh-muted { color: var(--muted); }

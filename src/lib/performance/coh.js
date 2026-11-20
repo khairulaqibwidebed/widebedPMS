@@ -22,7 +22,7 @@ import { useSession } from '@/stores/session.js';
 import { notifyUser } from '@/services/notificationService.js';
 import { listParticipants } from './quarters.js';
 import { cohScoreFromRatings } from './calc.js';
-import { canRate, cleanPairs } from '@/lib/housekeeping.js';
+import { canRate, cleanPairs, HK_ROLE } from '@/lib/housekeeping.js';
 
 const me = () => useSession();
 const rows = snap => snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -111,34 +111,44 @@ export async function deleteQuestion(id, title = '') {
 
 // ---- Housekeeping pairs (17 Nov 2026, lib/housekeeping.js) ----
 // cohAssignments/{quarterId} { pairs: { evaluatorUid: [evaluateeUid] }, updatedBy, updatedByName, updatedAt }
-// Each person's current role, from the staff list (the rules read the same users/{uid}.role).
-export async function loadRoles() {
+// 19 Nov 2026: + general: [uid] (General group, Draft 0.92). Interns come from users/{uid}.intern (HR details tick).
+// Each person's current role and intern tick, from the staff list (the rules read the same users/{uid} fields).
+export async function loadStaffFlags() {
   const snap = await getDocs(collection(db, 'users'));
-  return Object.fromEntries(snap.docs.map(d => [d.id, d.data().role || '']));   // as the rules read it (switched off or not)
+  const roles = {}, interns = new Set();
+  for (const d of snap.docs) { roles[d.id] = d.data().role || ''; if (d.data().intern === true) interns.add(d.id); }   // as the rules read it
+  return { roles, interns };
 }
-export async function loadPairs(quarterId) {
-  try { const d = await one(doc(db, 'cohAssignments', quarterId)); return d?.pairs && typeof d.pairs === 'object' ? d.pairs : {}; }
-  catch (e) { console.warn('cohAssignments', e.code || e.message); return {}; }   // rules not published yet: no pairs
+export async function loadRoles() { return (await loadStaffFlags()).roles; }
+export async function loadAssignment(quarterId) {
+  try {
+    const d = await one(doc(db, 'cohAssignments', quarterId));
+    return { pairs: d?.pairs && typeof d.pairs === 'object' ? d.pairs : {}, general: Array.isArray(d?.general) ? d.general : [] };
+  } catch (e) { console.warn('cohAssignments', e.code || e.message); return { pairs: {}, general: [] }; }   // rules not published yet
 }
-// The quarter's rating rules in one go: roleOf(uid) and pairs.
+export async function loadPairs(quarterId) { return (await loadAssignment(quarterId)).pairs; }
+// The quarter's rating rules in one go: roleOf(uid), isIntern(uid), general, special(uid) (intern or General) and pairs.
 export async function loadRatingRules(quarterId) {
-  const [roles, pairs] = await Promise.all([loadRoles(), loadPairs(quarterId)]);
-  return { roleOf: uid => roles[uid] || '', pairs };
+  const [{ roles, interns }, { pairs, general }] = await Promise.all([loadStaffFlags(), loadAssignment(quarterId)]);
+  const isIntern = uid => interns.has(uid);
+  return { roleOf: uid => roles[uid] || '', isIntern, general, special: uid => isIntern(uid) || general.includes(uid), pairs };
 }
-export async function savePairs(quarterId, pairs, uids, roleOf) {
-  const s = me();
-  const clean = cleanPairs(pairs, uids, roleOf);
-  await setDoc(doc(db, 'cohAssignments', quarterId), { pairs: clean, updatedBy: s.user.uid, updatedByName: s.name, updatedAt: serverTimestamp() });
+// Saves the pairs and the General list. General keeps only quarter participants who are not interns or housekeepers.
+export async function savePairs(quarterId, pairs, uids, roleOf, isIntern = () => false, general = []) {
+  const s = me(), inQ = new Set(uids);
+  const gen = [...new Set(general)].filter(u => inQ.has(u) && !isIntern(u) && roleOf(u) !== HK_ROLE).sort();
+  const clean = cleanPairs(pairs, uids, roleOf, u => isIntern(u) || gen.includes(u));
+  await setDoc(doc(db, 'cohAssignments', quarterId), { pairs: clean, general: gen, updatedBy: s.user.uid, updatedByName: s.name, updatedAt: serverTimestamp() });
   const n = Object.values(clean).reduce((a, l) => a + l.length, 0);
-  audit('performance.coh.housekeeping.pairs', `cohAssignments/${quarterId}`, `${n} housekeeping rating pair(s)`);
-  return clean;
+  audit('performance.coh.housekeeping.pairs', `cohAssignments/${quarterId}`, `${n} assigned rating pair(s), ${gen.length} in General`);
+  return { pairs: clean, general: gen };
 }
 
 // ---- Eligibility: active participants in the quarter, minus myself ----
 // 17 Nov 2026: a housekeeper only rates, and is only rated by, the people HR paired them with (canRate).
 export async function listEvaluatees(quarterId, myUid, rules = null) {
   const [parts, r] = await Promise.all([listParticipants(quarterId), rules || loadRatingRules(quarterId)]);
-  return parts.filter(p => p.participationStatus === 'active' && p.employeeId !== myUid && canRate(myUid, p.employeeId, r.roleOf, r.pairs));
+  return parts.filter(p => p.participationStatus === 'active' && p.employeeId !== myUid && canRate(myUid, p.employeeId, r.roleOf, r.pairs, r.special));
 }
 
 const evalId = (quarterId, evaluatorUid, evaluateeUid) => `${quarterId}_${evaluatorUid}_${evaluateeUid}`;
