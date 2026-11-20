@@ -1,0 +1,1 @@
+var e=null;function t(t){e={...t,at:Date.now()}}function n(){return e&&Date.now()-e.at>6e5&&(e=null),e}function r(){let t=n();return e=null,t}export{n,r,t};

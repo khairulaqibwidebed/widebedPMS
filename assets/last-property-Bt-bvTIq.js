@@ -1,0 +1,1 @@
+var e=`wb.property`,t=`wb.property.one`;function n(n=!1){try{return(n?localStorage.getItem(e):localStorage.getItem(t))||``}catch{return``}}function r(n){if(n&&!n.startsWith(`__`))try{localStorage.setItem(e,n),n!==`all`&&localStorage.setItem(t,n)}catch{}}export{r as n,n as t};
