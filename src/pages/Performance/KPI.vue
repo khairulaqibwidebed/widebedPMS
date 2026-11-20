@@ -204,7 +204,7 @@
 
     <!-- One employee's assigned KPIs: view, add, edit -->
     <div class="modal-back" v-if="employeeKpis" @click.self="employeeKpis = null">
-      <div class="modal" style="max-width: 680px;">
+      <div class="modal" style="width: min(1000px, 96vw); max-width: 1000px;">
         <h2>{{ employeeKpis.employeeName }}'s KPIs</h2>
         <div class="notice warn" v-if="error" style="margin-bottom:10px;">{{ error }}</div>
         <div class="table-wrap">
@@ -221,10 +221,12 @@
                   <td>{{ taskScoreText(a) }}</td>
                   <td><span class="kpi-status-badge" :class="simpleStatusClass(subOf(a.id)?.status)">{{ simpleStatus(subOf(a.id)?.status) }}</span></td>
                 </template>
-                <td style="display:flex; gap:6px;">
-                  <button class="act-pill" @click="startEdit(a)">Edit</button>
-                  <button class="act-pill act-danger" :disabled="saving" @click="removeAssignment(a)">Delete</button>
-                  <button class="act-pill" v-if="canManageKpi && subOf(a.id)?.status === 'submitted'" @click="openReview({ assignment: a, submission: subOf(a.id) }); employeeKpis = null">Review</button>
+                <td style="white-space:nowrap;">
+                  <div style="display:flex; gap:6px; justify-content:flex-end;">
+                    <button class="act-pill" @click="startEdit(a)">Edit</button>
+                    <button class="act-pill act-danger" :disabled="saving" @click="removeAssignment(a)">Delete</button>
+                    <button class="act-pill" v-if="canManageKpi && subOf(a.id)?.status === 'submitted'" @click="openReview({ assignment: a, submission: subOf(a.id) }); employeeKpis = null">Review</button>
+                  </div>
                 </td>
               </tr>
               <tr v-if="!kpisFor(employeeKpis.employeeId).length"><td :colspan="canManageKpi ? 8 : 4" class="muted">No KPIs assigned yet.</td></tr>
@@ -255,14 +257,13 @@
             <FormField label="Overdue rating" type="number" min="1" max="5" v-model="assignForm.scoringRules.overdueRating" />
           </div>
 
-          <div style="display:flex; gap:8px; margin-top:12px;">
-            <button class="btn btn-primary" :disabled="saving" @click="saveAssignForm">{{ editingId ? 'Save changes' : 'Add KPI' }}</button>
-            <button class="btn" v-if="editingId" @click="startAdd">Cancel edit</button>
-          </div>
         </div>
 
-        <div class="modal-foot">
+        <!-- 20 Nov 2026: Add KPI / Save changes sit at the bottom right, next to Close -->
+        <div class="modal-foot" style="display:flex; justify-content:flex-end; gap:8px;">
           <button class="btn" @click="employeeKpis = null">Close</button>
+          <button class="btn" v-if="editingId" @click="startAdd">Cancel edit</button>
+          <button class="btn btn-primary" :disabled="saving" @click="saveAssignForm">{{ editingId ? 'Save changes' : 'Add KPI' }}</button>
         </div>
       </div>
     </div>
