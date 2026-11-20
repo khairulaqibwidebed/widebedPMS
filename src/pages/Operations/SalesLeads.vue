@@ -161,7 +161,7 @@
               <div class="kv" v-if="booking.status === 'cancelled'"><span>Status</span><span>{{ `Cancelled${booking.cancelledReason ? ': ' + booking.cancelledReason : ''}` }}</span></div>
               <div class="kv"><span>Unit</span><span>{{ `${booking.propertyName} · ${booking.unitCode}` }}</span></div>
               <div class="kv"><span>Stay</span><span>{{ `${full(booking.arrival)} to ${full(booking.departure)} · ${booking.nights} nights` }}</span></div>
-              <div class="kv"><span>Type</span><span>{{ booking.longTerm ? 'Long-term lease' : 'Short stay' }}</span></div>
+              <div class="kv"><span>Type</span><span>{{ leaseLabel(bookingNights(booking)) }}</span></div>
               <template v-if="booking.longTerm">
                 <div class="kv"><span>Monthly rent</span><span>{{ rm(booking.monthlyRent) }}</span></div>
                 <div class="kv" v-if="depositOf(booking) > 0"><span>Security deposit</span><span>{{ rm(depositOf(booking)) }}</span></div>
@@ -275,7 +275,10 @@ import { scoped, countScoped } from '@/lib/property-scope.js';
 import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf, guestContact } from '@/lib/offline.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
-import { depositOf } from '@/lib/booking-invoice.js';   // 20 Nov 2026: the deposit is a month charge on the booking
+import { depositOf } from '@/lib/booking-invoice.js';
+import { leaseLabel, bookingNights } from '@/lib/lease-term.js';
+// Who can be assigned a tenant lead: null = every active staff member (20 Nov 2026, for ease of use); base setting ['operations']
+const ASSIGN_ROLES = null;   // 20 Nov 2026: the deposit is a month charge on the booking
 
 const me = useSession();
 
@@ -332,7 +335,7 @@ export default {
     who() { const t = this.tenant, l = this.lead || {}; return t ? { name: t.name, phone: t.phone, email: t.email } : { name: l.contactName, phone: l.phone, email: l.email }; },
   },
   methods: {
-    depositOf,
+    depositOf, leaseLabel, bookingNights,
     discardUpdate() { const l = this.lead; this.upd = { assignedToUid: l.assignedToUid || '', status: l.status, note: '' }; this.formError = ''; },
     // Everyone who should hear about a new inquiry or a status change
     // (the roles must match NOTIFY_ROLES / the Firestore rules)
@@ -419,8 +422,10 @@ export default {
     },
     async loadStaff() {
       if (!this.canAssign || this.staff.length) return;
-      const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'operations'), where('active', '==', true)));
-      this.staff = snap.docs.map(d => ({ uid: d.id, name: d.data().displayName || d.data().email || d.id })).sort((a, b) => a.name.localeCompare(b.name));
+      // 20 Nov 2026 (Khairul): base setting is Operations only (ASSIGN_ROLES = ['operations']); opened to all active staff for now
+      const snap = await getDocs(ASSIGN_ROLES ? query(collection(db, 'users'), where('role', 'in', ASSIGN_ROLES), where('active', '==', true)) : collection(db, 'users'));
+      this.staff = snap.docs.map(d => ({ uid: d.id, ...d.data() })).filter(u => u.active !== false && u.role && u.role !== 'ai')
+        .map(u => ({ uid: u.uid, name: u.displayName || u.email || u.uid })).sort((a, b) => a.name.localeCompare(b.name));
     },
     async loadLead(id) {
       this.lead = null; this.tenant = null; this.booking = null; this.tenantStays = 0;

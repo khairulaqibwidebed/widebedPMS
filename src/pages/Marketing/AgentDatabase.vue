@@ -64,6 +64,7 @@
             <div class="kv"><span>Mobile number</span><span><a :href="`tel:${drawer.agent.mobile}`">{{ drawer.agent.mobile }}</a></span></div>
             <div class="kv"><span>Email</span><span><a v-if="drawer.agent.email" :href="`mailto:${drawer.agent.email}`">{{ drawer.agent.email }}</a><template v-else>—</template></span></div>
             <div class="kv"><span>Company name</span><span>{{ drawer.agent.company || '—' }}</span></div>
+            <div class="kv"><span>License number</span><span>{{ drawer.agent.licenseNo || '—' }}</span></div>
             <div class="kv"><span>Address</span><span class="pre">{{ drawer.agent.address || '—' }}</span></div>
 
             <div class="form-sec">Commission</div>
@@ -127,6 +128,8 @@
             <div class="field"><label for="agMobile" class="req">Mobile number</label><input class="input" id="agMobile" type="tel" v-model="f.mobile" placeholder="e.g. 012-345 6789" maxlength="30"></div>
             <div class="field"><label for="agEmail">Email</label><input class="input" id="agEmail" type="email" v-model="f.email" placeholder="name@company.com" maxlength="120"></div>
           </div>
+          <!-- 20 Nov 2026 (Khairul): the agent's license number (e.g. REN 37139) -->
+          <div class="field" style="max-width:360px"><label for="agLicense">License number</label><input class="input" id="agLicense" v-model="f.licenseNo" placeholder="e.g. REN 37139" maxlength="60"></div>
           <div class="field"><label for="agAddress">Address</label><textarea class="input" id="agAddress" v-model="f.address" rows="3" placeholder="Street, city, postcode, state" maxlength="500"></textarea></div>
 
           <div class="form-sec">Commission <span class="help ag-sec-note">· % the agent earns; leave empty if not agreed</span></div>
@@ -228,7 +231,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const numOrEmpty = v => (v === null || v === undefined ? '' : v);
 function blankForm() {
-  return { id: '', name: '', company: '', agency: 'property', agencyOther: '', mobile: '', email: '', address: '', bankName: '', holder: '', accountNo: '',
+  return { id: '', name: '', company: '', agency: 'property', agencyOther: '', mobile: '', email: '', licenseNo: '', address: '', bankName: '', holder: '', accountNo: '',
     commDaily: '', commMonthly: '', commFrom: today(), commNote: '', commStart: [null, null],
     cardFront: null, cardBack: null, active: true, error: '', bankLoading: false, uploading: { cardFront: false, cardBack: false }, pct: { cardFront: 0, cardBack: 0 } };
 }
@@ -247,7 +250,7 @@ export default {
     shown() {
       const q = this.search.trim().toLowerCase();
       return this.agents.filter(a => (this.filter === 'all' || a.agency === this.filter)
-        && (!q || [a.name, a.company, a.mobile, a.email, a.agencyOther].some(v => (v || '').toLowerCase().includes(q))
+        && (!q || [a.name, a.company, a.mobile, a.email, a.licenseNo, a.agencyOther].some(v => (v || '').toLowerCase().includes(q))
           || (a.mobile || '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '¬')));
     },
     // The rates differ from what was saved (or are set on a new agent)
@@ -324,7 +327,7 @@ export default {
       this.f = blankForm();
       const f = this.f;   // the reactive copy, so the form updates as the bank details arrive
       if (a) Object.assign(f, { id: a.id, name: a.name || '', company: a.company || '', agency: a.agency || 'property', agencyOther: a.agencyOther || '', mobile: a.mobile || '',
-        email: a.email || '', address: a.address || '', bankName: a.bankName || '', cardFront: a.cardFront || null, cardBack: a.cardBack || null, active: a.active !== false, bankLoading: true,
+        email: a.email || '', licenseNo: a.licenseNo || '', address: a.address || '', bankName: a.bankName || '', cardFront: a.cardFront || null, cardBack: a.cardBack || null, active: a.active !== false, bankLoading: true,
         commDaily: numOrEmpty(a.commDaily), commMonthly: numOrEmpty(a.commMonthly), commStart: [a.commDaily ?? null, a.commMonthly ?? null] });
       else f.id = newAgentId();
       this.drawer = { mode: 'edit', agent: a };
@@ -335,7 +338,7 @@ export default {
       }
       this.start = this.snap();
     },
-    snap() { const f = this.f; return JSON.stringify([f.name, f.company, f.agency, f.agencyOther, f.mobile, f.email, f.address, f.bankName, f.holder, f.accountNo, f.cardFront?.fileId, f.cardBack?.fileId, pct(f.commDaily), pct(f.commMonthly)]); },
+    snap() { const f = this.f; return JSON.stringify([f.name, f.company, f.agency, f.agencyOther, f.mobile, f.email, f.licenseNo, f.address, f.bankName, f.holder, f.accountNo, f.cardFront?.fileId, f.cardBack?.fileId, pct(f.commDaily), pct(f.commMonthly)]); },
     dirty() { return this.drawer?.mode === 'edit' && this.snap() !== this.start; },
     async upload(key, e) {
       const file = e.target.files[0]; e.target.value = '';

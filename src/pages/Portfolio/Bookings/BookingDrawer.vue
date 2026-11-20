@@ -34,6 +34,7 @@
         <div class="field" v-if="isLong"><label>Monthly rent (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.rent" :disabled="!editable"></div>
         <!-- 20 Nov 2026 (Khairul): the deposit is a charge on the Payments tab now (Security deposit on a month) -->
         <div class="field"><label>Booking source</label><input class="input" v-model="bk.f.bookingSource" :disabled="!editable"></div>
+        <div class="field" v-if="bk.salesPersonName"><label>Sales person</label><input class="input" :value="bk.salesPersonName" disabled></div>
         <!-- 20 Nov 2026: the agent picked on the booking form (booking source Agent), for their commission -->
         <div class="field" v-if="bk.agentName"><label>Agent</label><input class="input" :value="[bk.agentName, bk.agentCompany].filter(Boolean).join(' · ')" disabled></div>
         <div class="field"><label>Rental status</label><input class="input" v-model="bk.f.rentalStatus" :disabled="!editable"></div>

@@ -81,7 +81,7 @@ import { db } from '@/lib/firebase.js';
 import { amt, monthName, stamp, dayOffset } from '@/lib/format.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { termOf } from '@/lib/rent-term.js';
-const TERM_LABEL = { short: 'Short term', mid: 'Mid term', long: 'Long term' };
+const TERM_LABEL = { short: 'Daily Lease', mid: 'Monthly Lease', long: 'Yearly Lease' };   // 20 Nov 2026 (Khairul)
 import { UNIT_FILTERS, matchArrangement, arrLabel, isFixedTerms, shortName, prevMonth, changeList, ownerLabel } from '@/lib/portfolio-data.js';
 
 export default {

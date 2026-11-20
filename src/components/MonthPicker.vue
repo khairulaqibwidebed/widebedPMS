@@ -1,6 +1,6 @@
 <template>
-  <div class="mp" ref="root">
-    <button type="button" class="select mp-btn" :disabled="disabled" :aria-expanded="String(open)" aria-haspopup="dialog" @click="toggle">
+  <div class="mp" :class="{ block }" ref="root">
+    <button type="button" class="select mp-btn" :class="{ ph: !multiple && !modelValue && placeholder }" :disabled="disabled" :aria-expanded="String(open)" aria-haspopup="dialog" @click="toggle">
       {{ label }}
     </button>
     <div class="mp-pop" v-if="open" role="dialog" aria-label="Pick a month" @keydown.esc="open = false">
@@ -32,13 +32,15 @@ import { monthName, monthOffset } from '@/lib/format.js';
 // multiple: v-model is an array of 'YYYY-MM' (empty = every month; allLabel names that), and the grid stays open while ticking.
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export default {
-  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, minYear: { type: Number, default: 2024 }, disabled: { type: Boolean, default: false }, ahead: { type: Number, default: 0 }, allLabel: { type: String, default: '' } },
+  props: { modelValue: { type: [String, Array], required: true }, multiple: { type: Boolean, default: false }, minYear: { type: Number, default: 2024 }, disabled: { type: Boolean, default: false }, ahead: { type: Number, default: 0 }, allLabel: { type: String, default: '' },
+    // 20 Nov 2026: block = full width like an input; placeholder = grey text while nothing is picked (a form field, no "clear" link)
+    block: { type: Boolean, default: false }, placeholder: { type: String, default: '' } },
   emits: ['update:modelValue', 'change'],
   data() { return { drag: null, open: false, year: +(this.first() || monthOffset(0)).slice(0, 4), MON, thisMonth: monthOffset(0) }; },
   computed: {
     label() {
       if (this.multiple) { const n = this.modelValue.length; return !n ? (this.allLabel || 'All months') : n === 1 ? monthName(this.modelValue[0]) : this.wholeYear ? `All of ${this.modelValue[0].slice(0, 4)}` : `${n} months`; }
-      return this.modelValue ? monthName(this.modelValue) : (this.allLabel || monthName(monthOffset(0)));
+      return this.modelValue ? monthName(this.modelValue) : (this.placeholder || this.allLabel || monthName(monthOffset(0)));
     },
     maxMonth() { return monthOffset(this.ahead); },
     // 16 Nov 2026: all 12 months of one year are ticked (Bookings starts like this); a click on a month then picks just that month
@@ -93,6 +95,9 @@ export default {
 
 <style scoped>
 .mp { position: relative; display: inline-block; }
+.mp.block { display: block; }
+.mp.block .mp-btn { width: 100%; }
+.mp-btn.ph { color: var(--muted); font-weight: 400; }
 .mp-btn { display: block; text-align: left; white-space: nowrap; }
 .mp-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 268px; padding: 12px; background: var(--surface);
   border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .12); }
