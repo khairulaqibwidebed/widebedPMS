@@ -59,14 +59,14 @@ export async function loadBank(id) {
 const digits = v => String(v || '').replace(/\D/g, '');
 const card = c => (c && c.fileId ? { name: String(c.name || '').slice(0, 200), fileId: c.fileId, mimeType: c.mimeType || '' } : null);
 
-// f = the form: { name, company, agency, agencyOther, mobile, email, address, bankName, holder, accountNo, cardFront, cardBack, active }
+// f = the form: { name, company, agency, agencyOther, mobile, email, licenseNo, address, bankName, holder, accountNo, cardFront, cardBack, active }
 // existing = the saved agent (null when adding). id = the agent's id (newAgentId() when adding).
 export async function saveAgent(me, id, f, existing) {
   const acct = digits(f.accountNo);
   const data = {
     name: f.name.trim(), company: (f.company || '').trim(), agency: f.agency,
     agencyOther: f.agency === 'other' ? (f.agencyOther || '').trim() : '',
-    mobile: f.mobile.trim(), email: (f.email || '').trim(), address: (f.address || '').trim(),
+    mobile: f.mobile.trim(), email: (f.email || '').trim(), licenseNo: (f.licenseNo || '').trim(), address: (f.address || '').trim(),
     bankName: f.bankName || '', acctLast4: acct.slice(-4),
     cardFront: card(f.cardFront), cardBack: card(f.cardBack),
     active: f.active !== false,
@@ -91,7 +91,7 @@ export async function saveAgent(me, id, f, existing) {
   }
   b.set(ref(id), data);
   b.set(bankRef(id), { bank: data.bankName, holder: (f.holder || '').trim(), accountNo: acct, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
-  const changes = existing ? ['name', 'company', 'agency', 'agencyOther', 'mobile', 'email', 'address', 'bankName', 'acctLast4']
+  const changes = existing ? ['name', 'company', 'agency', 'agencyOther', 'mobile', 'email', 'licenseNo', 'address', 'bankName', 'acctLast4']
     .filter(k => (existing[k] || '') !== (data[k] || '')).map(k => ({ field: k, from: k === 'acctLast4' ? '' : existing[k] || '', to: k === 'acctLast4' ? 'changed' : data[k] || '' })) : [];
   if (existing && (existing.cardFront?.fileId || '') !== (data.cardFront?.fileId || '')) changes.push({ field: 'cardFront', from: '', to: 'changed' });
   if (existing && commChanged) changes.push({ field: 'commission', from: `daily ${pctText(oldD)}, monthly ${pctText(oldM)}`, to: `daily ${pctText(data.commDaily)}, monthly ${pctText(data.commMonthly)}` });

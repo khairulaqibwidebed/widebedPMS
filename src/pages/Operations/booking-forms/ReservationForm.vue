@@ -89,15 +89,33 @@
           <h3>Stay</h3>
           <p class="help lock-note" v-if="resume">Saved with the booking, and the unit is held for these dates. To change them, finish the booking and edit it in Bookings.</p>
           <fieldset class="lock" :disabled="!!resume">
+          <!-- 20 Nov 2026 (Khairul): Type of rent first and required. Yearly Lease: move-in month (always the 1st) and how many
+               years; 1 year = 1 Jan to 31 Dec, saved with check-out on the 1st after the last day (1 Jan next year), so the
+               invoice months run 1st to 1st with no part month. -->
           <div class="grid-fields">
             <div class="field"><label class="req" for="bProp">Property</label>
               <PropertyPicker block class="fld-pick" v-model="bk.propertyId" :properties="properties" placeholder="Choose property" @change="loadUnitList()" /></div>
             <div class="field"><label class="req" for="bUnit">Unit</label>
               <OptionPicker class="fld-pick" v-model="bk.unitId" :disabled="!bk.propertyId" :options="units.map(x => ({ value: x.id, label: x.unitCode || x.id }))" :placeholder="bk.propertyId && !units.length ? 'No units found' : 'Choose unit'" label="Unit" searchable /></div>
-            <FormField id="bIn" label="Check-in" req type="date" v-model="bk.arrival" />
-            <FormField id="bOut" label="Check-out" req type="date" v-model="bk.departure" />
           </div>
-          <p class="help" v-if="hasStay">{{ nights === 0 ? 'Same-day check-out (0 nights) · Short term' : `${nights} night${nights === 1 ? '' : 's'} · ${leaseLabel(nights)} (${leaseHint(nights)})` }}</p>
+          <div class="grid-fields">
+            <div class="field"><label class="req">Type of rent</label>
+              <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" placeholder="Choose type of rent…" /></div>
+          </div>
+          <div class="grid-fields">
+            <template v-if="yearly">
+              <!-- 20 Nov 2026 (Khairul): the PMS month selector (any browser) and the years typed in -->
+              <div class="field" id="bIn"><label class="req">Move-in month</label>
+                <MonthPicker :model-value="String(bk.arrival || '').slice(0, 7)" :ahead="60" block placeholder="Choose month…" @update:model-value="setYearly($event)" /></div>
+              <FormField id="bYears" label="Number of years" req type="number" min="1" max="30" step="1" placeholder="e.g. 2" v-model="bk.years" />
+            </template>
+            <template v-else>
+              <FormField id="bIn" label="Check-in" req type="date" v-model="bk.arrival" />
+              <FormField id="bOut" label="Check-out" req type="date" v-model="bk.departure" />
+            </template>
+          </div>
+          <p class="help" v-if="yearly && hasStay">{{ `Lease ${full(bk.arrival)} to ${full(leaseEnd)} (${bk.years} year${+bk.years === 1 ? '' : 's'}) · check-out ${full(bk.departure)}` }}</p>
+          <p class="help" v-else-if="hasStay">{{ nights === 0 ? 'Same-day check-out (0 nights) · Daily Lease' : `${nights} night${nights === 1 ? '' : 's'} · ${leaseLabel(nights)} (${leaseHint(nights)})` }}</p>
           </fieldset>
         </div>
 
@@ -112,8 +130,9 @@
           <div class="rd-3">
             <div class="field"><label class="req">Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="SOURCES_BK" label="Booking source" placeholder="Choose source…" /></div>
             <div class="field"><label class="req">Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" placeholder="Choose status…" /></div>
-            <div class="field"><label for="bRentType">Type of rent</label>
-              <OptionPicker class="fld-pick" v-model="bk.rentType" :options="RENT_TYPES" label="Type of rent" placeholder="Choose type of rent…" /></div>
+            <!-- 20 Nov 2026 (Khairul): who made the sale. Meant for Operations staff; open to every active staff member for now (SALES_ROLES) -->
+            <div class="field"><label>Sales person</label>
+              <OptionPicker class="fld-pick" v-model="bk.salesPersonUid" :options="salesOptions" label="Sales person" searchable placeholder="Choose sales person…" /></div>
             <!-- 20 Nov 2026 (Khairul): booking source Agent = pick the agent from Marketing > Agent Database, for their commission -->
             <div class="field" v-if="bk.bookingSource === 'Agent'"><label class="req">Agent</label>
               <OptionPicker class="fld-pick" v-model="bk.agentId" :options="agentOptions" label="Agent" searchable :placeholder="agentsMsg || 'Choose agent…'" />
@@ -146,16 +165,44 @@
         <div v-show="cur === 'invoice'">
           <h3>Invoice</h3>
           <p class="help" style="margin:0 0 12px" v-if="!resume">{{ invoiceReady ? 'What the invoice will show. Empty fields are left out.' : 'Finish Tenant, Stay and Rent & deposit first. The invoice is made from them.' }}</p>
-          <div class="inv-prev" v-if="invoiceReady || resume">
-            <div class="inv-col" v-for="g in invoicePreview.groups" :key="g.title">
-              <h4>{{ g.title }}</h4>
-              <div class="kv" v-for="[k, v] in g.rows" :key="k"><span>{{ k }}</span><span>{{ v }}</span></div>
+          <!-- 20 Nov 2026 (Khairul): redesigned - totals up top, three detail cards, and the amounts as a table (one row per month) -->
+          <div class="inv-wrap" v-if="invoiceReady || resume">
+            <div class="inv-hero">
+              <div class="inv-stat main"><span>Total for the stay</span><b>{{ rm(invoicePreview.total) }}</b></div>
+              <template v-if="invoicePreview.months.length">
+                <div class="inv-stat"><span>Months</span><b>{{ invoicePreview.months.length }}</b></div>
+                <div class="inv-stat"><span>Monthly rent</span><b>{{ rm(invoicePreview.monthlyRent) }}</b></div>
+                <div class="inv-stat"><span>Due in Month 1</span><b>{{ rm(invoicePreview.months[0].total) }}</b></div>
+              </template>
             </div>
-            <div class="inv-col" v-if="invoicePreview.amounts.length">
+            <div class="inv-cards">
+              <section class="inv-card" v-for="g in invoicePreview.groups" :key="g.title">
+                <h4>{{ g.title }}</h4>
+                <div class="inv-kv" v-for="[k, v] in g.rows" :key="k"><span>{{ k }}</span><b>{{ v }}</b></div>
+              </section>
+            </div>
+            <section class="inv-card" v-if="invoicePreview.amounts.length">
               <h4>Amounts</h4>
-              <div class="kv" v-for="[k, v] in invoicePreview.amounts" :key="k"><span>{{ k }}</span><span>{{ rm(v) }}</span></div>
-              <div class="kv inv-total"><span>Total</span><span>{{ rm(invoicePreview.total) }}</span></div>
-            </div>
+              <div class="inv-scroll" v-if="invoicePreview.months.length">
+                <table class="inv-tbl">
+                  <thead><tr><th>Month</th><th>Period</th><th class="r">Rent</th><th>Other charges</th><th class="r">Total</th></tr></thead>
+                  <tbody>
+                    <tr v-for="m in invoicePreview.months" :key="m.label">
+                      <td class="nowrap">{{ m.label }}</td>
+                      <td class="muted nowrap">{{ `${full(m.from)} – ${full(m.to)}` }}</td>
+                      <td class="r nowrap">{{ rm(m.rent) }}</td>
+                      <td><span class="inv-chip" v-for="[k, v] in m.amounts.slice(1)" :key="k">{{ k }} <b>{{ rm(v) }}</b></span><span class="muted" v-if="m.amounts.length < 2">—</span></td>
+                      <td class="r nowrap"><b>{{ rm(m.total) }}</b></td>
+                    </tr>
+                  </tbody>
+                  <tfoot><tr><td colspan="4">Total</td><td class="r nowrap">{{ rm(invoicePreview.total) }}</td></tr></tfoot>
+                </table>
+              </div>
+              <table class="inv-tbl" v-else>
+                <tbody><tr v-for="[k, v] in invoicePreview.amounts" :key="k"><td>{{ k }}</td><td class="r nowrap">{{ rm(v) }}</td></tr></tbody>
+                <tfoot><tr><td>Total</td><td class="r nowrap">{{ rm(invoicePreview.total) }}</td></tr></tfoot>
+              </table>
+            </section>
           </div>
           <template v-if="resume">
             <div class="notice await-bar"><span>Need to send it again?</span><button type="button" class="btn" @click="openInvoice()">Download invoice</button></div>
@@ -284,6 +331,10 @@ import { askConfirm } from '@/lib/confirm.js';
 import InvoiceDialog from '@/components/InvoiceDialog.vue';
 import { invoiceOf, propertyAddressOf, legacyCharges, allMonthCharges } from '@/lib/booking-invoice.js';
 import { loadAgents, agencyLabel } from '@/pages/Marketing/agents.js';
+import { listStaff } from '@/lib/agreements/data.js';
+import MonthPicker from '@/components/MonthPicker.vue';
+// 20 Nov 2026 (Khairul): the Sales person list. Base setting = Operations only (['operations']); opened to all staff for now (null)
+const SALES_ROLES = null;
 
 const me = useSession();
 const LONG_TERM_NIGHTS = 30;
@@ -293,6 +344,9 @@ const SOURCES_BK = ['Offline', 'Website', 'Agent', 'OTA'].map(x => ({ value: x, 
 const RENTAL_STATUSES = [{ value: 'Paid', label: 'Paid' }, { value: 'Unpaid', label: 'Unpaid' }];
 // 16 Nov 2026: shown as Short / Mid / Long term; saved as Daily / Monthly / Yearly (lib/rent-term.js)
 const RENT_TYPES = RENT_TERMS.map(x => ({ value: x.value, label: x.label }));
+const YEARS = Array.from({ length: 10 }, (_, i) => ({ value: String(i + 1), label: `${i + 1} year${i ? 's' : ''}` }));   // Yearly Lease (20 Nov 2026)
+// YYYY-MM-01 plus n years (the check-out of a Yearly Lease)
+const plusYears = (iso, n) => `${+iso.slice(0, 4) + (+n || 1)}${iso.slice(4, 7)}-01`;
 // The Type of rent value (Daily / Monthly / Yearly) for a stay's nights or dates (termOf in lib/rent-term.js)
 const termValue = b => RENT_TERMS.find(x => x.key === termOf({ nights: b.nights, arrival: b.arrival, departure: b.departure }))?.value || '';
 const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x }));
@@ -316,23 +370,24 @@ const filled = v => !!String(v ?? '').trim();
 // What counts as "something typed" for the leave warning (not the ids and lookups the form sets itself)
 const typed = bk => JSON.stringify({ ...bk, existing: undefined, matchUsed: undefined, payId: undefined });
 // The step a save message is about, so the form jumps there
-const STEP_OF = [[/tenant|phone|email|IC or passport|gender/i, 'tenant'], [/property and unit|check-in|Check-out|already booked/, 'stay'], [/booking source|rental status|monthly rent/, 'rent'],
+const STEP_OF = [[/tenant|phone|email|IC or passport|gender/i, 'tenant'], [/type of rent|Yearly Lease|number of years|property and unit|check-in|Check-out|already booked/, 'stay'], [/booking source|rental status|monthly rent/, 'rent'],
   [/amount paid|mode of payment|purpose|receipt/, 'payment'], [/passcode/, 'handover']];
 
 export default {
-  components: { PropertyPicker, OptionPicker, DriveFiles, FormField, StepStrip, FormSaved, InvoiceDialog },
+  components: { PropertyPicker, OptionPicker, DriveFiles, FormField, StepStrip, FormSaved, InvoiceDialog, MonthPicker },
   // resumeId (16 Nov 2026): an Awaiting payment booking (offlineBookings status 'pending') opened to finish it
   props: { leadId: { type: String, default: '' }, resumeId: { type: String, default: '' } },
   emits: ['dirty'],
   data() {
     return {
-      GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, PAY_MODES, FEES,
+      GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, YEARS, PAY_MODES, FEES,
       lead: null, tenant: null, bk: {}, properties: [], units: [], start: '', nameHits: [], nameTimer: null,
-      draft: null, draftBusy: false, draftMsg: '', resume: null, resumeFees: '', agents: null, agentsMsg: '', pendingSaved: false, invoice: null, invoiceNo: '',
+      draft: null, draftBusy: false, draftMsg: '', resume: null, resumeFees: '', agents: null, agentsMsg: '', staff: [], pendingSaved: false, invoice: null, invoiceNo: '',
       step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'bookings.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
     };
   },
   async mounted() {
+    listStaff().then(s => { this.staff = s; }).catch(() => {});   // Sales person list (20 Nov 2026)
     try {
       if (this.resumeId) { await this.loadResume(this.resumeId); this.loading = false; return; }
       if (this.leadId) {
@@ -359,6 +414,9 @@ export default {
       return a && b ? Math.round((Date.parse(b) - Date.parse(a)) / 86400000) : 0;
     },
     // Both dates set and check-out not before check-in (a same-day check-out, 0 nights, is allowed)
+    yearly() { return this.bk.rentType === 'Yearly'; },
+    // The last day of a Yearly Lease (the day before check-out): 1 Jan 2027, 1 year -> 31 Dec 2027
+    leaseEnd() { const d = this.bk.departure; if (!d) return ''; const t = new Date(Date.parse(d) - 864e5); return t.toISOString().slice(0, 10); },
     hasStay() { return !!(this.bk.arrival && this.bk.departure) && this.nights >= 0; },
     longTerm() { return this.nights >= LONG_TERM_NIGHTS; },
     // 20 Nov 2026: 2 months of rent is worked out for a Long-term lease (365+ nights) only; an amount typed in the box wins.
@@ -371,6 +429,9 @@ export default {
     // 16 Nov 2026: the total on Rent & deposit = rental + security deposit + other fees (same amounts the booking saves)
     // 20 Nov 2026: the deposit and fees as first-month charges { 'YYYY-MM': [...] } (lib/booking-invoice.js)
     // Active agents (and the one already on the booking), "Name · Company · Property agent"
+    salesOptions() {
+      return this.staff.filter(s => !SALES_ROLES || SALES_ROLES.includes(s.role) || s.uid === this.bk.salesPersonUid).map(s => ({ value: s.uid, label: s.name }));
+    },
     agentOptions() {
       return (this.agents || []).filter(a => a.active !== false || a.id === this.bk.agentId)
         .map(a => ({ value: a.id, label: [a.name, a.company, agencyLabel(a)].filter(x => x && x !== '—').join(' · ') }));
@@ -405,7 +466,7 @@ export default {
           ...b.coTenants.flatMap((c, i) => [{ label: `Tenant ${i + 2} name`, filled: filled(c.name) }, { label: `Tenant ${i + 2} phone`, filled: phoneKey(c.phone).length >= 9 },
             { label: `Tenant ${i + 2} IC / Passport`, filled: filled(c.icPassport) }, ...(c.gender === 'Other' ? [{ label: `Tenant ${i + 2} gender (type it)`, filled: filled(c.genderOther) }] : [])])] },
         { key: 'stay', label: 'Stay', problem: b.arrival && b.departure && this.nights < 0 ? "Check-out can't be before check-in." : '', required: [
-          { label: 'Property', filled: filled(b.propertyId) }, { label: 'Unit', filled: filled(b.unitId) }, { label: 'Check-in', filled: filled(b.arrival) }, { label: 'Check-out', filled: filled(b.departure) }] },
+          { label: 'Property', filled: filled(b.propertyId) }, { label: 'Unit', filled: filled(b.unitId) }, { label: 'Type of rent', filled: filled(b.rentType) }, { label: 'Check-in', filled: filled(b.arrival) }, { label: 'Check-out', filled: filled(b.departure) }] },
         { key: 'rent', label: 'Rent & deposit', required: [
           { label: 'Booking source', filled: filled(b.bookingSource) }, ...(b.bookingSource === 'Agent' ? [{ label: 'Agent', filled: filled(b.agentId) }] : []),
           { label: 'Rental status', filled: filled(b.rentalStatus) },
@@ -423,10 +484,10 @@ export default {
     complete() { return allDone(this.steps); },
     // The Invoice step's preview: the same rows as the PDF, empty ones left out
     invoicePreview() {
-      if (!this.bk.coTenants) return { groups: [], amounts: [], total: 0 };
+      if (!this.bk.coTenants) return { groups: [], amounts: [], months: [], monthlyRent: 0, total: 0 };
       const inv = this.formInvoice(), keep = rows => rows.filter(([, v]) => String(v ?? '').trim());
       return { groups: [{ title: 'Tenant', rows: keep(inv.tenant) }, { title: 'Property', rows: keep(inv.property) }, { title: 'Rent & terms', rows: keep(inv.terms) }].filter(g => g.rows.length),
-        amounts: inv.amounts, total: inv.total };
+        amounts: inv.amounts, months: inv.months || [], monthlyRent: inv.monthlyRent, total: inv.total };
     },
     // Tenant, Stay and Rent & deposit done: enough to save as Awaiting payment and make the invoice
     invoiceReady() { return this.steps.length > 3 && allDone(this.steps.slice(0, 3)); },
@@ -441,8 +502,8 @@ export default {
         { key: 'tenant', label: 'Tenant', rows: [['Name', d(b.name)], ['Phone', d(b.phone)], ['Email', d(b.email)], ['IC / Passport', d(b.icPassport)], ['Nationality', d(b.nationality)],
           ...(b.existing ? [['Existing tenant', b.existing.id]] : []), ...(b.coTenants.length ? [['Other tenants', b.coTenants.map(c => c.name || '(no name)').join(', ')]] : [])] },
         { key: 'stay', label: 'Stay', rows: [['Property', prop?.name || '—'], ['Unit', this.units.find(u => u.id === b.unitId)?.unitCode || d(b.unitId)], ['Check-in', b.arrival ? this.full(b.arrival) : '—'], ['Check-out', b.departure ? this.full(b.departure) : '—'],
-          ['Nights', this.hasStay ? (this.nights === 0 ? '0 · Same-day check-out' : `${this.nights} · ${leaseLabel(this.nights)}`) : '—']] },
-        { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ...(b.bookingSource === 'Agent' ? [['Agent', d(this.agentOf(b.agentId)?.name)]] : []), ['Rental status', d(b.rentalStatus)], ['Type of rent', d(rentTermLabel(b.rentType))],
+          ['Nights', this.hasStay ? (this.nights === 0 ? '0 · Same-day check-out' : `${this.nights} · ${leaseLabel(this.nights)}`) : '—'], ['Type of rent', d(rentTermLabel(b.rentType))]] },
+        { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ['Sales person', d(this.staff.find(s => s.uid === b.salesPersonUid)?.name)], ...(b.bookingSource === 'Agent' ? [['Agent', d(this.agentOf(b.agentId)?.name)]] : []), ['Rental status', d(b.rentalStatus)],
           ['Rental', money(this.longTerm ? b.monthlyRent : b.rental)], ['Security deposit', this.rm(this.deposit)], ...fees,
           ...(+b.othersFee > 0 ? [['Others is for', d(b.othersNote)]] : [])] },
         { key: 'payment', label: 'Payment', rows: [['Amount', money(b.amount)], ['Mode', d(b.payMode)], ['Payment Date', b.payDate ? this.full(b.payDate) : '—'], ['Reference', d(b.paymentRef)],
@@ -456,10 +517,14 @@ export default {
     // 20 Nov 2026 (Khairul): Type of rent fills itself from the stay dates (under 30 nights Short term, 30 to 364 Mid term,
     // 365+ Long term) and follows them when the dates change; it can still be picked by hand afterwards.
     // A saved booking opened again keeps its own Type of rent until its dates are changed.
-    nights(n, old) {
+    // 20 Nov 2026: Type of rent is now picked first (required), so the dates only fill it in when it is still empty
+    nights(n) {
       if (!this.hasStay || n <= 0) return;
-      if (old > 0 || !this.bk.rentType) this.bk.rentType = termValue({ nights: n });
+      if (!this.bk.rentType) this.bk.rentType = termValue({ nights: n });
     },
+    // Yearly Lease: the move-in moves to the 1st of its month and check-out follows the number of years
+    'bk.rentType'(v, old) { if (v === 'Yearly' && old !== undefined && !this.resume) this.setYearly(String(this.bk.arrival || '').slice(0, 7)); },
+    'bk.years'(v) { if (this.yearly && !this.resume && +v >= 1 && Number.isInteger(+v)) this.setYearly(String(this.bk.arrival || '').slice(0, 7)); },
     'steps.length'(n) { if (this.step > n - 1) this.step = Math.max(0, n - 1); },
     dirty: { handler(v) { this.$emit('dirty', v); }, immediate: true },
     // Name search: waits until typing stops (one query per pause, not per key), only while no tenant has been picked
@@ -476,6 +541,13 @@ export default {
   beforeUnmount() { clearTimeout(this.nameTimer); },
   methods: {
     leaseLabel,
+    // Yearly Lease: move-in on the 1st of the month picked, check-out on the 1st after the last year (1 Jan 2027 + 1 year = 1 Jan 2028)
+    setYearly(month) {
+      const b = this.bk;
+      if (!b.years) b.years = '1';
+      if (!/^\d{4}-\d{2}$/.test(month || '')) { b.arrival = ''; b.departure = ''; return; }
+      b.arrival = `${month}-01`; b.departure = plusYears(b.arrival, b.years);
+    },
     leaseHint(n) { return LEASE_HINT[leaseTerm(n)]; },
     short(iso) { if (!iso) return ''; const [, m, dd] = iso.slice(0, 10).split('-'); return `${+dd} ${MON[+m - 1]}`; },
     full(iso) { return iso ? `${this.short(iso)} ${iso.slice(0, 4)}` : ''; },
@@ -533,7 +605,7 @@ export default {
     async startBooking() {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
       this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null, matchUsed: false,
-        rentType: '', bookingSource: '', agentId: '',   // 16 Nov 2026: starts empty (placeholder)
+        rentType: '', years: '1', bookingSource: '', agentId: '', salesPersonUid: me.user?.uid || '',   // 16 Nov 2026: starts empty (placeholder)
         rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', gatewayFee: '', cardFee: '', othersFee: '', othersNote: '',
         payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
@@ -585,7 +657,7 @@ export default {
       const fm = firstMonthFees(d);   // 20 Nov 2026: the boxes show the first month's charges on the Payments tab
       this.bk = { name: tp.name || '', phone: tp.phone || '', email: tp.email || '', icPassport: tp.icPassport || '', nationality: tp.nationality || '', dob: tp.dob || '',
         gender: tp.gender || '', genderOther: tp.genderOther || '', coTenants: [], existing: null, matchUsed: true,
-        rentType: d.rentType || termValue(d) || 'Daily', bookingSource: d.bookingSource || '', agentId: d.agentId || '', rentalStatus: 'Paid',   // finishing = paid (16 Nov 2026)
+        rentType: d.rentType || termValue(d) || 'Daily', years: String(Math.max(1, Math.round((Date.parse(d.departure) - Date.parse(d.arrival)) / 864e5 / 365)) || 1), bookingSource: d.bookingSource || '', agentId: d.agentId || '', salesPersonUid: d.salesPersonUid || '', rentalStatus: 'Paid',   // finishing = paid (16 Nov 2026)
         mainPasscode: pp.mainDoorPasscode || '', currentExpiry: pp.currentExpiryDate || '', nextPasscode: pp.nextDoorPasscode || '', nextExpiry: pp.nextExpiryDate || '',
         rental: d.longTerm ? '' : v(d.rental), monthlyRent: d.longTerm ? v(d.monthlyRent || d.rental) : '', securityDeposit: fm.t.securityDeposit ? v(fm.t.securityDeposit) : (d.longTerm ? '0' : ''),
         ...Object.fromEntries(FEES.map(f => [f.key, fm.t[f.key] > 0 ? v(fm.t[f.key]) : ''])), othersNote: fm.note || d.othersNote || '',
@@ -752,7 +824,8 @@ export default {
     extra(coIds = []) {
       const b = this.bk;
       const ag = b.bookingSource === 'Agent' ? this.agentOf(b.agentId) : null;   // 20 Nov 2026: the agent, for commission
-      return { coTenantIds: coIds, bookingSource: b.bookingSource, agentId: ag?.id || '', agentName: ag?.name || '', agentCompany: ag?.company || '', rentalStatus: b.rentalStatus, moveInStatus: 'Ready_to_Send', moveOutStatus: 'Ready_to_Send',
+      const sp = this.staff.find(s => s.uid === b.salesPersonUid);   // 20 Nov 2026: the sales person
+      return { coTenantIds: coIds, salesPersonUid: sp?.uid || '', salesPersonName: sp?.name || '', bookingSource: b.bookingSource, agentId: ag?.id || '', agentName: ag?.name || '', agentCompany: ag?.company || '', rentalStatus: b.rentalStatus, moveInStatus: 'Ready_to_Send', moveOutStatus: 'Ready_to_Send',
         passwordStatus: b.mainPasscode.trim() && b.currentExpiry ? 'Ready_to_Send' : '', rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
         feesInPayments: true, monthCharges: this.formCharges };   // 20 Nov 2026: deposit and fees saved as first-month charges (Payments tab)
     },
@@ -762,7 +835,7 @@ export default {
     focusFor(msg) {
       const s = this.steps.findIndex(x => x.key === (STEP_OF.find(([re]) => re.test(msg)) || [])[1]);
       if (s >= 0) this.step = s;
-      const MAP = [[/^Add the tenant/, '#bName'], [/^Add a full phone/, '#bPhone'], [/email address/, '#bEmail'], [/^Add the IC/, '#bIc'], [/^Type the gender/, '#bGenderOther'],
+      const MAP = [[/^Choose the type of rent/, '[aria-label="Type of rent"]'], [/Yearly Lease starts/, '#bIn button'], [/number of years/, '#bYears'], [/^Add the tenant/, '#bName'], [/^Add a full phone/, '#bPhone'], [/email address/, '#bEmail'], [/^Add the IC/, '#bIc'], [/^Type the gender/, '#bGenderOther'],
         [/^Choose the property and unit/, '[aria-label="Property"]'], [/^Choose the agent/, '[aria-label="Agent"]'], [/^Choose the booking source/, '[aria-label="Booking source"]'], [/^Choose the rental status/, '[aria-label="Rental status"]'],
         [/check-in and check-out|^Check-out can/, '#bIn'], [/^Add the monthly rent/, '#bRent'], [/^Add the amount paid/, '#bAmt'], [/^Choose the mode of payment/, '[aria-label="Mode of payment"]'],
         [/^Add the purpose/, '#bNote'], [/receipt/, '#bReceipt'], [/main door passcode/, '#bExp'], [/next door passcode/, '#bNextExp']];
@@ -808,10 +881,13 @@ export default {
         : !b.icPassport.trim() ? 'Add the IC or passport number.'
         : b.gender === 'Other' && !b.genderOther.trim() ? 'Type the gender, or pick another option.'
         : !b.unitId ? 'Choose the property and unit.'
+        : !b.rentType ? 'Choose the type of rent.'
         : !b.bookingSource ? 'Choose the booking source.'
         : b.bookingSource === 'Agent' && !b.agentId ? 'Choose the agent (booking source is Agent).'
         : !b.rentalStatus ? 'Choose the rental status.'
         : !b.arrival || !b.departure ? 'Add the check-in and check-out dates.'
+        : b.rentType === 'Yearly' && !(Number.isInteger(+b.years) && +b.years >= 1 && +b.years <= 30) ? 'Type the number of years for the Yearly Lease (1 to 30).'
+        : b.rentType === 'Yearly' && (b.arrival.slice(8) !== '01' || b.departure !== plusYears(b.arrival, b.years)) ? 'A Yearly Lease starts on the 1st: choose the move-in month and the years again.'
         : this.nights < 0 ? "Check-out can't be before check-in."
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent.' : '';
       const err = base || (pending ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
@@ -989,9 +1065,30 @@ export default {
 </script>
 
 <style scoped>
-.inv-prev { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 24px; margin-bottom: 14px; }
-.inv-col h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-.inv-total { font-weight: 700; border-top: 1px solid var(--border); padding-top: 4px; }
+/* Invoice step (20 Nov 2026 redesign) */
+.inv-wrap { display: grid; gap: 14px; margin-bottom: 14px; align-content: start; }
+.inv-hero { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; height: auto; }
+.inv-stat { flex: 1 1 150px; background: var(--head); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; display: flex; flex-direction: column; justify-content: flex-start; gap: 2px; height: auto; }
+.inv-stat span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.inv-stat b { font-size: 18px; color: var(--text); }
+.inv-stat.main { flex: 2 1 240px; background: var(--accent-soft); border-color: transparent; }
+.inv-stat.main b { font-size: 24px; color: var(--accent); }
+.inv-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.inv-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; background: var(--surface); }
+.inv-card h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.inv-kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.inv-kv:last-child { border-bottom: 0; }
+.inv-kv span { color: var(--muted); }
+.inv-kv b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.inv-scroll { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.inv-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.inv-tbl th { position: sticky; top: 0; background: var(--head); text-align: left; font-weight: 600; color: var(--muted); padding: 8px 10px; z-index: 1; }
+.inv-tbl td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+.inv-tbl .r { text-align: right; }
+.inv-tbl .nowrap { white-space: nowrap; }
+.inv-tbl tfoot td { position: sticky; bottom: 0; background: var(--surface); font-weight: 700; border-top: 2px solid var(--border); }
+.inv-chip { display: inline-block; background: var(--chip); border-radius: 999px; padding: 2px 8px; margin: 0 4px 4px 0; font-size: 12px; }
+.inv-chip b { font-weight: 600; }
 .rd-sec { font-size: 14px; font-weight: 700; color: var(--text); margin: 16px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
 .rd-sec span { font-weight: 400; color: var(--muted); }
 .rd-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 14px; }

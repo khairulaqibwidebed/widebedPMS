@@ -41,9 +41,12 @@
       <h2 class="t">{{ acc.viewOnly ? 'Properties' : `Properties · ${monthName(asOf)}` }}</h2>
       <Paged :items="shownProperties" v-slot="{ pageRows }">
       <div class="table-wrap">
-        <table class="table">
+        <!-- 20 Nov 2026 (Khairul): fixed column widths so the columns don't jump when changing pages -->
+        <table class="table prop-table">
+          <colgroup v-if="acc.viewOnly"><col style="width:34%"><col style="width:14%"><col style="width:10%"><col style="width:30%"><col style="width:12%"></colgroup>
+          <colgroup v-else><col style="width:24%"><col style="width:7%"><col style="width:17%"><col style="width:16%"><col style="width:10%"><col style="width:15%"><col style="width:11%"></colgroup>
           <thead v-if="acc.viewOnly"><tr><th>Property</th><th>Short code</th><th class="num">Units</th><th>City · State</th><th></th></tr></thead>
-          <thead v-else><tr><th>Property</th><th class="num">Units</th><th>Arrangement mix</th><th>{{ `${monthOnly(asOf)} statements` }}</th><th>Status</th><th>Needs attention</th><th></th></tr></thead>
+          <thead v-else><tr><th>Property</th><th class="num">Units</th><th title="Today, from eZee and offline bookings (same as each property's Units tab)">Rent status summary</th><th>{{ `${monthOnly(asOf)} statements` }}</th><th>Status</th><th>Needs attention</th><th></th></tr></thead>
           <tbody>
             <template v-for="p in pageRows" :key="p.id">
               <tr class="clickable" @click="openPropertyPage(p.id)" v-if="acc.viewOnly">
@@ -56,7 +59,15 @@
               <tr class="clickable" @click="openPropertyPage(p.id)" v-else>
                 <td class="strong"><span class="dl-dot" :class="driveStatus[p.id]" v-if="driveStatus[p.id]" :title="dotTitle(p)"></span>{{ p.name }}<div class="p-state" :class="{ none: !stateOf(p) }">{{ stateOf(p) || 'No state' }}</div></td>
                 <td class="num">{{ unitsOf(p.id).length }}</td>
-                <td>{{ mixText(unitsOf(p.id)) }}</td>
+                <td class="rs-cell">
+                  <span class="muted" v-if="!unitsOf(p.id).length">—</span>
+                  <span class="muted" v-else-if="!(p.id in rent)">…</span>
+                  <span class="muted" v-else-if="rent[p.id] === null" title="Bookings could not be read">Could not read</span>
+                  <template v-else>
+                    <div class="rs-text">{{ `${rentCount(p.id).tenanted} tenanted · ${rentCount(p.id).vacant} vacant` }}</div>
+                    <div class="rs-bar" :title="`${rentCount(p.id).tenanted} of ${unitsOf(p.id).length} units tenanted today`"><span :style="{ width: `${100 * rentCount(p.id).tenanted / unitsOf(p.id).length}%` }"></span></div>
+                  </template>
+                </td>
                 <td>{{ !unitsOf(p.id).length ? 'Not started' : `${isDone(p.id) ? unitsOf(p.id).length : (monthDocs[p.id]?.completedUnits || 0)} of ${unitsOf(p.id).length} completed` }}</td>
                 <td><span class="pill" :class="isDone(p.id) ? 'green' : 'grey'">{{ isDone(p.id) ? 'Completed' : 'Draft' }}</span></td>
                 <td :class="attentionText(p.id) === '—' ? 'muted' : 'att'">{{ attentionText(p.id) }}</td>
@@ -158,7 +169,8 @@ import { liveMixin } from '@/lib/use-live.js';
 import { useSession } from '@/stores/session.js';
 import { peekHandoff, takeHandoff } from '@/lib/handoff.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
-import { monthOnly, mixText, loadUnitsOf, loadPropertiesSummary, handoffProperty } from '@/lib/portfolio-data.js';
+import { tenantedUnitIds } from '@/lib/rent-status.js';
+import { monthOnly, loadUnitsOf, loadPropertiesSummary, handoffProperty } from '@/lib/portfolio-data.js';
 import MonthPicker from '@/components/MonthPicker.vue';
 import RefreshButton from '@/components/RefreshButton.vue';
 import PropertyDrawer from './PropertyDrawer.vue';
@@ -181,6 +193,7 @@ export default {
       acc: portfolioAccess(me.role, me),
       asOf: this.$route.query.month || monthOffset(0),
       properties: [], allUnits: [], monthDocs: {},
+      rent: {}, rentSeq: 0,   // Rent status summary (20 Nov 2026): property id -> Set of unit ids tenanted today (null = could not read)
       propSearch: '', propAttn: false,
       loading: true, busy: false, error: '', okMsg: '',
       adding: null,   // { prefill } while the add property drawer is open
@@ -219,7 +232,7 @@ export default {
     }, e => { this.error = e.friendly || friendlyError(e, 'load the properties'); }));
   },
   methods: {
-    monthName, monthOnly, mixText, stateOf,
+    monthName, monthOnly, stateOf,
     // Green dot: the property has a folder in its state's Drive folder (Settings > States). Read-only.
     async loadDrive(fresh = false) {
       const key = this.properties.map(p => `${p.id}:${p.name}:${stateOf(p)}`).sort().join('|');
@@ -314,7 +327,23 @@ export default {
         // The month summaries hold each property's units and arrangements, so units, terms, owners and expenses are not read.
         const s = await loadPropertiesSummary(this.properties, this.asOf, me);
         this.monthDocs = s.monthDocs; this.allUnits = s.units;
+        this.loadRent();
       }
+    },
+    // Rent status summary column (20 Nov 2026, Khairul; replaces Arrangement mix): units tenanted today vs vacant,
+    // by the same rule as the property's Units tab (lib/rent-status.js). Filled in per property as each one is read.
+    async loadRent() {
+      const seq = ++this.rentSeq; this.rent = {};
+      await Promise.all(this.properties.filter(p => this.unitsOf(p.id).length).map(async p => {
+        let ids = null;
+        try { ids = await tenantedUnitIds(p.id); } catch (e) { console.warn('Rent status', p.id, e.code || e.message); }
+        if (seq === this.rentSeq) this.rent = { ...this.rent, [p.id]: ids };
+      }));
+    },
+    rentCount(pid) {
+      const list = this.unitsOf(pid), ids = this.rent[pid];
+      const tenanted = ids ? list.filter(x => ids.has(x.id)).length : 0;
+      return { tenanted, vacant: list.length - tenanted };
     },
     unitsOf(pid) { return this.allUnits.filter(x => x.propertyId === pid); },
     isDone(pid) { return this.monthDocs[pid]?.status === 'completed'; },
@@ -354,6 +383,12 @@ export default {
 </script>
 
 <style scoped>
+.prop-table { table-layout: fixed; width: 100%; min-width: 900px; }
+.prop-table td { overflow-wrap: anywhere; }
+.rs-cell { min-width: 0; }
+.rs-text { white-space: nowrap; }
+.rs-bar { height: 4px; border-radius: 999px; background: var(--chip); margin-top: 4px; overflow: hidden; max-width: 140px; }
+.rs-bar span { display: block; height: 100%; background: var(--green, #2e9e5b); }
 .no-state-note { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .dl-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; border: 1.5px solid var(--muted, #999); }
 .dl-dot.linked { background: var(--success, #2e9e5b); border-color: var(--success, #2e9e5b); }

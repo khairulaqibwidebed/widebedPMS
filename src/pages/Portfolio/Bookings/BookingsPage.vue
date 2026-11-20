@@ -12,7 +12,8 @@
       </div>
       <div class="head-tools">
         <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="reload()" />
-        <MonthPicker :ahead="1" multiple all-label="All months" v-model="monthsModel" v-if="acc.bkView" />
+        <!-- 20 Nov 2026: months up to 5 years ahead can be picked, so future leases (e.g. a Yearly Rental from Feb 2027) can be found -->
+        <MonthPicker :ahead="60" multiple all-label="All months" v-model="monthsModel" v-if="acc.bkView" />
         <RefreshButton v-if="propertyId === 'all'" @refresh="go()" />
         <LiveStatus v-else :status="liveStatus.bookings?.status || 'live'" />
       </div>
@@ -22,9 +23,9 @@
     <section class="kpis kpis-5">
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'all' }" @click="bookingKind = 'all'; toList()"><div class="label">Offline bookings</div><div class="value">{{ inView.length }}</div><div class="hint">Made from Tenant leads</div></button>
       <!-- 19 Nov 2026 (Khairul): three lease terms by nights (lib/lease-term.js) -->
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Long-term lease</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'long').length }}</div><div class="hint">365 nights or more</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'monthly' }" @click="bookingKind = 'monthly'; toList()"><div class="label">Monthly term lease</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'monthly').length }}</div><div class="hint">30 to 364 nights</div></button>
-      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Short term</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'short').length }}</div><div class="hint">29 nights or less</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'long' }" @click="bookingKind = 'long'; toList()"><div class="label">Yearly Lease</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'long').length }}</div><div class="hint">365 nights or more</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'monthly' }" @click="bookingKind = 'monthly'; toList()"><div class="label">Monthly Lease</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'monthly').length }}</div><div class="hint">30 to 364 nights</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'short' }" @click="bookingKind = 'short'; toList()"><div class="label">Daily Lease</div><div class="value">{{ inView.filter(x => termOfRow(x) === 'short').length }}</div><div class="hint">29 nights or less</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: bookingKind === 'noEzee' }" @click="bookingKind = 'noEzee'; toList()"><div class="label">Not in eZee yet</div><div class="value" :class="{ alert: notInEzee }">{{ notInEzee }}</div><div class="hint">No eZee reservation no. linked</div></button>
     </section>
     <section class="card">
@@ -163,7 +164,8 @@ export default {
     // The month picker: several months (none ticked = every month). Left alone it follows the month in the address.
     monthsModel: { get() { return this.selMonths; }, set(v) { this.monthSel = v; } },
     // 16 Nov 2026 (Khairul): starts on the whole year (the month's year); a link with ?month= starts on that month
-    selMonths() { return this.monthSel !== null ? this.monthSel : this.$route.query.month ? [this.asOf] : yearOf(this.asOf); },
+    // 20 Nov 2026 (Khairul): opens on All months (every booking, any year); a month in the address still picks just that month
+    selMonths() { return this.monthSel !== null ? this.monthSel : this.$route.query.month ? [this.asOf] : []; },
     wholeYear() { const s = this.selMonths; return s.length === 12 && new Set(s.map(m => m.slice(0, 4))).size === 1; },
     // Payment pills: the whole year shows the current month only (not 12 pills per long-term tenant)
     payMonths() { const s = this.selMonths; return this.wholeYear ? [s.includes(monthOffset(0)) ? monthOffset(0) : this.asOf] : s.length ? [...s].sort() : [this.asOf]; },
