@@ -1,4 +1,5 @@
 rules_version = '2';
+// Draft 0.99, 20 Nov 2026 (Khairul): agents/{id} may hold remarks (free text about the agent, up to 1000).
 // Draft 0.98, 20 Nov 2026 (Khairul): agents/{id} may hold licenseNo (the agent's license number, e.g. REN 37139; text, up to 60).
 // Draft 0.97, 20 Nov 2026 (Khairul): the booking form (Portfolio > Bookings > New booking) picks the agent when the booking
 //   source is Agent, so agents/{id} (the list only: not private/bank, not commission history) is also read by Accounting,
@@ -1635,7 +1636,7 @@ service cloud.firestore {
     // Bank holder and account number in private/bank (Full; Accounting reads to pay commission). Directors delete.
     match /agents/{agentId} {
       function agentKeys() {
-        return ['name', 'company', 'agency', 'agencyOther', 'mobile', 'email', 'licenseNo', 'address', 'bankName', 'acctLast4',   // licenseNo: Draft 0.98
+        return ['name', 'company', 'agency', 'agencyOther', 'mobile', 'email', 'licenseNo', 'address', 'remarks', 'bankName', 'acctLast4',   // licenseNo: Draft 0.98
           'cardFront', 'cardBack', 'active', 'commDaily', 'commMonthly', 'commRev',   // comm*: Draft 0.95
           'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'updatedBy', 'updatedByName'];
       }
@@ -1656,6 +1657,7 @@ service cloud.firestore {
           && d.get('email', '') is string && d.get('email', '').size() <= 120
           && d.get('address', '') is string && d.get('address', '').size() <= 500
           && d.get('licenseNo', '') is string && d.get('licenseNo', '').size() <= 60
+          && d.get('remarks', '') is string && d.get('remarks', '').size() <= 1000
           && d.get('bankName', '') is string && d.get('bankName', '').size() <= 60
           && d.get('acctLast4', '') is string && d.get('acctLast4', '').matches('^[0-9]{0,4}$')
           && d.get('active', true) is bool
