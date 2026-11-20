@@ -268,6 +268,27 @@
       </div>
     </div>
 
+    <!-- 20 Nov 2026: Delete KPI dialog (replaces the browser's confirm pop-up) -->
+    <div class="modal-back kpi-del-back" v-if="confirmDelete" @click.self="!saving && (confirmDelete = null)">
+      <div class="modal kpi-del-modal" role="alertdialog" aria-labelledby="kpiDelTitle">
+        <div class="kpi-del-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
+        </div>
+        <h3 id="kpiDelTitle">Delete this KPI?</h3>
+        <p class="kpi-del-name">{{ confirmDelete.title }}</p>
+        <p class="kpi-del-meta">{{ employeeKpis?.employeeName }} · {{ confirmDelete.weightage }}% weight</p>
+        <div class="notice warn kpi-del-warn" v-if="subOf(confirmDelete.id)">
+          {{ employeeKpis?.employeeName || 'The employee' }} has already submitted a self-assessment for this KPI. It will no longer count.
+        </div>
+        <p class="kpi-del-note">This can't be undone. Their KPI weightage will drop by {{ confirmDelete.weightage }}%.</p>
+        <div class="notice error" v-if="deleteError" style="margin-top:10px;">{{ deleteError }}</div>
+        <div class="kpi-del-actions">
+          <button class="btn" :disabled="saving" @click="confirmDelete = null">Cancel</button>
+          <button class="btn kpi-del-btn" :disabled="saving" @click="doRemoveAssignment">{{ saving ? 'Deleting…' : 'Delete KPI' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Director Review Modal — single column normally; review on the left + chat on the right while in discussion -->
     <div class="modal-back" v-if="reviewing" @click.self="reviewing = null">
       <div class="modal kpi-review-modal" :class="{ 'with-chat': inDiscussion(reviewing.submission) }">
@@ -545,23 +566,26 @@ async function saveAssignForm() {
   } catch (e) { error.value = e.message; } finally { saving.value = false; }
 }
 
-// 19 Nov 2026: delete a KPI entered by mistake (Directors any; HR the same people they assign, firestore.rules).
-// Asks first. A Director is warned when the employee has already submitted a self-assessment for it.
-async function removeAssignment(a) {
-  const sub = subOf(a.id);
-  const who = employeeKpis.value?.employeeName || 'The employee';
-  const warn = sub ? `\n\n${who} has already submitted a self-assessment for this KPI. It will no longer count.` : '';
-  if (!window.confirm(`Delete the KPI "${a.title}"?${warn}\n\nThis can't be undone.`)) return;
-  saving.value = true; error.value = '';
+// 19 Nov 2026: delete a KPI entered by mistake (Directors any; HR the same people they assign, firestore.rules Draft 0.95).
+// 20 Nov 2026: asks in the app's own dialog (confirmDelete), not the browser's pop-up. A Director is warned when the
+// employee has already submitted a self-assessment for it.
+const confirmDelete = ref(null);   // the KPI waiting for "Delete" in the dialog
+const deleteError = ref('');
+function removeAssignment(a) { deleteError.value = ''; confirmDelete.value = a; }
+async function doRemoveAssignment() {
+  const a = confirmDelete.value;
+  if (!a) return;
+  saving.value = true; error.value = ''; deleteError.value = '';
   try {
     await deleteDoc(doc(db, 'kpiAssignments', a.id));
+    confirmDelete.value = null;
     if (editingId.value === a.id) startAdd();
     okMsg.value = 'KPI deleted.';
     const keepOpenFor = employeeKpis.value;
     await load();
     employeeKpis.value = keepOpenFor;
   } catch (e) {
-    error.value = e.code === 'permission-denied' ? 'Not allowed to delete this KPI (check the Firestore rules are published).' : e.message;
+    deleteError.value = e.code === 'permission-denied' ? 'You can\'t delete this KPI. Publish Firestore rules Draft 0.95 first.' : e.message;
   } finally { saving.value = false; }
 }
 
@@ -634,6 +658,21 @@ async function reopenForDiscussion() {
 <style scoped>
 .row-selected { background: var(--hover); }
 .act-pill.act-danger { color: var(--red); }
+/* Delete KPI dialog (20 Nov 2026) */
+.kpi-del-back { z-index: 120; }
+.kpi-del-modal { max-width: 400px; width: 100%; text-align: center; padding: 26px 24px 20px; }
+.kpi-del-icon { width: 48px; height: 48px; margin: 0 auto 12px; border-radius: 50%; background: var(--red-soft); color: var(--red);
+  display: flex; align-items: center; justify-content: center; }
+.kpi-del-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kpi-del-modal h3 { margin: 0 0 6px; font-size: 17px; }
+.kpi-del-name { margin: 0; font-weight: 600; color: var(--text); word-break: break-word; }
+.kpi-del-meta { margin: 2px 0 12px; font-size: 13px; color: var(--text-2); }
+.kpi-del-warn { text-align: left; margin-bottom: 10px; }
+.kpi-del-note { margin: 0; font-size: 13px; color: var(--text-2); }
+.kpi-del-actions { display: flex; gap: 8px; margin-top: 18px; }
+.kpi-del-actions .btn { flex: 1; }
+.kpi-del-btn { background: var(--red); border-color: var(--red); color: #fff; }
+.kpi-del-btn:hover:not(:disabled) { filter: brightness(1.08); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* Follows the account's theme (Settings > Appearance) throughout, same as the COH redesign — var(--surface),
