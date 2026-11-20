@@ -1,5 +1,4 @@
 rules_version = '2';
-<<<<<<< HEAD
 // Draft 0.94, 20 Nov 2026 (Khairul): Marketing > Agent Database (agents/{id}). New access row 'agents' (Agent Database,
 //   Marketing group): Marketing have Base + Full by default (presetFor). Base reads the list and profiles; Full adds, edits
 //   and reads bank details. Bank holder and account number sit in agents/{id}/private/bank (Full, plus Accounting read for
@@ -7,13 +6,11 @@ rules_version = '2';
 //   (cardFront / cardBack: name, fileId, mimeType). Directors delete. KEEP IN STEP WITH PRESETS in lib/access.js.
 // Draft 0.93, 20 Nov 2026 (Khairul): cohGroups/{id} { name, members, updatedBy, updatedByName, updatedAt }: COH rater groups
 //   (COH Evaluations > Settings), quick picks on Assigned raters. HR and Directors read and write; nobody else.
-=======
->>>>>>> 2152e28e14b946b1760a879b54b8a15ca0156171
 // Draft 0.92, 19 Nov 2026 (Khairul): COH assigned raters in three groups (COH Evaluations > Assigned raters): Interns
 //   (users/{uid}.intern), Housekeeping (role) and General (cohAssignments/{quarterId}.general, a list HR keeps). Anyone in
 //   a group rates, and is rated by, only the pairs HR listed (hkPairOk). cohAssignments may now carry general.
-// Draft 0.91, 19 Nov 2026 (Khairul): HR and Directors delete a COH evaluation and its marks (cohEvaluations/{id} and
-//   private/scores), from COH Evaluations > All evaluations, with an audit log line. Nobody else can.
+// Draft 0.91, 19 Nov 2026 (Khairul): withdrawn 20 Nov 2026 with COH > All evaluations (never published). Nobody deletes
+//   a COH evaluation or its marks, as before.
 // Draft 0.90, 19 Nov 2026 (Neo, "KPI HR", commits f6d860d / d80e472): HR reads every KPI assignment and creates or edits
 //   one for another staff member (not a Director, not themselves). Neo's commit replaced the whole file with an old copy
 //   and left merge markers; this file is 1000b91 (up to Draft 0.89) with only that change brought across (was labelled 0.89).
@@ -388,11 +385,7 @@ service cloud.firestore {
         : r == 'it' ? ['split.v2']
         : r == 'hr' ? ['playbook.edit', 'sops.edit', 'split.v2']
         : r == 'procurement' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
-<<<<<<< HEAD
         : r == 'marketing' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'agents.view', 'agents.edit', 'split.v2']   // Draft 0.94: agents
-=======
-        : r == 'marketing' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
->>>>>>> 2152e28e14b946b1760a879b54b8a15ca0156171
         : r == 'ai' ? ['portfolio.view', 'split.v2']
         : r == 'housekeeping' ? ['split.v2']   // Draft 0.78
         : [];
@@ -556,12 +549,8 @@ service cloud.firestore {
     // their own rules below.
     match /{parent=**}/private/{docId} {
       allow read, write: if finOrDir() && parent[0] != 'complaints' && parent[0] != 'newOwnerListings'
-<<<<<<< HEAD
         && parent[0] != 'cohEvaluations' && parent[0] != 'owners'   // Draft 0.73: owners follow Owners Full
         && parent[0] != 'agents';   // Draft 0.94: agents' bank details have their own rule (Accounting read only)
-=======
-        && parent[0] != 'cohEvaluations' && parent[0] != 'owners';   // Draft 0.73: owners follow Owners Full
->>>>>>> 2152e28e14b946b1760a879b54b8a15ca0156171
       // Returning tenant search: collectionGroup('private') where kind == 'tenant'. kind is written only on
       // tenants/{id}/private/main; Operations can't add it to an inquiry's private doc.
       allow read: if (guestFull() || finOrDir()) && resource.data.get('kind', '') == 'tenant';   // Draft 0.73: Full only
@@ -1625,7 +1614,6 @@ service cloud.firestore {
         allow read: if listingMover() && listingViewer() && docId == 'main';
         allow write: if listingMover() && listingEditor() && docId == 'main';
         allow delete: if isDirector();   // Draft 0.67
-<<<<<<< HEAD
       }
     }
 
@@ -1675,8 +1663,6 @@ service cloud.firestore {
           && request.resource.data.get('accountNo', '') is string && request.resource.data.get('accountNo', '').matches('^[0-9]{0,20}$')
           && request.resource.data.updatedBy == request.auth.uid;
         allow delete: if isDirector();
-=======
->>>>>>> 2152e28e14b946b1760a879b54b8a15ca0156171
       }
     }
 
@@ -1726,7 +1712,6 @@ service cloud.firestore {
         && request.resource.data.get('general', []) is list && request.resource.data.get('general', []).size() <= 300
         && request.resource.data.updatedBy == request.auth.uid;
     }
-<<<<<<< HEAD
     // Draft 0.93: COH rater groups (Settings), HR and Directors only
     match /cohGroups/{id} {
       allow read, delete: if hrOrDir();
@@ -1736,8 +1721,6 @@ service cloud.firestore {
         && request.resource.data.members is list && request.resource.data.members.size() <= 300
         && request.resource.data.updatedBy == request.auth.uid;
     }
-=======
->>>>>>> 2152e28e14b946b1760a879b54b8a15ca0156171
     // Draft 0.78: a pair with a housekeeper on either side must be one HR listed. Others: allowed as before.
     // Draft 0.92: the same for interns (users/{uid}.intern) and for anyone in the quarter's General list.
     function hkPairOk(quarterId, evaluatorId, evaluateeId) {
@@ -1778,8 +1761,7 @@ service cloud.firestore {
       // HR/Director approve: only the review fields change.
       allow update: if (isDirector() || can('performance.edit'))
         && changed().hasOnly(['status', 'reviewedBy', 'reviewedAt']) && request.resource.data.status == 'approved';
-      // Draft 0.91: HR and Directors delete an evaluation (COH > All evaluations), with its marks below.
-      allow delete: if isDirector() || isHR();
+      allow delete: if false;
 
       // The actual marks: readable by the evaluator (it's their own input) and HR/Director (monitoring and
       // official score calculation, see results.js::cohScoreFor) ΓÇö never by the evaluatee. Immutable once
@@ -1806,7 +1788,7 @@ service cloud.firestore {
                 && getAfter(evalDoc()).data.status == 'submitted'
                 && request.resource.data.ratings.size() > resource.data.ratings.size()))
           && request.resource.data.ratings is list && request.resource.data.averageRating is number;
-        allow delete: if isDirector() || isHR();   // Draft 0.91, with the evaluation above
+        allow delete: if false;
       }
     }
 
