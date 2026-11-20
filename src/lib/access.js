@@ -32,6 +32,9 @@ export const PAGES = [
   // 18 Nov 2026 (Khairul): post, edit and delete What's New updates (was Directors only). No role has it to start.
   // KEEP IN STEP WITH updates/{id} in firestore.rules.
   { key: 'whatsNew',         label: "What's New (post, edit, delete updates)", group: 'Content', to: [], editOnly: true },
+  // 20 Nov 2026 (Khairul): Marketing > Agent Database. Base: the list and agent profiles. Full: add, edit and see bank details.
+  // KEEP IN STEP WITH agents/{id} in firestore.rules (Draft 0.94).
+  { key: 'agents',           label: 'Agent Database',                group: 'Marketing',   to: ['/Marketing/agents'] },
   { key: 'performance',      label: 'Performance Management',        group: 'Performance', to: ['/Performance/quarters'] },
   // 17 Nov 2026: Google Drive Folders (Settings). Base: see the page and the link check. Full: set a state's folder, create
   // unit folders, change a property's units folder. KEEP IN STEP WITH driveFolders in firestore.rules and api/drive.js.
@@ -49,7 +52,7 @@ export const ACCESS_ROWS = PAGES.filter(p => !p.aiOnly).map(p => ({ id: p.key, l
 // The AI only ever gets None or Base (view).
 // Left out for the AI: payments and finance (Khairul 17 Nov 2026: not needed), people's work or personal records, and
 // pages that would let it act (forms, uploads). The rules accept only AI_VIEW_PERMS on roles/ai.
-const AI_SKIP = ['bookingForms', 'bulkUpload', 'offlineInquiries', 'agreementSetup', 'performance', 'driveFolders',
+const AI_SKIP = ['agents', 'bookingForms', 'bulkUpload', 'offlineInquiries', 'agreementSetup', 'performance', 'driveFolders',
   'offlinePayments', 'ezeeUpload', 'expenses', 'monthEnd', 'invoices', 'reports'];
 const aiPage = p => !p.editOnly && !AI_SKIP.includes(p.key);
 export const AI_ROWS = PAGES.filter(aiPage).map(p => ({ id: p.key, label: p.label, group: p.group, keys: [p.key], ai: true }));
@@ -92,6 +95,7 @@ export const GROUP_NOTES = {
   Content: 'Everyone can read these. Full lets them change the text (What\'s New: post, edit and delete updates).',
   'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
   'Company Settings': 'Google Drive Folders Base: see each state\'s folder and which properties and units are linked. Full: set a state\'s folder, create unit folders and change a property\'s units folder.',
+  Marketing: 'Agent Database Base: the list of agents and their contact details. Full: add and edit agents and see their bank account number.',
   Performance: 'Quarterly performance management (quarters, COH, KPI, TMS administration). Everyone can still see their own results without this access.'
 };
 
@@ -116,7 +120,7 @@ export const PRESETS = {
   it: [SPLIT_MARK],
   hr: ['playbook.edit', 'sops.edit', SPLIT_MARK],
   procurement: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), SPLIT_MARK],
-  marketing: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), SPLIT_MARK],
+  marketing: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), ...both('agents'), SPLIT_MARK],   // agents: 20 Nov 2026
   // Housekeeping (17 Nov 2026): the always-open pages only to start; HR or the Director add pages per person or on Roles.
   housekeeping: [SPLIT_MARK],
   // AI Agent: Properties Base to start; the Director changes it on Roles (Base only). KEEP IN STEP WITH aiViewPerms() in the rules.
