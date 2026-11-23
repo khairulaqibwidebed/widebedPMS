@@ -14,6 +14,10 @@
 export const PAGES = [
   // 16 Nov 2026 (Khairul): "Owners, Properties & Bookings" split into three rows, each with its own access level.
   { key: 'owners',           label: 'Owners',                        group: 'Portfolio',   to: ['/Portfolio/owners'] },
+  // 23 Nov 2026 (Khairul): two tabs of the owner form get their own tick (one level each). KEEP IN STEP WITH ownerCredsOk()
+  // in firestore.rules (Draft 1.04). Lists saved before this (no SPLIT3_MARK): Owners Full gives both (upgradePerms).
+  { key: 'ownerCreds',       label: 'Credentials (IC, date of birth, address, bank)', group: 'Portfolio', to: [], viewOnly: true, sub: true },
+  { key: 'ownerPayouts',     label: 'Units & payouts',             group: 'Portfolio',   to: [], viewOnly: true, sub: true },
   { key: 'portfolio',        label: 'Properties, Units and Fees & Rates', group: 'Portfolio', to: ['/Portfolio/properties', '/Portfolio/fees-rates'], editTo: ['/Portfolio/fees-rates'] },
   { key: 'bookings',         label: 'Bookings',                      group: 'Portfolio',   to: ['/Portfolio/bookings'] },
   { key: 'bookingForms',     label: 'Utility Lodgment Form & New booking',                 group: 'Portfolio',   to: ['/Operations/booking-forms'], viewOnly: true },
@@ -21,6 +25,9 @@ export const PAGES = [
   { key: 'bulkUpload',       label: 'Bulk Upload',                   group: 'Portfolio',   to: ['/Portfolio/bulk-upload'] },
   // 20 Nov 2026 (Khairul): end a stay early (Portfolio > Bookings > open a booking > Early termination). No page of its own.
   { key: 'earlyTermination', label: 'Early termination (end a stay early)', group: 'Portfolio', to: [], editOnly: true },
+  // 23 Nov 2026 (Khairul): Portfolio > Bookings > gear > Booking settings (invoice header, T&Cs, bank details). Opens with Edit only.
+  // KEEP IN STEP WITH config/invoiceDefaults in firestore.rules (Draft 1.01).
+  { key: 'bookingSettings',  label: 'Booking settings (invoice, sources, fees)', group: 'Portfolio', to: [], editOnly: true },
   { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/listing-flow', '/Procurement/owner-leads'] },
   { key: 'offlineInquiries', label: 'Tenant Leads',                  group: 'Leads & Agreements', to: ['/Operations/offline-inquiries'] },
   { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Leads & Agreements', to: ['/Agreements/setup'], viewOnly: true },
@@ -49,12 +56,13 @@ export const PAGES = [
 
 // One row per page on Roles and Staff accounts (16 Nov 2026): a dropdown of access levels instead of a tick.
 // The saved names stay '<key>.view' (Base) and '<key>.edit' (Full), so the sidebar and security rules read them as before.
-export const ACCESS_ROWS = PAGES.filter(p => !p.aiOnly).map(p => ({ id: p.key, label: p.label, group: p.group, keys: [p.key] }));
+// sub: shown indented under the row above (23 Nov 2026: the owner form's Credentials and Units & payouts under Owners)
+export const ACCESS_ROWS = PAGES.filter(p => !p.aiOnly).map(p => ({ id: p.key, label: p.label, group: p.group, keys: [p.key], sub: !!p.sub }));
 // The AI Agent's rows (17 Nov 2026): every page that has a view level (not the Content edit-only rows), plus the AI-only rows.
 // The AI only ever gets None or Base (view).
 // Left out for the AI: payments and finance (Khairul 17 Nov 2026: not needed), people's work or personal records, and
 // pages that would let it act (forms, uploads). The rules accept only AI_VIEW_PERMS on roles/ai.
-const AI_SKIP = ['agents', 'bookingForms', 'bulkUpload', 'offlineInquiries', 'agreementSetup', 'performance', 'driveFolders',
+const AI_SKIP = ['ownerCreds', 'ownerPayouts', 'agents', 'bookingForms', 'bulkUpload', 'offlineInquiries', 'agreementSetup', 'performance', 'driveFolders',
   'offlinePayments', 'ezeeUpload', 'expenses', 'monthEnd', 'invoices', 'reports'];
 const aiPage = p => !p.editOnly && !AI_SKIP.includes(p.key);
 export const AI_ROWS = PAGES.filter(aiPage).map(p => ({ id: p.key, label: p.label, group: p.group, keys: [p.key], ai: true }));
@@ -93,7 +101,7 @@ export const rowPerms = row => row.keys.flatMap(k => { const p = PAGES.find(x =>
 // One line under some groups in the access table, so it's clear what a level really gives.
 export const GROUP_NOTES = {
   Accounting: 'Any Accounting page lets them read the finance data. Any Accounting Full lets them change it.',
-  Portfolio: 'Owners Base: names and contact only. Owners Full: also IC, date of birth, address and bank details, and can edit. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data. Early termination: end a booking early (move-out date, reason, the notice from the tenant) and record the deposit refund; they also need Bookings to open the booking. Only Directors can undo it.',
+  Portfolio: 'Owners Base: names and contact only. Owners Full: can add and edit owners. Owners · Credentials: see (and with Full, change) IC, date of birth, address and bank details. Owners · Units & payouts: the owner\'s units, carried forward and payout history. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data. Early termination: end a booking early (move-out date, reason, the notice from the tenant) and record the deposit refund; they also need Bookings to open the booking. Only Directors can undo it. Booking settings: the gear on Bookings (invoice header, the default T&Cs and bank details).',
   Content: 'Everyone can read these. Full lets them change the text (What\'s New: post, edit and delete updates).',
   'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
   'Company Settings': 'Google Drive Folders Base: see each state\'s folder and which properties and units are linked. Full: set a state\'s folder, create unit folders and change a property\'s units folder.',
@@ -106,6 +114,10 @@ const both = key => [key + '.view', key + '.edit'];
 // Saved in every tick list made since the Portfolio split (16 Nov 2026). A list without it is older: its Portfolio
 // ticks are read as Owners and Bookings too (upgradePerms). firestore.rules reads it the same way (can()).
 export const SPLIT_MARK = 'split.v2';
+// 23 Nov 2026: saved in every tick list made since the owner Credentials / Units & payouts ticks. A list without it is older:
+// Owners Full (or Bulk Upload Full) there also gives both ticks. firestore.rules reads it the same way (ownerCredsOk()).
+export const SPLIT3_MARK = 'split.v3';
+const MARKS = [SPLIT_MARK, SPLIT3_MARK];
 
 // AI Agent (16 Nov 2026, Khairul): a login for an AI agent (Grok). Read-only and locked: no page ticks, can't open the
 // PMS screens, and the security rules let it read only what they list for it (properties). Not a BUILTIN_ROLES role, so it
@@ -118,7 +130,8 @@ export const PRESETS = {
   finance: [...both('reports'), ...both('ezeeUpload'), ...both('expenses'), ...both('monthEnd'), ...both('invoices'),
     ...both('offlinePayments'), ...both('owners'), ...both('portfolio'), ...both('bookings'), ...both('bulkUpload'), ...both('offlineInquiries'), SPLIT_MARK],
   // 13 Nov 2026: Operations work owner listings too (Owner Leads Edit; Operations Setup is theirs)
-  operations: ['owners.view', 'portfolio.view', ...both('bookings'), ...both('offlineInquiries'), 'bookingForms.view', ...both('newOwnerListings'), 'offlinePayments.view', ...both('driveFolders'), SPLIT_MARK],
+  // 23 Nov 2026: Booking settings (invoice, T&Cs)
+  operations: ['owners.view', 'portfolio.view', ...both('bookings'), ...both('offlineInquiries'), 'bookingForms.view', ...both('newOwnerListings'), 'offlinePayments.view', ...both('driveFolders'), 'bookingSettings.edit', SPLIT_MARK],
   it: [SPLIT_MARK],
   hr: ['playbook.edit', 'sops.edit', SPLIT_MARK],
   procurement: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), SPLIT_MARK],
@@ -129,17 +142,23 @@ export const PRESETS = {
   ai: ['portfolio.view', SPLIT_MARK]
 };
 
-const ALL_PERMS = new Set([...PAGES.flatMap(p => p.viewOnly ? [p.key + '.view'] : p.editOnly ? [p.key + '.edit'] : both(p.key)), SPLIT_MARK]);
+const ALL_PERMS = new Set([...PAGES.flatMap(p => p.viewOnly ? [p.key + '.view'] : p.editOnly ? [p.key + '.edit'] : both(p.key)), ...MARKS]);
 
 // An older tick list (no SPLIT_MARK): Portfolio View/Edit also gives Owners and Bookings View/Edit, and Tenant Leads
 // (which used to edit offline bookings) gives Bookings Full. Same reading as legacyHas() in firestore.rules.
 export function upgradePerms(list) {
   const l = list || [];
-  if (l.includes(SPLIT_MARK)) return l;
-  const out = [...l, SPLIT_MARK];
-  if (l.includes('portfolio.view')) out.push('owners.view', 'bookings.view');
-  if (l.includes('portfolio.edit')) out.push('owners.edit', 'bookings.edit');
-  if (l.includes('offlineInquiries.view')) out.push('bookings.view', 'bookings.edit');
+  let out = [...l];
+  if (!l.includes(SPLIT_MARK)) {
+    out.push(SPLIT_MARK);
+    if (l.includes('portfolio.view')) out.push('owners.view', 'bookings.view');
+    if (l.includes('portfolio.edit')) out.push('owners.edit', 'bookings.edit');
+    if (l.includes('offlineInquiries.view')) out.push('bookings.view', 'bookings.edit');
+  }
+  if (!out.includes(SPLIT3_MARK)) {   // 23 Nov 2026: before the owner tab ticks, Owners Full saw both tabs
+    if (out.includes('owners.edit') || out.includes('bulkUpload.edit')) out.push('ownerCreds.view', 'ownerPayouts.view');
+    out.push(SPLIT3_MARK);
+  }
   return out;
 }
 
@@ -176,6 +195,7 @@ export function navPerm(path) {
 // Can this person open a route? Tickable pages need their View tick; every other page follows the role list.
 export function canOpen(meta, me, allRoles = []) {
   if (!me || !me.role) return false;
+  if (meta.need) return can(me, meta.need);   // 23 Nov 2026: one exact tick, e.g. 'bookingSettings.edit' (an Edit-only tick)
   if (meta.perm) return can(me, meta.perm + '.view');
   return (meta.roles || allRoles).includes(me.role);
 }
@@ -189,12 +209,12 @@ export function cleanPerms(list) {
 
 export const samePerms = (a, b) => cleanPerms(a).join() === cleanPerms(b).join();
 // How many pages a list opens (Roles page "Pages ticked").
-export const pageCount = list => new Set(cleanPerms(list).filter(p => p !== SPLIT_MARK).map(p => p.split('.')[0])).size;
+export const pageCount = list => new Set(cleanPerms(list).filter(p => !MARKS.includes(p)).map(p => p.split('.')[0])).size;
 
 // "Expenses & Others (Full)" — used in the audit log text. '' for SPLIT_MARK.
 export function permLabel(perm) {
-  if (perm === SPLIT_MARK) return '';
+  if (MARKS.includes(perm)) return '';
   const [key, level] = perm.split('.');
   const page = PAGES.find(p => p.key === key);
-  return (page ? page.label : key) + (level === 'edit' || page?.viewOnly ? ' (Full)' : ' (Base)');
+  return (page ? (page.sub ? 'Owners · ' : '') + page.label : key) + (level === 'edit' || page?.viewOnly ? ' (Full)' : ' (Base)');
 }

@@ -28,8 +28,10 @@ const routes = [
   ticked('/Portfolio/properties', () => import('./pages/Portfolio/Properties/PropertiesRoute.vue'), 'Properties', 'portfolio'),
   ticked('/Portfolio/bookings', () => import('./pages/Portfolio/Bookings/BookingsPage.vue'), 'Bookings', 'bookings'),
   // New booking (Reservation Lodgment Form), moved off Booking forms 16 Nov 2026. Still the Booking Forms tick for now.
-  // Invoice settings (16 Nov 2026): header, T&Cs and bank details on booking invoices; Directors only
-  page('/Portfolio/bookings/invoice-settings', () => import('./pages/Portfolio/Bookings/InvoiceSettings.vue'), 'Invoice settings', D, { navLabel: 'Bookings' }),
+  // Booking settings (23 Nov 2026, the gear on Bookings): one address per tab (invoice | sources | fees). Needs the
+  // 'bookingSettings.edit' tick (Directors and Operations to start). Was Invoice settings, Directors only (16 Nov 2026).
+  page('/Portfolio/bookings/settings/:tab(invoice|sources|fees)?', () => import('./pages/Portfolio/Bookings/BookingSettings.vue'), 'Booking settings', [], { need: 'bookingSettings.edit', navLabel: 'Bookings' }),
+  { path: '/Portfolio/bookings/invoice-settings', redirect: '/Portfolio/bookings/settings/invoice' },
   ticked('/Portfolio/bookings/new', () => import('./pages/Portfolio/Bookings/NewBooking.vue'), 'New booking', 'bookingForms', { navLabel: 'Bookings' }),
   // Fees & Rates (12 Nov 2026): one set for every property. Opens with Portfolio View (the page shows a notice); the sidebar item needs Edit (access.js editTo).
   ticked('/Portfolio/fees-rates', () => import('./pages/Portfolio/FeesRates/FeesRatesPage.vue'), 'Fees & Rates', 'portfolio'),

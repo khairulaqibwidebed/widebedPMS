@@ -33,24 +33,10 @@
         <!-- 20 Nov 2026 (Khairul): + New booking and the gear sit together at the top right -->
         <div class="head-acts">
         <RouterLink class="btn btn-primary new-bk" v-if="canForms" to="/Portfolio/bookings/new" title="Opens the Reservation Lodgment Form">+ New booking</RouterLink>
-        <!-- 20 Nov 2026 (Khairul): a gear Settings menu holds the list's view (Table or Cards) and rows per page; both are remembered on this browser -->
-        <span class="mm-wrap set-wrap"><button type="button" class="btn icon-btn" @click="setOpen = !setOpen" aria-haspopup="dialog" :aria-expanded="setOpen" title="List settings" aria-label="List settings">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-          <template v-if="setOpen"><div class="mm-back" @click="setOpen = false"></div>
-            <div class="mm-pop set-pop" role="dialog" aria-label="List settings">
-              <div class="flt-h">View</div>
-              <div class="seg slide view-seg" role="radiogroup" aria-label="Show bookings as">
-                <button type="button" role="radio" :aria-checked="view === 'table'" :class="{ on: view === 'table' }" @click="setView('table')">Table</button>
-                <button type="button" role="radio" :aria-checked="view === 'cards'" :class="{ on: view === 'cards' }" @click="setView('cards')">Cards</button>
-              </div>
-              <div class="flt-h">Rows per page</div>
-              <div class="seg slide view-seg" role="radiogroup" aria-label="Rows per page">
-                <button type="button" role="radio" v-for="n in [10, 25, 50]" :key="n" :aria-checked="pageSize === n" :class="{ on: pageSize === n }" @click="setPageSize(n)">{{ n }}</button>
-              </div>
-              <!-- 20 Nov 2026 (Khairul): booking form settings, placeholders only; the functions come later (ToDo.md) -->
-              <div class="flt-h">Booking form</div>
-              <button type="button" class="flt-opt" disabled v-for="t in ['T&C defaults', 'Booking sources', 'Other fees on/off']" :key="t"><span>{{ t }}</span><span class="soon">Coming soon</span></button>
-            </div></template></span></div></div>
+        <!-- 23 Nov 2026 (Khairul): the gear opens the Booking settings page (invoice, T&Cs); only with the Booking settings tick.
+             View (Table / Cards) moved to the toolbar and Rows per page to the pager under the list. -->
+        <RouterLink class="btn icon-btn" v-if="canSettings" to="/Portfolio/bookings/settings" title="Booking settings" aria-label="Booking settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></RouterLink></div></div>
       <p class="card-intro">Stays made outside eZee, such as long-term tenants.</p>
       <div class="toolbar" ref="bookList">
         <input class="input" type="search" placeholder="Search booking no., unit, tenant name or ID" v-model="search" aria-label="Search booking">
@@ -73,8 +59,14 @@
                   <span>{{ o.label }}</span><span class="flt-n">{{ o.n }}</span></button>
               </template>
             </div></template></span>
+        <!-- 23 Nov 2026 (Khairul): Table or Cards, right of Filters; remembered on this browser -->
+        <div class="seg slide view-seg" role="radiogroup" aria-label="Show bookings as">
+          <button type="button" role="radio" :aria-checked="view === 'table'" :class="{ on: view === 'table' }" @click="setView('table')">Table</button>
+          <button type="button" role="radio" :aria-checked="view === 'cards'" :class="{ on: view === 'cards' }" @click="setView('cards')">Cards</button>
+        </div>
       </div>
-      <Paged :items="shown" :size="pageSize" v-slot="{ pageRows }">
+      <!-- 23 Nov 2026: rows per page (10 / 25 / 50) next to the page numbers; remembered on this browser -->
+      <Paged :items="shown" :size="pageSize" :sizes="[10, 25, 50]" @update:size="setPageSize" v-slot="{ pageRows }">
       <div class="bk-list" v-if="view === 'cards'">
         <div class="bk-card" :class="{ cancelled: row.status === 'cancelled' }" v-for="row in pageRows" :key="row.id" role="button" tabindex="0"
           @click="open = row" @keydown.enter.prevent="open = row" @keydown.space.prevent="open = row" :aria-label="`Open booking ${row.bookingNo || row.id}`">
@@ -94,7 +86,7 @@
           </div>
           <div class="bk-side" v-if="acc.bkView">
             <b class="bk-amt">{{ rateOf(row) ? `RM ${amt(rateOf(row))}` : '—' }}<small>{{ row.longTerm ? ' /month' : ' total' }}</small></b>
-            <div class="mp-list" v-if="row.status !== 'pending' && row.status !== 'cancelled'"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length || wholeYear ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template></div>
+            <div class="mp-list" v-if="row.status !== 'pending' && row.status !== 'cancelled'"><span class="pill" v-for="m in pillMonths(row)" :key="m" :class="MONTH_PAY[monthStatus(row, m)].cls" :title="monthPayTip(row, m)">{{ `${payTag(m)} · ${MONTH_PAY[monthStatus(row, m)].label}` }}</span></div>
           </div>
           <span v-else></span>
           <button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button>
@@ -103,7 +95,7 @@
       </div>
       <div class="table-wrap" v-else>
         <table class="table">
-          <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th>Type</th><th class="num" v-if="acc.bkView">Amount (RM)</th><th v-if="acc.bkView" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
+          <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th class="type-cell">Type</th><th class="num" v-if="acc.bkView">Amount (RM)</th><th class="pay-cell" v-if="acc.bkView" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
           <tbody>
             <template v-for="row in pageRows" :key="row.id">
               <tr class="clickable" @click="open = row">
@@ -112,9 +104,10 @@
                 <td class="nw">{{ guestName(row) }}</td>
                 <td class="nw">{{ dmy(row.arrival) }}</td>
                 <td class="nw">{{ dmy(row.departure) }}</td>
-                <td class="nw">{{ leaseLabel(bookingNights(row)) }} <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span><span class="pill amber" v-else-if="row.status === 'pending'">Awaiting payment</span><span class="pill amber" v-else-if="row.earlyTermination?.date" :title="`Check-out was ${dmy(row.earlyTermination.originalDeparture)}`">Terminated early</span></td>
+                <!-- 23 Nov 2026 (Khairul): the status tag sits under the lease type -->
+                <td class="nw type-cell"><div>{{ leaseLabel(bookingNights(row)) }}</div><div class="type-tag" v-if="row.status === 'cancelled' || row.status === 'pending' || row.earlyTermination?.date"><span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span><span class="pill amber" v-else-if="row.status === 'pending'">Awaiting payment</span><span class="pill amber" v-else-if="row.earlyTermination?.date" :title="`Check-out was ${dmy(row.earlyTermination.originalDeparture)}`">Terminated early</span></div></td>
                 <td class="num nw" v-if="acc.bkView">{{ row.longTerm ? `${amt(row.monthlyRent)} /M` : paidOf(row) }}</td>
-                <td v-if="acc.bkView"><div class="mp-list"><template v-for="m in payMonths" :key="m"><span class="pill" :class="MONTH_PAY[monthStatus(row, m)].cls" v-if="monthStatus(row, m)" :title="monthPayTip(row, m)">{{ `${payMonths.length > 1 || monthSel !== null && !monthSel.length || wholeYear ? payTag(m) + ' · ' : ''}${MONTH_PAY[monthStatus(row, m)].label}` }}</span></template><span class="muted" v-if="!payMonths.some(m => monthStatus(row, m))">—</span></div></td>
+                <td class="pay-cell" v-if="acc.bkView"><div class="mp-list"><span class="pill" v-for="m in pillMonths(row)" :key="m" :class="MONTH_PAY[monthStatus(row, m)].cls" :title="monthPayTip(row, m)">{{ `${payTag(m)} · ${MONTH_PAY[monthStatus(row, m)].label}` }}</span><span class="muted" v-if="!pillMonths(row).length">—</span></div></td>
                 <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = row"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.100 11-7c-1.700-3.900-6-7-11-7zm0 11.500A4.500 4.500 0 1112 7.500a4.500 4.500 0 010 9zm0-7.200a2.700 2.700 0 100 5.400 2.700 2.700 0 000-5.400z"/></svg></button></td>
               </tr>
             </template>
@@ -144,7 +137,8 @@ import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
 import { can } from '@/lib/access.js';
 import { MONTH_PAY, shortName, loadOfflineBookings, watchOfflineBookings, loadGuestName } from '@/lib/portfolio-data.js';
-import { termLastDue } from '@/lib/booking-invoice.js';
+import { termLastDue, allMonthCharges } from '@/lib/booking-invoice.js';
+import { withCarry } from '@/lib/booking-pay.js';
 import { liveMixin } from '@/lib/use-live.js';
 import LiveStatus from '@/components/LiveStatus.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
@@ -166,13 +160,13 @@ export default {
   data() {
     const q = this.$route.query;
     return {
-      MONTH_PAY, acc: portfolioAccess(me.role, me), canForms: can(me, 'bookingForms.view'),
+      MONTH_PAY, acc: portfolioAccess(me.role, me), canForms: can(me, 'bookingForms.view'), canSettings: can(me, 'bookingSettings.edit'),
       // ?id=offline_BK-0001 (the link after a Reservation form is saved) opens that booking once the list is loaded
       openId: q.id || '',
       propertyId: q.property || lastProperty(true) || 'all', asOf: q.month || monthOffset(0),
       properties: [], bookings: [], paid: null, pays: null, names: {}, asked: new Set(),
       loading: true, bookingsLoading: false, error: '', okMsg: '',
-      search: '', bookingKind: 'all', monthSel: null, bkFrom: '', bkTo: '', drOpen: false, fltOpen: false, setOpen: false, pageSize: savedSize(),
+      search: '', bookingKind: 'all', monthSel: null, bkFrom: '', bkTo: '', drOpen: false, fltOpen: false, pageSize: savedSize(),
       open: null,   // the booking open in the drawer
       view: savedView()   // 'cards' or 'table'
     };
@@ -210,7 +204,8 @@ export default {
     selMonths() { return this.monthSel !== null ? this.monthSel : this.$route.query.month ? [this.asOf] : []; },
     wholeYear() { const s = this.selMonths; return s.length === 12 && new Set(s.map(m => m.slice(0, 4))).size === 1; },
     // Payment pills: the whole year shows the current month only (not 12 pills per long-term tenant)
-    payMonths() { const s = this.selMonths; return this.wholeYear ? [s.includes(monthOffset(0)) ? monthOffset(0) : this.asOf] : s.length ? [...s].sort() : [this.asOf]; },
+    // 23 Nov 2026 (Khairul): All months shows last month, this month and next month (e.g. Oct · Unpaid, Nov · Paid, Dec · Paid)
+    payMonths() { const s = this.selMonths; return this.wholeYear ? [s.includes(monthOffset(0)) ? monthOffset(0) : this.asOf] : s.length ? [...s].sort() : [monthOffset(-1), monthOffset(0), monthOffset(1)]; },
     dateLabel() { return !this.bkFrom && !this.bkTo ? 'Any dates' : `${this.bkFrom ? dmy(this.bkFrom) : 'Start'} to ${this.bkTo ? dmy(this.bkTo) : 'any'}`; },
     // Typing in the search box ignores the month and date filters, so a unit search shows all of its bookings.
     shown() {
@@ -322,16 +317,37 @@ export default {
     // Short stay: the whole rental against everything paid. null = not in that month, or no access to payments.
     monthStatus(b, m) {
       if (!this.pays || !this.stays(b, m)) return null;
+      if (b.longTerm) return this.carried(b).find(x => x.m === m)?.status || 'unpaid';   // 23 Nov 2026: carry forward
       const paid = this.paidIn(b, m), due = this.dueIn(b, m);
       if (due > 0) return paid >= due - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid';
       return paid > 0 ? 'paid' : 'unpaid';
     },
     paidIn(b, m) { const list = this.pays?.[b.id] || []; return (b.longTerm ? list.filter(x => x.month === m) : list).reduce((s, x) => s + x.amount, 0); },   // Checked only, by For month
     // What is due in a month; the last part month of an early termination with notice is by days (20 Nov 2026)
-    dueIn(b, m) { const t = termLastDue(b); return t && t.m === m ? t.due : b.longTerm ? Number(b.monthlyRent) || 0 : Number(b.rental) || 0; },
+    // 23 Nov 2026: plus that month's charges (deposit, fees), the same as the booking's Payments tab
+    dueIn(b, m) {
+      const t = termLastDue(b), rent = t && t.m === m ? t.due : b.longTerm ? Number(b.monthlyRent) || 0 : Number(b.rental) || 0;
+      return rent + (allMonthCharges(b)[m] || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    },
+    // 23 Nov 2026 (Khairul): a lease's months from check-in to check-out with carry forward (lib/booking-pay.js withCarry):
+    // paid over a month's total goes to the next month. Same as the booking's Payments tab.
+    carried(b) {
+      const out = []; let [y, mo] = String(b.arrival || '').slice(0, 7).split('-').map(Number); const last = String(b.departure || '').slice(0, 7);
+      if (!y || !last) return out;
+      for (let i = 0; i < 240; i++, mo++) {
+        if (mo > 12) { mo = 1; y++; }
+        const m = `${y}-${String(mo).padStart(2, '0')}`; if (m > last) break;
+        out.push({ m, paid: this.paidIn(b, m), due: this.dueIn(b, m) });
+      }
+      return withCarry(out);
+    },
+    // 23 Nov 2026: the months shown as pills for a booking: every shown month its stay touches (leases); a short stay is
+    // paid as one amount, so it gets one pill (its first month shown)
+    pillMonths(b) { const ms = this.payMonths.filter(m => this.monthStatus(b, m)); return b.longTerm ? ms : ms.slice(0, 1); },
     monthPayTip(b, m) {
       const due = this.dueIn(b, m);
-      return `${monthName(m)}: paid RM ${amt(this.paidIn(b, m))}${due > 0 ? ` of RM ${amt(due)}` : ''}${b.longTerm ? ' (Checked payments for this month)' : ''}`;
+      const c = b.longTerm ? this.carried(b).find(x => x.m === m) : null;
+      return `${monthName(m)}: paid RM ${amt(this.paidIn(b, m))}${c?.carryIn > 0 ? ` + RM ${amt(c.carryIn)} carried in` : ''}${due > 0 ? ` of RM ${amt(due)}` : ''}${b.longTerm ? ' (Checked payments for this month)' : ''}`;
     },
     inPicked(x) {
       const sel = this.selMonths;
@@ -365,13 +381,8 @@ export default {
 @media (max-width: 1000px) { .kpis-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .kpis-5 { grid-template-columns: minmax(0, 1fr); } }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.view-seg { margin: 0; width: 100%; }
-/* 20 Nov 2026: stronger selectors than portfolio.css (.pf .mm-pop), which loads after this file on the live site */
-.pf .mm-pop.set-pop { left: auto; right: 0; width: 300px; max-height: none; padding: 6px 10px 12px; }
-.set-pop .seg { margin-bottom: 4px; }
-.set-pop .flt-opt:disabled { cursor: default; color: var(--text-2); }
-.set-pop .flt-opt:disabled:hover { background: none; }
-.soon { font-size: 11px; color: var(--muted); background: var(--chip); border-radius: 999px; padding: 2px 8px; }
+.view-seg { margin: 0 0 0 auto; width: 160px; flex: none; }   /* 23 Nov 2026: Table / Cards at the right of the toolbar */
+@media (max-width: 640px) { .view-seg { margin-left: 0; } }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 40px; padding: 0; }
 /* 20 Nov 2026 (Khairul): more room in the list header (title, intro line, filters) */
 .list-card > .card-head { margin-bottom: 8px; }
@@ -397,6 +408,9 @@ export default {
 /* The eye is grey until the card is hovered or focused */
 .bk-card .eye-btn svg { fill: var(--muted); transition: fill var(--fast); }
 .bk-card:hover .eye-btn svg, .bk-card:focus-visible .eye-btn svg { fill: var(--accent); }
+/* 23 Nov 2026 (Khairul): table rows too: grey eye, brand colour on row hover */
+table.table .eye-btn svg { fill: var(--muted); transition: fill var(--fast); }
+table.table tr:hover .eye-btn svg, table.table .eye-btn:focus-visible svg { fill: var(--accent); }
 .bk-card.cancelled { opacity: .7; }
 /* Level 1: tenant and amount. Level 2: booking no. and place. Level 3: stay dates. Level 4: type, nights, eZee no. */
 .bk-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -411,6 +425,11 @@ export default {
 .bk-amt { font-size: 18px; font-weight: 700; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bk-amt small { font-size: 12px; font-weight: 500; color: var(--muted); }
 .bk-side .mp-list { justify-content: flex-end; }
+.type-tag { margin-top: 4px; }
+.table .type-cell { text-align: center; }
+/* 23 Nov 2026 (Khairul): the payment pills fill the space to the eye, centred in their column */
+.table .pay-cell { text-align: center; }
+.table .pay-cell .mp-list { justify-content: center; }   /* 23 Nov 2026 (Khairul): lease type and its tag centred */
 .bk-empty { padding: 12px 4px; }
 @media (max-width: 640px) {
   .bk-card { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }

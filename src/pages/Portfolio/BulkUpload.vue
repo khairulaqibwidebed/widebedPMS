@@ -1124,9 +1124,12 @@ export default {
       const d = r.data, id = `offline_${r.id}`, c = x => Math.round((Number(x) || 0) * 100) / 100;
       const dates = [...String(d.billPeriod).matchAll(/\d{4}-\d{2}-\d{2}|\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}/g)].map(m => toIso(m[0])).filter(Boolean);
       const total = c(d.electricity) + c(d.water) + c(d.sewerage);
-      b.set(doc(db, 'utilityBills', id), { bookingId: id, propertyId: r.pid, propertyName: r.propertyName, unitCode: r.unitCode, ...stateTag(r.pid),
-        periodFrom: dates[0] || d.checkIn, periodTo: dates[1] || d.checkOut, electricity: c(d.electricity), water: c(d.water), sewerage: c(d.sewerage), total,
-        invoiceLink: /^https?:/i.test(d.invoiceBill) ? d.invoiceBill : '', utilityStatus: 'Ready_to_Send',
+      // 23 Nov 2026: a booking holds many bills (lib/utility-bills.js), so each upload row adds a NEW bill instead of overwriting
+      const from = dates[0] || d.checkIn || '', to = dates[1] || d.checkOut || '';
+      const lines = [['electricity', d.electricity], ['water', d.water], ['sewerage', d.sewerage]].filter(([, v]) => c(v) > 0).map(([kind, v]) => ({ kind, from, to, amount: c(v) }));
+      b.set(doc(collection(db, 'utilityBills')), { bookingId: id, bookingNo: '', propertyId: r.pid, propertyName: r.propertyName, unitCode: r.unitCode, tenantId: '', ...stateTag(r.pid),
+        lines, total, lodgedAt: serverTimestamp(), lodgedByUid: me.user.uid, lodgedByName: me.name || '', lodgedFrom: 'lodgment',
+        driveFolder: /^https?:/i.test(d.invoiceBill) ? d.invoiceBill : '', paid: 0, status: 'unpaid', paymentIds: [],
         createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
     },
     writeProperty(b, r) {

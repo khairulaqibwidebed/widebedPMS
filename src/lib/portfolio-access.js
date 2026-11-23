@@ -49,10 +49,10 @@ export function levelAccess(me) {
     //   Contact info (BASE)  = ownerNames: names, email, phone, WhatsApp, WeChat (owners.view or more)
     //   Credentials          = ownerCreds: IC, date of birth, address, bank details
     //   Units & payouts      = ownerPayouts: units summary, carried forward, payout history
-    // For now both follow Owners Full. To split them later: add ticks 'owners.credentials' / 'owners.payouts' in lib/access.js
-    // (PAGES + role defaults), swap the two lines below to can(me, ...), and split the rules (private/main holds IC, address and bank today).
-    ownerCreds: full,
-    ownerPayouts: full,
+    // 23 Nov 2026 (Khairul): their own ticks (lib/access.js ownerCreds / ownerPayouts). Older tick lists: Owners Full gives both.
+    //   Credentials without Owners Full = see only; with Full = see and change. Rules: ownerCredsOk() (private/main).
+    ownerCreds: !!me && can(me, 'ownerCreds.view'),
+    ownerPayouts: !!me && can(me, 'ownerPayouts.view'),
     ownerNames: full || (!!me && can(me, 'owners.view')),   // reads names (private/contact or private/main)
     bkView: !!me && can(me, 'bookings.view'),
     bkEdit: bkFull,

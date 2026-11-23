@@ -52,7 +52,7 @@
         <div class="od-add"><button type="button" class="btn" v-if="coEditable" @click="addCoOwner()">+ Add another owner</button>
           <p class="help" style="margin-top:6px" v-if="o.coOwners.length">Joint owners share this owner code, bank account and units. Lists show the names joined with "&amp;".</p></div>
         </fieldset>
-        <p class="help" style="margin-top:12px" v-if="!showSensitive">IC, date of birth, address and bank details are seen and changed only with Owners Full access.</p>
+        <p class="help" style="margin-top:12px" v-if="!showSensitive">IC, date of birth, address and bank details need the Owners · Credentials access.</p>
         </div>
         <div v-show="odTab === 'creds'" v-if="showSensitive">
           <p class="help" style="margin:0 0 12px">{{ o.isNew ? 'Private: once saved, only Owners Full can see or change these.' : 'Private: Owners Full only.' }}</p>
@@ -137,6 +137,8 @@ export default {
     // Access levels (16 Nov 2026): Owners Full see and change everything; Owners Base only read names and contact.
     // Marketing (canEdit) still change names and contact. Anyone adding an owner fills in every field once (no bank).
     full() { return this.acc.ownerFull; },
+    // 23 Nov 2026: changing IC, address and bank needs Owners Full AND the Credentials tick
+    credsEdit() { return this.full && this.acc.ownerCreds; },
     readOnly() { return !this.o.isNew && !this.full && !this.acc.canEdit; },
     showSensitive() { return this.acc.ownerCreds || this.o.isNew; },   // Credentials tab (20 Nov 2026: own permission, = Owners Full for now)
     showPayouts() { return !this.o.isNew && this.acc.ownerPayouts && !this.acc.viewOnly; },   // Units & payouts tab
@@ -170,7 +172,7 @@ export default {
       if (co.some(c => c.email && !/^\S+@\S+\.\S+$/.test(c.email))) return o.error = "One of the extra owners' emails doesn't look right.";
       if (this.readOnly) return;
       // Owners Full: everything. Adding without Full: no bank details. Marketing editing: names and contact only.
-      const keys = this.full ? PRIVATE : o.isNew ? PRIVATE.filter(k => !BANK.includes(k)) : CONTACT;
+      const keys = this.credsEdit ? PRIVATE : o.isNew ? PRIVATE.filter(k => !BANK.includes(k)) : CONTACT;
       const priv = Object.fromEntries(keys.map(k => [k, String(o[k] || '').trim()]));
       const before = o.original?.private || {};
       const changed = Object.keys(priv).filter(k => (before[k] ?? (k === 'fullName' ? o.original?.name || '' : '')) !== priv[k]);
@@ -187,7 +189,7 @@ export default {
       const digits = (priv.bankAccount || '').replace(/\D/g, '');
       this.setBusy(true);
       try {
-        await saveOwner(me, { id, isNew: o.isNew, keepMain: !this.full && !o.isNew, full: this.full, active: o.active, bankLast4: digits ? digits.slice(-4) : null,
+        await saveOwner(me, { id, isNew: o.isNew, keepMain: !this.credsEdit && !o.isNew, full: this.credsEdit, active: o.active, bankLast4: digits ? digits.slice(-4) : null,
           priv, changed, reason: o.reason.trim() || 'Added on Portfolio', propertyId: this.pagePropertyId });
         const noted = o.isNew ? await noteOnListing(me, o.fromListing, 'ownerId', id, 'owner') : '';
         o.id = id;

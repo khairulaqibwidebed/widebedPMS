@@ -120,13 +120,13 @@
           <!-- 16 Nov 2026 (Khairul): grouped and compact - Booking and Rent three across, the fees as a two-column list -->
           <div class="rd-sec">Booking</div>
           <div class="rd-3">
-            <div class="field"><label class="req">Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="SOURCES_BK" label="Booking source" placeholder="Choose source…" /></div>
+            <div class="field"><label class="req">Booking source</label><OptionPicker class="fld-pick" v-model="bk.bookingSource" :options="sourceOpts" label="Booking source" placeholder="Choose source…" /></div>
             <div class="field"><label class="req">Rental status</label><OptionPicker class="fld-pick" v-model="bk.rentalStatus" :options="RENTAL_STATUSES" label="Rental status" placeholder="Choose status…" /></div>
             <!-- 20 Nov 2026 (Khairul): who made the sale. Meant for Operations staff; open to every active staff member for now (SALES_ROLES) -->
             <div class="field"><label>Sales person</label>
               <OptionPicker class="fld-pick" v-model="bk.salesPersonUid" :options="salesOptions" label="Sales person" searchable placeholder="Choose sales person…" /></div>
             <!-- 20 Nov 2026 (Khairul): booking source Agent = pick the agent from Marketing > Agent Database, for their commission -->
-            <div class="field" v-if="bk.bookingSource === 'Agent'"><label class="req">Agent</label>
+            <div class="field" v-if="isAgent"><label class="req">Agent</label>
               <OptionPicker class="fld-pick" v-model="bk.agentId" :options="agentOptions" label="Agent" searchable :placeholder="agentsMsg || 'Choose agent…'" />
               <p class="help" style="margin:4px 0 0" v-if="agentsMsg">{{ agentsMsg }}</p></div>
           </div>
@@ -141,9 +141,11 @@
           </div>
           <div class="rd-sec">Other fees (RM) <span>· leave empty if not charged</span></div>
           <div class="rd-fees">
-            <label class="rd-fee" v-for="f in FEES" :key="f.key" :for="'bf' + f.key">
-              <span>{{ f.short || f.label }}</span>
-              <input class="input rd-amt" :class="{ on: +bk[f.key] > 0 }" :id="'bf' + f.key" type="number" min="0" step="0.01" placeholder="0.00" v-model="bk[f.key]" :aria-label="`${f.label} (RM)`">
+            <!-- 23 Nov 2026 (Khairul): the boxes follow Booking settings > Other fees for this booking's type of rent. Not used = hidden,
+                 unless the booking already has an amount in it. Add into rent = a note; the invoice adds it into the rent shown. -->
+            <label class="rd-fee" v-for="f in feeRows" :key="f.id" :for="'bf' + f.id">
+              <span>{{ f.short }}<small class="rd-into" v-if="f.into">Added into rent on the invoice</small></span>
+              <input class="input rd-amt" :class="{ on: +feeVal(f) > 0 }" :id="'bf' + f.id" type="number" min="0" step="0.01" placeholder="0.00" :value="feeVal(f)" @input="setFee(f, $event.target.value)" :aria-label="`${f.label} (RM)`">
             </label>
             <div class="rd-fee rd-total"><span>Total (rental, deposit &amp; fees)</span><b>{{ rm(grandTotal) }}</b></div>
           </div>
@@ -287,7 +289,7 @@
         <button type="button" class="btn btn-primary" v-else @click="saveBooking()" :disabled="busy || !complete" :title="complete ? '' : 'Finish the steps listed above first'">{{ busy ? 'Saving…' : unpaidNew ? 'Save & download invoice' : 'Save booking' }}</button>
       </div>
     </template>
-    <InvoiceDialog v-if="invoice" :invoice="invoice" :booking-no="invoiceNo" @close="invoice = null" />
+    <InvoiceDialog v-if="invoice" :invoice="invoice" :booking-no="invoiceNo" :booking-id="resume?.id || savedLink?.id || ''" @close="invoice = null" />
   </div>
 </template>
 
@@ -321,7 +323,8 @@ import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { can } from '@/lib/access.js';
 import { askConfirm } from '@/lib/confirm.js';
 import InvoiceDialog from '@/components/InvoiceDialog.vue';
-import { invoiceOf, propertyAddressOf, legacyCharges, allMonthCharges } from '@/lib/booking-invoice.js';
+import { invoiceOf, propertyAddressOf, allMonthCharges } from '@/lib/booking-invoice.js';
+import { sourcesForForms, feesForForms, sourceOptions, isAgentSource, normSources, normFees, feeColOf, defaultFor, feeShort } from '@/lib/booking-settings.js';
 import { loadAgents, agencyLabel } from '@/pages/Marketing/agents.js';
 import { listStaff } from '@/lib/agreements/data.js';
 import MonthPicker from '@/components/MonthPicker.vue';
@@ -332,7 +335,7 @@ const me = useSession();
 const LONG_TERM_NIGHTS = 30;
 const GENDERS = ['Male', 'Female', 'Other'].map(x => ({ value: x, label: x }));
 // 16 Nov 2026: no "Choose…" row in the lists; the drop-downs show a grey placeholder until something is picked
-const SOURCES_BK = ['Offline', 'Website', 'Agent', 'OTA'].map(x => ({ value: x, label: x }));
+// 23 Nov 2026 (Khairul): the booking sources come from Booking settings > Booking sources (sourceOpts); Agent works by its id.
 const RENTAL_STATUSES = [{ value: 'Paid', label: 'Paid' }, { value: 'Unpaid', label: 'Unpaid' }];
 // 16 Nov 2026: shown as Short / Mid / Long term; saved as Daily / Monthly / Yearly (lib/rent-term.js)
 const RENT_TYPES = RENT_TERMS.map(x => ({ value: x.value, label: x.label }));
@@ -346,7 +349,9 @@ const FEES = [{ key: 'utilityDeposit', label: 'Utility deposit' }, { key: 'inter
   { key: 'cleaningFee', label: 'Cleaning fees' }, { key: 'taFee', label: 'Tenancy agreement fees', short: 'Tenancy agreement' }, { key: 'taStampFee', label: 'Tenancy agreement stamping fees', short: 'TA stamping' },
   { key: 'gatewayFee', label: 'Payment gateway charges', short: 'Payment gateway' }, { key: 'cardFee', label: 'Credit card charges' }, { key: 'othersFee', label: 'Others' }];
 // 20 Nov 2026: what is in the deposit and fee boxes, to tell whether they were changed (finishing an Awaiting payment booking)
-const feeSnap = b => JSON.stringify([b.securityDeposit, ...FEES.map(f => b[f.key]), b.othersNote]);
+// 23 Nov 2026: the built-in fees (FEES) keep their booking keys; Booking settings > Other fees may rename them and adds custom
+// fees (bk.customFees { <feeId>: amount }, saved on the booking as customFees). The boxes shown are feeRows.
+const feeSnap = b => JSON.stringify([b.securityDeposit, ...FEES.map(f => b[f.key]), b.othersNote, b.customFees || {}]);
 // A booking's first-month charges added up by kind { securityDeposit: 7080, carparkFee: 101, ... } and the Others note
 const firstMonthFees = d => {
   const t = {}, list = allMonthCharges(d)[String(d.arrival || '').slice(0, 7)] || [];
@@ -372,7 +377,8 @@ export default {
   emits: ['dirty'],
   data() {
     return {
-      GENDERS, SOURCES_BK, RENTAL_STATUSES, RENT_TYPES, YEARS, PAY_MODES, FEES,
+      GENDERS, RENTAL_STATUSES, RENT_TYPES, YEARS, PAY_MODES, FEES,
+      sources: normSources(null), feeSet: normFees(null), autoFees: {},   // 23 Nov 2026: Booking settings (read once per visit)
       lead: null, tenant: null, bk: {}, properties: [], units: [], start: '', nameHits: [], nameTimer: null,
       draft: null, draftBusy: false, draftMsg: '', resume: null, resumeFees: '', agents: null, agentsMsg: '', staff: [], pendingSaved: false, invoice: null, invoiceNo: '',
       step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'bookings.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
@@ -380,6 +386,8 @@ export default {
   },
   async mounted() {
     listStaff().then(s => { this.staff = s; }).catch(() => {});   // Sales person list (20 Nov 2026)
+    // 23 Nov 2026: booking sources and other fees from Booking settings (the built-in lists when they can't be read)
+    [this.sources, this.feeSet] = await Promise.all([sourcesForForms(), feesForForms()]);
     try {
       if (this.resumeId) { await this.loadResume(this.resumeId); this.loading = false; return; }
       if (this.leadId) {
@@ -399,6 +407,16 @@ export default {
   },
   computed: {
     canDirect() { return DIRECT_BOOKERS.includes(me.role); },
+    // 23 Nov 2026: active sources in order; a booking's own source stays shown even when hidden or renamed since
+    sourceOpts() { return sourceOptions(this.sources, this.bk.bookingSource); },
+    isAgent() { return isAgentSource(this.sources, this.bk.bookingSource); },
+    // The Other fees column for this booking (Daily / Monthly / Yearly from Type of rent, else the nights)
+    feeCol() { const b = this.bk; return feeColOf({ rentType: b.rentType, arrival: b.arrival, departure: b.departure }); },
+    feeRows() {
+      const col = this.feeCol;
+      return this.feeSet.filter(f => f.mode[col] !== 'notUsed' || +this.feeVal(f) > 0)
+        .map(f => ({ ...f, short: feeShort(f), into: f.mode[col] === 'intoRent' }));
+    },
     // Rental status Unpaid: the payment details are not required
     unpaid() { return this.bk.rentalStatus === 'Unpaid'; },
     nights() {
@@ -428,12 +446,16 @@ export default {
       return (this.agents || []).filter(a => a.active !== false || a.id === this.bk.agentId)
         .map(a => ({ value: a.id, label: [a.name, a.company, agencyLabel(a)].filter(x => x && x !== '—').join(' · ') }));
     },
+    // 23 Nov 2026: the deposit, then every fee with an amount (built-in and custom) in the Other fees order, on the first month.
+    // Khairul: fees go on the first month only; other months get theirs with + on the booking's Payments tab.
     formCharges() {
-      const b = this.bk, m = String(b.arrival || '').slice(0, 7), list = legacyCharges({ ...b, securityDeposit: this.deposit, deposit: 0, feesInPayments: false });
+      const b = this.bk, m = String(b.arrival || '').slice(0, 7), note = String(b.othersNote || '').trim();
+      const list = [{ key: 'securityDeposit', label: 'Security deposit', amount: toCents(this.deposit) },
+        ...this.feeSet.map(f => ({ key: f.id, label: f.label, amount: toCents(this.feeVal(f)), ...(f.id === 'othersFee' && note ? { note } : {}) }))].filter(c => c.amount > 0);
       return m && list.length ? { [m]: list } : {};
     },
     grandTotal() { const b = this.bk, rent = (this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental)) + this.deposit; return Math.round((rent + this.feesTotal) * 1000) / 1000; },
-    feesTotal() { return Math.round(FEES.reduce((t, f) => t + (+this.bk[f.key] || 0), 0) * 1000) / 1000; },
+    feesTotal() { return Math.round(this.feeSet.reduce((t, f) => t + (+this.feeVal(f) || 0), 0) * 1000) / 1000; },
     dirty() { return this.ready && !this.saved && typed(this.bk) !== this.start; },
     // The steps and what each needs, taken from the checks in saveBooking() (which still runs on Save)
     // 16 Nov 2026 (Khairul): the steps follow Rental status. Unpaid: Invoice, no Payment or Handover (saved as Awaiting payment,
@@ -460,7 +482,7 @@ export default {
         { key: 'stay', label: 'Stay', problem: b.arrival && b.departure && this.nights < 0 ? "Check-out can't be before check-in." : '', required: [
           { label: 'Property', filled: filled(b.propertyId) }, { label: 'Unit', filled: filled(b.unitId) }, { label: 'Type of rent', filled: filled(b.rentType) }, { label: 'Check-in', filled: filled(b.arrival) }, { label: 'Check-out', filled: filled(b.departure) }] },
         { key: 'rent', label: 'Rent & deposit', required: [
-          { label: 'Booking source', filled: filled(b.bookingSource) }, ...(b.bookingSource === 'Agent' ? [{ label: 'Agent', filled: filled(b.agentId) }] : []),
+          { label: 'Booking source', filled: filled(b.bookingSource) }, ...(this.isAgent ? [{ label: 'Agent', filled: filled(b.agentId) }] : []),
           { label: 'Rental status', filled: filled(b.rentalStatus) },
           ...(this.longTerm ? [{ label: 'Monthly rent', filled: +b.monthlyRent > 0 }] : [])] },
         { key: 'invoice', label: 'Invoice', required: [] },
@@ -488,14 +510,14 @@ export default {
     review() {
       const b = this.bk, d = v => (filled(v) ? String(v) : '—'), money = v => (+v > 0 ? this.rm(v) : '—');
       const prop = this.properties.find(p => p.id === b.propertyId);
-      const fees = FEES.filter(f => +b[f.key] > 0).map(f => [f.label, this.rm(b[f.key])]);
+      const fees = this.feeSet.filter(f => +this.feeVal(f) > 0).map(f => [f.label, this.rm(this.feeVal(f))]);
       const pass = (code, exp) => (filled(code) ? `Set${exp ? `, expires ${this.full(exp)}` : ''}` : 'Not set');
       return [
         { key: 'tenant', label: 'Tenant', rows: [['Name', d(b.name)], ['Phone', d(b.phone)], ['Email', d(b.email)], ['IC / Passport', d(b.icPassport)], ['Nationality', d(b.nationality)],
           ...(b.existing ? [['Existing tenant', b.existing.id]] : []), ...(b.coTenants.length ? [['Other tenants', b.coTenants.map(c => c.name || '(no name)').join(', ')]] : [])] },
         { key: 'stay', label: 'Stay', rows: [['Property', prop?.name || '—'], ['Unit', this.units.find(u => u.id === b.unitId)?.unitCode || d(b.unitId)], ['Check-in', b.arrival ? this.full(b.arrival) : '—'], ['Check-out', b.departure ? this.full(b.departure) : '—'],
           ['Nights', this.hasStay ? (this.nights === 0 ? '0 · Same-day check-out' : `${this.nights} · ${leaseLabel(this.nights)}`) : '—'], ['Type of rent', d(rentTermLabel(b.rentType))]] },
-        { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ['Sales person', d(this.staff.find(s => s.uid === b.salesPersonUid)?.name)], ...(b.bookingSource === 'Agent' ? [['Agent', d(this.agentOf(b.agentId)?.name)]] : []), ['Rental status', d(b.rentalStatus)],
+        { key: 'rent', label: 'Rent & deposit', rows: [['Booking source', d(b.bookingSource)], ['Sales person', d(this.staff.find(s => s.uid === b.salesPersonUid)?.name)], ...(this.isAgent ? [['Agent', d(this.agentOf(b.agentId)?.name)]] : []), ['Rental status', d(b.rentalStatus)],
           ['Rental', money(this.longTerm ? b.monthlyRent : b.rental)], ['Security deposit', this.rm(this.deposit)], ...fees,
           ...(+b.othersFee > 0 ? [['Others is for', d(b.othersNote)]] : [])] },
         { key: 'payment', label: 'Payment', rows: [['Amount', money(b.amount)], ['Mode', d(b.payMode)], ['Payment Date', b.payDate ? this.full(b.payDate) : '—'], ['Reference', d(b.paymentRef)],
@@ -505,7 +527,10 @@ export default {
     }
   },
   watch: {
-    'bk.bookingSource'(v) { if (v === 'Agent') this.loadAgentList(); },
+    'bk.bookingSource'() { if (this.isAgent) this.loadAgentList(); },
+    // 23 Nov 2026: default amounts (Booking settings > Other fees) fill a NEW booking's empty boxes when the type of rent is
+    // picked or changed; a box still holding the last default follows the new one. Never on a booking being finished.
+    'bk.rentType'(v) { if (v && !this.resume) this.applyDefaults(); },
     // 20 Nov 2026 (Khairul): Type of rent fills itself from the stay dates (under 30 nights Short term, 30 to 364 Mid term,
     // 365+ Long term) and follows them when the dates change; it can still be picked by hand afterwards.
     // A saved booking opened again keeps its own Type of rent until its dates are changed.
@@ -532,6 +557,22 @@ export default {
   beforeUnmount() { clearTimeout(this.nameTimer); },
   methods: {
     leaseLabel,
+    // 23 Nov 2026: a fee box's value (built-in fees keep their booking keys; custom fees are in bk.customFees)
+    feeVal(f) { return f.builtIn ? this.bk[f.id] ?? '' : this.bk.customFees?.[f.id] ?? ''; },
+    setFee(f, v) {
+      if (f.builtIn) this.bk[f.id] = v;
+      else this.bk.customFees = { ...(this.bk.customFees || {}), [f.id]: v };
+    },
+    applyDefaults() {
+      const col = this.feeCol, auto = { ...this.autoFees };
+      this.feeSet.forEach(f => {
+        const d = f.mode[col] === 'notUsed' ? null : defaultFor(f, col), cur = String(this.feeVal(f) ?? '');
+        if (cur !== '' && cur !== auto[f.id]) return;   // typed by hand: kept
+        const next = d == null ? '' : String(d);
+        this.setFee(f, next); auto[f.id] = next;
+      });
+      this.autoFees = auto;
+    },
     // Yearly Lease: move-in on the 1st of the month picked, check-out on the 1st after the last year (1 Jan 2027 + 1 year = 1 Jan 2028)
     setYearly(month) {
       const b = this.bk;
@@ -597,10 +638,10 @@ export default {
       const ld = this.lead || { contactName: '', phone: '', email: '' };
       this.bk = { name: ld.contactName, phone: ld.phone, email: ld.email, icPassport: '', nationality: 'Malaysian', dob: '', gender: '', genderOther: '', coTenants: [], existing: null, matchUsed: false,
         rentType: '', years: '1', bookingSource: '', agentId: '', salesPersonUid: me.user?.uid || '',   // 16 Nov 2026: starts empty (placeholder)
-        rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', gatewayFee: '', cardFee: '', othersFee: '', othersNote: '',
+        rentalStatus: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '', rental: '', securityDeposit: '', utilityDeposit: '', internetFee: '', carparkFee: '', cleaningFee: '', taFee: '', taStampFee: '', gatewayFee: '', cardFee: '', othersFee: '', othersNote: '', customFees: {},
         payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
         propertyId: '', unitId: '', arrival: '', departure: '', amount: '', monthlyRent: '', paymentRef: '', ezeeNo: '', note: '' };
-      this.units = []; this.formError = '';
+      this.units = []; this.formError = ''; this.autoFees = {};
       await this.refill();
       try { this.properties = await loadProperties(); } catch { this.properties = []; this.formError = 'Could not load the property list. Check your connection and reload.'; }
       this.start = typed(this.bk);
@@ -614,7 +655,7 @@ export default {
       const b = this.bk, prop = this.properties.find(p => p.id === b.propertyId), unit = this.units.find(u => u.id === b.unitId);
       return invoiceOf({ ...b, feesInPayments: true, monthCharges: this.chargesFor(this.resume) },
         { name: b.name.trim(), email: b.email.trim(), phone: b.phone.trim() },
-        { propertyName: prop?.name || '', unitCode: unit?.unitCode || b.unitId || '', unitType: unit?.info?.type || '', propertyAddress: propertyAddressOf(prop) });
+        { propertyName: prop?.name || '', unitCode: unit?.unitCode || b.unitId || '', unitType: unit?.info?.type || '', propertyAddress: propertyAddressOf(prop), fees: this.feeSet });
     },
     openInvoice() { this.invoice = this.formInvoice(); },
     agentOf(id) { return (this.agents || []).find(a => a.id === id) || null; },
@@ -652,6 +693,7 @@ export default {
         mainPasscode: pp.mainDoorPasscode || '', currentExpiry: pp.currentExpiryDate || '', nextPasscode: pp.nextDoorPasscode || '', nextExpiry: pp.nextExpiryDate || '',
         rental: d.longTerm ? '' : v(d.rental), monthlyRent: d.longTerm ? v(d.monthlyRent || d.rental) : '', securityDeposit: fm.t.securityDeposit ? v(fm.t.securityDeposit) : (d.longTerm ? '0' : ''),
         ...Object.fromEntries(FEES.map(f => [f.key, fm.t[f.key] > 0 ? v(fm.t[f.key]) : ''])), othersNote: fm.note || d.othersNote || '',
+        customFees: Object.fromEntries(this.feeSet.filter(f => !f.builtIn && fm.t[f.id] > 0).map(f => [f.id, v(fm.t[f.id])])),   // 23 Nov 2026
         payMode: '', payDate: today(), payId: doc(collection(db, 'offlinePayments')).id, docsLink: '',
         propertyId: d.propertyId || '', unitId: d.unitId || '', arrival: d.arrival || '', departure: d.departure || '', amount: '', paymentRef: '', ezeeNo: d.ezeeReservationNo || '', note: '' };
       try { this.properties = await loadProperties(); } catch { this.properties = []; }
@@ -712,6 +754,7 @@ export default {
       this.busy = true;
       Object.assign(this.bk, saved, { existing: null, matchUsed: false });
       if (!Array.isArray(this.bk.coTenants)) this.bk.coTenants = [];
+      if (!this.bk.customFees || typeof this.bk.customFees !== 'object') this.bk.customFees = {};   // drafts saved before 23 Nov 2026
       this.units = [];
       if (this.bk.propertyId) { try { this.units = await loadUnits(this.bk.propertyId); } catch { this.formError = 'Could not load the units. Check your connection and try again.'; } }
       await this.refill().catch(() => {});
@@ -814,11 +857,13 @@ export default {
     // Booking details and payment details that are saved on every offline booking
     extra(coIds = []) {
       const b = this.bk;
-      const ag = b.bookingSource === 'Agent' ? this.agentOf(b.agentId) : null;   // 20 Nov 2026: the agent, for commission
+      const ag = this.isAgent ? this.agentOf(b.agentId) : null;   // 20 Nov 2026: the agent, for commission
       const sp = this.staff.find(s => s.uid === b.salesPersonUid);   // 20 Nov 2026: the sales person
       return { coTenantIds: coIds, salesPersonUid: sp?.uid || '', salesPersonName: sp?.name || '', bookingSource: b.bookingSource, agentId: ag?.id || '', agentName: ag?.name || '', agentCompany: ag?.company || '', rentalStatus: b.rentalStatus, moveInStatus: 'Ready_to_Send', moveOutStatus: 'Ready_to_Send',
         passwordStatus: b.mainPasscode.trim() && b.currentExpiry ? 'Ready_to_Send' : '', rentType: b.rentType, rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental),
-        feesInPayments: true, monthCharges: this.formCharges };   // 20 Nov 2026: deposit and fees saved as first-month charges (Payments tab)
+        feesInPayments: true, monthCharges: this.formCharges,
+        // 23 Nov 2026: amounts in custom fees (Booking settings > Other fees), { <feeId>: amount }; built-ins stay in monthCharges only
+        customFees: Object.fromEntries(this.feeSet.filter(f => !f.builtIn && toCents(this.feeVal(f)) > 0).map(f => [f.id, toCents(this.feeVal(f))])) };   // 20 Nov 2026: deposit and fees saved as first-month charges (Payments tab)
     },
     // The unit code for the booking, read from the unit itself when the loaded list doesn't have it
     async unitCodeOf(unitId) { try { const u = await getDoc(doc(db, 'units', unitId)); return u.exists() ? u.data().unitCode || '' : ''; } catch { return ''; } },
@@ -874,11 +919,12 @@ export default {
         : !b.unitId ? 'Choose the property and unit.'
         : !b.rentType ? 'Choose the type of rent.'
         : !b.bookingSource ? 'Choose the booking source.'
-        : b.bookingSource === 'Agent' && !b.agentId ? 'Choose the agent (booking source is Agent).'
+        : this.isAgent && !b.agentId ? 'Choose the agent (booking source is Agent).'
         : !b.rentalStatus ? 'Choose the rental status.'
         : !b.arrival || !b.departure ? 'Add the check-in and check-out dates.'
         : this.nights < 0 ? "Check-out can't be before check-in."
-        : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent.' : '';
+        : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent.'
+        : this.feeSet.some(f => +this.feeVal(f) < 0) || +b.securityDeposit < 0 ? "The deposit and fees can't be below 0." : '';
       const err = base || (pending ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
         : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
         : +b.amount > 0 && !b.note.trim() ? 'Add the purpose of the payment.'
@@ -1128,4 +1174,5 @@ export default {
 .hit:hover, .hit:focus-visible { background: var(--accent-soft, rgba(0, 128, 128, .08)); }
 .hit span { font-size: 12px; color: var(--muted); }
 .link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); font-weight: 600; cursor: pointer; }
+.rd-into { display: block; font-size: 11px; color: var(--accent); font-weight: 500; margin-top: 2px; }
 </style>

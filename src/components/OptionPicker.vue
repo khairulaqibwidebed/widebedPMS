@@ -2,14 +2,14 @@
   <div class="op" ref="root">
     <input v-if="searchable && open" ref="q" type="text" class="select op-input" v-model="q" :placeholder="current || placeholder || 'Type to search'" :aria-label="label" aria-expanded="true" autocomplete="off" @mousedown.prevent="open = false" @input="hot = 0" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown.esc.stop.prevent="open = false">
     <button type="button" class="select op-btn" :class="{ searching: searchable && open }" :disabled="disabled" :aria-expanded="String(open)" aria-haspopup="listbox" :aria-label="label" @click="toggle" @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="enter" @keydown="typeAhead">
-      <span class="op-val" :class="{ ph: !current && placeholder }">{{ current || placeholder }}</span>
+      <span class="op-val" :class="{ ph: (!current && placeholder) || /^choose\b/i.test(current || '') }">{{ current || placeholder }}</span>
     </button>
     <ul class="op-pop" :class="{ up }" ref="pop" v-if="open" role="listbox" :aria-label="label" :aria-multiselectable="multiple ? 'true' : null" @keydown.esc="open = false">
       <li v-if="!list.length" class="op-none" role="presentation">No match</li>
       <!-- 20 Nov 2026: column-heads = a header row for column lists; it stays pinned while the list scrolls -->
-      <li v-else-if="columns && columnHeads.length" class="op-head" role="presentation"><span class="op-cols" :style="{ gridTemplateColumns: columns }"><span v-for="(h, j) in columnHeads" :key="j">{{ h }}</span></span></li>
+      <li v-else-if="columns && columnHeads.length" class="op-head" role="presentation"><span class="op-cols" :style="{ gridTemplateColumns: columns }"><span v-for="(h, j) in columnHeads" :key="j">{{ h }}</span></span><span class="op-tick-sp"></span></li>
       <template v-for="(o, i) in list" :key="o.value">
-        <li role="option" :aria-selected="String(isOn(o.value))" class="op-item" :class="{ on: isOn(o.value), hot: i === hot && !o.disabled, off: o.disabled }" :aria-disabled="String(!!o.disabled)"
+        <li role="option" :aria-selected="String(isOn(o.value))" class="op-item" :class="{ on: isOn(o.value), hot: i === hot && !o.disabled, off: o.disabled, dim: o.dim }" :aria-disabled="String(!!o.disabled)"
           @mouseenter="hot = i" @click="!o.disabled && pick(o.value)">
           <span class="op-cols" v-if="columns && o.cols" :style="{ gridTemplateColumns: columns }"><template v-for="(c, j) in o.cols" :key="j">
             <!-- A column can be an icon: { icon: 'fileCheck', title: 'Bill saved' } (title shows on hover) -->
@@ -18,7 +18,8 @@
             <span v-else :title="c" :class="columnClasses[j]">{{ c }}</span>
           </template></span>
           <span v-else>{{ o.label }}</span>
-          <svg v-if="isOn(o.value)" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+          <!-- 23 Nov 2026 (Khairul): in column lists the tick space is always kept, so the picked row lines up with the others -->
+          <svg v-if="isOn(o.value) || (columns && o.cols)" :class="{ 'op-tick-off': !isOn(o.value) }" viewBox="0 0 24 24" width="16" height="16" class="op-tick" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
         </li>
       </template>
       <li v-if="addLabel" class="op-addrow" role="presentation" @mousedown.stop>
@@ -162,6 +163,10 @@ export default {
 .op-item:has(.op-cols) + .op-item:has(.op-cols) { box-shadow: inset 0 1px 0 var(--border); }
 .op-item.hot:has(.op-cols), .op-item.hot:has(.op-cols) + .op-item { box-shadow: none; }
 .op-item.off { color: var(--muted); opacity: .6; cursor: not-allowed; }
+.op-item.dim { color: var(--muted); opacity: .6; }   /* 23 Nov 2026: shown but greyed (a cancelled booking), still pickable */
 .op-item.hot { background: var(--accent-soft); color: var(--accent); }
 .op-item.on { color: var(--accent); font-weight: 700; }
+.op-tick { flex: none; }
+.op-tick-off { visibility: hidden; }
+.op-tick-sp { flex: none; width: 16px; margin-left: 16px; }
 </style>
