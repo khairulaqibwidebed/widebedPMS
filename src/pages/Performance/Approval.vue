@@ -16,21 +16,31 @@
     </div>
 
 
+    <div class="notice error" v-if="error" style="margin-bottom:12px;">{{ error }}</div>
+
     <div class="card" v-if="!loading">
       <div class="table-wrap">
         <table class="table hover-rows">
-          <thead><tr><th>Employee</th><th>COH</th><th>KPI</th><th>TMS</th><th>Total</th><th>Ready</th><th></th></tr></thead>
+          <thead><tr><th>Employee</th><th>COH</th><th>KPI</th><th>TMS</th><th>Total</th><th>Ready</th><th>Scored on</th><th></th></tr></thead>
           <tbody>
             <tr v-for="r in results" :key="r.employeeId">
-              <td>{{ nameOf(r.employeeId) }} <small class="muted" v-if="r.cohOnly">· Director, COH only</small></td>
+              <td>{{ nameOf(r.employeeId) }} <small class="muted" v-if="scoredOf(r) === 'none'">· COH only</small></td>
               <td>{{ cell(r.cohScore, r.componentStatuses.coh) }}</td>
               <td>{{ cell(r.kpiScore, r.componentStatuses.kpi) }}</td>
               <td>{{ cell(r.tmsScore, r.componentStatuses.tms) }}</td>
               <td><b>{{ r.finalScore != null ? r.finalScore.toFixed(2) : '—' }}</b></td>
               <td><span class="pill" :class="r.finalScore != null ? 'green' : 'amber'">{{ r.finalScore != null ? 'Ready' : 'Pending' }}</span></td>
+              <!-- 23 Nov 2026: which of KPI and TMS count for this person (COH always does); changing it recalculates the total -->
+              <td>
+                <select class="select scored-on" :value="scoredOf(r)" :disabled="busy || isFinal || savingFor === r.employeeId"
+                  :aria-label="'Scored on for ' + nameOf(r.employeeId)" @change="changeScoredOn(r, $event.target)">
+                  <option v-for="(label, key) in SCORED_ON" :key="key" :value="key">{{ label }}</option>
+                </select>
+                <div class="scored-err" v-if="rowError[r.employeeId]">{{ rowError[r.employeeId] }}</div>
+              </td>
               <td><button class="act-pill" v-if="(r.revisionNumber || 1) > 1" @click="openHistory(r)">History</button></td>
             </tr>
-            <tr v-if="!results.length"><td colspan="7" class="muted">No participants, or nothing calculated yet — click Recalculate.</td></tr>
+            <tr v-if="!results.length"><td colspan="8" class="muted">No participants, or nothing calculated yet — click Recalculate.</td></tr>
           </tbody>
         </table>
       </div>
@@ -41,7 +51,8 @@
       <ul style="font-size:13px; color:var(--text-2); margin:0 0 14px; padding-left:18px;">
         <li>{{ pendingCount }} of {{ results.length }} participant(s) have an incomplete component.</li>
         <li>Quarter status: {{ quarterStatusLabel }}.</li>
-        <li>Directors are scored on COH only: their COH result is scaled to a score out of 100.</li>
+        <li>Scored on picks what counts besides COH: KPI + TMS, KPI only, TMS only or None. The total is the counted marks
+          scaled to 100 (e.g. COH 25 of 30 + KPI 32 of 40 = 57 of 70 = 81.43). Directors start on None (COH only).</li>
       </ul>
       <button class="btn btn-primary" v-if="!isFinal" :disabled="busy || !canFinalize" @click="dialog = 'finalize'">Finalize quarter</button>
       <button class="btn" v-else :disabled="busy" @click="correctionReason = ''; dialog = 'correction'">Request correction</button>
@@ -109,7 +120,8 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { listStaff } from '@/lib/agreements/data.js';
 import { listQuarters, getQuarter } from '@/lib/performance/quarters.js';
 import { normalizeStatus, STATUS_LABELS } from '@/lib/performance/quarterStatus.js';
-import { listResults, recomputeAll, readyToFinalize, finalizeQuarter, exportResultsReport, requestCorrection, listRevisions } from '@/lib/performance/results.js';
+import { listResults, recomputeAll, readyToFinalize, finalizeQuarter, exportResultsReport, requestCorrection, listRevisions,
+  SCORED_ON, setScoredOn } from '@/lib/performance/results.js';
 
 const loading = ref(true);
 const busy = ref(false);
@@ -175,8 +187,34 @@ async function requestCorrectionNow() {
   } catch (e) { error.value = e.message; dialog.value = null; } finally { busy.value = false; }
 }
 
+// 23 Nov 2026: Scored on. Results saved before this have no scoredOn: COH-only ones show None, the rest KPI + TMS.
+const savingFor = ref('');
+const rowError = ref({});   // a failed save, shown under that person's dropdown
+const scoredOf = r => SCORED_ON[r.scoredOn] ? r.scoredOn : (r.cohOnly ? 'none' : 'both');
+async function changeScoredOn(r, el) {
+  const value = el.value;
+  if (value === scoredOf(r)) return;
+  savingFor.value = r.employeeId; error.value = '';
+  rowError.value = { ...rowError.value, [r.employeeId]: '' };
+  try {
+    const updated = await setScoredOn(quarterId.value, r.employeeId, value);
+    results.value = results.value.map(x => x.employeeId === r.employeeId ? { ...x, ...updated } : x);
+    okMsg.value = `${nameOf(r.employeeId)}: scored on ${SCORED_ON[value]}, total recalculated.`;
+  } catch (e) {
+    const msg = e.code === 'permission-denied' ? 'Firestore refused the save (only Directors, or the Performance Edit tick, can change results).' : (e.message || String(e));
+    error.value = msg;
+    rowError.value = { ...rowError.value, [r.employeeId]: msg };
+    console.error('Scored on', e);
+    el.value = scoredOf(r);   // puts the dropdown back to the saved choice
+  } finally { savingFor.value = ''; }
+}
+
 async function openHistory(r) {
   historyFor.value = r;
   revisions.value = await listRevisions(quarterId.value, r.employeeId);
 }
 </script>
+
+<style scoped>
+.scored-err { margin-top: 4px; max-width: 220px; font-size: 11.5px; line-height: 1.35; color: var(--red); }
+</style>
