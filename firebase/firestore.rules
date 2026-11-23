@@ -1,4 +1,36 @@
 rules_version = '2';
+// Draft 1.04, 23 Nov 2026 (Khairul): owner form tabs get their own ticks. owners/{id}/private/main (IC, date of birth,
+//   address, bank) is read only with the 'ownerCreds.view' tick (Owners · Credentials) plus Owners Base or Full, and written
+//   only with Owners Full plus that tick. private/contact stays Owners Full (read and write) as before. A tick list without
+//   the 'split.v3' mark is older: Owners Full or Bulk Upload Full there also gives the tick (ownerCredsOk). Adding an owner
+//   (Owners Full without the tick, like Operations) still writes private/main once in the creating batch.
+//   KEEP IN STEP WITH lib/access.js (PAGES ownerCreds / ownerPayouts, SPLIT3_MARK, upgradePerms). 'ownerPayouts.view' is
+//   screen only (the payout data keeps its own rules).
+// Draft 1.03, 23 Nov 2026 (Khairul): utility payments. A booking holds MANY utility bills; one offline payment can pay Rental
+// and Utilities (one transfer, one receipt).
+//   - utilityBills/{billId} (auto id; a leftover utilityBills/{bookingId} is read as one bill): read by the people who lodge
+//     bills (Accounting / Directors, Tenant leads, Booking forms tick) ONLY for the properties on their staff record (Directors all).
+//     Create: same people, their property, fields from the list, lines (<= 3) and total; unpaid, or paid by the offline payment
+//     created in the same batch (the payment's billIds names the bill). Edit lines / total: Accounting, Directors, Booking forms
+//     tick (as before), total not below what is paid, status follows. Emailed / Drive folder: the lodging people.
+//     paid / status / paymentIds change only with the payment named in lastPaymentId changed in the same batch (its billsAt = now,
+//     and its billIds says whether it pays this bill; a deleted payment must have been on the bill), or by Accounting / Directors.
+//     Delete: only with no payments linked. Status always matches paid against total.
+//   - offlinePayments may carry parts (list of <= 2: { type: 'rental', amount, forMonth } / { type: 'utilities', amount, bills }),
+//     billIds (<= 30) and billsAt; amount = the parts added up. The people who lodge bills (Operations) may create a Pending
+//     payment that pays utility bills (it must name at least one bill, and that bill points back to it in the same batch).
+// Draft 1.02, 23 Nov 2026 (Khairul): Booking settings > Booking sources and Other fees.
+//   - config/bookingSources { list: [{ id, label, active, order, builtIn, was }], updatedAt, updatedByUid, updatedByName } and
+//     config/bookingFees { fees: [{ id, label, kind, deposit, builtIn, order, defaultAmount, mode: { daily, monthly, yearly } }], ... }:
+//     read by any staff (the booking forms), written by Directors or the Booking settings tick (bookingSettings.edit).
+//     Only the document is checked: its fields, at most 30 rows, updatedByUid = them, updatedAt = now. Checking each row went
+//     over Firestore's 1000-step limit, so names (up to 40), kinds, modes and amounts >= 0 are checked by the app.
+//   - offlineBookings may hold customFees (amounts in custom fees, { <feeId>: amount }): a map of at most 30, for whoever already
+//     saves bookings. Rules can't loop over a map, so "each amount is a number >= 0" is checked by the booking form, not here.
+// Draft 1.01, 23 Nov 2026 (Khairul): Booking settings tick (bookingSettings.edit; Operations by default, any role or person can be ticked).
+//   - config/invoiceDefaults write: Directors or the Booking settings tick (was Directors only). Same field checks; read stays anyStaff().
+//   - offlineBookings.invoiceTerms (the T&Cs a booking was invoiced with): written alone by whoever can read and invoice the booking
+//     (Accounting / Directors, Tenant Leads (Operations), Bookings Base or Full); text up to 20000, savedByUid = them, savedAt = now.
 // Draft 1.00, 20 Nov 2026 (Khairul): Early termination tick (earlyTermination.edit): offlineBookings may change departure, nights and
 //   earlyTermination only (check-out only earlier, not on a cancelled booking). Bookings Full may no longer change earlyTermination.
 // Draft 0.99, 20 Nov 2026 (Khairul): agents/{id} may hold remarks (free text about the agent, up to 1000).
@@ -397,7 +429,8 @@ service cloud.firestore {
           'owners.view', 'owners.edit', 'portfolio.view', 'portfolio.edit', 'bookings.view', 'bookings.edit',
           'bulkUpload.view', 'bulkUpload.edit', 'offlineInquiries.view', 'offlineInquiries.edit', 'split.v2']
         : r == 'operations' ? ['owners.view', 'portfolio.view', 'bookings.view', 'bookings.edit', 'offlineInquiries.view', 'offlineInquiries.edit',
-          'bookingForms.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'offlinePayments.view', 'driveFolders.view', 'driveFolders.edit', 'split.v2']
+          'bookingForms.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'offlinePayments.view', 'driveFolders.view', 'driveFolders.edit',
+          'bookingSettings.edit', 'split.v2']   // Draft 1.01: bookingSettings.edit
         : r == 'it' ? ['split.v2']
         : r == 'hr' ? ['playbook.edit', 'sops.edit', 'split.v2']
         : r == 'procurement' ? ['owners.view', 'portfolio.view', 'bookings.view', 'newOwnerListings.view', 'newOwnerListings.edit', 'split.v2']
@@ -455,6 +488,12 @@ service cloud.firestore {
     // Draft 0.73: Owners Base read names and contact (private/contact); Owners Full (or Bulk Upload Edit) everything.
     function ownersViewer()    { return can('owners.view'); }
     function ownersFull()      { return canAny(['owners.edit', 'bulkUpload.edit']); }
+    // Draft 1.04: Owners · Credentials. Older lists (no 'split.v3'): Owners Full or Bulk Upload Full give it.
+    function ownerCredsOk() {
+      let rec = myRec(); let r = roleOf(rec); let ps = permsFor(rec, r);
+      return r == 'director' || (r != null && r != 'ai' && ('ownerCreds.view' in ps
+        || (!('split.v3' in ps) && canAnyIn(['owners.edit', 'bulkUpload.edit'], r, ps))));
+    }
     function ownerContactKeys() { return ['fullName', 'email', 'phone', 'whatsapp', 'wechat', 'coOwners', 'updatedAt', 'updatedBy']; }
     // Guest and tenant personal data: Bookings Full or Tenant Leads Full (Accounting edit through the catch-all).
     function guestFull()       { return canAny(['bookings.edit', 'offlineInquiries.edit']); }
@@ -659,13 +698,35 @@ service cloud.firestore {
     }
 
     // Booking invoice defaults (Draft 0.71): read by whoever makes a booking; written by Directors only.
+    // Draft 1.01: also the Booking settings tick (Portfolio > Bookings > gear > Booking settings > Invoice & T&Cs).
     match /config/invoiceDefaults {
       allow read: if anyStaff();
-      allow write: if isDirector()
+      allow write: if (isDirector() || can('bookingSettings.edit'))
         && request.resource.data.keys().hasOnly(['header', 'terms', 'bank', 'updatedAt', 'updatedBy', 'updatedByName'])
         && request.resource.data.header is string && request.resource.data.header.size() <= 1000
         && request.resource.data.terms is string && request.resource.data.terms.size() <= 20000
         && request.resource.data.bank is string && request.resource.data.bank.size() <= 2000;
+    }
+
+    // Draft 1.02: Booking settings > Booking sources and Other fees (lib/booking-settings.js). Only the document is checked
+    // here (its fields, who saved it, when, at most 30 rows). Checking every row by index went over Firestore's 1000-step
+    // limit from 8 to 16 rows (emulator, 23 Nov 2026), so the rows (names up to 40, modes, amounts >= 0) are checked by
+    // the settings page and cleaned again by every page that reads them (normSources / normFees). Cheap checks first.
+    function settingsWriter() { return isDirector() || can('bookingSettings.edit'); }
+    function settingsMeta(listKey) {
+      let d = request.resource.data;
+      return d.keys().hasOnly([listKey, 'updatedAt', 'updatedByUid', 'updatedByName'])
+        && d.updatedByUid == request.auth.uid && d.updatedAt == request.time
+        && (!('updatedByName' in d) || (d.updatedByName is string && d.updatedByName.size() <= 200))
+        && d[listKey] is list && d[listKey].size() <= 30;
+    }
+    match /config/bookingSources {
+      allow read: if anyStaff();
+      allow write: if settingsMeta('list') && settingsWriter();
+    }
+    match /config/bookingFees {
+      allow read: if anyStaff();
+      allow write: if settingsMeta('fees') && settingsWriter();
     }
 
     // One To One Session (Draft 0.62): the venues HR picks from on Performance > One To One Session.
@@ -894,10 +955,13 @@ service cloud.firestore {
       // Operations write name and contact details once, in the batch that creates the owner, and never read them back.
       match /private/{docId} {
         // Draft 0.73: Owners Full: everything (main) and the contact part.
-        allow read, write: if ownersFull() && docId in ['main', 'contact'];
+        // Draft 1.04: main (IC, address, bank) also needs Owners · Credentials; with it, Owners Base may read main.
+        allow read, write: if docId == 'contact' && ownersFull();
+        allow read: if docId == 'main' && ownerCredsOk() && canAny(['owners.view', 'owners.edit', 'bulkUpload.edit']);
+        allow write: if docId == 'main' && ownersFull() && ownerCredsOk();
         // Adding an owner (Operations, Marketing, Procurement): both parts written once, in the batch that creates the
         // owner; private/main is never read back.
-        allow create: if portfolioAdder() && docId == 'main' && createdNow('owners', ownerId)
+        allow create: if (portfolioAdder() || ownersFull()) && docId == 'main' && createdNow('owners', ownerId)
           && newKeysOnly(['fullName', 'ic', 'email', 'phone', 'dob', 'whatsapp', 'wechat', 'address', 'coOwners', 'updatedAt', 'updatedBy'])
           && request.resource.data.updatedBy == request.auth.uid;
         allow create: if portfolioAdder() && docId == 'contact' && createdNow('owners', ownerId)
@@ -1142,9 +1206,29 @@ service cloud.firestore {
     // Offline payments (Finance > Offline Payments): submitted and checked by Finance/Director.
     // View and Edit are separate ticks: Offline Payments View reads; Offline Payments Edit creates and changes.
     match /offlinePayments/{id} {
+      // Draft 1.03: Rental / Utilities parts. At most 2 parts of the two shapes; the payment's amount is the parts added up.
+      function partOk(x) {
+        return x is map && x.keys().hasOnly(['type', 'amount', 'forMonth', 'bills']) && x.amount is number && x.amount >= 0
+          && (x.type == 'rental' || (x.type == 'utilities' && x.bills is list && x.bills.size() <= 30));
+      }
+      function partsOk(d) {
+        return !('parts' in d) || (d.parts is list && d.parts.size() <= 2 && d.get('billIds', []) is list && d.get('billIds', []).size() <= 30
+          && (d.parts.size() == 0
+            || (d.parts.size() == 1 && partOk(d.parts[0]) && math.abs(d.amount - d.parts[0].amount) < 0.011)
+            || (d.parts.size() == 2 && partOk(d.parts[0]) && partOk(d.parts[1]) && d.parts[0].type != d.parts[1].type
+              && math.abs(d.amount - (d.parts[0].amount + d.parts[1].amount)) < 0.011)));
+      }
       allow read: if can('offlinePayments.view') || can('offlinePayments.edit') || (can('bookings.view') && !isAI());   // Draft 0.73: a booking's payments (not the AI, 0.74)
-      allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown'];
-      allow update: if can('offlinePayments.edit');
+      allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown']
+        && partsOk(request.resource.data);   // Draft 1.03
+      allow update: if can('offlinePayments.edit') && (!changed().hasAny(['parts', 'billIds']) || partsOk(request.resource.data));   // Draft 1.03
+      // Draft 1.03: the people who lodge utility bills (Operations) record a payment that pays bills, as Pending (Accounting checks it).
+      // It names at least one bill, and the first bill points back to it (lastPaymentId) in the same batch.
+      allow create: if (finOrDir() || isOps() || can('bookingForms.view')) && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == 'Pending' && request.resource.data.bookingId is string
+        && 'parts' in request.resource.data && partsOk(request.resource.data) && request.resource.data.get('billsAt', null) == request.time
+        && request.resource.data.billIds is list && request.resource.data.billIds.size() >= 1
+        && getAfter(docPath('utilityBills', request.resource.data.billIds[0])).data.get('lastPaymentId', '') == id;
       // The Booking Form saves the booking's payment here (Pending), in the same write as the booking itself.
       allow create: if (isOps() || finOrDir()) && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'Pending'
         && request.resource.data.bookingId is string
@@ -1158,15 +1242,59 @@ service cloud.firestore {
       // Draft 0.72: only a Director deletes a payment (the page writes an audit line with what it was)
       allow delete: if isDirector();
     }
-    // Utility bills logged against an offline booking (Operations > Booking Forms > Utility Lodgment Form); one per booking.
-    match /utilityBills/{bookingId} {
-      // Booking Forms View is the only tick that page has, so it gives the form (read, save and update a bill).
-      allow read: if finOrDir() || isOps() || can('bookingForms.view');
-      allow create: if (finOrDir() || isOps() || can('bookingForms.view')) && request.resource.data.createdBy == request.auth.uid
-        && exists(docPath('offlineBookings', bookingId));
-      allow update: if finOrDir() || can('bookingForms.view');
-      // Draft 0.36: removed with its booking, only while the booking is cancelled.
-      allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
+    // Utility bills (Operations > Booking Forms > Utility Lodgment Form, the offline payment form, the booking drawer).
+    // Draft 1.03: many per booking (auto ids); a leftover utilityBills/{bookingId} is one bill. See the top of this file.
+    match /utilityBills/{billId} {
+      function billStaff()  { return finOrDir() || isOps() || can('bookingForms.view'); }
+      function billEditor() { return finOrDir() || can('bookingForms.view'); }
+      // By property: Directors every bill, others only the properties on their staff record
+      function myProp(pid)  { return isDirector() || pid in myRec().get('properties', []); }
+      function statusFits(d) {
+        let paid = d.get('paid', 0);
+        return paid is number && paid >= 0 && paid <= d.total + 0.005
+          && d.status == (paid > 0 && paid >= d.total - 0.005 ? 'paid' : (paid > 0.004 ? 'partly' : 'unpaid'));
+      }
+      function linesOk(d) { return d.lines is list && d.lines.size() <= 3 && d.total is number && d.total >= 0; }
+      function billKeys() {
+        return ['bookingId', 'bookingNo', 'propertyId', 'propertyName', 'unitCode', 'tenantId', 'lines', 'total', 'lodgedAt', 'lodgedByUid',
+          'lodgedByName', 'lodgedFrom', 'driveFolder', 'emailedAt', 'emailedByName', 'paid', 'status', 'paymentIds', 'lastPaymentId',
+          'createdAt', 'createdBy', 'createdByName', 'state', 'states', 'updatedAt', 'updatedBy', 'updatedByName'];
+      }
+      function payPath(id) { return docPath('offlinePayments', id); }
+      // The payment named in lastPaymentId was created, changed or deleted in this same batch, and paymentIds gains or loses only it
+      function payLinkOk() {
+        let p = request.resource.data.lastPaymentId;
+        let oldIds = resource.data.get('paymentIds', []);
+        let newIds = request.resource.data.paymentIds;
+        let after = getAfter(payPath(p));
+        return p is string && newIds is list && newIds.size() <= 50
+          && newIds.toSet().difference(oldIds.toSet()).hasOnly([p]) && oldIds.toSet().difference(newIds.toSet()).hasOnly([p])
+          && (after == null
+            ? (p in oldIds && !(p in newIds) && exists(payPath(p)))
+            : (after.data.get('billsAt', null) == request.time && ((p in newIds) == (billId in after.data.get('billIds', [])))));
+      }
+      allow read: if billStaff() && myProp(resource.data.get('propertyId', ''));
+      allow create: if billStaff() && request.resource.data.keys().hasOnly(billKeys())
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.bookingId is string && exists(docPath('offlineBookings', request.resource.data.bookingId))
+        && myProp(request.resource.data.get('propertyId', '')) && linesOk(request.resource.data) && statusFits(request.resource.data)
+        && request.resource.data.paymentIds is list
+        && ((request.resource.data.paymentIds.size() == 0 && request.resource.data.get('paid', 0) == 0)
+          || (request.resource.data.paymentIds.size() == 1 && request.resource.data.get('lastPaymentId', '') == request.resource.data.paymentIds[0]
+            && billId in getAfter(payPath(request.resource.data.paymentIds[0])).data.get('billIds', [])));
+      // Field checks come first and the role checks last in each rule below: role checks are costly and Firestore stops at
+      // 1000 steps per request (a batch paying several bills hit it).
+      // Edit the lines (with a reason, audit utilityBill.update): the total can't go below what is paid
+      allow update: if changed().hasOnly(['lines', 'total', 'status', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && linesOk(request.resource.data) && statusFits(request.resource.data) && myProp(resource.data.get('propertyId', '')) && billEditor();
+      // Emailed to the tenant / the bill's Drive folder
+      allow update: if changed().hasOnly(['emailedAt', 'emailedByName', 'driveFolder']) && myProp(resource.data.get('propertyId', '')) && billStaff();
+      // Paid by an offline payment changed in the same batch (or Accounting / Directors on their own)
+      allow update: if changed().hasOnly(['paid', 'status', 'paymentIds', 'lastPaymentId', 'updatedAt'])
+        && statusFits(request.resource.data) && myProp(resource.data.get('propertyId', ''))
+        && (payLinkOk() ? (billStaff() || can('offlinePayments.edit')) : finOrDir());
+      // Removed only with no payments linked (also with its booking, when a cancelled booking is deleted)
+      allow delete: if resource.data.get('paymentIds', []).size() == 0 && myProp(resource.data.get('propertyId', '')) && (billEditor() || isOps());
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
     }
@@ -1174,11 +1302,36 @@ service cloud.firestore {
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
     // offline_{inquiryId} from Create booking, or offline_BK-0001 for a direct booking (no inquiry).
     match /offlineBookings/{bookingId} {
+      // Draft 1.02: customFees (amounts in custom fees) is a map of at most 30. On an update only checked when it changes.
+      function customFeesOk() {
+        let d = request.resource.data;
+        return !('customFees' in d) || (d.customFees is map && d.customFees.size() <= 30);
+      }
+      function customFeesKept() { return !changed().hasAny(['customFees']) || customFeesOk(); }
+      // Draft 1.01: offlineBookings/{id}.invoiceTerms = { text, savedAt, savedByUid, savedByName, fromDefault }
+      function invoiceTermsOk(t) {
+        return t is map && t.keys().hasOnly(['text', 'savedAt', 'savedByUid', 'savedByName', 'fromDefault'])
+          && t.keys().hasAll(['text', 'savedAt', 'savedByUid', 'fromDefault'])
+          && t.text is string && t.text.size() <= 20000
+          && t.savedAt == request.time && t.savedByUid == request.auth.uid && t.fromDefault is bool
+          && (!('savedByName' in t) || (t.savedByName is string && t.savedByName.size() <= 200));
+      }
+      // Draft 1.01: who may save invoiceTerms = who can read the booking and download its invoice: Bookings Base or Full,
+      // Tenant Leads (isOps), Accounting edit (same list as finEdit()) and Directors. Never the AI Agent. The record is read once.
+      function invoiceWriter() {
+        let rec = myRec(); let r = roleOf(rec); let ps = permsFor(rec, r);
+        return r != null && r != 'ai' && (canIn('bookings.view', r, ps) || canIn('offlineInquiries.view', r, ps)
+          || ps.hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit']));
+      }
+      // Draft 1.01: the T&Cs the booking was invoiced with (invoice popup: saved on download, or Reset to default). Only
+      // invoiceTerms changes. Checked first and cheaply (the field checks before the staff record), so it stays under
+      // Firestore's 1000-step limit.
+      allow update: if changed().hasOnly(['invoiceTerms']) && invoiceTermsOk(request.resource.data.invoiceTerms) && invoiceWriter();
       allow read: if finOrDir() || isOps() || portfolioViewer() || can('bookings.view');
-      allow create: if finOrDir() && bookingId == 'offline_' + request.resource.data.inquiryId;
-      allow update: if finOrDir() && request.resource.data.inquiryId == resource.data.inquiryId;
+      allow create: if finOrDir() && bookingId == 'offline_' + request.resource.data.inquiryId && customFeesOk();
+      allow update: if finOrDir() && request.resource.data.inquiryId == resource.data.inquiryId && customFeesKept();
       // Operations: Create booking on their own inquiry (the inquiry must point back and be booked in the same write).
-      allow create: if isOps() && bookingId == 'offline_' + request.resource.data.inquiryId
+      allow create: if isOps() && bookingId == 'offline_' + request.resource.data.inquiryId && customFeesOk()
         && assignedToMe(request.resource.data.inquiryId)
         && getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.bookingId == bookingId
         && (getAfter(docPath('offlineInquiries', request.resource.data.inquiryId)).data.status == 'booked'
@@ -1190,7 +1343,9 @@ service cloud.firestore {
       // Operations edit any booking's details (Portfolio > Bookings > open a booking); who, source and the inquiry link stay as they were.
       // Draft 0.73: Bookings Full (was any Operations)
       // Draft 1.00: earlyTermination is set only through the Early termination rule below (or Accounting / Directors above).
-      allow update: if can('bookings.edit') && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId', 'earlyTermination']);
+      // Draft 1.01: invoiceTerms only through its own rule above (its field checks).
+      allow update: if can('bookings.edit') && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'unitId', 'earlyTermination', 'invoiceTerms'])
+        && customFeesKept();   // Draft 1.02
       // Draft 1.00: Early termination tick: end a stay early, add the tenant's notice images, record the deposit refund.
       // Undo (earlyTermination removed, check-out back) is Accounting / Directors only (finOrDir above).
       allow update: if can('earlyTermination.edit') && resource.data.get('status', '') != 'cancelled'
@@ -1198,13 +1353,13 @@ service cloud.firestore {
         && request.resource.data.earlyTermination is map && request.resource.data.departure is string
         && (!changed().hasAny(['departure']) || request.resource.data.departure < resource.data.departure);
       // Direct booking (Portfolio > Bookings > + New booking).
-      allow create: if (finOrDir() || isOps()) && bookingId.matches('offline_BK-[0-9]+')
+      allow create: if (finOrDir() || isOps()) && bookingId.matches('offline_BK-[0-9]+') && customFeesOk()
         && request.resource.data.source == 'direct' && request.resource.data.inquiryId == null
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.tenantId is string
         && getAfter(docPath('tenants', request.resource.data.tenantId)) != null;
       // Willow Booking Details bulk upload (Portfolio > Bulk Upload): Finance or a Director, offline_{booking no.} such as offline_DM-014.
-      allow create: if finOrDir() && bookingId.matches('offline_[A-Z0-9]+-[0-9]+') && request.resource.data.source == 'import'
+      allow create: if finOrDir() && bookingId.matches('offline_[A-Z0-9]+-[0-9]+') && request.resource.data.source == 'import' && customFeesOk()
         && request.resource.data.createdBy == request.auth.uid;
       // Draft 0.36: delete for good, only a cancelled booking (the page also checks no payment is recorded).
       allow delete: if (finOrDir() || can('bookings.edit')) && resource.data.get('status', '') == 'cancelled';

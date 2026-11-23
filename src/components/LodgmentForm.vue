@@ -15,7 +15,7 @@
       <h2>Booking and financial details</h2>
       <div class="grid-fields">
         <div class="field"><label>Booking source</label>
-          <OptionPicker class="fld-pick" v-model="f.bookingSource" :options="SOURCES" label="Booking source" /></div>
+          <OptionPicker class="fld-pick" v-model="f.bookingSource" :options="sourceOpts" label="Booking source" /></div>
         <div class="field"><label>Property name</label>
           <OptionPicker class="fld-pick" v-model="f.propertyName" :options="propertyOptions" label="Property name" searchable @change="f.unitNumber = ''" /></div>
         <div class="field"><label>Unit number</label>
@@ -50,10 +50,11 @@ import UNITS from '@/data/willow-units.json';
 import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { idPrefix } from '@/lib/lodgment.js';
+import { sourcesForForms, sourceOptions, normSources } from '@/lib/booking-settings.js';
 
 // Same lists as Willow's "Booking Details" sheet: Property Name and Unit Number must match its "Owner List" exactly.
 const opt = a => a.map(x => ({ value: x, label: x }));
-const SOURCES = [{ value: '', label: 'Choose source…' }, ...opt(['Offline', 'Website', 'Agent', 'OTA'])];
+// 23 Nov 2026 (Khairul): the booking sources come from Booking settings > Booking sources (was its own fixed list)
 const STATUSES = [{ value: '', label: 'Choose status…' }, ...opt(['Paid', 'Unpaid'])];
 const blank = () => ({ guestName: '', icPassport: '', phone: '', email: '', bookingSource: '', propertyName: '', unitNumber: '', rentalStatus: '',
   checkIn: '', checkOut: '', rentalAmount: '', depositAmount: '', mainPasscode: '', currentExpiry: '', nextPasscode: '', nextExpiry: '' });
@@ -62,8 +63,10 @@ const digits = v => String(v || '').replace(/\D/g, '');
 export default {
   popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { OptionPicker },
-  data() { return { SOURCES, STATUSES, f: blank(), busy: false, error: '', done: '' }; },
+  data() { return { sources: normSources(null), STATUSES, f: blank(), busy: false, error: '', done: '' }; },
+  async mounted() { this.sources = await sourcesForForms(); },
   computed: {
+    sourceOpts() { return [{ value: '', label: 'Choose source…' }, ...sourceOptions(this.sources, this.f.bookingSource)]; },
     propertyOptions() { return [{ value: '', label: 'Choose property…' }, ...Object.keys(UNITS).map(p => ({ value: p, label: p }))]; },
     unitOptions() {
       const list = UNITS[this.f.propertyName] || [];

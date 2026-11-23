@@ -238,7 +238,7 @@
                     <template v-for="grp in pageGroups" :key="grp.name">
                       <tr class="perm-grp"><td colspan="2">{{ grp.name }}<small v-if="GROUP_NOTES[grp.name]">{{ GROUP_NOTES[grp.name] }}</small></td></tr>
                       <tr v-for="row in grp.pages" :key="row.id" :class="{ on: rowLevel(panel.perms, row) !== 'none' }">
-                        <td>{{ row.label }}<small class="custom-mark" v-if="rowLevel(panel.perms, row) !== rowLevel(rolePerms, row)">{{ ` · changed (role: ${levelLabel(row, rowLevel(rolePerms, row))})` }}</small></td>
+                        <td :class="{ 'sub-row': row.sub }">{{ row.label }}<small class="custom-mark" v-if="rowLevel(panel.perms, row) !== rowLevel(rolePerms, row)">{{ ` · changed (role: ${levelLabel(row, rowLevel(rolePerms, row))})` }}</small></td>
                         <td>
                           <select class="lvl-select" :value="rowLevel(panel.perms, row)" :disabled="cantEdit" :aria-label="`${row.label} access`" @change="panel.perms = setRowLevel(panel.perms, row, $event.target.value)">
                             <option v-for="lv in levelsOf(row)" :key="lv" :value="lv">{{ levelLabel(row, lv) }}</option>
@@ -730,4 +730,6 @@ export default {
 .drawer-body .help, .perm-table td { overflow-wrap: anywhere; }
 .fit-picker :deep(.op-btn) { overflow: hidden; min-width: 0; }
 .fit-picker :deep(.op-val) { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-row { padding-left: 34px !important; color: var(--text-2); }
+.sub-arrow { color: var(--muted); margin-right: 8px; }
 </style>

@@ -1,13 +1,13 @@
 <template>
-  <form class="util" @submit.prevent="save()" novalidate>
+  <form class="util" @submit.prevent="save(false)" novalidate>
     <div class="form-title">
       <h2>Utility Lodgment Form</h2>
-      <p class="sub">Log utility invoices to an active booking.</p>
+      <p class="sub">Log a utility bill to a booking. Each save adds a new bill; tick "already paid" to record the payment too.</p>
     </div>
 
     <FormSaved v-if="saved" :message="done" @again="startAgain()">
       <p class="saved-note" v-if="tenant.email">You can still email the bill to the tenant.</p>
-      <div class="saved-tools" v-if="tenant.email"><button type="button" class="btn mail-btn" @click="emailTenant()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>Email tenant</button></div>
+      <div class="saved-tools" v-if="tenant.email"><button type="button" class="btn mail-btn" @click="emailSaved()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>Email tenant</button></div>
     </FormSaved>
 
     <template v-else>
@@ -17,26 +17,49 @@
         <!-- 1. Booking -->
         <div v-show="step === 0">
           <h3>Booking</h3>
-          <div class="field"><label class="req">Booking ID</label>
-            <OptionPicker class="fld-pick" v-model="bookingId" :options="bookingOptions" label="Booking ID" placeholder="Choose booking ID…" searchable columns="minmax(0, 1.4fr) minmax(0, .6fr) minmax(0, 1.2fr) minmax(0, .8fr) minmax(0, 1.5fr) 44px"
-              :column-heads="['Tenant', 'Booking no.', 'Property', 'Unit', 'Stay', 'Bill']" :column-classes="['', 'muted', '', '', '', 'muted']" /></div>
+          <!-- 23 Nov 2026 (Khairul): every booking this person may see (past, current, upcoming, Awaiting payment; cancelled greyed) -->
+          <div class="field"><label class="req">Booking</label>
+            <OptionPicker class="fld-pick" :model-value="bookingId" :options="bookingOptions" label="Booking" placeholder="Search tenant, booking no. or unit…" searchable columns="minmax(0, 1.4fr) minmax(0, .7fr) minmax(0, 1.2fr) minmax(0, .8fr) minmax(0, 1.5fr) minmax(0, .9fr)"
+              :column-heads="['Tenant', 'Booking no.', 'Property', 'Unit', 'Stay', 'Status']" :column-classes="['', 'muted', '', '', '', 'muted']" @update:modelValue="pickBooking" /></div>
           <p class="help loading-line" v-if="loading">Loading bookings…</p>
           <p class="help" v-else-if="!bookings.length">No bookings found.</p>
-          <p class="help ok-note" v-else-if="existing">A bill is already saved for this booking and has been filled in on the Bills step. Change anything and press Save to update it.</p>
           <div class="kvs" v-if="picked">
             <div class="kv"><span>Property</span><span>{{ picked.propertyName || '—' }}</span></div>
-            <div class="kv"><span>Unit</span><span>{{ picked.unitCode || '—' }}</span></div>
+            <div class="kv"><span>Unit</span><span>{{ picked.unitCode || picked.unitId || '—' }}</span></div>
             <div class="kv"><span>Check-in</span><span>{{ picked.arrival || '—' }}</span></div>
             <div class="kv"><span>Check-out</span><span>{{ picked.departure || '—' }}</span></div>
+            <div class="kv"><span>Status</span><span>{{ picked.stay }}</span></div>
             <div class="kv"><span>Tenant</span><span>{{ tenant.name || '—' }}</span></div>
             <div class="kv"><span>Tenant email</span><span>{{ tenant.email || 'None on file' }}</span></div>
           </div>
           <p class="help warn" v-if="picked && tenantLoaded && !tenant.email">This tenant has no email address saved. Add it to their tenant details before emailing.</p>
+          <!-- The booking's earlier bills; saving always adds a new one -->
+          <div class="earlier" v-if="picked">
+            <h4>{{ earlier === null ? 'Earlier bills' : `Earlier bills · ${earlier.length}` }}</h4>
+            <p class="help" v-if="earlier === null">Loading…</p>
+            <p class="help" v-else-if="!earlier.length">No bills on this booking yet.</p>
+            <!-- 23 Nov 2026 (Khairul): View opens the bill's lines, paid amount and photos (read-only) -->
+            <template v-for="x in earlier || []" :key="x.id">
+              <div class="eb-row">
+                <span>{{ datesText(x) }}</span><span class="muted">{{ lodgedText(x) }}</span><b>{{ money(x.total) }}</b>
+                <span class="pill" :class="PILL[x.status]">{{ statusPill(x) }}</span>
+                <button type="button" class="btn btn-sm" @click="ebOpen = ebOpen === x.id ? '' : x.id">{{ ebOpen === x.id ? 'Close' : 'View' }}</button>
+              </div>
+              <div class="eb-view" v-if="ebOpen === x.id">
+                <div class="eb-line" v-for="(l, i) in x.lines" :key="i"><span>{{ `${kindLabel(l.kind)} · ${dmyOf(l.from)} to ${dmyOf(l.to)}` }}</span><b>{{ money(l.amount) }}</b></div>
+                <div class="eb-line eb-tot"><span>Total</span><b>{{ money(x.total) }}</b></div>
+                <div class="eb-line"><span>Paid</span><b>{{ money(x.paid) }}</b></div>
+                <div class="field"><label>Bill photos</label>
+                  <DriveFiles :key="'eb' + x.id" kind="utility-bills" :record-id="x.id" readonly :label="billLabel" /></div>
+              </div>
+            </template>
+            <p class="help" v-if="earlier && earlier.length">Saving adds a new bill; these stay as they are. Edit a bill from the booking (Portfolio › Bookings › Invoice &amp; utility).</p>
+          </div>
         </div>
 
         <!-- 2. Bills -->
         <div v-show="step === 1">
-          <h3>Bills</h3>
+          <h3>Bill</h3>
           <!-- 20 Nov 2026 (Khairul): cards wrap to fit the screen; amount boxes have no spinner and ignore the mouse wheel -->
           <div class="bills" @wheel.capture="noWheel">
             <div class="bill" v-for="u in KINDS" :key="u.key" :class="{ has: +f[u.key] > 0 }">
@@ -46,11 +69,11 @@
                 <div class="period"><input class="input" type="date" v-model="f[u.key + 'From']" :aria-label="`${u.label} bill period from`"><span>to</span><input class="input" type="date" v-model="f[u.key + 'To']" :aria-label="`${u.label} bill period to`"></div></div>
             </div>
           </div>
-          <p class="help">Add at least one amount. Each bill with an amount needs its own period. A bill left at 0 is saved as 0. The bill photos below are shared by all the bills on this booking.</p>
-          <div class="field"><label>Utility bills <span class="muted">(photos, PDFs or videos, saved to Google Drive)</span></label>
+          <p class="help">Add at least one amount. Each line with an amount needs its own dates. Lines left at 0 are not saved.</p>
+          <div class="field"><label>Bill photos <span class="muted">(photos, PDFs or videos, saved to this bill's Google Drive folder)</span></label>
             <p class="help" v-if="!bookingId">Choose a booking first (step 1).</p>
-            <DriveFiles v-else :key="bookingId" kind="utility-bills" :record-id="bookingId" :label="`${picked?.unitCode || ''} ${bookingId}`" @folder="l => f.invoiceLink = l" /></div>
-          <p class="total">Total utility amount: <b>{{ rm(total) }}</b></p>
+            <DriveFiles v-else :key="billId" kind="utility-bills" :record-id="billId" :list-on-load="false" :label="billLabel" @folder="l => f.driveFolder = l" /></div>
+          <p class="total">Total utility amount: <b>{{ money(total) }}</b></p>
         </div>
 
         <!-- 3. Review & save -->
@@ -63,15 +86,30 @@
           <div class="notice ok" v-else-if="!done">Everything needed is filled in. Check the details and press Save.</div>
           <div class="rev">
             <div class="card-head"><h4>1. Booking</h4><button type="button" class="editlink" @click="step = 0">Edit</button></div>
-            <div class="kv"><span>Booking ID</span><span>{{ bookingId || '—' }}</span></div>
-            <div class="kv"><span>Unit</span><span>{{ picked ? `${picked.unitCode || '—'}${picked.propertyName ? ', ' + picked.propertyName : ''}` : '—' }}</span></div>
+            <div class="kv"><span>Booking</span><span>{{ picked ? picked.bookingNo || picked.id : '—' }}</span></div>
+            <div class="kv"><span>Unit</span><span>{{ picked ? `${picked.unitCode || picked.unitId || '—'}${picked.propertyName ? ', ' + picked.propertyName : ''}` : '—' }}</span></div>
             <div class="kv"><span>Tenant</span><span>{{ tenant.name || '—' }}</span></div>
           </div>
           <div class="rev">
-            <div class="card-head"><h4>2. Bills</h4><button type="button" class="editlink" @click="step = 1">Edit</button></div>
-            <div class="kv" v-for="u in KINDS" :key="u.key"><span>{{ u.label }}</span><span>{{ +f[u.key] > 0 ? `${rm(f[u.key])}, ${periodText(u.key)}` : '—' }}</span></div>
-            <div class="kv"><span>Total</span><span>{{ rm(total) }}</span></div>
-            <div class="kv"><span>Bill files</span><span>{{ f.invoiceLink ? 'Saved to Google Drive' : 'None' }}</span></div>
+            <div class="card-head"><h4>2. Bill</h4><button type="button" class="editlink" @click="step = 1">Edit</button></div>
+            <div class="kv" v-for="u in KINDS" :key="u.key"><span>{{ u.label }}</span><span>{{ +f[u.key] > 0 ? `${money(f[u.key])}, ${periodText(u.key)}` : '—' }}</span></div>
+            <div class="kv"><span>Total</span><span>{{ money(total) }}</span></div>
+            <div class="kv"><span>Bill files</span><span>{{ f.driveFolder ? 'Saved to Google Drive' : 'None' }}</span></div>
+          </div>
+          <!-- 23 Nov 2026 (Khairul): lodge and pay in one go -->
+          <div class="rev">
+            <label class="paid-tick"><input type="checkbox" v-model="pay.on"> <b>Tenant has already paid this bill</b></label>
+            <div class="pay-grid" v-if="pay.on">
+              <FormField label="Payment Date" req type="date" v-model="pay.date" />
+              <FormField label="Amount paid (RM)" req type="number" min="0" step="0.01" v-model="pay.amount" :placeholder="total.toFixed(2)" />
+              <div class="field"><label class="req">Payment method</label>
+                <OptionPicker class="fld-pick" v-model="pay.mode" :options="MODES" label="Payment method" /></div>
+              <FormField label="Bank reference" v-model="pay.bankRef" placeholder="Reference no. on the bank slip" />
+              <div class="field wide"><label class="req">Payment receipt</label>
+                <DriveFiles :key="payId" kind="offline-payments" :record-id="payId" :list-on-load="false" :label="payLabel" @folder="l => pay.docsLink = l" /></div>
+              <p class="help wide" v-if="+pay.amount > 0 && +pay.amount < total - 0.005">{{ `Part payment: the bill stays Partly paid with ${money(total - +pay.amount)} left.` }}</p>
+              <p class="help wide">The payment is saved as Pending for Accounting to check, linked to this bill.</p>
+            </div>
           </div>
         </div>
       </section>
@@ -80,8 +118,8 @@
         <button type="button" class="btn" v-if="step > 0" @click="move(-1)">Back</button>
         <span class="spacer"></span>
         <template v-if="step === steps.length - 1">
-          <button type="button" class="btn mail-btn" :disabled="busy || !tenant.email" :title="tenant.email ? 'Opens Gmail with the bill filled in' : 'This tenant has no email on file'" @click="emailTenant()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>Email tenant</button>
-          <button type="submit" class="btn btn-primary" :disabled="busy || !complete" :title="complete ? '' : 'Finish the steps listed above first'">{{ busy ? 'Saving…' : 'Save' }}</button>
+          <button type="button" class="btn mail-btn" :disabled="busy || !complete || !tenant.email" :title="tenant.email ? 'Saves, then opens Gmail with the bill filled in' : 'This tenant has no email on file'" @click="save(true)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>Save &amp; email tenant</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy || !complete" :title="complete ? '' : 'Finish the steps listed above first'">{{ busy ? 'Saving…' : pay.on ? 'Save bill & payment' : 'Save bill' }}</button>
         </template>
         <button type="button" class="btn btn-primary" v-else @click="move(1)">Next</button>
       </div>
@@ -90,66 +128,68 @@
 </template>
 
 <script>
-// Utility Lodgment Form (Operations > Booking forms > Utility). Moved from components/UtilityForm.vue on 4 Nov 2026 and split into steps;
-// what is saved: utilityBills/{bookingId} (one bill per booking, updated in place), an audit entry, the files in Google Drive.
-// 13 Nov 2026: all three bill cards always show, each with its own period; the dropdown reads Name | Property | Unit | Date.
-import { reactive } from 'vue';
-import { collection, doc, getDoc, getDocs, limit, query, writeBatch, serverTimestamp } from 'firebase/firestore';
+// Utility Lodgment Form (Operations > Booking forms > Utility). Moved from components/UtilityForm.vue on 4 Nov 2026 and split into steps.
+// 23 Nov 2026 (Khairul): a booking holds many bills. Every save adds a NEW bill, utilityBills/{autoId} (lib/utility-bills.js),
+// with an audit entry and the bill photos in the bill's own Drive folder. "Tenant has already paid this bill" also saves an
+// offline payment (Pending, Utilities part linked to this bill) in the same batch. The booking list is every booking this
+// person may see (lib/booking-search.js), cancelled greyed with a confirm. ?booking=<id> opens with that booking picked.
+import { collection, doc, getDoc, writeBatch, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { withState } from '@/lib/states.js';
-import { scoped, getScoped } from '@/lib/property-scope.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import FormField from '@/components/FormField.vue';
 import DriveFiles from '@/components/DriveFiles.vue';
 import StepStrip from '@/components/StepStrip.vue';
 import FormSaved from '@/components/FormSaved.vue';
-import { audit, friendlyError, loadProperties, loadUnits } from '@/lib/finance-data.js';
+import { audit, friendlyError } from '@/lib/finance-data.js';
 import { allDone, stillMissing } from '@/lib/steps.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { toast } from '@/lib/toast.js';
+import { monthName } from '@/lib/format.js';
+import { loadAllBookings, guestNames } from '@/lib/booking-search.js';
+import { kindLabel, KINDS, PILL, PAY_MODES, money, r2, datesText, statusPill, loadBills, newBill, linesProblem, linkBills, purposeText, billMailLink, billOf } from '@/lib/utility-bills.js';
 
-const KINDS = [{ key: 'electricity', label: 'Electricity' }, { key: 'water', label: 'Water' }, { key: 'sewerage', label: 'Sewerage' }];
-// Each bill has its own period (13 Nov 2026): electricityFrom/electricityTo, waterFrom/waterTo, sewerageFrom/sewerageTo
+const MODES = [{ value: '', label: 'Choose method' }, ...PAY_MODES.map(x => ({ value: x, label: x }))];
+// Each line has its own period (13 Nov 2026): electricityFrom/electricityTo, waterFrom/waterTo, sewerageFrom/sewerageTo
 const blank = (from = '', to = '') => ({ electricity: '', electricityFrom: from, electricityTo: to, water: '', waterFrom: from, waterTo: to,
-  sewerage: '', sewerageFrom: from, sewerageTo: to, invoiceLink: '' });
-// Tenant names for the list, read once per visit (they sit in each tenant's private record)
-const nameCache = reactive({});
-const cents = v => Math.round((+v || 0) * 100) / 100;
+  sewerage: '', sewerageFrom: from, sewerageTo: to, driveFolder: '' });
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const blankPay = () => ({ on: false, date: today(), amount: '', mode: '', bankRef: '', docsLink: '' });
+const newId = c => doc(collection(db, c)).id;
 
 export default {
   popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   components: { FormField, OptionPicker, DriveFiles, StepStrip, FormSaved },
   emits: ['dirty'],
-  data() { return { KINDS, f: blank(), start: JSON.stringify(blank()), bookings: [], bills: {}, names: nameCache, bookingId: '', loading: true, tenant: {}, tenantLoaded: false,
+  data() { return { KINDS, PILL, MODES, f: blank(), start: JSON.stringify(blank()), bookings: [], names: guestNames, bookingId: '', loading: true, tenant: {}, tenantLoaded: false,
+    earlier: null, ebOpen: '', billId: newId('utilityBills'), payId: newId('offlinePayments'), pay: blankPay(), savedBill: null,
     step: 0, saved: false, busy: false, error: '', done: '' }; },
   computed: {
-    // Name | Property | Unit | Date. Property and unit come from the booking, or are looked up when the booking lacks them (load()).
     bookingOptions() {
-      // 16 Nov 2026: shown in lined-up columns in the list (cols); label is still what search and the closed picker use
-      return this.bookings.map(b => {   // 20 Nov 2026: no 'Choose booking ID' row; the picker's placeholder says it
-        // 20 Nov 2026 (Khairul): + booking no. column, header row, and a dash in Bill when no bill is saved
-        const cols = [this.names[b.tenantId || b.id] || b.id, b.bookingNo || '—', b.propertyName || '—', b.unitCode || b.unitId || '—', `${b.arrival || ''} to ${b.departure || ''}`, this.bills[b.id] ? { icon: 'fileCheck', title: 'Bill saved' } : '—'];
-        return { value: b.id, cols, label: `${cols[0]}${b.bookingNo ? ' · ' + b.bookingNo : ''} | ${cols[2]} | ${cols[3]} | ${cols[4]}${this.bills[b.id] ? ' · bill saved' : ''}` };
+      return this.bookings.map(b => {
+        const cols = [this.names[b.id] || b.id, b.bookingNo || '—', b.propertyName || '—', b.unitCode || b.unitId || '—', `${b.arrival || ''} to ${b.departure || ''}`, b.stay];
+        // label is what the picker searches: name, booking no., unit, property
+        return { value: b.id, cols, dim: b.stay === 'Cancelled', label: `${cols[0]} · ${b.bookingNo || ''} | ${cols[2]} | ${cols[3]} | ${cols[4]} | ${b.stay}` };
       });
     },
-    // The bills that have an amount
-    billed() { return KINDS.filter(u => cents(this.f[u.key]) > 0); },
-    existing() { return this.bookingId ? this.bills[this.bookingId] || null : null; },
+    billed() { return KINDS.filter(u => r2(this.f[u.key]) > 0); },
     picked() { return this.bookings.find(b => b.id === this.bookingId) || null; },
-    total() { return cents(this.f.electricity) + cents(this.f.water) + cents(this.f.sewerage); },
-    // Something typed on the Bills step (picking a booking alone doesn't count)
+    total() { return r2(r2(this.f.electricity) + r2(this.f.water) + r2(this.f.sewerage)); },
+    lines() { return KINDS.map(u => ({ kind: u.key, from: this.f[u.key + 'From'], to: this.f[u.key + 'To'], amount: this.f[u.key] })); },
+    billLabel() { const b = this.picked; return [b?.unitCode || b?.unitId, b?.bookingNo || b?.id, 'utility'].filter(Boolean).join(' '); },
+    payLabel() { const b = this.picked; return [this.pay.date, b?.unitCode || b?.unitId, this.tenant.name || this.names[b?.id] || '', 'utilities'].filter(Boolean).join(' '); },
     dirty() { return !this.saved && JSON.stringify(this.f) !== this.start; },
-    // The steps and what each needs, taken from check() (which still runs on Save)
     steps() {
-      const f = this.f;
+      const f = this.f, p = this.pay;
       const backwards = this.billed.find(u => f[u.key + 'From'] && f[u.key + 'To'] && f[u.key + 'To'] < f[u.key + 'From']);
       return [
-        { key: 'booking', label: 'Booking', required: [{ label: 'Booking ID', filled: !!this.bookingId }] },
-        { key: 'bills', label: 'Bills', problem: backwards ? `The ${backwards.label.toLowerCase()} bill period ends before it starts.` : '', required: [
+        { key: 'booking', label: 'Booking', required: [{ label: 'Booking', filled: !!this.bookingId }] },
+        { key: 'bills', label: 'Bill', problem: backwards ? `The ${backwards.label.toLowerCase()} bill period ends before it starts.` : '', required: [
           { label: 'At least one amount', filled: this.total > 0 },
           ...this.billed.flatMap(u => [{ label: `${u.label} period from`, filled: !!f[u.key + 'From'] }, { label: `${u.label} period to`, filled: !!f[u.key + 'To'] }])] },
-        { key: 'review', label: 'Review & save', review: true }
+        { key: 'review', label: 'Review & save', review: true, problem: p.on && +p.amount > this.total + 0.005 ? 'The amount paid is more than the bill total.' : '',
+          required: p.on ? [{ label: 'Payment Date', filled: !!p.date }, { label: 'Amount paid', filled: +p.amount > 0 }, { label: 'Payment method', filled: !!p.mode }, { label: 'Payment receipt', filled: !!p.docsLink }] : [] }
       ];
     },
     complete() { return allDone(this.steps); },
@@ -157,24 +197,15 @@ export default {
   },
   watch: {
     dirty: { handler(v) { this.$emit('dirty', v); }, immediate: true },
-    // The tenant's name and email come from their tenant record (private details)
+    'pay.on'(v) { if (v && !(+this.pay.amount > 0)) this.pay.amount = this.total ? this.total.toFixed(2) : ''; },
+    total(v, was) { if (this.pay.on && (!this.pay.amount || Math.abs(+this.pay.amount - was) < 0.005)) this.pay.amount = v ? v.toFixed(2) : ''; },
     async bookingId() {
-      this.tenant = {}; this.tenantLoaded = false; this.error = ''; this.done = '';
-      // A saved bill fills the form; a booking with none starts empty
-      const old = this.existing;
-      if (old) {
-        // A bill saved before 13 Nov 2026 has one shared period (periodFrom/periodTo): each bill starts with that
-        const f = { invoiceLink: old.invoiceLink || '' };
-        for (const u of KINDS) {
-          f[u.key] = old[u.key] || '';
-          f[u.key + 'From'] = old[u.key + 'From'] || old.periodFrom || '';
-          f[u.key + 'To'] = old[u.key + 'To'] || old.periodTo || '';
-        }
-        this.f = f;
-      } else this.f = blank(this.picked?.arrival || '', this.picked?.departure || '');   // a new bill starts with the stay dates
+      this.tenant = {}; this.tenantLoaded = false; this.error = ''; this.done = ''; this.earlier = null;
+      this.f = blank(this.picked?.arrival || '', this.picked?.departure || '');   // a new bill starts with the stay dates
       this.start = JSON.stringify(this.f);
       const b = this.picked;
       if (!b) return;
+      loadBills(b).then(list => { if (this.picked?.id === b.id) this.earlier = list || []; });
       try {
         // A booking made from an inquiry has a tenant record; an imported one keeps the guest details on the booking itself
         const snap = await getDoc(b.tenantId ? doc(db, 'tenants', b.tenantId, 'private', 'main') : doc(db, 'offlineBookings', b.id, 'private', 'main'));
@@ -183,116 +214,95 @@ export default {
       this.tenantLoaded = true;
     }
   },
-  async mounted() { await this.load(); },
+  async mounted() {
+    await this.load();
+    const want = this.$route?.query?.booking;
+    if (want && this.bookings.some(b => b.id === want)) this.bookingId = String(want);
+  },
   methods: {
-    // 20 Nov 2026: scrolling over a focused amount box scrolls the page instead of changing the number
+    dmyOf(d) { return d ? String(d).slice(0, 10).split('-').reverse().join('/') : '—'; },
+    money, datesText, statusPill, kindLabel,
     noWheel(e) { if (e.target.type === 'number' && e.target === document.activeElement) e.target.blur(); },
-    rm(n) { return `RM ${Number(n || 0).toFixed(2)}`; },
     move(by) { this.step = Math.min(this.steps.length - 1, Math.max(0, this.step + by)); window.scrollTo({ top: 0, behavior: 'smooth' }); },
     periodText(key) { const a = this.f[key + 'From'], z = this.f[key + 'To']; return a && z ? `${a} to ${z}` : 'no period'; },
-    startAgain() { this.saved = false; this.done = ''; this.error = ''; this.step = 0; this.bookingId = ''; window.scrollTo(0, 0); },
-    // Every booking is listed; ones with a saved bill are marked and fill the form when picked
+    lodgedText(x) { const t = x.lodgedAt?.toDate?.() || x.createdAt?.toDate?.(); return t ? `lodged ${t.toLocaleDateString('en-GB')}` : ''; },
+    startAgain() {
+      this.saved = false; this.done = ''; this.error = ''; this.step = 0; this.savedBill = null;
+      this.billId = newId('utilityBills'); this.payId = newId('offlinePayments'); this.pay = blankPay();
+      const keep = this.bookingId; this.bookingId = ''; window.scrollTo(0, 0);
+      if (keep) this.$nextTick(() => { this.bookingId = keep; });   // the same booking again, with its bills read fresh
+    },
+    async pickBooking(id) {
+      const b = this.bookings.find(x => x.id === id);
+      if (b?.stay === 'Cancelled' && !await askConfirm({ title: 'This booking is cancelled', message: `${b.bookingNo || b.id} was cancelled${b.cancelledReason ? ` (${b.cancelledReason})` : ''}. Lodge a bill on it anyway?`, confirmText: 'Use this booking' })) return;
+      this.bookingId = id;
+    },
     async load() {
       this.loading = true;
-      try {
-        // Only my properties' bookings and bills (lib/property-scope.js)
-        const [bs, us] = await Promise.all([getScoped(scoped(query(collection(db, 'offlineBookings'), limit(300)))), getScoped(scoped(query(collection(db, 'utilityBills'), limit(500))))]);
-        this.bills = Object.fromEntries(us.docs.map(d => [d.id, d.data()]));
-        this.bookings = bs.docs.filter(d => d.data().status !== 'cancelled' && d.data().status !== 'pending')   // not Awaiting payment (16 Nov 2026)
-          .map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => String(b.arrival || '').localeCompare(String(a.arrival || '')));
-      } catch (e) { this.error = friendlyError(e, 'load the bookings'); }
+      try { this.bookings = await loadAllBookings(); }
+      catch (e) { this.error = friendlyError(e, 'load the bookings'); }
       this.loading = false;
-      await this.fillPlaces();
-      // Names fill in as they arrive; the list shows the booking ID until then
-      const need = [...new Set(this.bookings.map(b => b.tenantId || b.id).filter(t => t && !(t in nameCache)))];
-      await Promise.all(need.map(async id => {
-        const tenant = this.bookings.find(b => (b.tenantId || b.id) === id)?.tenantId;
-        try { const sn = await getDoc(tenant ? doc(db, 'tenants', id, 'private', 'main') : doc(db, 'offlineBookings', id, 'private', 'main')); nameCache[id] = sn.exists() ? sn.data().name || '' : ''; } catch { /* keep the ID */ }
-      }));
-    },
-    // Some bookings were saved without a property name or unit code: look them up (only for those, from the saved lists where possible)
-    async fillPlaces() {
-      const need = this.bookings.filter(b => b.propertyId && (!b.propertyName || (!b.unitCode && b.unitId)));
-      if (!need.length) return;
-      const props = await loadProperties().catch(() => []);
-      const unitsBy = {};
-      await Promise.all([...new Set(need.filter(b => !b.unitCode && b.unitId).map(b => b.propertyId))].map(async pid => { unitsBy[pid] = await loadUnits(pid).catch(() => []); }));
-      // A unit not in the active list (made inactive) is read on its own
-      const lone = {};
-      await Promise.all([...new Set(need.filter(b => !b.unitCode && b.unitId && !(unitsBy[b.propertyId] || []).some(u => u.id === b.unitId)).map(b => b.unitId))].map(async id => {
-        try { const s = await getDoc(doc(db, 'units', id)); lone[id] = s.exists() ? s.data().unitCode || '' : ''; } catch { lone[id] = ''; }
-      }));
-      this.bookings = this.bookings.map(b => {
-        if (!need.includes(b)) return b;
-        const p = props.find(x => x.id === b.propertyId), u = (unitsBy[b.propertyId] || []).find(x => x.id === b.unitId);
-        return { ...b, propertyName: b.propertyName || p?.name || p?.code || '', unitCode: b.unitCode || u?.unitCode || lone[b.unitId] || b.unitId || '' };   // 16 Nov 2026: the unit ID when no code is found, as on Bookings
-      });
     },
     check() {
-      const f = this.f;
       if (!this.bookingId) return 'Choose the booking this bill belongs to.';
-      if (!(this.total > 0)) return 'Add at least one utility amount.';
-      for (const u of this.billed) {
-        const a = f[u.key + 'From'], z = f[u.key + 'To'];
-        if (!a || !z) return `Choose the ${u.label.toLowerCase()} bill period (from and to).`;
-        if (z < a) return `The ${u.label.toLowerCase()} bill period ends before it starts.`;
+      const bad = linesProblem(this.lines); if (bad) return bad;
+      const p = this.pay;
+      if (p.on) {
+        if (!p.date) return 'Choose the payment date.';
+        if (!(+p.amount > 0)) return 'Enter the amount paid.';
+        if (+p.amount > this.total + 0.005) return 'The amount paid is more than the bill total.';
+        if (!p.mode) return 'Choose the payment method.';
+        if (!p.docsLink) return 'Upload the payment receipt.';
       }
-      if (f.invoiceLink.trim() && !/^https?:\/\//i.test(f.invoiceLink.trim())) return 'The invoice link should start with https://';
       return '';
     },
-    // Opens the step a check message is about
-    showStep(msg) { this.step = /^Choose the booking/.test(msg) ? 0 : 1; },
-    // A Gmail compose window in a new tab with the message filled in; they check it and press send themselves.
-    mailLink(b, f) {
-      const line = (label, key) => cents(f[key]) > 0 ? `- ${label} (${f[key + 'From']} to ${f[key + 'To']}): ${this.rm(f[key])}\n` : '';
-      const body = `Dear ${this.tenant.name || 'Tenant'},\n\nPlease find your utility bill for ${b.unitCode || 'your unit'}${b.propertyName ? ', ' + b.propertyName : ''}:\n\n`
-        + line('Electricity', 'electricity') + line('Water', 'water') + line('Sewerage', 'sewerage')
-        + `\nTotal: ${this.rm(this.total)}\n` + (f.invoiceLink.trim() ? `\nInvoice: ${f.invoiceLink.trim()}\n` : '') + '\nThank you.\nWidebed';
-      return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(this.tenant.email)}&su=${encodeURIComponent(`Utility bill - ${b.unitCode || ''}`.trim())}&body=${encodeURIComponent(body)}`;
+    showStep(msg) { this.step = /^Choose the booking/.test(msg) ? 0 : /payment|amount paid|receipt/i.test(msg) ? 2 : 1; },
+    // Opens Gmail for the saved bill and notes on the bill that it was emailed
+    async emailSaved(win = null) {
+      const x = this.savedBill; if (!x || !this.tenant.email) { win?.close(); return; }
+      const link = billMailLink(x, this.picked || x, this.tenant);
+      if (win) win.location.href = link; else window.open(link, '_blank');
+      try { const me = useSession(); await updateDoc(doc(db, 'utilityBills', x.id), { emailedAt: serverTimestamp(), emailedByName: me.name || '' }); }
+      catch (e) { console.warn('Could not note the email on the bill', e.code || e.message); }
     },
-    emailTenant() {
-      this.error = this.check();
-      if (this.error) { if (!this.saved) this.showStep(this.error); return; }
-      if (!this.tenant.email) { this.error = 'This tenant has no email address saved.'; return; }
-      window.open(this.mailLink(this.picked, this.f), '_blank');
-    },
-    async save() {
+    async save(andEmail) {
       this.error = this.check(); this.done = '';
       if (this.error) { this.showStep(this.error); return; }
-      const f = this.f, me = useSession(), b = this.picked, old = this.existing;
-      // Each bill keeps its own period (empty when it has no amount). periodFrom/periodTo stay as the span of all of them,
-      // earliest start to latest end, for anything that still reads the one shared period.
-      const per = {};
-      for (const u of KINDS) { const on = cents(f[u.key]) > 0; per[u.key] = cents(f[u.key]); per[u.key + 'From'] = on ? f[u.key + 'From'] : ''; per[u.key + 'To'] = on ? f[u.key + 'To'] : ''; }
-      const froms = this.billed.map(u => f[u.key + 'From']).sort(), tos = this.billed.map(u => f[u.key + 'To']).sort();
-      const data = { periodFrom: froms[0] || '', periodTo: tos[tos.length - 1] || '', ...per, total: this.total, invoiceLink: f.invoiceLink.trim() };
-      const changes = old ? Object.keys(data).filter(k => (old[k] ?? '') !== data[k]).map(k => ({ field: k, old: old[k] ?? '', new: data[k] })) : [];
-      if (old) {
-        if (!changes.length) { this.done = 'Nothing has changed.'; return; }
-        const yes = await askConfirm({ title: 'Update this utility bill?', message: `${b.id} already has a saved bill. Saving replaces it with the new amounts (${this.rm(this.total)} in total). The change is recorded in the audit log.`, confirmText: 'Yes, update' });
-        if (!yes) return;
-      }
+      const win = andEmail ? window.open('', '_blank') : null;   // opened now, so the browser doesn't block it after saving
+      const me = useSession(), b = this.picked, p = this.pay, billId = this.billId;
       this.busy = true;
       try {
         const batch = writeBatch(db);
-        if (old) {
-          batch.update(doc(db, 'utilityBills', b.id), { ...data, updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name });
-          audit(batch, me, { action: 'utilityBill.update', entity: `utilityBills/${b.id}`, propertyId: b.propertyId || null, changes });
-        } else {
-          // The bill carries its booking's property's state
-          batch.set(doc(db, 'utilityBills', b.id), await withState(b.propertyId, {
-            bookingId: b.id, propertyId: b.propertyId || '', propertyName: b.propertyName || '', unitCode: b.unitCode || '', ...data,
-            utilityStatus: 'Ready_to_Send', createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name }));
-          audit(batch, me, { action: 'utilityBill.create', entity: `utilityBills/${b.id}`, propertyId: b.propertyId || null,
-            changes: [{ field: 'total', old: null, new: this.total }] });
+        const data = await withState(b.propertyId, newBill(b, this.lines, 'lodgment', me, { driveFolder: this.f.driveFolder || '' }));
+        const fresh = { [billId]: { total: data.total, data } };
+        let payAmount = 0;
+        if (p.on) {
+          payAmount = r2(p.amount);
+          await linkBills(batch, this.payId, {}, { [billId]: payAmount }, fresh);   // sets paid / status / paymentIds on the new bill
+          const bill = billOf(billId, data);
+          const guest = this.tenant.name || this.names[b.id] || b.bookingNo || b.id;
+          const purpose = purposeText({ rental: 0, utilities: payAmount, bills: [bill] }, monthName);
+          batch.set(doc(db, 'offlinePayments', this.payId), await withState(b.propertyId, {
+            date: p.date, amount: payAmount, propertyId: b.propertyId || '', propertyName: b.propertyName || '', unitCode: b.unitCode || b.unitId || '',
+            guest, purpose, mode: p.mode, bankRef: p.bankRef.trim(), docsLink: p.docsLink, remarks: '', status: 'Pending', verifiedByName: '', verifiedDate: '',
+            createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name, bookingId: b.id, bookingNo: b.bookingNo || b.id,
+            parts: [{ type: 'utilities', amount: payAmount, bills: [{ billId, amount: payAmount }] }], billIds: [billId], billsAt: serverTimestamp() }));
+          audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${this.payId}`, propertyId: b.propertyId || null,
+            changes: [['amount', payAmount], ['date', p.date], ['guest', guest], ['purpose', purpose], ['status', 'Pending'], ['bookingNo', b.bookingNo || b.id], ['utilities', `${bill.id} ${payAmount.toFixed(2)}`]].map(([field, v]) => ({ field, old: null, new: v })) });
         }
+        batch.set(doc(db, 'utilityBills', billId), data);
+        audit(batch, me, { action: 'utilityBill.create', entity: `utilityBills/${billId}`, propertyId: b.propertyId || null,
+          changes: [{ field: 'total', old: null, new: data.total }, { field: 'dates', old: null, new: datesText(data) }, ...(p.on ? [{ field: 'paid', old: null, new: payAmount }] : [])] });
         await batch.commit();
-        this.bills = { ...this.bills, [b.id]: { ...(old || {}), ...data } };   // picking this booking again shows the saved bill
+        this.savedBill = billOf(billId, data);
         toast('Changes saved');
-        this.done = `Utility bill ${old ? 'updated' : 'saved'} for ${b.id}: ${this.rm(this.total)}.`;
+        this.done = `Utility bill saved for ${b.bookingNo || b.id}: ${money(data.total)}${p.on ? `, with a payment of ${money(payAmount)} (Pending)` : ''}.`;
         this.start = JSON.stringify(this.f); this.saved = true; window.scrollTo(0, 0);
-      } catch (e) { this.error = e.code === 'permission-denied' ? (old ? 'Only Accounting or a Director can change a saved bill.' : 'Firestore refused this. The latest security rules (utilityBills) need to be published first.') : friendlyError(e, 'save the utility bill'); }
+        if (andEmail) await this.emailSaved(win);
+      } catch (e) {
+        win?.close();
+        this.error = e.code === 'permission-denied' ? 'Firestore refused this. The latest security rules (Draft 1.03, utility bills) need to be published first.' : friendlyError(e, 'save the utility bill');
+      }
       this.busy = false;
     }
   }
@@ -308,7 +318,7 @@ export default {
 .util-body h4 { font-size: 14px; margin: 0; }
 .bills { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 8px; }
 .bill { border: 1px solid var(--border); border-radius: 10px; padding: 12px 12px 0; min-width: 0; }
-.bill :deep(input[type=number]) { -moz-appearance: textfield; appearance: textfield; }
+.bill :deep(input[type=number]), .pay-grid :deep(input[type=number]) { -moz-appearance: textfield; appearance: textfield; }
 .bill :deep(input[type=number]::-webkit-outer-spin-button), .bill :deep(input[type=number]::-webkit-inner-spin-button) { -webkit-appearance: none; margin: 0; }
 .bill.has { border-color: var(--accent); }
 .bill-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; }
@@ -317,7 +327,6 @@ export default {
 .period .input { flex: 1 1 120px; min-width: 0; width: 100%; }
 .field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
 .kvs { margin-top: 12px; }
-.ok-note { color: var(--accent); }
 .warn { color: var(--danger, #c0392b); }
 .total { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: 14px; }
 .fld-pick { display: block; width: 100%; }
@@ -334,5 +343,17 @@ export default {
 .spacer { flex: 1; }
 .bottom-actions { display: flex; gap: 10px; margin-top: 8px; padding: 14px 0 20px; flex-wrap: wrap; }
 .bottom-actions .btn:disabled { opacity: .5; cursor: not-allowed; }
-@media (max-width: 900px) { .bills { grid-template-columns: minmax(0, 1fr); } }
+.earlier { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.earlier h4 { margin-bottom: 8px !important; }
+.eb-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.eb-row .pill { white-space: nowrap; }
+.eb-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto auto; }
+.eb-view { display: grid; gap: 6px; padding: 10px 12px 14px; margin: 0 0 6px; background: var(--surface-2, #f8fafc); border-bottom: 1px solid var(--border); font-size: 13px; }
+.eb-line { display: flex; justify-content: space-between; gap: 10px; }
+.eb-tot { border-top: 1px solid var(--border); padding-top: 6px; }
+.eb-view .field { margin: 6px 0 0; }
+.paid-tick { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.pay-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin-top: 12px; }
+.pay-grid .wide { grid-column: 1 / -1; }
+@media (max-width: 900px) { .bills, .pay-grid { grid-template-columns: minmax(0, 1fr); } .eb-row { grid-template-columns: 1fr auto; } }
 </style>

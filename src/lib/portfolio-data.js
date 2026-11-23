@@ -1,7 +1,8 @@
 // Portfolio (Owners, Properties, Bookings): every Firestore read and write the Portfolio pages make, plus the
 // constants and small helpers they share. The pages and drawers keep only screen logic and form checks.
 // Moved out of the old single pages/Portfolio/Portfolio.vue on 4 Nov 2026; the reads and writes are unchanged.
-import { payCounts, payMonth } from '@/lib/booking-pay.js';
+import { payCounts, payMonth, rentalOf } from '@/lib/booking-pay.js';
+import { loadBills } from '@/lib/utility-bills.js';
 import { markRaw } from 'vue';
 import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, arrayRemove, serverTimestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
@@ -47,7 +48,8 @@ export function mergeOwnerPriv(main, contact) {
 // Which part this person reads: 'main' (Full), 'contact' (Base) or null (no Owners access).
 export function ownerPrivLevel() {
   const me = useSession();
-  return ownersFull(me) ? 'main' : can(me, 'owners.view') ? 'contact' : null;
+  // 23 Nov 2026: private/main (IC, address, bank) needs the Owners · Credentials tick; Owners Full without it reads contact
+  return can(me, 'ownerCreds.view') && (ownersFull(me) || can(me, 'owners.view')) ? 'main' : (ownersFull(me) || can(me, 'owners.view')) ? 'contact' : null;
 }
 export async function readOwnerPriv(id, lvl = ownerPrivLevel()) {   // exported 18 Nov 2026 (Master Record owner list)
   if (!lvl) return {};
@@ -314,7 +316,7 @@ export async function hasRefs(list, id) {
 // A booking with linked payments none of which is Checked yet shows 0 paid (not the older booking amount).
 function addPay(paid, pays, x) {
   if (!x.bookingId) return;
-  const amt = payCounts(x) ? Number(x.amount) || 0 : 0;
+  const amt = payCounts(x) ? rentalOf(x) : 0;   // 23 Nov 2026: only the Rental part of a Rental + Utilities payment
   paid[x.bookingId] = (paid[x.bookingId] || 0) + amt;
   if (amt) (pays[x.bookingId] ||= []).push({ date: x.date || '', month: payMonth(x), amount: amt });
 }
@@ -362,13 +364,14 @@ export async function loadGuestName(r) {
 }
 // One booking's private part (passcodes, guest on imported bookings), utility bill, payments and tenant's details.
 export async function loadBookingDetails(r) {
-  const [p, u, pay] = await Promise.all([getDoc(doc(db, 'offlineBookings', r.id, 'private', 'main')).catch(() => null), getDoc(doc(db, 'utilityBills', r.id)).catch(() => null),
+  // 23 Nov 2026: many utility bills per booking (lib/utility-bills.js); bills is null when they can't be read
+  const [p, bills, pay] = await Promise.all([getDoc(doc(db, 'offlineBookings', r.id, 'private', 'main')).catch(() => null), loadBills(r),
     getScoped(r.propertyId ? query(collection(db, 'offlinePayments'), where('bookingId', '==', r.id), where('propertyId', '==', r.propertyId))
       : scopedOrBlank(query(collection(db, 'offlinePayments'), where('bookingId', '==', r.id)))).catch(() => null)]);
   const out = {
     payments: pay ? pay.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.date).localeCompare(String(b.date))) : null,
     hasPrivate: !!p, privateData: p?.exists() ? p.data() : {}, guest: null, guestOk: false,
-    bill: u?.exists?.() ? u.data() : null
+    bills
   };
   // Bookings made from an inquiry or the Booking Form keep the guest's details on the tenant record; the passcodes stay on the booking
   if (r.tenantId) {
@@ -446,13 +449,17 @@ export async function undoTermination(me, b, reason) {
   return { departure: back, nights, earlyTermination: null };
 }
 
-// Delete a cancelled booking for good: the booking, its private part and its utility bill. The page only offers it when
+// Delete a cancelled booking for good: the booking, its private part and its utility bills. The page only offers it when
 // no payment is recorded. The audit entry keeps the booking no., unit and dates, never the guest's details.
+// 23 Nov 2026: every bill of the booking (utilityBills where bookingId), plus the old one-per-booking id if it is there.
 export async function deleteOfflineBooking(me, b, reason) {
   const batch = writeBatch(db), ref = doc(db, 'offlineBookings', b.id);
+  const bills = await loadBills(b);
+  if (bills === null) throw new Error("This booking's utility bills can't be read, so it can't be deleted here.");
+  if (bills.some(x => x.paymentIds.length)) throw new Error('A utility bill on this booking has payments linked, so the booking can\'t be deleted.');
   batch.delete(doc(ref, 'private', 'main'));
   batch.delete(doc(ref, 'private', 'contact'));
-  batch.delete(doc(db, 'utilityBills', b.id));
+  bills.forEach(x => batch.delete(doc(db, 'utilityBills', x.id)));
   batch.delete(ref);
   audit(batch, me, { action: 'offlineBooking.delete', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
     changes: [{ field: 'booking', old: `${b.bookingNo || b.id} · ${b.unitCode || b.unitId || ''} · ${b.arrival || ''} to ${b.departure || ''}`, new: null }], reason });

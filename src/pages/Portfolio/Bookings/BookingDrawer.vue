@@ -54,7 +54,8 @@
         <div class="field"><label>Check out</label><input class="input" id="bkOut" type="date" v-model="bk.f.departure" :disabled="!editable"></div>
         <div class="field" v-if="isLong"><label>Monthly rent (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.rent" :disabled="!editable"></div>
         <!-- 20 Nov 2026 (Khairul): the deposit is a charge on the Payments tab now (Security deposit on a month) -->
-        <div class="field"><label>Booking source</label><input class="input" v-model="bk.f.bookingSource" :disabled="!editable"></div>
+        <!-- 23 Nov 2026 (Khairul): a drop-down of Booking settings > Booking sources; a saved source not in the list stays shown -->
+        <div class="field"><label>Booking source</label><OptionPicker class="fld-pick" v-model="bk.f.bookingSource" :options="sourceOpts" label="Booking source" placeholder="Choose source…" :disabled="!editable" /></div>
         <div class="field" v-if="bk.salesPersonName"><label>Sales person</label><input class="input" :value="bk.salesPersonName" disabled></div>
         <!-- 20 Nov 2026: the agent picked on the booking form (booking source Agent), for their commission -->
         <div class="field" v-if="bk.agentName"><label>Agent</label><input class="input" :value="[bk.agentName, bk.agentCompany].filter(Boolean).join(' · ')" disabled></div>
@@ -75,8 +76,12 @@
         <div class="form-sec">Payments <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· from Accounting › Offline Payments</span></div>
         <template v-if="bk.payments">
           <p class="help" v-if="!bk.payments.length">{{ bk.amount ? `No payment records. Older booking: RM ${amt(bk.amount)} paid.` : 'No payment recorded yet.' }}</p>
-          <div class="pay-row" v-for="x in bk.payments" :key="x.id"><span>{{ `${dmy(x.date)}${x.forMonth ? ' · for ' + monthName(x.forMonth) : ''}${x.mode ? ' · ' + x.mode : ''}${x.bankRef ? ' · ' + x.bankRef : ''}` }}</span><b>{{ `RM ${amt(x.amount)}` }}</b><span class="tag">{{ x.status }}</span></div>
-          <p class="help" v-if="bk.payments.length > 1">{{ `Total Checked RM ${amt(totalPaid)}` }}</p>
+          <template v-for="x in bk.payments" :key="x.id">
+            <div class="pay-row"><span>{{ `${dmy(x.date)}${x.forMonth ? ' · for ' + monthName(x.forMonth) : ''}${x.mode ? ' · ' + x.mode : ''}${x.bankRef ? ' · ' + x.bankRef : ''}` }}</span><b>{{ `RM ${amt(x.amount)}` }}</b><span class="tag">{{ x.status }}</span></div>
+            <!-- 23 Nov 2026: a Rental + Utilities payment shows its parts and the bills it paid -->
+            <div class="pay-part" v-if="payParts(x)">{{ payParts(x) }}</div>
+          </template>
+          <p class="help" v-if="bk.payments.length > 1">{{ `Total Checked RM ${amt(totalChecked)}${totalChecked !== totalPaid ? ` · rental RM ${amt(totalPaid)}` : ''}` }}</p>
         </template>
         <p class="help" v-else>Payments are visible to Accounting, Directors and Operations.</p>
         <template v-if="bk.payments && cal.length">
@@ -114,10 +119,13 @@
                 <b>{{ `RM ${amt(x.amount)}` }}</b>
                 <button v-if="editable" type="button" class="mc-x" @click="removeCharge(c.m, j)" :aria-label="`Remove ${chargeLabel(x)} from ${shortName(c.m)}`">×</button>
               </div>
+              <!-- 23 Nov 2026: carry forward (paid over the month's total goes to the next month) -->
+              <div class="tp-charge tp-carry" v-if="c.carryIn > 0"><span>{{ `Carried from ${shortName(cal[cal.findIndex(x => x.m === c.m) - 1]?.m || '')}` }}</span><b>{{ `+ RM ${amt(c.carryIn)}` }}</b><span></span></div>
+              <div class="tp-charge tp-carry" v-if="c.carryOut > 0"><span>{{ cal.findIndex(x => x.m === c.m) < cal.length - 1 ? `Carried to ${shortName(cal[cal.findIndex(x => x.m === c.m) + 1].m)}` : 'Paid over the total for the stay' }}</span><b>{{ `RM ${amt(c.carryOut)}` }}</b><span></span></div>
               <div class="mc-form" v-if="editable && add.m === c.m">
                 <select class="input" :id="'mcKey' + c.m" v-model="add.key" :aria-label="`Charge for ${shortName(c.m)}`">
                   <option value="" disabled>Choose charge…</option>
-                  <option v-for="[k, l] in FEE_LABELS" :key="k" :value="k">{{ l }}</option>
+                  <option v-for="[k, l] in chargeChoices" :key="k" :value="k">{{ l }}</option>
                 </select>
                 <input v-if="add.key === 'othersFee'" class="input" v-model="add.note" placeholder="What for" aria-label="What the charge is for">
                 <input class="input mc-amt" type="number" min="0" step="0.01" v-model="add.amount" placeholder="0.00" aria-label="Amount (RM)" @keydown.enter.prevent="addCharge()">
@@ -129,7 +137,7 @@
           </div>
           <p class="help" v-if="editable" style="margin-top:6px">Use + on a month to add the security deposit or a fee to it. The deposit and fees typed on the booking form are on the first month.</p>
           <p class="help" v-if="editable && chargesChanged">Month charges changed: add a reason below and Save booking to keep them.</p>
-          <p class="help">{{ isLong ? `${leaseLabel(nightsNow)}: each month is rent against the Checked payments for that month.` : 'Short term: the rental is due in the check-in month; Checked payments count in the month they are for.' }}</p>
+          <p class="help">{{ isLong ? `${leaseLabel(nightsNow)}: each month is rent and charges against the Checked payments for that month. Paid over a month's total is carried to the next month.` : 'Short term: the rental is due in the check-in month; Checked payments count in the month they are for.' }}</p>
         </template>
         </div>
         <div v-show="tab === 'invoice'">
@@ -139,13 +147,63 @@
           <p class="help">{{ isLong ? 'Download the full invoice (summary and every month) or one month on its own. Month charges show on their month.' : 'Download the invoice for this booking.' }}</p>
           <button type="button" class="btn" @click="openInvoice()" :disabled="!bk.loaded || invBusy">{{ invBusy ? 'Loading…' : 'Download invoice' }}</button>
         </template>
-        <div class="form-sec">Utility bill</div>
-        <p class="help" v-if="!bk.bill">No utility bill saved yet. Add it on Portfolio > Utility Lodgment Form.</p>
-        <template v-else>
-          <!-- Each bill has its own period since 13 Nov 2026; older bills fall back to the one shared period -->
-          <div class="cal-row" v-for="u in billRows(bk.bill)" :key="u.label"><span>{{ `${u.label} · ${u.period}` }}</span><b>{{ `RM ${amt(u.v)}` }}</b></div>
-          <div class="cal-row"><span><b>Total utility</b></span><b>{{ `RM ${amt(bk.bill.total)}` }}</b></div>
-        </template>
+        <!-- 23 Nov 2026 (Khairul): many bills per booking, newest first, each with its payment status -->
+        <div class="form-sec ub-head"><span>{{ `Utility bills · ${(bk.bills || []).length}` }}</span>
+          <RouterLink v-if="canForms && !cancelled" class="btn btn-sm" :to="{ path: '/Operations/booking-forms/utility', query: { booking: bk.id } }">+ Lodge new bill</RouterLink></div>
+        <p class="help" v-if="!bk.loaded">Loading…</p>
+        <p class="help" v-else-if="bk.bills === null">The utility bills can't be read (this booking's property is not on your list, or the latest rules are not published).</p>
+        <p class="help" v-else-if="!bk.bills.length">No utility bills yet.</p>
+        <div class="ub-list" v-if="bk.bills && bk.bills.length">
+          <div class="ub-item" v-for="x in bk.bills" :key="x.id" :class="{ open: billOpen === x.id }">
+            <div class="ub-row">
+              <span class="ub-main"><b>{{ datesText(x) }}</b><small>{{ lodgedLine(x) }}</small></span>
+              <b class="ub-amt">{{ `RM ${amt(x.total)}` }}</b>
+              <span class="pill" :class="billPill(x).cls">{{ billPill(x).text }}</span>
+            </div>
+            <div class="ub-acts">
+              <RouterLink v-if="canRecordPay && x.status !== 'paid'" class="btn btn-sm" :to="{ path: '/Finance/offline-payments', query: { record: bk.id, bill: x.id } }">Record payment</RouterLink>
+              <button type="button" class="btn btn-sm" :disabled="!bk.f.email" :title="bk.f.email ? 'Opens Gmail with the bill filled in' : 'No tenant email on file (or not visible to you)'" @click="emailBill(x)">Email</button>
+              <button type="button" class="btn btn-sm" @click="openBill(x)">{{ billOpen === x.id ? 'Close' : canEditBill ? 'View / Edit' : 'View' }}</button>
+            </div>
+            <!-- View / Edit: lines, photos, payments; editing needs a reason (audit utilityBill.update) -->
+            <div class="ub-view" v-if="billOpen === x.id">
+              <template v-if="!billEd">
+                <div class="cal-row" v-for="(l, i) in x.lines" :key="i"><span>{{ `${kindLabel(l.kind)} · ${dmy(l.from)} to ${dmy(l.to)}` }}</span><b>{{ `RM ${amt(l.amount)}` }}</b></div>
+                <div class="cal-row"><span><b>Total</b></span><b>{{ `RM ${amt(x.total)}` }}</b></div>
+                <!-- 23 Nov 2026 (Khairul): only Checked payments count as paid; Pending / Unknown ones show as Pending check -->
+                <div class="cal-row"><span>Paid (Checked)</span><b>{{ `RM ${amt(billState(x).checked)}` }}</b></div>
+                <div class="cal-row" v-if="billState(x).pending > 0"><span>Pending check</span><b>{{ `RM ${amt(billState(x).pending)}` }}</b></div>
+                <div class="cal-row cal-sub" v-for="p in billPays(x)" :key="p.id"><span>{{ `${dmy(p.date)} · ${p.status}${p.mode ? ' · ' + p.mode : ''}` }}</span><b>{{ `RM ${amt(p.amount)}` }}</b></div>
+                <p class="help" v-if="x.lodgedFrom === 'payment'">Added from an offline payment.</p>
+              </template>
+              <template v-else>
+                <div class="ub-line" v-for="l in billEd.lines" :key="l.kind">
+                  <span>{{ kindLabel(l.kind) }}</span>
+                  <input class="input" type="date" v-model="l.from" :aria-label="`${kindLabel(l.kind)} from`">
+                  <input class="input" type="date" v-model="l.to" :aria-label="`${kindLabel(l.kind)} to`">
+                  <input class="input" type="number" min="0" step="0.01" placeholder="0.00" v-model="l.amount" :aria-label="`${kindLabel(l.kind)} amount (RM)`">
+                </div>
+                <div class="field"><label class="req" for="ubWhy">Reason for the change</label><input class="input" id="ubWhy" v-model="billEd.reason" placeholder="e.g. Wrong water amount"></div>
+              </template>
+              <div class="field"><label>Bill photos</label>
+                <DriveFiles :key="'ub' + x.id" kind="utility-bills" :record-id="x.id" :readonly="!canEditBill" :label="`${bk.unitCode || bk.unitId || ''} ${bk.bookingNo || bk.id} utility`" @folder="l => keepFolder(x, l)" /></div>
+              <p class="help" v-if="billErr" style="color:var(--red)">{{ billErr }}</p>
+              <div class="ub-edit-acts" v-if="canEditBill">
+                <template v-if="!billEd">
+                  <button type="button" class="btn btn-sm" @click="startBillEdit(x)">Edit bill</button>
+                  <button type="button" class="btn btn-sm" :disabled="!!x.paymentIds.length || billBusy" :title="x.paymentIds.length ? 'Payments are linked: unlink them first' : 'Delete this bill'" @click="removeBill(x)">Delete bill</button>
+                </template>
+                <template v-else>
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="billBusy" @click="saveBill(x)">{{ billBusy ? 'Saving…' : 'Save bill' }}</button>
+                  <button type="button" class="btn btn-sm" @click="billEd = null">Cancel</button>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ub-foot" v-if="bk.bills && bk.bills.length">
+          <span>Billed <b>{{ `RM ${amt(billSum.billed)}` }}</b></span><span>Paid <b>{{ `RM ${amt(billSum.paid)}` }}</b></span><span v-if="billSum.pending > 0">Pending check <b>{{ `RM ${amt(billSum.pending)}` }}</b></span><span>Owing <b>{{ `RM ${amt(billSum.owing)}` }}</b></span>
+        </div>
         </div>
         <div class="field bk-reason" v-if="editable"><label>Reason for the change (audit log)</label><input class="input" id="bkReason" v-model="bk.reason" placeholder="e.g. Guest extended by two nights"></div>
         <div class="confirm-box" v-if="cancelling">
@@ -189,13 +247,15 @@
       </div>
     </aside>
     <FileViewer ref="viewer" />
-    <InvoiceDialog v-if="invoice" :invoice="invoice" :booking-no="bk.bookingNo || ''" @close="invoice = null" />
+    <InvoiceDialog v-if="invoice" :invoice="invoice" :booking-no="bk.bookingNo || ''" :booking-id="booking.id" @close="invoice = null" />
   </div>
 </template>
 
 <script>
 import { leaseLabel } from '@/lib/lease-term.js';
-import { payCounts, payMonth } from '@/lib/booking-pay.js';
+import { payCounts, payMonth, withCarry, rentalOf } from '@/lib/booking-pay.js';
+import { PILL, datesText, statusPill, kindLabel, KINDS, partsOf, billMailLink, saveBillEdit, deleteBill, noteEmailed, linesProblem } from '@/lib/utility-bills.js';
+import DriveFiles from '@/components/DriveFiles.vue';
 // Booking drawer (Portfolio › Bookings): an offline booking's details, rent summary and payments; Accounting,
 // Directors and Operations can edit it. Tells the page "saved" with the changed fields so it can update its list.
 import { amt, dmy, monthName } from '@/lib/format.js';
@@ -204,11 +264,13 @@ import { useSession } from '@/stores/session.js';
 import { toast } from '@/lib/toast.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking, setBookingCancelled, deleteOfflineBooking, terminateBooking, updateTermination, undoTermination } from '@/lib/portfolio-data.js';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { can } from '@/lib/access.js';
 import { invoiceOf, propertyAddressOf, FEE_LABELS, chargeLabel, legacyCharges, allMonthCharges, addInto, depositOf } from '@/lib/booking-invoice.js';
 import InvoiceDialog from '@/components/InvoiceDialog.vue';
+import OptionPicker from '@/components/OptionPicker.vue';
+import { sourcesForForms, feesForForms, sourceOptions, normSources, normFees } from '@/lib/booking-settings.js';
 import FileViewer from '@/components/FileViewer.vue';
 import { uploadForLink } from '@/lib/drive.js';
 
@@ -235,7 +297,7 @@ export default {
     booking: { type: Object, required: true },   // the row from the bookings list
     acc: { type: Object, required: true }
   },
-  components: { InvoiceDialog, FileViewer },
+  components: { InvoiceDialog, FileViewer, OptionPicker, DriveFiles },
   emits: ['close', 'saved', 'deleted', 'patched'],
   data() {
     const r = this.booking, rm = c => (c ? Number(c).toFixed(2) : '');
@@ -243,12 +305,16 @@ export default {
       arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : ''),
       bookingSource: r.bookingSource || '', rentalStatus: r.rentalStatus || '', ezeeReservationNo: r.ezeeReservationNo || '', remark: r.remark || '',
       monthCharges: cleanCharges(allMonthCharges(r)) };
-    return { MONTH_PAY, FEE_LABELS, tab: 'details', mpFilter: 'all', yearsShut: {}, add: { m: '', key: '', amount: '', note: '' }, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '',
-      terminating: false, term: { date: '', type: '', noticeDate: '', reason: '', files: [], upBusy: false, progress: 0 }, refund: { open: false, charges: '', note: '' }, bk: { ...r, f, hasPrivate: false, bill: null, reason: '', error: '', busy: false, loaded: false } };
+    return { PILL, billOpen: '', billEd: null, billBusy: false, billErr: '', MONTH_PAY, FEE_LABELS, sources: normSources(null), feeSet: normFees(null), tab: 'details', mpFilter: 'all', yearsShut: {}, add: { m: '', key: '', amount: '', note: '' }, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '',
+      terminating: false, term: { date: '', type: '', noticeDate: '', reason: '', files: [], upBusy: false, progress: 0 }, refund: { open: false, charges: '', note: '' }, bk: { ...r, f, hasPrivate: false, bills: null, reason: '', error: '', busy: false, loaded: false } };
   },
   computed: {
     // Guest details on a tenant record can only be changed by Accounting and Directors; on an imported booking Operations can too
     cancelled() { return this.bk.status === 'cancelled'; },
+    // 23 Nov 2026: Booking settings. Sources: active ones in order plus this booking's own. Charges (+ on a month): the security
+    // deposit, then the Other fees with their names from the settings (custom fees too).
+    sourceOpts() { return sourceOptions(this.sources, this.bk.f.bookingSource); },
+    chargeChoices() { return [FEE_LABELS[0], ...this.feeSet.map(f => [f.id, f.label])]; },
     pending() { return this.bk.status === 'pending'; },
     // 20 Nov 2026 (Khairul): early termination. The Early termination tick (Directors always); undo is Directors only.
     et() { const e = this.bk.earlyTermination; return e && e.date ? e : null; },
@@ -313,14 +379,17 @@ export default {
       for (let i = 0; i < 48; i++, mo++) {
         if (mo > 12) { mo = 1; y++; }
         const m = `${y}-${String(mo).padStart(2, '0')}`; if (m > last) break;
-        const paid = b.payments.filter(x => payCounts(x) && (long ? payMonth(x) === m : i === 0)).reduce((s, x) => s + (Number(x.amount) || 0), 0);   // Checked only (19 Nov 2026)
+        const paid = b.payments.filter(x => payCounts(x) && (long ? payMonth(x) === m : i === 0)).reduce((s, x) => s + rentalOf(x), 0);   // Checked only (19 Nov 2026); Rental part only (23 Nov 2026)
         let due = long ? rent : (i === 0 ? rental : 0);
         // 20 Nov 2026: terminated early with notice: the last part month is rent / 30 x days (sudden: in full)
         if (long && m === last && this.et?.type === 'notice') { const d = partDays(f.arrival, f.departure); if (d > 0) due = Math.round(rent / 30 * d * 100) / 100; }
         const extra = (f.monthCharges[m] || []).reduce((s, x) => s + (Number(x.amount) || 0), 0), all = due + extra;   // 20 Nov 2026: month charges
         out.push({ m, paid, due, extra, status: all > 0 ? (paid >= all - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid') : (paid > 0 ? 'paid' : 'unpaid') });
       }
-      return out;
+      // 23 Nov 2026 (Khairul): leases carry forward. Paid over a month's total (rent + charges) goes to the next month; the
+      // status counts it (lib/booking-pay.js withCarry). Short stays are paid as one amount, so nothing to carry.
+      if (!long) return out;
+      return withCarry(out.map(c => ({ ...c, due: c.due + c.extra }))).map((c, i) => ({ ...out[i], carryIn: c.carryIn, carryOut: c.carryOut, status: c.status }));
     },
     // Deposit, fees and other month charges on top of the rental, added up by charge: paid by the guest, never part of the owner's share
     chargeSums() {
@@ -337,9 +406,20 @@ export default {
     calShown() { const f = this.mpFilter; return f === 'all' ? this.cal : f === 'charges' ? this.cal.filter(c => c.extra > 0) : this.cal.filter(c => c.status === f); },
     extraTotal() { return this.cal.reduce((a, c) => a + c.extra, 0); },
     chargesChanged() { return JSON.stringify(cleanCharges(this.bk.f.monthCharges)) !== JSON.stringify(cleanCharges(allMonthCharges(this.bk))); },
-    totalPaid() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + (Number(x.amount) || 0), 0); }
+    totalPaid() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + rentalOf(x), 0); },
+    totalChecked() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + (Number(x.amount) || 0), 0); },
+    // 23 Nov 2026: utility bills. Edit as today: Accounting (finance edit ticks), Directors and the Booking forms tick (rules Draft 1.03)
+    canEditBill() { return me.role === 'director' || ['bookingForms.view', 'ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit'].some(p => can(me, p)); },
+    canRecordPay() { return can(me, 'offlinePayments.edit') || (can(me, 'offlinePayments.view') && (can(me, 'bookingForms.view') || can(me, 'offlineInquiries.view'))); },
+    billSum() {
+      // 23 Nov 2026 (Khairul): Paid = Checked payments only; Pending check = paid by Pending / Unknown payments; Owing = nothing paid yet
+      const l = this.bk.bills || [], billed = l.reduce((a, x) => a + x.total, 0), st = l.map(x => this.billState(x));
+      const paid = st.reduce((a, x) => a + x.checked, 0), pending = st.reduce((a, x) => a + x.pending, 0);
+      return { billed, paid, pending, owing: Math.max(0, billed - paid - pending) };
+    }
   },
   async created() {
+    Promise.all([sourcesForForms(), feesForForms()]).then(([s, f]) => { this.sources = s; this.feeSet = f; });   // 23 Nov 2026
     try {
       const d = await loadBookingDetails(this.booking);
       this.bk.payments = d.payments;
@@ -347,7 +427,7 @@ export default {
       if (d.guest) Object.assign(this.bk.f, d.guest);
       this.bk.guestOk = d.guestOk;
       this.bk.orig = { ...this.bk.f };
-      this.bk.bill = d.bill;
+      this.bk.bills = d.bills;
       this.bk.loaded = true;
     } catch (e) { this.bk.error = friendlyError(e, 'load the booking'); }
   },
@@ -371,7 +451,7 @@ export default {
     addCharge() {
       const a = this.add, v = Math.round((Number(a.amount) || 0) * 100) / 100;
       if (!a.m || !a.key || !(v > 0)) return;
-      const label = FEE_LABELS.find(([k]) => k === a.key)?.[1] || a.key;
+      const label = this.chargeChoices.find(([k]) => k === a.key)?.[1] || a.key;
       // 20 Nov 2026 (Khairul): a charge already on the month is topped up, not added as a second line
       const list = addInto(this.bk.f.monthCharges[a.m], { key: a.key, label, amount: v, ...(a.key === 'othersFee' && a.note.trim() ? { note: a.note.trim() } : {}) });
       this.bk.f.monthCharges = { ...this.bk.f.monthCharges, [a.m]: list };
@@ -383,11 +463,65 @@ export default {
       this.bk.f.monthCharges = next;
     },
     amt, dmy, shortName,
-    billRows(b) {
-      return [['electricity', 'Electricity'], ['water', 'Water'], ['sewerage', 'Sewerage']].filter(([k]) => Number(b[k]) > 0).map(([k, label]) => {
-        const a = b[k + 'From'] || b.periodFrom, z = b[k + 'To'] || b.periodTo;
-        return { label, v: b[k], period: a && z ? `${dmy(a)} to ${dmy(z)}` : 'no period' };
-      });
+    // ---- utility bills (23 Nov 2026) ----
+    datesText, statusPill, kindLabel,
+    lodgedLine(x) {
+      const d = t => (t?.toDate ? t.toDate().toLocaleDateString('en-GB') : '');
+      return [d(x.lodgedAt || x.createdAt) ? `Lodged ${d(x.lodgedAt || x.createdAt)}` : '', d(x.emailedAt) ? `emailed ${d(x.emailedAt)}` : ''].filter(Boolean).join(' · ');
+    },
+    // The payments that pay this bill, with the amount for it
+    // 23 Nov 2026 (Khairul): a bill counts as paid only by Checked payments. The bill's saved paid amount includes every
+    // linked payment, so Checked = saved paid minus the Pending / Unknown ones (older unlinked money counts as Checked). When the payments can't be read, the bill's saved paid amount is used.
+    billState(x) {
+      if (!this.bk.payments) return { checked: Math.min(x.paid, x.total), pending: 0 };
+      const pays = this.billPays(x);
+      const pending = pays.filter(p => p.status !== 'Checked').reduce((a, p) => a + p.amount, 0);
+      const checked = Math.max(0, Math.min(x.total, x.paid) - pending);
+      return { checked: Math.round(checked * 100) / 100, pending: Math.round(Math.min(pending, x.total) * 100) / 100 };
+    },
+    billPill(x) {
+      const s = this.billState(x), left = Math.round((x.total - s.checked - s.pending) * 100) / 100;
+      if (s.pending > 0.004) return { cls: 'blue', text: left > 0.004 ? `Pending check · RM ${this.amt(left)} left` : 'Pending check' };
+      if (s.checked > 0 && s.checked >= x.total - 0.005) return { cls: 'green', text: 'Paid' };
+      if (s.checked > 0.004) return { cls: 'amber', text: `Partly paid · RM ${this.amt(x.total - s.checked)} left` };
+      return { cls: 'red', text: 'Unpaid' };
+    },
+    billPays(x) { return (this.bk.payments || []).map(p => ({ ...p, amount: partsOf(p).bills[x.id] })).filter(p => p.amount > 0); },
+    payParts(p) {
+      if (!Array.isArray(p.parts) || !p.parts.length) return '';
+      const pp = partsOf(p), names = Object.entries(pp.bills).map(([id, a]) => { const b = (this.bk.bills || []).find(y => y.id === id); return `${b ? datesText(b) : 'bill'} RM ${amt(a)}`; });
+      return [pp.rental > 0 ? `Rental RM ${amt(pp.rental)}` : '', pp.utilities > 0 ? `Utilities RM ${amt(pp.utilities)}${names.length ? ' (' + names.join(', ') + ')' : ''}` : ''].filter(Boolean).join(' · ');
+    },
+    openBill(x) { this.billOpen = this.billOpen === x.id ? '' : x.id; this.billEd = null; this.billErr = ''; },
+    startBillEdit(x) {
+      this.billErr = '';
+      this.billEd = { reason: '', lines: KINDS.map(k => { const l = x.lines.find(y => y.kind === k.key); return { kind: k.key, from: l?.from || this.bk.f.arrival || '', to: l?.to || this.bk.f.departure || '', amount: l ? l.amount.toFixed(2) : '' }; }) };
+    },
+    async saveBill(x) {
+      const e = this.billEd; this.billErr = linesProblem(e.lines) || (!e.reason.trim() ? 'Add a reason for the change.' : '');
+      if (this.billErr) return;
+      this.billBusy = true;
+      try { Object.assign(x, await saveBillEdit(me, x, e.lines, e.reason.trim())); this.billEd = null; toast('Bill saved'); }
+      catch (err) { this.billErr = err.code === 'permission-denied' ? 'Firestore refused this (rules Draft 1.03 needed, or you cannot edit bills).' : friendlyError(err, 'save the bill'); }
+      this.billBusy = false;
+    },
+    async removeBill(x) {
+      if (x.paymentIds.length) { this.billErr = 'Payments are linked to this bill. Unlink them first.'; return; }
+      if (!await askConfirm({ title: 'Delete this utility bill?', message: `${datesText(x)}, RM ${amt(x.total)} is removed from the booking. The photos stay in Google Drive. The audit log keeps a line.`, confirmText: 'Delete bill', danger: true })) return;
+      this.billBusy = true; this.billErr = '';
+      try { await deleteBill(me, x, 'Deleted on the booking'); this.bk.bills = this.bk.bills.filter(y => y.id !== x.id); this.billOpen = ''; toast('Bill deleted'); }
+      catch (err) { this.billErr = err.code === 'permission-denied' ? 'Firestore refused this (rules Draft 1.03 needed).' : friendlyError(err, 'delete the bill'); }
+      this.billBusy = false;
+    },
+    // A bill's Drive folder link is kept on the bill (for the email) once photos are added here
+    async keepFolder(x, link) {
+      if (!link || x.driveFolder === link) return;
+      try { await updateDoc(doc(db, 'utilityBills', x.id), { driveFolder: link }); x.driveFolder = link; } catch (e) { console.warn('Could not keep the folder link', e.code || e.message); }
+    },
+    async emailBill(x) {
+      const f = this.bk.f; if (!f.email) return;
+      window.open(billMailLink(x, this.bk, { name: f.name, email: f.email }), '_blank');
+      try { await noteEmailed(me, x); x.emailedAt = { toDate: () => new Date() }; x.emailedByName = me.name || ''; } catch (e) { console.warn('Could not note the email on the bill', e.code || e.message); }
     },
     // The invoice for an Awaiting payment booking: guest from the tenant record, unit type from the unit (16 Nov 2026)
     async openInvoice() {
@@ -397,8 +531,10 @@ export default {
       try { const u = b.unitId ? await getDoc(doc(db, 'units', b.unitId)) : null; unitType = u?.exists() ? u.data().info?.type || '' : ''; } catch { /* left out */ }
       let propertyAddress = '';   // 20 Nov 2026: the invoice is headed with the property's name and address
       try { const p = b.propertyId ? await getDoc(doc(db, 'properties', b.propertyId)) : null; propertyAddress = p?.exists() ? propertyAddressOf(p.data()) : ''; } catch { /* left out */ }
+      // 23 Nov 2026: the invoice follows Booking settings > Other fees (the copy read this visit, up to 10 minutes; saving the settings clears it on that browser)
+      const fees = await feesForForms();
       this.invoice = invoiceOf({ ...b, arrival: f.arrival, departure: f.departure, monthlyRent: f.rent || b.monthlyRent, feesInPayments: true, monthCharges: cleanCharges(f.monthCharges) },
-        { name: f.name, email: f.email, phone: f.phone }, { propertyName: b.propertyName, unitCode: b.unitCode || b.unitId, unitType, propertyAddress });
+        { name: f.name, email: f.email, phone: f.phone }, { propertyName: b.propertyName, unitCode: b.unitCode || b.unitId, unitType, propertyAddress, fees });
       this.invBusy = false;
     },
     nextDay(d) { return shiftDay(d, 1); },
@@ -495,7 +631,7 @@ export default {
     async remove() {
       const b = this.bk; b.error = '';
       if (this.deleteBlock || b.busy) return;
-      if (!await askConfirm({ title: `Delete booking ${b.bookingNo || b.id} for good?`, message: 'The booking, its guest details and passcodes, and its utility bill are removed from the PMS for good. This cannot be undone. The audit log keeps the booking no., unit and dates.', confirmText: 'Delete booking', danger: true })) return;
+      if (!await askConfirm({ title: `Delete booking ${b.bookingNo || b.id} for good?`, message: 'The booking, its guest details and passcodes, and its utility bills are removed from the PMS for good. This cannot be undone. The audit log keeps the booking no., unit and dates.', confirmText: 'Delete booking', danger: true })) return;
       b.busy = true;
       try {
         await deleteOfflineBooking(me, b, b.cancelledReason ? `Cancelled: ${b.cancelledReason}` : 'Deleted on Portfolio › Bookings');
@@ -513,7 +649,7 @@ export default {
       const nights = Math.max(1, Math.round((new Date(f.departure) - new Date(f.arrival)) / 86400000)), longTerm = nights >= 30;
       const c = x => Math.round((Number(x) || 0) * 100) / 100;
       const main = { arrival: f.arrival, departure: f.departure, nights, longTerm, monthlyRent: longTerm ? c(f.rent) : 0,
-        bookingSource: f.bookingSource.trim(), rentalStatus: f.rentalStatus.trim(), ezeeReservationNo: f.ezeeReservationNo.trim(), remark: f.remark.trim(),
+        bookingSource: String(f.bookingSource || '').trim(), rentalStatus: f.rentalStatus.trim(), ezeeReservationNo: f.ezeeReservationNo.trim(), remark: f.remark.trim(),
         monthCharges: cleanCharges(f.monthCharges) };
       // monthCharges is compared as text; the audit log keeps a short summary ("2026-03: Cleaning fees 80.00")
       const sum = mc => Object.entries(mc || {}).map(([m, l]) => `${m}: ${l.map(x => `${chargeLabel(x)} ${(+x.amount).toFixed(2)}`).join(', ')}`).join('; ');
@@ -540,6 +676,9 @@ export default {
 </script>
 
 <style scoped>
+.tp-carry span:first-child, .tp-carry b { color: var(--muted); font-style: italic; font-weight: 500; }
+.fld-pick { display: block; width: 100%; }
+.fld-pick :deep(.op-btn) { width: 100%; min-height: 40px; }
 .foot-left { margin-right: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 .et-note { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-left: 3px solid #d08a00; }
 .et-text { display: grid; gap: 2px; flex: 1 1 320px; }
@@ -558,6 +697,24 @@ export default {
 .et-refund { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .et-box { margin-top: 14px; }
 .et-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 12px; }
+.ub-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ub-head .btn { text-transform: none; letter-spacing: 0; }
+.ub-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.ub-item { border-top: 1px solid var(--border); padding: 8px 12px; }
+.ub-item:first-child { border-top: 0; }
+.ub-item.open { background: var(--bg, #f6f7f9); }
+.ub-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.ub-main { display: grid; gap: 1px; }
+.ub-main small { color: var(--muted); font-size: 12px; }
+.ub-amt { white-space: nowrap; }
+.ub-row .pill { white-space: nowrap; }
+.ub-acts, .ub-edit-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.ub-view { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.ub-line { display: grid; grid-template-columns: 90px 1fr 1fr 110px; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 13px; }
+.ub-foot { display: flex; gap: 18px; flex-wrap: wrap; justify-content: flex-end; padding: 8px 12px; font-size: 14px; color: var(--text-2); }
+.ub-foot b { color: var(--text); }
+.pay-part { font-size: 12px; color: var(--muted); padding: 0 0 6px 12px; }
+@media (max-width: 640px) { .ub-line { grid-template-columns: 1fr 1fr; } }
 .bk-where { font-size: 14px; font-weight: 400; margin: 0; }   /* 20 Nov 2026: property, unit and source beside the booking no. */
 .bk-tabs { margin: -6px 0 18px; overflow: visible; }   /* 20 Nov 2026 (Khairul): no sticking or scrolling; the tabs stay in place */
 .bk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }

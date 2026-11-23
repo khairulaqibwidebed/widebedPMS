@@ -3,13 +3,14 @@
 // Layout follows the eZee folio invoice, but only with what the booking has: tenant particulars, property particulars,
 // rent & terms (no rental status), then the T&Cs and the bank details. A field left empty is not printed.
 // Nothing is saved: each download makes a fresh PDF. The header, T&Cs and bank details come from config/invoiceDefaults
-// (Portfolio > Bookings > Invoice settings, Directors; Firestore rules 0.71); the T&Cs can be changed for one invoice.
+// (Portfolio > Bookings > Booking settings > Invoice & T&Cs, 23 Nov 2026); the T&Cs can be changed per booking and are kept on it.
 import { rentTermLabel } from './rent-term.js';
 import { doc, getDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { useSession } from '@/stores/session.js';
 import { audit } from './finance-data.js';
 import { loadPdfKit } from './statement-pdf.js';
+import { feeColOf, feeModeOf } from './booking-settings.js';
 
 export const INVOICE_DEFAULTS = {
   header: [
@@ -68,14 +69,43 @@ export async function loadInvoiceDefaults(fresh = false) {
     updatedByName: d.updatedByName || '', updatedAt: d.updatedAt || null };
   return cache;
 }
-export async function saveInvoiceDefaults({ header, terms, bank }) {
+// 23 Nov 2026: Booking settings > Invoice & T&Cs (the 'bookingSettings.edit' tick; Firestore rules 1.01).
+// before = what was loaded, so the audit line lists the boxes that changed (the T&Cs only as "T&Cs changed").
+export async function saveInvoiceDefaults({ header, terms, bank }, before = null) {
   const me = useSession();
   const clean = { header: String(header || '').trim(), terms: String(terms || '').trim(), bank: String(bank || '').trim() };
+  const old = k => String(before?.[k] || '').trim();
+  const changes = [];
+  if (!before || clean.header !== old('header')) changes.push({ field: 'header', old: '', new: 'Header changed' });
+  if (!before || clean.terms !== old('terms')) changes.push({ field: 'terms', old: '', new: 'T&Cs changed' });
+  if (!before || clean.bank !== old('bank')) changes.push({ field: 'bank', old: '', new: 'Bank details changed' });
   const batch = writeBatch(db);
   batch.set(doc(db, 'config', 'invoiceDefaults'), { ...clean, updatedBy: me.user.uid, updatedByName: me.name, updatedAt: serverTimestamp() });
-  audit(batch, me, { action: 'invoiceDefaults.update', entity: 'config/invoiceDefaults', reason: 'Booking invoice defaults changed', changes: [] });
+  audit(batch, me, { action: 'invoiceDefaults.update', entity: 'config/invoiceDefaults', reason: 'Booking invoice defaults changed', changes });
   await batch.commit();
   cache = null;
+}
+
+// 23 Nov 2026 (Khairul): the T&Cs a booking was invoiced with, kept on the booking (offlineBookings/{id}.invoiceTerms), so a
+// later change to the default never changes it. Written when an invoice is downloaded (only when new or changed) and by
+// "Reset to default". Firestore rules 1.01: invoiceTerms only, by whoever can read and invoice the booking.
+export const TERMS_MAX = 20000;
+export async function loadBookingTerms(bookingId) {
+  if (!bookingId) return null;
+  const s = await getDoc(doc(db, 'offlineBookings', bookingId));
+  const t = s.exists() ? s.data().invoiceTerms : null;
+  return t && typeof t.text === 'string' ? t : null;
+}
+export async function saveBookingTerms(bookingId, bookingNo, text, fromDefault, reset = false) {
+  const me = useSession();
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'offlineBookings', bookingId), {
+    invoiceTerms: { text, savedAt: serverTimestamp(), savedByUid: me.user.uid, savedByName: me.name || '', fromDefault: !!fromDefault }
+  });
+  audit(batch, me, { action: 'booking.invoiceTerms', entity: `offlineBookings/${bookingId}`,
+    reason: `${bookingNo || bookingId}: ${reset ? 'T&Cs reset to default' : 'T&Cs saved'}`,
+    changes: [{ field: 'invoiceTerms', old: '', new: reset ? 'reset to default' : fromDefault ? 'T&Cs saved (the default)' : 'T&Cs saved (changed for this booking)' }] });
+  await batch.commit();
 }
 
 // ---------- What goes on the invoice ----------
@@ -113,6 +143,14 @@ function monthsOf(arrival, departure, rent, fullLast = false) {
 }
 // 20 Nov 2026: a stay ended early WITH notice pays its last part month by days. { m: 'YYYY-MM' (the move-out month), due }
 // or null (no termination, sudden, or the move-out lands on a monthly anniversary). Used by the Bookings list.
+// 23 Nov 2026: the calendar months ('YYYY-MM') the invoice months start in: where a Monthly fee typed on the booking form is
+// charged (one per invoice month, the last part month too). A stay under 30 nights: its check-in month only.
+export function invoiceMonthKeys(arrival, departure) {
+  const nights = arrival && departure ? Math.round((Date.parse(departure) - Date.parse(arrival)) / 86400000) : 0;
+  if (!arrival) return [];
+  if (nights < 30) return [String(arrival).slice(0, 7)];
+  return [...new Set(monthsOf(arrival, departure, 1).map(m => m.from.slice(0, 7)))];
+}
 export function termLastDue(b) {
   const e = b?.earlyTermination;
   if (!e?.date || e.type !== 'notice' || !b.longTerm) return null;
@@ -158,7 +196,13 @@ export const chargeLabel = c => {
 
 // b = the booking's fields as saved (offlineBookings) or as on the form; t = tenant { name, email, phone }; unitType from the unit (info.type)
 // 20 Nov 2026: propertyAddress (properties/{id}.info) heads the invoice with the property's own name and address
-export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '', propertyAddress = '' } = {}) {
+// 23 Nov 2026 (Khairul): fees = Booking settings > Other fees (lib/booking-settings.js feesForForms()). A fee whose mode for the
+// booking's type of rent is 'intoRent' is not printed as a line: its amount is added into the rent shown for the month it is
+// charged in (a Monthly fee is charged on every month, a One-off fee on the first month). Short term: added into the stay's
+// rental, and the rate per night shown is that total / nights (2 decimals; the total stays exact). The grand total never
+// changes. Only this tenant-facing invoice merges: the booking, Payments tab, statements and reports keep rent and fees apart.
+// Without fees (null) nothing is merged (as before).
+export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '', propertyAddress = '', fees = null } = {}) {
   const nights = b.arrival && b.departure ? Math.round((Date.parse(b.departure) - Date.parse(b.arrival)) / 86400000) : null;
   const longTerm = nights != null && nights >= 30;
   const rental = num(longTerm ? (b.monthlyRent || b.rental) : b.rental);
@@ -171,24 +215,42 @@ export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '
   // { 'YYYY-MM': [{ key, label, amount, note }] }. On a multi-month invoice each goes on the month that starts in that
   // calendar month (a later calendar month with no invoice month of its own goes on the last one).
   const extras = Object.entries(allMonthCharges(b)).sort(([x], [y]) => x.localeCompare(y))
-    .flatMap(([ym, list]) => (Array.isArray(list) ? list : []).map(c => ({ ym, label: chargeLabel(c), v: num(c.amount) }))).filter(c => c.v > 0);
-  let amounts;
+    .flatMap(([ym, list]) => (Array.isArray(list) ? list : []).map(c => ({ ym, key: c.key, label: chargeLabel(c), v: num(c.amount) }))).filter(c => c.v > 0);
+  // 23 Nov 2026: fees added into the rent (see above) and the ones still printed as lines
+  const col = feeColOf(b), into = c => Array.isArray(fees) && feeModeOf(fees, c.key, col) === 'intoRent';
+  const folded = extras.filter(into), asLines = extras.filter(c => !into(c)), add = list => num(list.reduce((t, c) => t + c.v, 0));
+  let amounts, monthlyRent = rental, perNight = null;
   if (months.length > 1) {
     const slot = ym => { let at = 0; months.forEach((m, i) => { if (m.from.slice(0, 7) <= ym) at = i; }); return at; };
     months.forEach((m, i) => {
-      m.amounts = [[m.days ? `Rent (${m.days} day${m.days === 1 ? '' : 's'})` : 'Monthly rent', m.rent], ...extras.filter(c => slot(c.ym) === i).map(c => [c.label, c.v])].filter(([, v]) => v > 0);
+      m.folded = add(folded.filter(c => slot(c.ym) === i));
+      m.rent = num(m.rent + m.folded);
+      m.amounts = [[m.days ? `Rent (${m.days} day${m.days === 1 ? '' : 's'})` : 'Monthly rent', m.rent], ...asLines.filter(c => slot(c.ym) === i).map(c => [c.label, c.v])].filter(([, v]) => v > 0);
       m.total = m.amounts.reduce((t, [, v]) => t + v, 0);
     });
+    // The monthly rent shown: what most full months show (a One-off fee added into the first month doesn't count)
+    if (folded.length) {
+      const seen = new Map();
+      months.filter(m => !m.days).forEach(m => seen.set(m.rent, (seen.get(m.rent) || 0) + 1));
+      monthlyRent = [...seen.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0])[0]?.[0] ?? rental;
+    }
     amounts = [...months.map(m => [`${m.label} rent (${span(m.from, m.to)})`, m.rent]),
-      ...extras.map(c => [`${months[slot(c.ym)].label}: ${c.label}`, c.v])].filter(([, v]) => v > 0);
-  } else amounts = [[longTerm ? 'Monthly rent' : 'Rental', rental],
-    ...extras.map(c => [c.ym === String(b.arrival || '').slice(0, 7) ? c.label : `${c.label} (${MON[+c.ym.slice(5, 7) - 1]} ${c.ym.slice(0, 4)})`, c.v])].filter(([, v]) => v > 0);
+      ...asLines.map(c => [`${months[slot(c.ym)].label}: ${c.label}`, c.v])].filter(([, v]) => v > 0);
+  } else {
+    const shown = num(rental + add(folded));
+    if (longTerm) monthlyRent = shown;
+    // Short term: the rate per night shown = the stay's rental (fees added in) / nights, to 2 decimals; the total stays exact
+    else if (nights > 0 && shown > 0) perNight = Math.round(shown / nights * 100) / 100;
+    amounts = [[longTerm ? 'Monthly rent' : 'Rental', shown],
+      ...asLines.map(c => [c.ym === String(b.arrival || '').slice(0, 7) ? c.label : `${c.label} (${MON[+c.ym.slice(5, 7) - 1]} ${c.ym.slice(0, 4)})`, c.v])].filter(([, v]) => v > 0);
+  }
   return {
-    months: months.length > 1 ? months : [], monthlyRent: rental,
+    months: months.length > 1 ? months : [], monthlyRent, perNight,
     propertyName: propertyName || b.propertyName || '', propertyAddress,
     tenant: [['Name', t?.name], ['Email', t?.email], ['Phone number', t?.phone]],
     property: [['Property', propertyName || b.propertyName], ['Unit', unitCode || b.unitCode], ['Type', unitType]],
     terms: [['Type of rent', rentTermLabel(b.rentType)], ['Move-in date', day(b.arrival)], ['Move-out date', day(b.departure)], ['Total nights', nights == null || nights < 0 ? '' : String(nights)],
+      ...(perNight != null ? [['Rate per night', `${money(perNight)} (total for ${nights} night${nights === 1 ? '' : 's'}: ${money(amounts[0]?.[1])})`]] : []),
       ...(et ? [['Early termination', `${et.type === 'sudden' ? 'Without notice' : 'With notice'} (was ${day(et.originalDeparture)})`]] : [])],
     amounts,
     total: amounts.reduce((s, [, v]) => s + v, 0)
@@ -417,7 +479,8 @@ async function layoutInvoice({ lib, fontkit, bytes, subset, measure }, inv, { he
     newPage();
     drawTop(`${m.label} of ${inv.months.length}`);
     drawParticulars();
-    drawRent(`${m.label}`, [['Period', span(m.from, m.to)], ...(m.days ? [['Days', `${m.days} (monthly rent / 30 x days)`]] : [])], m.amounts, m.total, `Total for ${m.label.toLowerCase()}`);
+    // 23 Nov 2026: a part month with a fee added into its rent shows the days only (the rent is no longer just rent / 30 x days)
+    drawRent(`${m.label}`, [['Period', span(m.from, m.to)], ...(m.days ? [['Days', m.folded ? `${m.days}` : `${m.days} (monthly rent / 30 x days)`]] : [])], m.amounts, m.total, `Total for ${m.label.toLowerCase()}`);
     drawTerms();   // 20 Nov 2026 (Khairul): month pages carry the full T&Cs too
     drawBank();
   });

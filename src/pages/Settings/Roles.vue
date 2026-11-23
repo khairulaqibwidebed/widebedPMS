@@ -97,7 +97,7 @@
                     <template v-for="grp in (panel.isAi ? aiGroups : pageGroups)" :key="grp.name">
                       <tr class="perm-grp"><td colspan="2">{{ grp.name }}<small v-if="groupNote(grp.name)">{{ groupNote(grp.name) }}</small></td></tr>
                       <tr v-for="row in grp.pages" :key="row.id" :class="{ on: rowLevel(panel.perms, row) !== 'none' }">
-                        <td>{{ row.label }}</td>
+                        <td :class="{ 'sub-row': row.sub }">{{ row.label }}</td>
                         <td><select class="lvl-select" :value="rowLevel(panel.perms, row)" :aria-label="`${row.label} access`" @change="panel.perms = setRowLevel(panel.perms, row, $event.target.value)">
                           <option v-for="lv in levelsOf(row)" :key="lv" :value="lv">{{ levelLabel(row, lv) }}</option>
                         </select></td>
@@ -321,4 +321,6 @@ export default {
 .perm-table input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 .act-pill:disabled { opacity: .4; cursor: not-allowed; background: none; border-color: var(--border); color: var(--muted); }
 .row-acts { white-space: nowrap; }
+.sub-row { padding-left: 34px !important; color: var(--text-2); }
+.sub-arrow { color: var(--muted); margin-right: 8px; }
 </style>
