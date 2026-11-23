@@ -16,7 +16,7 @@ import { useSession } from '@/stores/session.js';
 import { notifyUser } from '@/services/notificationService.js';
 import { exportFile } from '@/lib/agreements/table-io.js';
 import { listStaff } from '@/lib/agreements/data.js';
-import { isCohOnly, finalScoreFor } from './calc.js';
+import { isCohOnly } from './calc.js';
 import { getQuarter, setStatus, listParticipants, reopenForCorrection } from './quarters.js';
 import { cohScoreFor } from './coh.js';
 import { listAssignmentsFor, listSubmissionsFor, kpiScoreFor } from './kpi.js';
@@ -64,20 +64,50 @@ async function roleOf(quarterId, employeeUid) {
 // computeResult() (which saves) and liveResultFor() (My Performance, which only reads).
 const NOT_APPLICABLE = { status: 'notApplicable', score: null };
 
-async function gatherComponents(quarter, employeeUid, { cohOnly = false } = {}) {
+// 23 Nov 2026: "Scored on" (Final performance approval). Per employee per quarter, saved on their result as scoredOn:
+// which of KPI and TMS count besides COH (COH always counts). Default: Directors 'none' (COH only), everyone else 'both'.
+export const SCORED_ON = { both: 'KPI + TMS', kpi: 'KPI only', tms: 'TMS only', none: 'None (COH only)' };
+export const defaultScoredOn = role => isCohOnly(role) ? 'none' : 'both';
+const usesKpi = s => s === 'both' || s === 'kpi';
+const usesTms = s => s === 'both' || s === 'tms';
+
+// The total out of 100: the counted components added up, then scaled by the weights they cover. With KPI + TMS
+// that is the plain sum (the three weights make 100); with fewer, e.g. COH 25.2 of 30 + KPI 32 of 40 -> 57.2 / 70 * 100.
+// A counted component must be ready (TMS with no tasks, 'n/a', counts as 0, as before); null while one isn't.
+export function totalFor({ coh, kpi, tms }, weights, scoredOn) {
+  const w = weights || {};
+  if (coh.status !== 'ok') return null;
+  let score = coh.score || 0, outOf = Number(w.coh) || 0;
+  if (usesKpi(scoredOn)) {
+    if (kpi.status !== 'ok') return null;
+    score += kpi.score || 0; outOf += Number(w.kpi) || 0;
+  }
+  if (usesTms(scoredOn)) {
+    if (tms.status !== 'ok' && tms.status !== 'n/a') return null;
+    score += tms.score || 0; outOf += Number(w.tms) || 0;
+  }
+  return outOf ? Math.round((score / outOf) * 100 * 100) / 100 : null;
+}
+
+async function gatherComponents(quarter, employeeUid, scoredOn) {
   const { coh: cohWeight, kpi: kpiWeight, tms: tmsWeight } = quarter.weights;
 
   const coh = await cohScoreFor(quarter.id, employeeUid, quarter.minCohEvaluations || 1, cohWeight);
-  // Directors are scored on COH only: KPI and TMS aren't read at all.
-  if (cohOnly) return { coh, kpi: NOT_APPLICABLE, tms: NOT_APPLICABLE, snapshot: null };
 
-  const assignments = await listAssignmentsFor(quarter.id, employeeUid);
-  const subRows = await listSubmissionsFor(assignments);
-  const submissionsByAssignmentId = Object.fromEntries(subRows.map(r => [r.assignment.id, r.submission || {}]));
-  const kpi = kpiScoreFor(assignments, submissionsByAssignmentId, kpiWeight);
+  // A component that isn't counted (Scored on) isn't read at all.
+  let kpi = NOT_APPLICABLE;
+  if (usesKpi(scoredOn)) {
+    const assignments = await listAssignmentsFor(quarter.id, employeeUid);
+    const subRows = await listSubmissionsFor(assignments);
+    const submissionsByAssignmentId = Object.fromEntries(subRows.map(r => [r.assignment.id, r.submission || {}]));
+    kpi = kpiScoreFor(assignments, submissionsByAssignmentId, kpiWeight);
+  }
 
-  const snapshot = await getSnapshot(quarter.id, employeeUid);
-  const tms = snapshot ? tmsScoreFromCounts(snapshot.totalTasks, snapshot.completedTasks, tmsWeight) : { status: 'n/a', score: null };
+  let tms = NOT_APPLICABLE, snapshot = null;
+  if (usesTms(scoredOn)) {
+    snapshot = await getSnapshot(quarter.id, employeeUid);
+    tms = snapshot ? tmsScoreFromCounts(snapshot.totalTasks, snapshot.completedTasks, tmsWeight) : { status: 'n/a', score: null };
+  }
 
   return { coh, kpi, tms, snapshot };
 }
@@ -92,20 +122,24 @@ async function gatherComponents(quarter, employeeUid, { cohOnly = false } = {}) 
 // first-ever write (merge leaves an existing value alone when the key is absent), and never downgrades
 // approvalStatus away from 'pendingApproval' back to 'draft'. A finalized result is never touched at all —
 // changing it must go through requestCorrection().
-export async function computeResult(quarter, employeeUid, role) {
+// scoredOn: a new "Scored on" choice; left out, the one saved on the result is kept (else the role's default).
+export async function computeResult(quarter, employeeUid, role, scoredOn) {
   const ref = doc(db, 'performanceResults', resultId(quarter.id, employeeUid));
   const prior = await one(ref);
   if (prior?.approvalStatus === 'finalized') return prior;
 
-  const cohOnly = isCohOnly(role ?? await roleOf(quarter.id, employeeUid));
-  const { coh, kpi, tms, snapshot } = await gatherComponents(quarter, employeeUid, { cohOnly });
-  const finalScore = finalScoreFor({ coh, kpi, tms }, quarter.weights, { cohOnly });
+  const use = SCORED_ON[scoredOn] ? scoredOn
+    : SCORED_ON[prior?.scoredOn] ? prior.scoredOn
+    : defaultScoredOn(role ?? await roleOf(quarter.id, employeeUid));
+  const { coh, kpi, tms, snapshot } = await gatherComponents(quarter, employeeUid, use);
+  const finalScore = totalFor({ coh, kpi, tms }, quarter.weights, use);
 
   const data = {
     quarterId: quarter.id, employeeId: employeeUid,
     cohScore: coh.score, kpiScore: kpi.score, tmsScore: tms.score, finalScore,
     componentStatuses: { coh: coh.status, kpi: kpi.status, tms: tms.status },
-    cohOnly,
+    scoredOn: use,
+    cohOnly: use === 'none',
     calculationVersion: CALC_VERSION,
     snapshotRefs: { cohAverageRating: coh.averageRating, kpiRatedOf: kpi.total ? `${kpi.rated}/${kpi.total}` : null, tmsSnapshotId: snapshot?.id || null },
     approvalStatus: prior?.approvalStatus === 'pendingApproval' ? 'pendingApproval' : 'draft'
@@ -125,8 +159,8 @@ export async function liveResultFor(quarter, employeeUid, role) {
   const saved = await getResult(quarter.id, employeeUid);
   if (saved?.approvalStatus === 'finalized' || ['finalized', 'archived'].includes(quarter.status)) return saved;
 
-  const cohOnly = isCohOnly(role ?? await roleOf(quarter.id, employeeUid));
-  let { coh, kpi, tms } = await gatherComponents(quarter, employeeUid, { cohOnly });
+  const use = SCORED_ON[saved?.scoredOn] ? saved.scoredOn : defaultScoredOn(role ?? await roleOf(quarter.id, employeeUid));
+  let { coh, kpi, tms } = await gatherComponents(quarter, employeeUid, use);
   if (coh.status === 'hidden' && saved?.componentStatuses?.coh && saved.componentStatuses.coh !== 'hidden') {
     coh = { status: saved.componentStatuses.coh, score: saved.cohScore };
   }
@@ -134,8 +168,8 @@ export async function liveResultFor(quarter, employeeUid, role) {
   return {
     ...(saved || {}), quarterId: quarter.id, employeeId: employeeUid,
     cohScore: coh.score, kpiScore: kpi.score, tmsScore: tms.score,
-    finalScore: finalScoreFor({ coh, kpi, tms }, quarter.weights, { cohOnly }),
-    componentStatuses: { coh: coh.status, kpi: kpi.status, tms: tms.status }, cohOnly,
+    finalScore: totalFor({ coh, kpi, tms }, quarter.weights, use),
+    componentStatuses: { coh: coh.status, kpi: kpi.status, tms: tms.status }, scoredOn: use, cohOnly: use === 'none',
     approvalStatus: saved?.approvalStatus || 'draft', live: true
   };
 }
@@ -149,6 +183,16 @@ export async function recomputeAll(quarterId) {
   for (const p of parts) results.push(await computeResult(quarter, p.employeeId, p.role || roles.get(p.employeeId) || ''));
   audit('performance.results.recompute', `performanceQuarters/${quarterId}`, `${results.length} employee(s)`);
   return results;
+}
+
+// 23 Nov 2026: change one employee's "Scored on" and work their total out again (not once the quarter is finalized).
+export async function setScoredOn(quarterId, employeeUid, scoredOn) {
+  if (!SCORED_ON[scoredOn]) throw new Error('Pick KPI + TMS, KPI only, TMS only or None.');
+  const quarter = await getQuarter(quarterId);
+  const result = await computeResult(quarter, employeeUid, undefined, scoredOn);
+  if (result.scoredOn !== scoredOn) throw new Error('This result is finalized and can no longer be changed.');
+  audit('performance.results.scoredOn', `performanceResults/${resultId(quarterId, employeeUid)}`, `Scored on: ${SCORED_ON[scoredOn]}`);
+  return result;
 }
 
 export function readyToFinalize(results) {
@@ -215,11 +259,11 @@ export const listRevisions = async (quarterId, employeeUid) => rows(await getDoc
 // code path in the app, not two. Component statuses print in place of a null score (never blank, never "0").
 export async function exportResultsReport(quarter, results, nameOf) {
   const cell = (score, status) => status === 'insufficientData' ? 'Insufficient data' : status === 'pending' ? 'Pending'
-    : status === 'n/a' ? 'N/A' : status === 'notApplicable' ? 'Not scored (Director)' : status === 'hidden' ? 'Pending' : score;
-  const header = ['Employee', 'COH (' + quarter.weights.coh + ')', 'KPI (' + quarter.weights.kpi + ')', 'TMS (' + quarter.weights.tms + ')', 'Final score', 'Approval status'];
+    : status === 'n/a' ? 'N/A' : status === 'notApplicable' ? 'Not scored' : status === 'hidden' ? 'Pending' : score;
+  const header = ['Employee', 'COH (' + quarter.weights.coh + ')', 'KPI (' + quarter.weights.kpi + ')', 'TMS (' + quarter.weights.tms + ')', 'Final score', 'Scored on', 'Approval status'];
   const rows = [header, ...results.map(r => [
     nameOf(r.employeeId), cell(r.cohScore, r.componentStatuses.coh), cell(r.kpiScore, r.componentStatuses.kpi),
-    cell(r.tmsScore, r.componentStatuses.tms), r.finalScore ?? 'Pending', r.approvalStatus
+    cell(r.tmsScore, r.componentStatuses.tms), r.finalScore ?? 'Pending', SCORED_ON[r.scoredOn] || SCORED_ON[r.cohOnly ? 'none' : 'both'], r.approvalStatus
   ])];
   await exportFile('xlsx', `performance-${quarter.name}`.replace(/\s+/g, '-'), rows);
   audit('performance.results.export', `performanceQuarters/${quarter.id}`, `${results.length} row(s)`);
