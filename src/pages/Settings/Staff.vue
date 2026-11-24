@@ -221,7 +221,7 @@
               <span class="help" v-show="panel.role === AI_ROLE">AI Agent: read only, and it can't open the PMS screens. Its pages are set on Settings > Roles > AI Agent (Base only), never IC, bank details or payments.</span>
             </div>
             <!-- The properties they may see (12 Nov 2026, data access by property) -->
-            <StaffPropertiesField v-if="panel.role !== 'director' && panel.role !== AI_ROLE" v-model="panel.properties" :properties="allProperties" :disabled="cantEdit" />
+            <StaffPropertiesField v-if="panel.role !== 'director' && panel.role !== AI_ROLE" v-model="panel.properties" v-model:branch-ids="panel.branches" :branches="branches" :properties="allProperties" :disabled="cantEdit" />
             <p class="help" v-else-if="panel.role === 'director'">A Director sees every property.</p>
 
             <!-- Page access: one tick per page, starting from the role's usual pages -->
@@ -279,6 +279,7 @@ import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { STATES, statesOf, statesText } from '@/lib/states.js';
 import StaffPropertiesField from '@/components/StaffPropertiesField.vue';
+import { loadBranches } from '@/lib/branches.js';
 import { HK_ROLE, hkEmail, usernameOf, usernameOk, cleanUsername, passwordProblem } from '@/lib/housekeeping.js';
 import { PAGES, ACCESS_ROWS, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel, levelsOf, rowLevel, setRowLevel, LEVEL_LABEL, levelLabel, AI_ROLE } from '@/lib/access.js';
 
@@ -318,6 +319,7 @@ async function createLogin(email, displayName, password = '') {
 
 // The property ids on a staff record (data access by property, 12 Nov 2026)
 const propsOf = u => (Array.isArray(u?.properties) ? u.properties.filter(Boolean) : []);
+const branchesOf = u => (Array.isArray(u?.branches) ? u.branches.filter(Boolean) : []);   // 23 Nov 2026: Branch Management
 
 function audit(batch, action, uid, changes, reason) {
   batch.set(doc(collection(db, 'auditLog')), {
@@ -332,7 +334,7 @@ export default {
     return {
       usernameOf, ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, LEVEL_LABEL, AI_ROLE, when, STATES, statesText, noStateOnly: false, allProperties: [],
       myUid: me.user.uid,
-      users: [], loading: true, error: '', okMsg: '',
+      users: [], branches: [], loading: true, error: '', okMsg: '',
       filter: 'active', roleFilter: '', search: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
       filters: [{ key: 'active', label: 'Active' }, { key: 'off', label: 'Inactive' }],
       panel: {}, panelOpen: false
@@ -367,6 +369,8 @@ export default {
   async mounted() {
     await this.load();
     if ('add' in this.$route.query) this.openAdd();
+    // Branch Management links a staff name here (?open=uid)
+    else if (this.$route.query.open) { const u = this.users.find(x => x.id === this.$route.query.open); if (u) this.openEdit(u); }
   },
   methods: {
     async load() {
@@ -374,6 +378,7 @@ export default {
       try {
         // Every property, to pick from (Directors and HR manage staff; the list is not limited to their own properties)
         const [snap, ps] = await Promise.all([getDocs(collection(db, 'users')), getDocs(collection(db, 'properties')).catch(() => ({ docs: [] }))]);
+        this.branches = await loadBranches(true).catch(() => []);
         this.allProperties = ps.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.active !== false).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         this.users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
@@ -393,9 +398,12 @@ export default {
     // "All (Director)" / "3 properties: Austin Hartamas, ..." / "None yet"
     propertiesText(u) {
       if (u.role === 'director') return 'All (Director)';
-      const ids = propsOf(u); if (!ids.length) return 'None yet';
+      const ids = propsOf(u);
+      const bn = branchesOf(u).map(id => this.branches.find(x => x.id === id)?.name).filter(Boolean);
+      const pre = bn.length ? `${bn.join(', ')}: ` : '';   // their branches first (23 Nov 2026)
+      if (!ids.length) return pre + 'None yet';
       const names = ids.map(id => this.allProperties.find(p => p.id === id)?.name || id);
-      return ids.length <= 2 ? names.join(', ') : `${ids.length} properties`;
+      return pre + (ids.length <= 2 ? names.join(', ') : `${ids.length} properties`);
     },
     // Search box: name, email or role (incl. "Intern"), any part, case ignored
     hasSearch(u) { const q = this.search.trim().toLowerCase(); return !q || [u.displayName, u.email, this.roleText(u)].some(x => String(x || '').toLowerCase().includes(q)); },
@@ -461,14 +469,14 @@ export default {
       this.okMsg = '';
       this.panelOpen = true;
       const role = kind === 'hk' ? HK_ROLE : 'finance';
-      this.panel = { mode: 'add', kind, displayName: '', email: '', username: '', password: '', showPw: false, role, perms: presetOf(role), properties: [], active: true, reason: '', isMe: false, busy: false, error: '', tab: 'account' };
+      this.panel = { mode: 'add', kind, displayName: '', email: '', username: '', password: '', showPw: false, role, perms: presetOf(role), properties: [], branches: [], active: true, reason: '', isMe: false, busy: false, error: '', tab: 'account' };
     },
     openEdit(u) {
       this.okMsg = '';
       this.panelOpen = true;
       this.panel = { mode: 'edit', kind: usernameOf(u.email) ? 'hk' : 'staff', username: usernameOf(u.email), newPassword: '', showPw: false,
         id: u.id, original: u, displayName: u.displayName || '', email: u.email, role: u.role || 'finance',
-        perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '', tab: 'account' };
+        perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), branches: branchesOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '', tab: 'account' };
     },
     // Add staff: Username goes with the Housekeeping role, Work email with every other role (kept in step both ways)
     setKind(kind) {
@@ -494,6 +502,7 @@ export default {
       const perms = noTicks ? [] : cleanPerms(p.perms);
       const custom = !noTicks && !samePerms(perms, presetOf(p.role));
       const properties = p.role === 'director' ? [] : [...new Set(p.properties || [])].sort();   // Directors: always every property
+      const branches = p.role === 'director' ? [] : [...new Set(p.branches || [])].sort();
       if (!name) { p.tab = 'account'; return p.error = 'Enter their full name.'; }
       // Housekeepers may start with no properties (17 Nov 2026)
       if (p.mode === 'add' && !noTicks && !hk && !properties.length) { p.tab = 'perms'; return p.error = 'Choose at least one property.'; }
@@ -513,12 +522,13 @@ export default {
         if (p.mode === 'add') {
           const uid = await createLogin(email, name, hk ? p.password : '');
           batch.set(doc(db, 'users', uid), {
-            displayName: name, email, role: p.role, active: true, properties, ...(hk ? { username } : {}),
+            displayName: name, email, role: p.role, active: true, properties, branches, ...(hk ? { username } : {}),
             ...(custom ? { perms } : {}),
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name
           });
           const changes = [{ field: 'role', old: null, new: p.role }];
           if (custom) changes.push({ field: 'perms', old: presetOf(p.role), new: perms });
+          if (branches.length) changes.push({ field: 'branches', old: [], new: branches });
           if (properties.length) changes.push({ field: 'properties', old: [], new: properties });
           audit(batch, 'staff.create', uid, changes, 'New staff account');
           await batch.commit();
@@ -533,12 +543,13 @@ export default {
           if (name !== (o.displayName || '')) changes.push({ field: 'displayName', old: o.displayName || '', new: name });
           if (p.role !== o.role) changes.push({ field: 'role', old: o.role || null, new: p.role });
           if (!samePerms(perms, oldPerms)) changes.push({ field: 'perms', old: oldPerms, new: perms });
+          if (p.role !== 'director' && !sameList(branches, branchesOf(o))) changes.push({ field: 'branches', old: branchesOf(o), new: branches });
           if (p.role !== 'director' && !sameList(properties, propsOf(o))) changes.push({ field: 'properties', old: propsOf(o), new: properties });
           if (p.active !== (o.active !== false)) changes.push({ field: 'active', old: o.active !== false, new: p.active });
           if (!changes.length) { p.busy = false; this.panelOpen = false; return; }
           if (!p.reason.trim()) { p.busy = false; p.tab = 'account'; return p.error = 'Add a short reason. It goes in the audit log.'; }
           batch.update(doc(db, 'users', p.id), {
-            displayName: name, role: p.role, active: p.active, perms: custom ? perms : deleteField(), ...(p.role === 'director' ? {} : { properties }),
+            displayName: name, role: p.role, active: p.active, perms: custom ? perms : deleteField(), ...(p.role === 'director' ? {} : { properties, branches }),
             updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name
           });
           audit(batch, 'staff.update', p.id, changes, p.reason.trim());
@@ -732,4 +743,4 @@ export default {
 .fit-picker :deep(.op-val) { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub-row { padding-left: 34px !important; color: var(--text-2); }
 .sub-arrow { color: var(--muted); margin-right: 8px; }
-</style>
+</style>

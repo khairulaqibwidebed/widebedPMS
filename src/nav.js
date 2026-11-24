@@ -50,10 +50,10 @@ const MY_ACCOUNT = G('My Account', 'userCircle', [P('Profile & Appearance', '/Se
 export const NAV = {
   finance: [TOP, PORTFOLIO, LEADS, ACCOUNTING, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   director: [TOP, PORTFOLIO, LEADS_DIR, MARKETING, ACCOUNTING_DIR, PERFORMANCE_ADMIN, PLAYBOOK, HR_DIR,
-    G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'userCog'), P('Google Drive Folders', '/Settings/states', 'files'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
+    G('Company Settings', 'settings', [P('Staff Accounts', '/Settings/staff', 'users'), P('Roles', '/Settings/roles', 'userCog'), P('Branch Management', '/Settings/branches', 'network'), P('Brand Logos', '/Settings/brand-logos', 'image'), P('Audit Log', '/Settings/audit-log', 'history')]),
     MY_ACCOUNT],
   // Portfolio is view-only for Operations, Procurement and Marketing (no fees, payouts or owner contact details).
-  // 17 Nov 2026: Google Drive Folders follows its access tick (Operations have it by default); navFor() adds it under Company Settings
+  // 17 Nov 2026: Google Drive Folders (23 Nov: Branch Management) follows its access tick (Operations have it by default); navFor() adds it under Company Settings
   operations: [TOP, PORTFOLIO, LEADS, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   // IT and HR: no Agreements (6 Nov 2026).
   it: [TOP, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
@@ -102,4 +102,4 @@ export function navFor(me) {
     }
   }
   return out;
-}
+}

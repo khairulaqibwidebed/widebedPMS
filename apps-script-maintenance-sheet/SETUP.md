@@ -13,8 +13,10 @@ The PMS side is src/lib/maintenance-sheet.js; Firestore rules Draft 0.84 must be
    It remembers this file as that year's file (the year in the file name, e.g. "2026 Master Record").
 6. Deploy > New deployment > gear > Web app. Execute as: Me. Who has access: Anyone. Deploy. Copy the Web app URL
    (https://script.google.com/macros/s/.../exec).
-7. In the PMS as a Director: Finance > Expenses & Reimbursements > Maintenance tab > "Sheet settings". Paste the Web app URL
-   and the Sheet's own link. Save and sync.
+7. In the PMS as a Director: Settings > Branch Management > open the branch > Links tab. Put the Sheet's own link in
+   "Maintenance Google Sheet" (press Save), then paste the Web app URL in "Sheet sync" and press Save Sheet sync.
+   (23 Nov 2026: one Sheet per branch. Each branch's Sheet has its own Apps Script and URL: repeat steps 2-6 in that Sheet.
+   Only that branch's properties' tickets go to it. Rules Draft 1.06 must be published.)
 
 ## New year
 Nothing to do. The first 2027 ticket that syncs makes "2027 ..." (the 2026 file's name with the year changed) in the same

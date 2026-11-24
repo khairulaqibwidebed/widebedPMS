@@ -4,15 +4,16 @@
       <h2>{{ `Maintenance · ${monthName(month)} · ${shown().length} ticket${shown().length === 1 ? '' : 's'}` }}</h2>
       <!-- 18 Nov 2026 (Khairul): the Google Sheet buttons in one 3-dots menu: Sync, Settings, Open Sheet (lib/maintenance-sheet.js).
            The Download Master Record button was removed (lib/maintenance.js downloadMasterRecord is kept, unused). -->
-      <div class="mt-more" v-if="sheet || isDirector" @keydown.esc="moreOpen = false">
+      <!-- 23 Nov 2026 (Khairul): one Sheet per branch. Settings live on Branch Management > a branch > Links. -->
+      <div class="mt-more" v-if="sheets.length || isDirector" @keydown.esc="moreOpen = false">
         <span class="mt-busy muted" v-if="sheetBusy">{{ sheetBusy }}</span>
         <button type="button" class="mt-dots" title="Google Sheet" aria-label="Google Sheet menu" aria-haspopup="menu" :aria-expanded="String(moreOpen)" @click="moreOpen = !moreOpen">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
         <div class="mt-more-back" v-if="moreOpen" @click="moreOpen = false"></div>
         <div class="mt-more-menu" v-if="moreOpen" role="menu">
-          <button type="button" role="menuitem" v-if="sheet" :disabled="!!sheetBusy" @click="moreOpen = false; syncYear()">Sync</button>
-          <button type="button" role="menuitem" v-if="isDirector" @click="moreOpen = false; openSheetSetup()">Settings</button>
-          <a role="menuitem" v-if="sheet && sheetLink()" :href="sheetLink()" target="_blank" rel="noopener" @click="moreOpen = false">Open Sheet</a>
+          <button type="button" role="menuitem" v-if="sheets.length" :disabled="!!sheetBusy" @click="moreOpen = false; syncYear()">{{ sheets.length > 1 ? 'Sync all Sheets' : 'Sync' }}</button>
+          <template v-for="c in sheets" :key="c.key"><a role="menuitem" v-if="sheetLink(c)" :href="sheetLink(c)" target="_blank" rel="noopener" @click="moreOpen = false">{{ sheets.length > 1 ? `Open ${c.name} Sheet` : 'Open Sheet' }}</a></template>
+          <RouterLink role="menuitem" v-if="isDirector" to="/Settings/branches" @click="moreOpen = false">Sheet settings (Branch Management)</RouterLink>
         </div>
       </div>
     </div>
@@ -20,7 +21,7 @@
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
     <!-- Sheet status: green dot = set up and the last sync worked; red dot = not set up, or the last sync failed (18 Nov 2026) -->
-    <p class="mt-sheet muted" v-if="sheetChecked && ((sheet && sheetNote) || !sheet?.scriptUrl)"><span class="mt-dot" :class="sheetLinked ? 'on' : 'off'" aria-hidden="true"></span>{{ sheet?.scriptUrl ? sheetNote : 'Google Sheet not linked' }}</p>
+    <p class="mt-sheet muted" v-if="sheetChecked && ((sheets.length && sheetNote) || !sheets.length)"><span class="mt-dot" :class="sheetLinked ? 'on' : 'off'" aria-hidden="true"></span>{{ sheets.length ? sheetNote : 'Google Sheet not linked' }}</p>
     <div class="toolbar">
       <OptionPicker v-model="filter" :options="FILTERS" label="Status" />
       <input class="input" type="search" placeholder="Search ticket or unit" v-model="search" aria-label="Search" style="max-width:220px">
@@ -138,31 +139,6 @@
         </div>
       </div>
     </div>
-    <!-- Google Sheet settings (Directors). Setup steps: apps-script-maintenance-sheet/SETUP.md -->
-    <div class="modal-back mt-back" v-if="sheetSetup" @click.self="sheetSetup = null">
-      <form class="modal" role="dialog" aria-label="Google Sheet settings" v-esc="() => (sheetSetup = null)" @submit.prevent="saveSheetSetup()" style="max-width:560px">
-        <div class="mt-pop-head"><h2>Google Sheet settings</h2>
-          <button type="button" class="icon-btn" aria-label="Close" @click="sheetSetup = null">×</button></div>
-        <p class="help" style="margin-top:0">The Master Record Google Sheet, kept in step with the PMS. Sheet edits to Area, Action Date, Solution/Action Taken and Cost Remarks come back to the PMS; money columns always come from the PMS. One file per year: next year's file is made by itself on its first sync.</p>
-        <div class="notice error" v-show="sheetSetup.error">{{ sheetSetup.error }}</div>
-        <div class="field"><label class="req" for="shScript">Apps Script web app URL</label>
-          <input class="input" id="shScript" v-model="sheetSetup.scriptUrl" placeholder="https://script.google.com/macros/s/…/exec"></div>
-        <div class="field"><label for="shSheet">Google Sheet link (optional)</label>
-          <input class="input" id="shSheet" v-model="sheetSetup.sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/…"></div>
-        <div class="field"><label for="shState">Only properties in</label>
-          <select class="input" id="shState" v-model="sheetSetup.state">
-            <option value="">All states</option>
-            <option v-for="s in states" :key="s" :value="s">{{ s }}</option>
-          </select>
-          <p class="help">Tickets of properties in other states (or with no state) stay out of this Sheet.</p></div>
-        <div class="field" v-if="sheet?.scriptUrl">
-          <label>Next year's file</label>
-          <div><button type="button" class="btn" :disabled="busy" @click="makeNextYear()">Make {{ nextYear }} file now</button></div>
-          <p class="help" v-if="!sheetSetup.yearMade">Made by itself on the first {{ nextYear }} sync anyway: a copy of this year's file with the month tabs emptied down to one Template tab.</p>
-          <p class="help" v-else>Ready: <a :href="sheetSetup.yearMade.url" target="_blank" rel="noopener">{{ sheetSetup.yearMade.name }}</a> ({{ sheetSetup.yearMade.tabs.join(', ') }})</p></div>
-        <div class="modal-foot"><button type="button" class="btn" @click="sheetSetup = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Save and sync</button></div>
-      </form>
-    </div>
     <p class="card-foot" style="display:block">Profit = WB Charge − Cost (shown for charged tickets). A charge can be edited or removed, with a reason, until that unit's statement for the month is completed. If the ticket's month is already completed for the unit, the line goes to the next open month.</p>
   </section>
 </template>
@@ -176,8 +152,7 @@ import { amt, dmy, monthName } from '@/lib/format.js';
 import { useSession } from '@/stores/session.js';
 import { friendlyError, completedUnitIds } from '@/lib/finance-data.js';
 import { loadMaintenance, chargeTicket, editCharge, removeCharge, r2, maintStatus, MAINT_STATUS, removeTicketForGood, ticketMonth } from '@/lib/maintenance.js';
-import { loadSheetSettings, saveSheetSettings, syncMonths, syncSheetEdits, yearMonths, makeYearFile, removeSheetRows } from '@/lib/maintenance-sheet.js';
-import { STATES } from '@/lib/states.js';
+import { loadSheetConfigs, syncMonths, syncSheetEdits, yearMonths, removeSheetRows } from '@/lib/maintenance-sheet.js';
 import { showNotice } from '@/lib/confirm.js';
 // The Sheet is a reference copy (Khairul): checked on open, after each charge, by the button, and every 2 minutes while the tab is in front
 const SHEET_EVERY = 2 * 60 * 1000;
@@ -192,11 +167,11 @@ export default {
   props: { propertyId: { type: String, default: '' }, propertyName: { type: String, default: '' }, month: { type: String, required: true } },
   emits: ['charged'],
   data() { return { me: useSession(), FILTERS, PILL, EMPTY, MAINT_STATUS, filter: 'pending', detail: null, search: '', tickets: [], rows: {}, locked: {}, loading: true, busy: false, error: '', okMsg: '', moreOpen: false, purge: null, sheetFailed: false, sheetChecked: false,
-    sheet: null, sheetBusy: '', sheetNote: '', sheetSetup: null, sheetTimer: null, sheetLinks: {}, states: STATES }; },
-  computed: { year() { return this.month.slice(0, 4); }, allProps() { return this.propertyId === 'all'; }, isDirector() { return this.me.role === 'director'; }, nextYear() { return String(new Date().getFullYear() + 1); }, sheetLinked() { return !!this.sheet?.scriptUrl && !this.sheetFailed; } },   // 'all': the page's All properties
+    sheets: [], sheetBusy: '', sheetNote: '', sheetTimer: null, sheetLinks: {} }; },
+  computed: { year() { return this.month.slice(0, 4); }, allProps() { return this.propertyId === 'all'; }, isDirector() { return this.me.role === 'director'; }, nextYear() { return String(new Date().getFullYear() + 1); }, sheetLinked() { return this.sheets.length > 0 && !this.sheetFailed; } },   // 'all': the page's All properties
   watch: { propertyId() { this.load(); }, month() { this.load(); } },
   async mounted() {
-    this.sheet = await loadSheetSettings(); this.sheetChecked = true;   // no red dot flash before the settings are read
+    this.sheets = await loadSheetConfigs(); this.sheetChecked = true;   // no red dot flash before the settings are read
     this.load();
     this.sheetTimer = setInterval(() => { if (document.visibilityState === 'visible') this.sheetQuick(); }, SHEET_EVERY);
   },
@@ -237,44 +212,45 @@ export default {
       if (!noSheet) this.sheetSync([this.month]);
     },
     // ---------- Google Sheet ----------
-    // This year's file (from the script; one file per year), else the link saved in Sheet settings
-    sheetLink() { return this.sheetLinks[this.year] || (this.sheet?.sheetUrl && this.year === String(new Date().getFullYear()) ? this.sheet.sheetUrl : ''); },
-    sheetDone(out, quiet) {
+    // A Sheet's file for the shown year (from the script; one file per year), else the link saved for it
+    sheetLink(c) { return this.sheetLinks[`${c.key}|${this.year}`] || (c.sheetUrl && this.year === String(new Date().getFullYear()) ? c.sheetUrl : ''); },
+    // outs: one result per Sheet (23 Nov 2026: one Sheet per branch)
+    sheetDone(outs, quiet) {
       this.sheetFailed = false;
-      if (out.link) this.sheetLinks = { ...this.sheetLinks, [out.year]: out.link };
+      const links = { ...this.sheetLinks };
+      for (const o of outs) if (o.link) links[`${o.key}|${o.year}`] = o.link;
+      this.sheetLinks = links;
+      const fromSheet = outs.reduce((n, o) => n + o.fromSheet, 0), toSheet = outs.reduce((n, o) => n + o.toSheet, 0);
       const at = new Date().toLocaleTimeString('en-MY', { hour: 'numeric', minute: '2-digit' });
-      this.sheetNote = `Google Sheet synced ${at}` + (out.fromSheet ? ` · ${out.fromSheet} ticket${out.fromSheet === 1 ? '' : 's'} updated from the Sheet` : '')
-        + (!quiet && out.toSheet ? ` · ${out.toSheet} row${out.toSheet === 1 ? '' : 's'} written` : '');
-      if (out.fromSheet) this.load(true);   // show the Sheet's edits (no second sync)
+      this.sheetNote = `Google Sheet${outs.length > 1 ? `s (${outs.length})` : ''} synced ${at}` + (fromSheet ? ` · ${fromSheet} ticket${fromSheet === 1 ? '' : 's'} updated from the Sheet` : '')
+        + (!quiet && toSheet ? ` · ${toSheet} row${toSheet === 1 ? '' : 's'} written` : '');
+      if (fromSheet) this.load(true);   // show the Sheet's edits (no second sync)
     },
-    sheetFail(e) { this.sheetFailed = true; this.sheetNote = 'Google Sheet not synced: ' + (e.plain ? e.message : friendlyError(e, 'sync the Google Sheet')); },
+    sheetFail(e, c) { this.sheetFailed = true; this.sheetNote = `Google Sheet${this.sheets.length > 1 ? ` (${c.name})` : ''} not synced: ` + (e.plain ? e.message : friendlyError(e, 'sync the Google Sheet')); },
+    // Each Sheet in turn; a failing one doesn't stop the others
+    async eachSheet(run) {
+      const outs = [];
+      let failed = null;
+      for (const c of this.sheets) {
+        try { outs.push({ ...(await run(c)), key: c.key }); } catch (e) { failed = failed || [e, c]; }
+      }
+      return { outs, failed };
+    },
     async sheetSync(months, quiet = true) {
-      if (!this.sheet?.scriptUrl || this.sheetBusy) return;
+      if (!this.sheets.length || this.sheetBusy) return;
       this.sheetBusy = 'Syncing…';
-      try { this.sheetDone(await syncMonths(this.me, this.sheet.scriptUrl, months, s => { if (!quiet) this.sheetBusy = s; }, this.sheet.states || []), quiet); }
-      catch (e) { this.sheetFail(e); }
+      const { outs, failed } = await this.eachSheet(c => syncMonths(this.me, c.scriptUrl, months, s => { if (!quiet) this.sheetBusy = this.sheets.length > 1 ? `${c.name}: ${s}` : s; }, c.only));
+      this.sheetDone(outs, quiet); if (failed) this.sheetFail(...failed);
       this.sheetBusy = '';
     },
     async sheetQuick() {
-      if (!this.sheet?.scriptUrl || this.sheetBusy || this.busy) return;
+      if (!this.sheets.length || this.sheetBusy || this.busy) return;
       this.sheetBusy = 'Syncing…';
-      try { this.sheetDone(await syncSheetEdits(this.me, this.sheet.scriptUrl, this.year, this.sheet.states || []), true); }
-      catch (e) { this.sheetFail(e); }
+      const { outs, failed } = await this.eachSheet(c => syncSheetEdits(this.me, c.scriptUrl, this.year, c.only));
+      this.sheetDone(outs, true); if (failed) this.sheetFail(...failed);
       this.sheetBusy = '';
     },
     syncYear() { this.sheetSync(yearMonths(this.year), false); },
-    openSheetSetup() { this.sheetSetup = { scriptUrl: this.sheet?.scriptUrl || '', sheetUrl: this.sheet?.sheetUrl || '', state: (this.sheet?.states || [])[0] || '', error: '', yearMade: null }; },
-    async makeNextYear() {
-      const f = this.sheetSetup; f.error = ''; this.busy = true;
-      try { f.yearMade = await makeYearFile(this.sheet.scriptUrl, this.nextYear); this.sheetLinks = { ...this.sheetLinks, [this.nextYear]: f.yearMade.url }; }
-      catch (e) { f.error = e.plain ? e.message : friendlyError(e, 'make the file'); }
-      finally { this.busy = false; }
-    },
-    async saveSheetSetup() {
-      const f = this.sheetSetup; f.error = ''; this.busy = true;
-      try { this.sheet = await saveSheetSettings(this.me, { ...f, states: f.state ? [f.state] : [] }); this.sheetSetup = null; this.busy = false; this.syncYear(); }
-      catch (e) { f.error = e.plain ? e.message : friendlyError(e, 'save the Sheet settings'); this.busy = false; }
-    },
     // Director: a Cancelled ticket removed for good, then its Sheet row (18 Nov 2026)
     async removeForGood(t) {
       const p = this.purge; p.error = '';
@@ -287,9 +263,9 @@ export default {
       // Popups, not a banner (Khairul, 18 Nov 2026)
       const year = (ticketMonth(t) || this.month).slice(0, 4);
       let sheetErr = '';
-      if (this.sheet?.scriptUrl) { try { await removeSheetRows(this.sheet.scriptUrl, year, [t.id]); } catch (e) { sheetErr = e.message; } }
+      for (const c of this.sheets) { try { await removeSheetRows(c.scriptUrl, year, [t.id]); } catch (e) { sheetErr = sheetErr || e.message; } }   // only the Sheet that has the row removes anything
       if (sheetErr) showNotice(`${t.id} removed for good`, `Its Google Sheet row was not removed (${sheetErr}). Delete that row in the Sheet by hand.`, 'info');
-      else showNotice(`${t.id} removed for good`, this.sheet?.scriptUrl ? 'The ticket, its comments and its Google Sheet row are gone.' : 'The ticket and its comments are gone.', 'info');
+      else showNotice(`${t.id} removed for good`, this.sheets.length ? 'The ticket, its comments and its Google Sheet row are gone.' : 'The ticket and its comments are gone.', 'info');
     },
     async charge(t) {
       const r = this.row(t); this.error = ''; this.okMsg = '';

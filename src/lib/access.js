@@ -47,7 +47,7 @@ export const PAGES = [
   { key: 'performance',      label: 'Performance Management',        group: 'Performance', to: ['/Performance/quarters'] },
   // 17 Nov 2026: Google Drive Folders (Settings). Base: see the page and the link check. Full: set a state's folder, create
   // unit folders, change a property's units folder. KEEP IN STEP WITH driveFolders in firestore.rules and api/drive.js.
-  { key: 'driveFolders',     label: 'Google Drive Folders',          group: 'Company Settings', to: ['/Settings/states'] },
+  { key: 'driveFolders',     label: 'Branch Management',             group: 'Company Settings', to: ['/Settings/branches', '/Settings/states'] },   // 23 Nov 2026: was Google Drive Folders (same key)
   // 17 Nov 2026: shown only on the AI Agent role (aiOnly). Everyone else reads these through their role.
   { key: 'aiIssues',         label: 'Issues (tickets and replies)',  group: 'AI Agent only', to: [], viewOnly: true, aiOnly: true },
   { key: 'aiAnnouncements',  label: 'Announcements',                 group: 'AI Agent only', to: [], viewOnly: true, aiOnly: true },
@@ -104,7 +104,7 @@ export const GROUP_NOTES = {
   Portfolio: 'Owners Base: names and contact only. Owners Full: can add and edit owners. Owners · Credentials: see (and with Full, change) IC, date of birth, address and bank details. Owners · Units & payouts: the owner\'s units, carried forward and payout history. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data. Early termination: end a booking early (move-out date, reason, the notice from the tenant) and record the deposit refund; they also need Bookings to open the booking. Only Directors can undo it. Booking settings: the gear on Bookings (invoice header, the default T&Cs and bank details).',
   Content: 'Everyone can read these. Full lets them change the text (What\'s New: post, edit and delete updates).',
   'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
-  'Company Settings': 'Google Drive Folders Base: see each state\'s folder and which properties and units are linked. Full: set a state\'s folder, create unit folders and change a property\'s units folder.',
+  'Company Settings': 'Branch Management Base: see the branches, their properties, links and staff, and each state\'s Drive folder. Full: add and edit branches, set a state\'s folder, create unit folders and change a property\'s units folder.',
   Marketing: 'Agent Database Base: the list of agents and their contact details. Full: add and edit agents and see their bank account number.',
   Performance: 'Quarterly performance management (quarters, COH, KPI, TMS administration). Everyone can still see their own results without this access.'
 };
