@@ -88,7 +88,7 @@
           <div class="form-sec">Rent summary</div>
           <div class="cal-row" v-if="isLong"><span>Monthly rent</span><b>{{ `RM ${amt(Number(bk.f.rent) || Number(bk.monthlyRent) || 0)}` }}</b></div>
           <div class="cal-row"><span>{{ isLong ? `Total rental (${cal.length} ${cal.length === 1 ? 'month' : 'months'}) · owner receives` : 'Total rental' }}</span><b>{{ `RM ${amt(totalDue)}` }}</b></div>
-          <div class="cal-row cal-sub" v-for="c in chargeSums" :key="c.label"><span>{{ c.label }}</span><b>{{ `RM ${amt(c.v)}` }}</b></div>
+          <div class="cal-row cal-sub" :class="{ 'cal-zero': !c.v }" v-for="c in chargeSums" :key="c.label"><span>{{ c.label }}</span><b>{{ `RM ${amt(c.v)}` }}</b></div>
           <div class="cal-row"><span>Total to pay</span><b>{{ `RM ${amt(totalDue + extraTotal)}` }}</b></div>
           <div class="cal-row"><span><b>Total paid</b></span><b>{{ `RM ${amt(totalPaid)}` }}</b></div>
           <div class="form-sec">Total Payments</div>
@@ -109,21 +109,21 @@
               </button>
               <template v-if="!yearShut(c.m.slice(0, 4))">
               <div class="tp-row" :class="{ open: add.m === c.m }">
-                <span class="tp-m">{{ shortName(c.m) }}</span>
+                <span class="tp-m">{{ c.from ? c.label : shortName(c.m) }}<small v-if="c.from">{{ leaseSpan(c) }}</small></span>
                 <span><span class="pill" :class="MONTH_PAY[c.status].cls">{{ MONTH_PAY[c.status].label }}</span></span>
                 <span class="tp-amt"><b>{{ `RM ${amt(c.paid)}` }}</b><small v-if="c.due + c.extra > 0">{{ ` / ${amt(c.due + c.extra)}` }}</small></span>
-                <button v-if="editable" type="button" class="tp-plus" @click="add.m === c.m ? (add.m = '') : startAdd(c.m)" :title="`Add a charge to ${shortName(c.m)}`" :aria-label="`Add a charge to ${shortName(c.m)}`">+</button>
+                <button v-if="editable" type="button" class="tp-plus" @click="add.m === c.m ? (add.m = '') : startAdd(c.m)" :title="`Add a charge to ${monthTag(c)}`" :aria-label="`Add a charge to ${monthTag(c)}`">+</button>
               </div>
-              <div class="tp-charge" v-for="(x, j) in bk.f.monthCharges[c.m] || []" :key="c.m + '-' + j">
-                <span>{{ chargeLabel(x) }}</span>
-                <b>{{ `RM ${amt(x.amount)}` }}</b>
-                <button v-if="editable" type="button" class="mc-x" @click="removeCharge(c.m, j)" :aria-label="`Remove ${chargeLabel(x)} from ${shortName(c.m)}`">×</button>
+              <div class="tp-charge" v-for="ch in c.charges" :key="ch.m + '-' + ch.j">
+                <span>{{ chargeLabel(ch.x) }}</span>
+                <b>{{ `RM ${amt(ch.x.amount)}` }}</b>
+                <button v-if="editable" type="button" class="mc-x" @click="removeCharge(ch.m, ch.j)" :aria-label="`Remove ${chargeLabel(ch.x)} from ${monthTag(c)}`">×</button>
               </div>
               <!-- 23 Nov 2026: carry forward (paid over the month's total goes to the next month) -->
-              <div class="tp-charge tp-carry" v-if="c.carryIn > 0"><span>{{ `Carried from ${shortName(cal[cal.findIndex(x => x.m === c.m) - 1]?.m || '')}` }}</span><b>{{ `+ RM ${amt(c.carryIn)}` }}</b><span></span></div>
-              <div class="tp-charge tp-carry" v-if="c.carryOut > 0"><span>{{ cal.findIndex(x => x.m === c.m) < cal.length - 1 ? `Carried to ${shortName(cal[cal.findIndex(x => x.m === c.m) + 1].m)}` : 'Paid over the total for the stay' }}</span><b>{{ `RM ${amt(c.carryOut)}` }}</b><span></span></div>
+              <div class="tp-charge tp-carry" v-if="c.carryIn > 0"><span>{{ `Carried from ${monthTag(cal[cal.findIndex(x => x.m === c.m) - 1])}` }}</span><b>{{ `+ RM ${amt(c.carryIn)}` }}</b><span></span></div>
+              <div class="tp-charge tp-carry" v-if="c.carryOut > 0"><span>{{ cal.findIndex(x => x.m === c.m) < cal.length - 1 ? `Carried to ${monthTag(cal[cal.findIndex(x => x.m === c.m) + 1])}` : 'Paid over the total for the stay' }}</span><b>{{ `RM ${amt(c.carryOut)}` }}</b><span></span></div>
               <div class="mc-form" v-if="editable && add.m === c.m">
-                <select class="input" :id="'mcKey' + c.m" v-model="add.key" :aria-label="`Charge for ${shortName(c.m)}`">
+                <select class="input" :id="'mcKey' + c.m" v-model="add.key" :aria-label="`Charge for ${monthTag(c)}`">
                   <option value="" disabled>Choose charge…</option>
                   <option v-for="[k, l] in chargeChoices" :key="k" :value="k">{{ l }}</option>
                 </select>
@@ -267,7 +267,7 @@ import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking, setBookin
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { can } from '@/lib/access.js';
-import { invoiceOf, propertyAddressOf, FEE_LABELS, chargeLabel, legacyCharges, allMonthCharges, addInto, depositOf } from '@/lib/booking-invoice.js';
+import { invoiceOf, propertyAddressOf, FEE_LABELS, chargeLabel, legacyCharges, allMonthCharges, addInto, depositOf, leaseMonths, leaseSlot, leaseSpan } from '@/lib/booking-invoice.js';
 import InvoiceDialog from '@/components/InvoiceDialog.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { sourcesForForms, feesForForms, sourceOptions, normSources, normFees } from '@/lib/booking-settings.js';
@@ -375,6 +375,20 @@ export default {
     cal() {
       const b = this.bk, f = b.f; if (!f.arrival || !f.departure || !b.payments) return [];
       const long = this.isLong, rent = Number(f.rent) || Number(b.monthlyRent) || 0, rental = Number(b.rental) || 0;
+      // 24 Nov 2026 (Khairul): leases count months from the check-in (lib/booking-invoice.js leaseMonths, the same as the invoice):
+      // a Monthly Lease in whole months (30 Nov - 31 Dec is one month), not one row per calendar month the stay touches.
+      // A payment's For month and a month charge count in the lease month they fall in (leaseSlot).
+      if (long) {
+        const ms = leaseMonths({ arrival: f.arrival, departure: f.departure, earlyTermination: this.et }, rent);
+        if (!ms.length) return [];
+        const rows = ms.map(x => ({ m: x.m, from: x.from, to: x.to, label: x.label, paid: 0, due: x.rent, extra: 0, charges: [] }));
+        b.payments.filter(payCounts).forEach(x => { rows[leaseSlot(ms, payMonth(x))].paid += rentalOf(x); });   // Checked only, Rental part only
+        Object.entries(f.monthCharges || {}).sort(([p], [q]) => p.localeCompare(q)).forEach(([m, list]) => (list || []).forEach((x, j) => {
+          const r = rows[leaseSlot(ms, m)]; r.extra += Number(x.amount) || 0; r.charges.push({ m, j, x });
+        }));
+        rows.forEach(r => { r.paid = Math.round(r.paid * 1000) / 1000; r.extra = Math.round(r.extra * 1000) / 1000; });
+        return withCarry(rows.map(c => ({ ...c, due: c.due + c.extra }))).map((c, i) => ({ ...rows[i], carryIn: c.carryIn, carryOut: c.carryOut, status: c.status }));
+      }
       const out = []; let [y, mo] = f.arrival.slice(0, 7).split('-').map(Number); const last = f.departure.slice(0, 7);
       for (let i = 0; i < 48; i++, mo++) {
         if (mo > 12) { mo = 1; y++; }
@@ -384,7 +398,7 @@ export default {
         // 20 Nov 2026: terminated early with notice: the last part month is rent / 30 x days (sudden: in full)
         if (long && m === last && this.et?.type === 'notice') { const d = partDays(f.arrival, f.departure); if (d > 0) due = Math.round(rent / 30 * d * 100) / 100; }
         const extra = (f.monthCharges[m] || []).reduce((s, x) => s + (Number(x.amount) || 0), 0), all = due + extra;   // 20 Nov 2026: month charges
-        out.push({ m, paid, due, extra, status: all > 0 ? (paid >= all - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid') : (paid > 0 ? 'paid' : 'unpaid') });
+        out.push({ m, paid, due, extra, charges: (f.monthCharges[m] || []).map((x, j) => ({ m, j, x })), status: all > 0 ? (paid >= all - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid') : (paid > 0 ? 'paid' : 'unpaid') });
       }
       // 23 Nov 2026 (Khairul): leases carry forward. Paid over a month's total (rent + charges) goes to the next month; the
       // status counts it (lib/booking-pay.js withCarry). Short stays are paid as one amount, so nothing to carry.
@@ -392,10 +406,14 @@ export default {
       return withCarry(out.map(c => ({ ...c, due: c.due + c.extra }))).map((c, i) => ({ ...out[i], carryIn: c.carryIn, carryOut: c.carryOut, status: c.status }));
     },
     // Deposit, fees and other month charges on top of the rental, added up by charge: paid by the guest, never part of the owner's share
+    // 24 Nov 2026 (Khairul): every fee type is listed (the deposit and each fee in Booking settings), RM 0.00 when not charged,
+    // so the full list is always in view; a charge of another kind (an older booking's, Others with a note) is added after them
     chargeSums() {
-      const t = {};
-      Object.values(this.bk.f.monthCharges).flat().forEach(x => { const l = chargeLabel(x); t[l] = (t[l] || 0) + (Number(x.amount) || 0); });
-      return Object.entries(t).map(([label, v]) => ({ label, v })).filter(c => c.v > 0);
+      const t = {}, order = [];
+      const put = (l, v) => { if (!(l in t)) { t[l] = 0; order.push(l); } t[l] += v; };
+      this.chargeChoices.forEach(([k, l]) => put(chargeLabel({ key: k, label: l }), 0));
+      Object.values(this.bk.f.monthCharges).flat().forEach(x => put(chargeLabel(x), Number(x.amount) || 0));
+      return order.map(label => ({ label, v: Math.round(t[label] * 100) / 100 })).filter(c => c.v > 0 || this.chargeChoices.some(([k, l]) => chargeLabel({ key: k, label: l }) === c.label));
     },
     totalDue() { return this.cal.reduce((a, c) => a + c.due, 0); },
     mpFilters() {
@@ -432,6 +450,9 @@ export default {
     } catch (e) { this.bk.error = friendlyError(e, 'load the booking'); }
   },
   methods: {
+    // 24 Nov 2026: a lease month is "Month 1 · 30 Nov – 31 Dec 2026"; a short stay's row is its calendar month
+    monthTag(c) { return c && c.from ? `${c.label} · ${leaseSpan(c)}` : shortName(c?.m || ''); },
+    leaseSpan,
     leaseLabel, monthName, chargeLabel,
     // The year line: months, how many paid / part / unpaid, and paid against due for that year (all months, not only the filtered ones)
     yearSum(y) {
@@ -740,6 +761,9 @@ export default {
 .tp-year + .tp-row { border-top: 0; }
 .tp-row.open { background: var(--accent-soft); }
 .tp-m { font-weight: 500; }
+.tp-m small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }   /* 24 Nov 2026: the lease month's dates */
+.cal-row.cal-zero { color: var(--muted); }   /* 24 Nov 2026: a fee type not charged on this booking (RM 0.00) */
+.cal-row.cal-zero b { font-weight: 400; color: var(--muted); }
 .tp-amt { text-align: right; white-space: nowrap; }
 .tp-amt small { color: var(--muted); }
 .tp-plus { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface, #fff); color: var(--accent); font-size: 18px; line-height: 1; cursor: pointer; }

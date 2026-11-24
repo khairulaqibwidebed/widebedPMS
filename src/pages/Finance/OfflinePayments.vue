@@ -352,6 +352,7 @@ import { notifyRole, notifyUser } from '@/services/notificationService.js';
 import { monthOffset, monthName } from '@/lib/format.js';
 import ComboInput from '@/components/ComboInput.vue';
 import { payCounts, payMonth, rentalOf } from '@/lib/booking-pay.js';
+import { leaseMonths, leaseSlot, leaseSpan } from '@/lib/booking-invoice.js';   // 24 Nov 2026: lease months
 import { loadGuestName } from '@/lib/portfolio-data.js';
 import { scoped } from '@/lib/property-scope.js';
 import { liveMixin } from '@/lib/use-live.js';
@@ -377,7 +378,7 @@ const monthsBetween = (a, b) => {
   return out;
 };
 // 23 Nov 2026: rental (Rental tab), u (Utilities tab, lib/utility-bills.js blankUtil); amount is only typed for Unknown payments
-const blank = () => ({ date: today(), amount: '', rental: '', tab: 'rental', u: blankUtil(), lastAuto: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '', bookingId: '', bookingNo: '', forMonth: '', bookingMonths: [], monthNotes: {} });
+const blank = () => ({ date: today(), amount: '', rental: '', tab: 'rental', u: blankUtil(), lastAuto: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '', bookingId: '', bookingNo: '', forMonth: '', bookingMonths: [], monthNotes: {}, monthLabels: {} });
 
 export default {
   popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
@@ -554,7 +555,11 @@ export default {
       // 23 Nov 2026 (Khairul): picking another booking keeps the Rental amount, For month (when the new stay has it) and the
       // Utilities amount / new bill typed so far; only the ticked bills go (they belong to the other booking)
       f.bookingId = b.id; f.bookingNo = b.bookingNo || b.id;
-      f.bookingMonths = monthsBetween(b.arrival, b.departure); f.monthNotes = {};
+      // 24 Nov 2026 (Khairul): a lease offers its lease months (from the check-in, the same as the invoice and the booking's
+      // Payments tab: a Monthly Lease in whole months), saved as the month each starts in; a short stay its calendar months
+      const lease = b.longTerm ? leaseMonths(b, Number(b.monthlyRent) || 0) : [];
+      f.bookingMonths = lease.length ? lease.map(x => x.m) : monthsBetween(b.arrival, b.departure); f.monthNotes = {};
+      f.monthLabels = Object.fromEntries(lease.map(x => [x.m, `${x.label} · ${leaseSpan(x)}`]));
       if (f.forMonth && !f.bookingMonths.includes(f.forMonth)) f.forMonth = '';
       f.u = this.keepUtil(f.u); this.loadBookingBills(b, f.u, billId);
       this.dropPaidMonths(b);
@@ -575,7 +580,7 @@ export default {
         for (let p = el.parentElement; p; p = p.parentElement) if (p.scrollHeight > p.clientHeight + 1) p.scrollTop = 0;   // the popup and its backdrop, to the top
       });
     },
-    unlinkBooking() { Object.assign(this.f, { bookingId: '', bookingNo: '', bookingMonths: [], monthNotes: {}, u: this.keepUtil(this.f.u) }); },
+    unlinkBooking() { Object.assign(this.f, { bookingId: '', bookingNo: '', bookingMonths: [], monthNotes: {}, monthLabels: {}, u: this.keepUtil(this.f.u) }); },
     // The Utilities tab without the old booking's bills: the amount typed (or filled) and a new bill being typed stay
     keepUtil(old) {
       const u = blankUtil();
@@ -595,7 +600,10 @@ export default {
       const f = this.f; if (f.bookingId !== b.id) return;   // picked another booking meanwhile
       const months = f.bookingMonths, first = months[0];
       const due = Number(b.longTerm ? b.monthlyRent : b.rental) || 0;
-      const sum = (m, ok) => rows.filter(x => ok(x) && (b.longTerm ? payMonth(x) === m : m === first)).reduce((a, x) => a + rentalOf(x), 0);   // 23 Nov 2026: Rental part only
+      // 24 Nov 2026: a lease's payments count in the lease month their For month falls in (leaseSlot)
+      const lease = b.longTerm ? leaseMonths(b, Number(b.monthlyRent) || 0) : [];
+      const inMonth = (x, m) => (lease.length ? lease[leaseSlot(lease, payMonth(x))].m === m : payMonth(x) === m);
+      const sum = (m, ok) => rows.filter(x => ok(x) && (b.longTerm ? inMonth(x, m) : m === first)).reduce((a, x) => a + rentalOf(x), 0);   // 23 Nov 2026: Rental part only
       const notes = {};
       f.bookingMonths = months.filter(m => {
         if (!b.longTerm && m !== first) return sum(first, payCounts) < due - 0.005 || due <= 0;   // short term paid in full: no month left
@@ -609,7 +617,8 @@ export default {
     },
     monthOptions(list, notes = {}) {
       if (!(list || []).length) return [{ value: '', label: 'Every month is paid' }];
-      return [{ value: '', label: 'Choose month' }, ...list.map(m => ({ value: m, label: notes[m] ? `${monthName(m)} (${notes[m]})` : monthName(m) }))];
+      const name = m => this.f?.monthLabels?.[m] && list === this.f.bookingMonths ? this.f.monthLabels[m] : monthName(m);   // 24 Nov 2026: lease months
+      return [{ value: '', label: 'Choose month' }, ...list.map(m => ({ value: m, label: notes[m] ? `${name(m)} (${notes[m]})` : name(m) }))];
     },
     // Edit: 12 months either side of the payment date, plus the saved month
     monthsAround(date, cur) {
