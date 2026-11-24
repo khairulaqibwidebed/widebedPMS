@@ -5,6 +5,8 @@
       <h2>Reservation Lodgment Form</h2>
       <p class="sub" v-if="resume">{{ `Finishing ${resume.bookingNo || resume.id} (Awaiting payment). Add the payment and door passcodes, then save. Tenant and stay were saved with the booking.` }}</p>
       <p class="sub" v-else-if="lead">{{ `From ${lead.id} · ${lead.lookingFor}. Saving marks the inquiry as paid and saves the customer as a tenant.` }}</p>
+      <p class="sub" v-else-if="fillOf">{{ `Filling in ${fillOf.bookingNo || fillOf.id} from eZee reservation ${prefill.ezeeNo}. What the booking already has is kept; its blank details are filled in from the file. Check them, add anything missing, then ${stageOnly ? 'Save to pending confirm' : 'save'}. Deposit, fees and payments stay as they are.` }}</p>
+      <p class="sub" v-else-if="prefill">{{ `From eZee reservation ${prefill.ezeeNo}. The room, dates, guest and source are filled in from the file: add the phone, IC, rent and status, then Save to pending confirm. It is added to the system when you press Continue to confirm on the upload.` }}</p>
       <p class="sub" v-else>Log a booking: tenant, stay, rent and deposit, payment and door passcodes. A booking without an inquiry, e.g. a walk-in or a returning tenant. Saving saves the customer as a tenant.</p>
     </div>
 
@@ -12,7 +14,7 @@
       <div v-if="leadId && canDirect" style="margin-top:8px"><button type="button" class="btn" @click="dropLead()">Start a booking without an inquiry</button></div>
     </div>
 
-    <FormSaved v-else-if="saved" :message="okMsg" :title="pendingSaved ? 'Saved as awaiting payment' : 'Saved'" @again="startAgain()">
+    <FormSaved v-else-if="saved" :message="okMsg" :title="pendingSaved ? 'Saved as awaiting payment' : 'Saved'" :again-text="prefill ? 'Close' : 'Start another'" @again="prefill ? $emit('close') : startAgain()">
       <!-- 16 Nov 2026: Awaiting payment; the invoice can be downloaded again here or from the booking in Bookings -->
       <p class="saved-note" v-if="pendingSaved">Send the invoice to the prospect. Once they pay, open the booking in Bookings and press Continue to payment to finish it.</p>
       <p class="saved-note" v-else>Key this booking into eZee to block the room. The payment, if any, is under Accounting › Offline Payments (status Pending).</p>
@@ -204,7 +206,7 @@
           <template v-else>
             <div class="notice await-bar">
               <span><b>Rental status is Unpaid.</b> Save the booking as Awaiting payment and download the invoice to send. The unit is held for these dates; add the payment and handover from Bookings once they pay.</span>
-              <button type="button" class="btn btn-primary" @click="saveBooking(true)" :disabled="busy || !invoiceReady" :title="invoiceReady ? '' : 'Finish Tenant, Stay and Rent & deposit first'">{{ busy ? 'Saving…' : 'Save & download invoice' }}</button>
+              <button type="button" class="btn btn-primary" @click="saveBooking(true)" :disabled="busy || !invoiceReady" :title="invoiceReady ? '' : 'Finish Tenant, Stay and Rent & deposit first'">{{ busy ? 'Saving…' : stageOnly ? 'Save to pending confirm' : 'Save & download invoice' }}</button>
             </div>
             <p class="help">Already paid? Set Rental status to Paid on Rent &amp; deposit; the Payment and Handover steps then show instead of this one.</p>
           </template>
@@ -284,9 +286,9 @@
       <div class="bottom-actions">
         <button type="button" class="btn" v-if="step > 0" @click="move(-1)">Back</button>
         <span class="spacer"></span>
-        <button type="button" class="btn" v-if="!resume" @click="saveDraft()" :disabled="busy || draftBusy" title="Saves what you've typed on your account. Only you can see it.">{{ draftBusy ? 'Saving…' : 'Save draft' }}</button>
+        <button type="button" class="btn" v-if="!resume && !stageOnly" @click="saveDraft()" :disabled="busy || draftBusy" title="Saves what you've typed on your account. Only you can see it.">{{ draftBusy ? 'Saving…' : 'Save draft' }}</button>
         <button type="button" class="btn btn-primary" v-if="step < steps.length - 1" @click="move(1)">Next</button>
-        <button type="button" class="btn btn-primary" v-else @click="saveBooking()" :disabled="busy || !complete" :title="complete ? '' : 'Finish the steps listed above first'">{{ busy ? 'Saving…' : unpaidNew ? 'Save & download invoice' : 'Save booking' }}</button>
+        <button type="button" class="btn btn-primary" v-else @click="saveBooking()" :disabled="busy || !complete" :title="complete ? '' : 'Finish the steps listed above first'">{{ busy ? 'Saving…' : stageOnly ? 'Save to pending confirm' : unpaidNew ? 'Save & download invoice' : 'Save booking' }}</button>
       </div>
     </template>
     <InvoiceDialog v-if="invoice" :invoice="invoice" :booking-no="invoiceNo" :booking-id="resume?.id || savedLink?.id || ''" @close="invoice = null" />
@@ -302,7 +304,7 @@
 // One draft per form per inquiry; only that person can read it (Firestore rules 0.69). Saving the booking deletes it.
 // Both: tenants/{TEN-0001} + private/main (a returning tenant is found by phone), lodgmentCounters (DM-014 booking no.),
 // the payment in offlinePayments (status Pending), door passcodes in offlineBookings/{id}/private/main, an audit entry, notifications.
-import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, where, runTransaction, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, where, runTransaction, arrayUnion, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { stateFor } from '@/lib/states.js';
@@ -373,13 +375,26 @@ const STEP_OF = [[/tenant|phone|email|IC or passport|gender/i, 'tenant'], [/type
 export default {
   components: { PropertyPicker, OptionPicker, DriveFiles, FormField, StepStrip, FormSaved, InvoiceDialog, MonthPicker },
   // resumeId (16 Nov 2026): an Awaiting payment booking (offlineBookings status 'pending') opened to finish it
-  props: { leadId: { type: String, default: '' }, resumeId: { type: String, default: '' } },
-  emits: ['dirty'],
+  // prefill (24 Nov 2026): a row from Bulk Upload > New bookings (eZee), opened in this form so it is saved like any booking
+  // made in the PMS: { ezeeNo, name, propertyId, unitId, arrival, departure, source, total, note }. The form starts filled in
+  // with it; everything else (phone, IC, rent type, status, payment) is completed here as usual.
+  // stageOnly (24 Nov 2026, Bulk Upload eZee): the last button checks everything (and the room) but saves nothing; it
+  //   emits 'staged' with the form as filled in, and the row waits as "Pending confirm to add".
+  // autoSave: prefill.bk (a staged form) is opened and saved straight away, with no screen; emits 'done' { ok, error }.
+  // prefill.fillId: an offline booking already in Portfolio > Bookings whose blank details the eZee file has (Fill in blank
+  //   details). The form opens that booking, the blanks filled from the file; saving updates it (no new booking is made).
+  props: { leadId: { type: String, default: '' }, resumeId: { type: String, default: '' }, prefill: { type: Object, default: null },
+    stageOnly: { type: Boolean, default: false }, autoSave: { type: Boolean, default: false },
+    // payChecked (24 Nov 2026): Bulk Upload eZee rows, confirmed by Accounting / a Director on Continue to confirm. The payment is
+    // saved as Checked by them (when they hold Offline Payments Edit), so the booking shows Paid at once instead of waiting.
+    payChecked: { type: Boolean, default: false } },
+  emits: ['dirty', 'saved', 'close', 'staged', 'done'],
   data() {
     return {
       GENDERS, RENTAL_STATUSES, RENT_TYPES, YEARS, PAY_MODES, FEES,
       sources: normSources(null), feeSet: normFees(null), autoFees: {},   // 23 Nov 2026: Booking settings (read once per visit)
       lead: null, tenant: null, bk: {}, properties: [], units: [], start: '', nameHits: [], nameTimer: null,
+      fillOf: null,   // 24 Nov 2026: the booking being filled in (prefill.fillId)
       draft: null, draftBusy: false, draftMsg: '', resume: null, resumeFees: '', agents: null, agentsMsg: '', staff: [], pendingSaved: false, invoice: null, invoiceNo: '',
       step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'bookings.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
     };
@@ -404,6 +419,10 @@ export default {
       await this.startBooking();
     } catch (e) { this.blocked = friendlyError(e, 'open the booking form'); }
     this.loading = false;
+    if (this.autoSave) {
+      if (!this.blocked) await this.saveBooking();
+      this.$emit('done', { ok: this.saved, error: this.blocked || this.formError || (this.saved ? '' : 'Not saved.') });
+    }
   },
   computed: {
     canDirect() { return DIRECT_BOOKERS.includes(me.role); },
@@ -463,6 +482,7 @@ export default {
     steps() {
       const all = this.allSteps, st = this.bk.rentalStatus;
       if (this.resume) return all;
+      if (this.fillOf) return all.filter(x => ['tenant', 'stay', 'rent', 'review'].includes(x.key));   // payments stay on the booking
       const hide = st === 'Unpaid' ? ['payment', 'handover'] : st === 'Paid' ? ['invoice'] : ['invoice', 'payment', 'handover'];
       return all.filter(x => !hide.includes(x.key));
     },
@@ -644,11 +664,84 @@ export default {
       this.units = []; this.formError = ''; this.autoFees = {};
       await this.refill();
       try { this.properties = await loadProperties(); } catch { this.properties = []; this.formError = 'Could not load the property list. Check your connection and reload.'; }
+      if (this.prefill?.bk) await this.restoreStaged(this.prefill.bk);
+      else if (this.prefill) await this.applyPrefill(this.prefill);
+      if (this.prefill?.fillId) await this.loadFill(this.prefill, !this.prefill.bk);
       this.start = typed(this.bk);
       this.ready = true;
+      if (this.prefill) { if (this.prefill.bk && !this.autoSave) this.step = Math.max(0, this.steps.length - 1); return; }   // no draft offer for eZee rows
       await this.findDraft();
     },
 
+    // 24 Nov 2026: an eZee row from Bulk Upload. Only the details eZee has are filled in; the type of rent follows the nights.
+    async applyPrefill(p) {
+      const b = this.bk, str = v => String(v ?? '').trim();
+      const src = str(p.source), hit = this.sources.find(x => x.active && x.label.toLowerCase() === src.toLowerCase());
+      Object.assign(b, { name: str(p.name) || b.name, propertyId: str(p.propertyId), arrival: str(p.arrival), departure: str(p.departure),
+        ezeeNo: str(p.ezeeNo), bookingSource: hit ? hit.label : src, note: str(p.note) });
+      if (b.propertyId) { try { this.units = await loadUnits(b.propertyId); } catch { this.units = []; } }
+      b.unitId = this.units.some(u => u.id === p.unitId) ? p.unitId : '';
+      const n = b.arrival && b.departure ? Math.round((Date.parse(b.departure) - Date.parse(b.arrival)) / 864e5) : 0;
+      if (n > 0) b.rentType = termValue({ nights: n, arrival: b.arrival, departure: b.departure });
+      if (+p.total > 0) { if (n >= LONG_TERM_NIGHTS) b.monthlyRent = ''; else b.rental = String(Math.round(+p.total * 100) / 100); }
+    },
+    // 24 Nov 2026: Fill in blank details. The booking's own details win; what it has blank keeps the file's value (applyPrefill).
+    async loadFill(p, overlay) {
+      const snap = await getDoc(doc(db, 'offlineBookings', p.fillId)).catch(e => { if (e.code === 'permission-denied') return null; throw e; });
+      if (!snap?.exists()) { this.blocked = `Booking ${p.fillId} was not found, or you can't open it.`; return; }
+      const d = snap.data();
+      if (d.status === 'cancelled') { this.blocked = `${d.bookingNo || p.fillId} is cancelled. Bring it back in Bookings first.`; return; }
+      this.fillOf = { id: p.fillId, ...d };
+      if (!overlay) return;
+      const t = d.tenantId ? await getDoc(doc(db, 'tenants', d.tenantId, 'private', 'main')).catch(() => null) : await getDoc(doc(db, 'offlineBookings', p.fillId, 'private', 'main')).catch(() => null);
+      const g = t?.exists() ? t.data() : {}, b = this.bk, v = x => (x || x === 0 ? String(x) : ''), keep = (k, val) => { if (String(val ?? '').trim()) b[k] = String(val); };
+      keep('name', g.name || g.fullName); keep('phone', g.phone); keep('email', g.email); keep('icPassport', g.icPassport); keep('nationality', g.nationality);
+      keep('dob', g.dob); keep('gender', g.gender); keep('genderOther', g.genderOther);
+      if (d.unitId && d.unitId !== b.unitId) { b.unitId = d.unitId; if (!this.units.some(u => u.id === d.unitId)) { try { this.units = await loadUnits(d.propertyId || b.propertyId); } catch { /* kept */ } } }
+      keep('arrival', d.arrival); keep('departure', d.departure); keep('rentType', d.rentType); keep('bookingSource', d.bookingSource); keep('agentId', d.agentId);
+      keep('salesPersonUid', d.salesPersonUid); keep('rentalStatus', d.rentalStatus || (d.status === 'pending' ? 'Unpaid' : ''));
+      if (d.longTerm) { keep('monthlyRent', v(d.monthlyRent || d.rental)); b.rental = ''; } else keep('rental', v(d.rental));
+      keep('ezeeNo', d.ezeeReservationNo);
+    },
+    // Saves the filled-in booking: its stay, rent and source, and the guest's details (on the tenant record, or on the booking
+    // for an imported one). Deposit, fees and payments stay as they are (the booking's Payments tab).
+    async saveFill() {
+      const b = this.bk, o = this.fillOf;
+      this.busy = true; this.formError = '';
+      try {
+        const unitCode = this.units.find(u => u.id === b.unitId)?.unitCode || await this.unitCodeOf(b.unitId);
+        const ag = this.isAgent ? this.agentOf(b.agentId) : null, sp = this.staff.find(x => x.uid === b.salesPersonUid);
+        const main = { unitId: b.unitId, unitCode, arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm, rentType: b.rentType,
+          bookingSource: b.bookingSource, agentId: ag?.id || '', agentName: ag?.name || '', agentCompany: ag?.company || '',
+          salesPersonUid: sp?.uid || o.salesPersonUid || '', salesPersonName: sp?.name || o.salesPersonName || '', rentalStatus: b.rentalStatus,
+          rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, ezeeReservationNo: b.ezeeNo.trim() };
+        const details = { name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(), icPassport: b.icPassport.trim(), nationality: b.nationality.trim(),
+          dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
+        const changes = Object.keys(main).filter(k => String(o[k] ?? '') !== String(main[k] ?? '')).map(k => ({ field: k, old: o[k] ?? null, new: main[k] }));
+        const batch = writeBatch(db), ref = doc(db, 'offlineBookings', o.id);
+        batch.update(ref, { ...main, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+        const gRef = o.tenantId ? doc(db, 'tenants', o.tenantId) : ref;
+        batch.set(doc(gRef, 'private', 'main'), o.tenantId ? { kind: 'tenant', ...details, searchWords: searchWords(b.name) } : details, { merge: true });
+        batch.set(doc(gRef, 'private', 'contact'), guestContact(details), { merge: true });
+        audit(batch, me, { action: 'offlineBooking.update', entity: `offlineBookings/${o.id}`, propertyId: o.propertyId || b.propertyId || null,
+          changes: [...changes, ...Object.keys(details).map(k => ({ field: `private.${k}`, old: null, new: null }))], reason: `Filled in from eZee ${b.ezeeNo.trim()} (Bulk Upload)` });
+        await batch.commit();
+        this.$emit('saved', { bookingId: o.id, bookingNo: o.bookingNo || o.id, tenantId: o.tenantId || null, ezeeNo: b.ezeeNo.trim(), pending: false, filled: true });
+        this.okMsg = `${o.bookingNo || o.id} updated from eZee ${b.ezeeNo.trim()}.`; this.saved = true;
+      } catch (e) { this.formError = errText(e, 'save the booking'); }
+      this.busy = false;
+    },
+    // A form already filled in and staged (Pending confirm to add): put back as it was, like a draft
+    async restoreStaged(json) {
+      let saved; try { saved = JSON.parse(json || '{}'); } catch { this.formError = 'This row could not be read. Fill in the form again.'; return; }
+      Object.assign(this.bk, saved, { existing: null, matchUsed: false });
+      if (!Array.isArray(this.bk.coTenants)) this.bk.coTenants = [];
+      if (!this.bk.customFees || typeof this.bk.customFees !== 'object') this.bk.customFees = {};
+      this.units = [];
+      if (this.bk.propertyId) { try { this.units = await loadUnits(this.bk.propertyId); } catch { this.formError = 'Could not load the units. Check your connection and try again.'; } }
+      await this.refill().catch(() => {});
+      if (saved.matchUsed && this.bk.existing) this.bk.matchUsed = true;
+    },
     // ---------- Awaiting payment (16 Nov 2026) ----------
     // The invoice of what is on the form (lib/booking-invoice.js); the long-term deposit is the worked-out 2 months
     formInvoice() {
@@ -738,7 +831,7 @@ export default {
     },
 
     // ---------- Drafts on the person's account ----------
-    draftRef() { return doc(db, 'users', me.user.uid, 'drafts', this.lead ? `reservation_${this.lead.id}` : 'reservation'); },
+    draftRef() { return doc(db, 'users', me.user.uid, 'drafts', this.lead ? `reservation_${this.lead.id}` : this.prefill?.ezeeNo ? `reservation_ezee_${String(this.prefill.ezeeNo).replace(/[^A-Za-z0-9_-]/g, '')}` : 'reservation'); },
     async findDraft() {
       this.draft = null; this.draftMsg = '';
       if (this.resume) return;
@@ -889,7 +982,8 @@ export default {
       const b = this.bk;
       return { date: b.payDate || today(), amount: toCents(b.amount), mode: b.payMode, propertyId: b.propertyId, propertyName: prop?.name || '', unitCode: unitCode || b.unitId || '', unitId: b.unitId || '',
         guest: b.name.trim(), purpose: b.note.trim() || `Booking ${bookingNo}`, bankRef: b.paymentRef.trim(), docsLink: b.docsLink || '', remarks: '',
-        status: 'Pending', verifiedByName: '', verifiedDate: '', bookingId, bookingNo,
+        ...(this.payChecked && can(me, 'offlinePayments.edit') ? { status: 'Checked', verifiedByName: me.name, verifiedDate: today() } : { status: 'Pending', verifiedByName: '', verifiedDate: '' }),
+        bookingId, bookingNo,
         forMonth: (b.arrival || b.payDate || today()).slice(0, 7),   // 19 Nov 2026: the booking's first payment is for its check-in month
         createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name };
     },
@@ -898,12 +992,14 @@ export default {
       try {
         const hit = x => x.status !== 'cancelled' && (x.arrival || '') < b.departure && (x.departure || '9999') > b.arrival;
         const offs = await getDocs(query(collection(db, 'offlineBookings'), where('propertyId', '==', b.propertyId), where('unitId', '==', b.unitId)));
-        for (const d of offs.docs) if (hit(d.data())) return { no: d.data().bookingNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
+        for (const d of offs.docs) if (d.id !== this.fillOf?.id && hit(d.data())) return { no: d.data().bookingNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
         const months = []; let y = +b.arrival.slice(0, 4), m = +b.arrival.slice(5, 7);
         const endKey = b.departure.slice(0, 7);
         for (let i = 0; i < 29; i++) { const k = `${y}-${String(m).padStart(2, '0')}`; months.push(k); if (k >= endKey) { m++; if (m > 12) { m = 1; y++; } months.push(`${y}-${String(m).padStart(2, '0')}`); break; } m++; if (m > 12) { m = 1; y++; } }
         const ez = await getDocs(query(collection(db, 'bookings'), where('propertyId', '==', b.propertyId), where('unitId', '==', b.unitId), where('departureMonth', 'in', months.slice(0, 30))));
-        for (const d of ez.docs) if (hit(d.data())) return { no: d.data().reservationNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
+        // 24 Nov 2026: the eZee booking of this same reservation (an eZee row opened here) is the same stay, not a clash
+        const own = String(b.ezeeNo || '').trim();
+        for (const d of ez.docs) if (hit(d.data()) && !(own && d.data().reservationNo === own)) return { no: d.data().reservationNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
       } catch (e) { console.warn('Could not check for clashing bookings:', e.code || e.message); }
       return null;
     },
@@ -925,7 +1021,7 @@ export default {
         : this.nights < 0 ? "Check-out can't be before check-in."
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent.'
         : this.feeSet.some(f => +this.feeVal(f) < 0) || +b.securityDeposit < 0 ? "The deposit and fees can't be below 0." : '';
-      const err = base || (pending ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
+      const err = base || (pending || this.fillOf ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
         : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
         : +b.amount > 0 && !b.note.trim() ? 'Add the purpose of the payment.'
         : +b.amount > 0 && !b.docsLink ? 'Upload at least one receipt for the payment.'
@@ -936,6 +1032,15 @@ export default {
       // Same unit, overlapping dates: refused (a check-out on the day of the next check-in is fine)
       const clash = await this.findClash(b);
       if (clash) { this.formError = `${b.unitId ? (this.units.find(u => u.id === b.unitId)?.unitCode || 'This unit') : 'This unit'} is already booked ${this.full(clash.arrival)} to ${this.full(clash.departure)} (${clash.no}). Pick other dates or another unit.`; this.focusFor(this.formError); return; }
+      // 24 Nov 2026: Bulk Upload eZee: checked, nothing saved yet; the row waits for Continue to confirm
+      if (this.stageOnly) {
+        const b2 = this.bk, unit = this.units.find(u => u.id === b2.unitId);
+        this.$emit('staged', { bk: JSON.stringify({ ...b2, existing: undefined }), pending,
+          label: [b2.name.trim(), unit?.unitCode || '', pending ? 'Awaiting payment' : b2.rentalStatus].filter(Boolean).join(' · ') });
+        this.start = typed(this.bk);
+        return;
+      }
+      if (this.fillOf) return this.saveFill();
       if (!ld) return this.saveDirect(pending);
 
       this.busy = true; this.formError = '';
@@ -1023,10 +1128,11 @@ export default {
 
     // Saved as Awaiting payment: no notifications yet (nothing to key into eZee); the invoice opens straight away
     afterPending(bookingNo, bookingId, tenantId, msg) {
+      this.$emit('saved', { bookingId, bookingNo, tenantId, ezeeNo: this.bk.ezeeNo.trim(), pending: true });
       linkTenant(tenantId, this.bk.propertyId);
       this.savedLink = { property: this.bk.propertyId, id: bookingId };
       this.clearDraft();
-      this.invoiceNo = bookingNo; this.openInvoice();
+      this.invoiceNo = bookingNo; if (!this.autoSave) this.openInvoice();
       this.okMsg = msg; this.pendingSaved = true; this.saved = true; this.busy = false; window.scrollTo(0, 0);
     },
     async saveDirect(pending = false) {
@@ -1088,6 +1194,7 @@ export default {
           link: '/Portfolio/bookings'
         });
 
+        this.$emit('saved', { bookingId: res.bookingId, bookingNo: res.bookingNo, tenantId: res.tenantId, ezeeNo: b.ezeeNo.trim(), pending: false });
         linkTenant(res.tenantId, b.propertyId);   // tenant.propertyIds (data access by property), best effort
         this.savedLink = { property: b.propertyId, id: res.bookingId };
         this.clearDraft();

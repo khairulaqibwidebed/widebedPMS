@@ -3,6 +3,7 @@
 //       Makes (or finds) the folder <root>/<kind>/<recordId> and opens a resumable upload. The browser then PUTs the file to uploadUrl.
 //   { action: 'file', kind, fileId }                        -> the file's bytes (max 4 MB) for the in-site viewer and downloads
 //   { action: 'list', kind, recordId }                      -> { folderLink, files: [{ id, name, mimeType, size, link }] }
+//   { action: 'ocr', name, data }                           -> { text } of a printed (picture-only) PDF, read by Drive (24 Nov 2026)
 // Company Drive (11 Nov 2026): DRIVE_SCRIPT_URL + DRIVE_SCRIPT_KEY. A small Apps Script under the company account
 // (apps-script-uploads/Code.gs, set up like Neo's Agreements script) hands this function a Drive access token and the
 // uploads folder ID; everything else below works as before. When those two are set, the GOOGLE_* and DRIVE_ROOT_FOLDER_ID
@@ -399,6 +400,32 @@ export default async function handler(req, res) {
       b.label = COMPLAINT[b.kind].ref.test(String(b.label || '')) ? b.label : '';
     }
     const tok = await driveToken(acct);
+    // ---- Read a printed PDF (24 Nov 2026, Bulk Upload > Cancel bookings) ----
+    // { action: 'ocr', name, data: <PDF as base64> } -> { text }. eZee's Cancelled Reservation report can only be printed to PDF,
+    // which holds pictures of the pages, not text. Drive reads the text (OCR) when the PDF is saved as a Google Doc; the
+    // Doc is read as plain text and deleted at once. Accounting and Directors only (the people who may cancel eZee bookings).
+    if (b.action === 'ocr') {
+      if (!['director', 'finance'].includes(await roleOf(user))) throw new HttpError(403, 'Only Accounting and Directors can read cancellation reports.');
+      const data = String(b.data || '');
+      if (!data || data.length > 4200000) throw new HttpError(400, 'The PDF is too big to read (3 MB at most). Print fewer pages at a time.');
+      const bytes = Buffer.from(data, 'base64');
+      if (bytes.subarray(0, 4).toString() !== '%PDF') throw new HttpError(400, 'That file is not a PDF.');
+      const boundary = 'pmsocr' + Date.now();
+      const meta = { name: `PMS reading ${String(b.name || 'report').replace(/[^\w .-]/g, '').slice(0, 60)} ${Date.now()}`,
+        mimeType: 'application/vnd.google-apps.document', parents: [rootId(acct)], appProperties: { pms: 'ocr' } };
+      const body = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`),
+        bytes, Buffer.from(`\r\n--${boundary}--`)]);
+      const made = await (await g(`${UPLOAD}/files?uploadType=multipart&ocrLanguage=en&supportsAllDrives=true&fields=id`, tok,
+        { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body })).json();
+      try {
+        const text = await (await g(`${API}/files/${made.id}/export?mimeType=text/plain`, tok)).text();
+        return res.status(200).json({ text });
+      } finally {
+        // Never left behind: deleted, or put in the trash when the account may not delete
+        await g(`${API}/files/${made.id}?supportsAllDrives=true`, tok, { method: 'DELETE' })
+          .catch(() => g(`${API}/files/${made.id}?supportsAllDrives=true`, tok, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }).catch(() => {}));
+      }
+    }
     // ---- Owner Files (17 Nov 2026) ----
     if (b.action === 'checkFolder' && await driveAccess(user) !== 'edit')
       throw new HttpError(403, 'You need Full access to Google Drive Folders to set a folder.');

@@ -244,6 +244,7 @@ import { clearCache } from '@/lib/cache.js';
 import { parseCSV, readEzee, bookingPTO, effectiveRates, DEFAULT_OTA, DM_STARTER, unitIdOf, byUnit, r2, nextMonth } from '@/lib/engine.js';
 import { legacyRate, arrangementName } from '@/lib/fee-types.js';
 import { parseFinanceStatement, sheetText, rowHash } from '@/lib/finance-import.js';
+import { saveEzeeBookings } from '@/lib/ezee-save.js';
 import { markDirty, markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
 import { loadProperties, loadUnits, loadSetup, latestVersion, monthDoc, completedUnitIds, audit, friendlyError, download, toCSV, loadXlsxLib } from '@/lib/finance-data.js';
@@ -256,7 +257,6 @@ import { stateOf, stateChoices, clashIn, newPropertyId, propertyFields, property
 const me = useSession();
 
 const pause = ms => new Promise(r => setTimeout(r, ms));
-const CHUNK = 120;   // bookings per batch: 2 writes each, plus up to 2 summary marks each, under Firestore's 500 limit
 let params = new URLSearchParams(location.search);
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const shortName = ym => { const [y, m] = ym.split('-'); return `${SHORT[+m - 1]} ${y}`; };
@@ -468,67 +468,9 @@ export default {
       };
     },
 
-    // Bookings: raw row kept as uploaded; names go to private/main (IT never sees them).
-    // A booking whose rawHash matches the saved one is not written again (and its unit's summary stays as it is);
-    // every booking that is written marks its unit's month summary stale in the same batch (and the unit it moved from).
+    // Bookings: saved by lib/ezee-save.js (24 Nov 2026: shared with Bulk Upload > New bookings, same code as before)
     async saveBookings(list, batchRef, from, to, check) {
-      const month = check.month, pid = check.property.id;
-      const tally = { created: 0, changed: 0, unchanged: 0, writes: 0 };
-      const retired = new Set();
-      let rows = list.map(r => {
-        const { private: priv, propertyCode, isNew, ...data } = r;
-        return { r, priv, data, isNew, hash: rowHash(data, priv) };
-      });
-      // Rows of one document (a plain reservation number) are fingerprinted together; multi-room rows have a document each.
-      const groups = new Map();
-      for (const x of rows) { const k = x.r.docId; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x.hash); }
-      rows = rows.map(x => {
-        const hs = groups.get(x.r.docId);
-        const hash = hs.length === 1 ? x.hash : rowHash({ rows: hs }, null);
-        return { ...x, hash, same: !x.isNew && check.savedHash?.[x.r.docId] === hash };
-      });
-      // A booking new to this month may be saved under another month (its check-out moved): that month's summary is stale too.
-      // Only the new ones are looked up, 30 at a time (a missing one costs nothing; at least one read per lookup).
-      const moved = {};
-      const fresh = [...new Set(rows.filter(x => x.isNew).map(x => x.r.reservationNo))];
-      // Staff look only in their own properties (lib/property-scope.js). Firestore allows 30 combinations per query,
-      // so they check 10 numbers x 3 properties at a time; a Director checks 30 numbers across every property.
-      const step = myProperties() ? 10 : 30;
-      for (let i = 0; i < fresh.length; i += step) {
-        const snap = await getScoped(scoped(query(collection(db, 'bookings'), where('reservationNo', 'in', fresh.slice(i, i + step))), 'propertyId', { per: 3 }));
-        snap.docs.forEach(d => { const o = d.data(); if (o.departureMonth && (o.departureMonth !== month || o.propertyId !== pid)) moved[d.id] = o; });
-      }
-      for (const x of rows) if (x.r.status === 'active') tally[x.isNew ? 'created' : x.same ? 'unchanged' : 'changed']++;
-      const write = rows.filter(x => !x.same);
-      for (let i = 0; i < write.length; i += CHUNK) {
-        const b = writeBatch(db);
-        const dirty = new Map();   // "propertyId|month" -> unit ids
-        const touch = (p, m, u) => { const k = `${p}|${m}`; if (!dirty.has(k)) dirty.set(k, []); dirty.get(k).push(u); };
-        for (const { r, priv, data, isNew, hash } of write.slice(i, i + CHUNK)) {
-          // Removed or moved by hand on Month-end: eZee's status and room must not undo it
-          if (check.held?.[r.docId] === 'removed') delete data.status;
-          if (check.held?.[r.docId] === 'moved') { delete data.unitId; delete data.unitCode; }
-          data.importBatchId = batchRef.id; data.lastImportedAt = serverTimestamp(); data.rawHash = hash;
-          if (isNew) data.firstImportedAt = serverTimestamp();
-          b.set(doc(db, 'bookings', r.docId), { ...data, ...stateTag(data.propertyId) }, { merge: true });   // carries its property's state
-          b.set(doc(db, 'bookings', r.docId, 'private', 'main'), priv, { merge: true });
-          // The same reservation saved earlier as ONE document (before rows were kept apart): retire it so it is not counted twice
-          if (r.docId !== r.reservationNo && check.savedUnit && r.reservationNo in check.savedUnit && !retired.has(r.reservationNo)) {
-            retired.add(r.reservationNo);
-            b.set(doc(db, 'bookings', r.reservationNo), { status: 'cancelled', supersededBy: 'split rows', lastImportedAt: serverTimestamp() }, { merge: true });
-            touch(pid, month, check.savedUnit[r.reservationNo] || null);
-          }
-          touch(pid, month, r.unitId || null);
-          if (!isNew && check.savedUnit?.[r.docId] !== r.unitId) touch(pid, month, check.savedUnit[r.docId] || null);   // room move
-          const o = moved[r.docId];
-          if (o) touch(o.propertyId, o.departureMonth, o.unitId || null);
-        }
-        for (const [k, ids] of dirty) { const [p, m] = k.split('|'); markDirty(b, p, m, ids); }
-        await b.commit();
-        tally.writes += 2 * Math.min(CHUNK, write.length - i);
-        this.percent = Math.round(from + (to - from) * Math.min(1, (i + CHUNK) / write.length));
-      }
-      return tally;
+      return saveEzeeBookings(list, batchRef, check, f => { this.percent = Math.round(from + (to - from) * f); });
     },
 
     // ---- Finance's completed statement for a past month (reference only) ----

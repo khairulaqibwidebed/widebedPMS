@@ -1,4 +1,13 @@
 rules_version = '2';
+<<<<<<< HEAD
+// Draft 1.09, 24 Nov 2026 (Crane): eZee bookings on Portfolio > Bookings (eZee bookings tab) and Bulk Upload > Monthly check.
+//   - bookings/{id} (eZee bookings): also read by Bookings Base or Full (not the AI Agent), so the booking team sees
+//     what was uploaded from eZee, not only Accounting. Writing is unchanged (Accounting / Directors).
+//   - bookings/{id}/private/main (guest name): also read by Bookings Full / Tenant Leads Full (guestFull), as offline bookings.
+//   - The Monthly check writes only what Accounting already could (new, changed and cancelled eZee bookings) and may save
+//     uploadedVia ('daily' | 'month' | 'report') on a booking; importBatches kind 'ezeeMonth'. No other change.
+=======
+>>>>>>> 1643985ac9ff74f6975ddf47adc8bc1786ebe0eb
 // Draft 1.08, 24 Nov 2026 (Khairul): offline payment Charges part { type: 'charges', amount, note } (note = the Purpose, <= 1000
 //   characters). Money for a booking kept apart from the rent. Only Offline Payments Edit creates one (the Operations bill path still
 //   needs a bill). No other change.
@@ -1057,11 +1066,17 @@ service cloud.firestore {
     // ===== Role dashboards (dash): Operations read today's check-ins/outs (parent docs only, no write).
     match /bookings/{reservationNo} {
       allow read: if staff() || isOps() || opsRole();
+      // Draft 1.09: Portfolio > Bookings > eZee bookings (Bookings Base or Full; never the AI Agent)
+      allow read: if !isAI() && canAny(['bookings.view', 'bookings.edit']);
       allow create, update: if finOrDir();
       // Draft 0.24 (Khairul): only a booking already removed by hand on Month-end (cancelled + removedByHand), by Finance/Director
       allow delete: if finOrDir() && resource.data.status == 'cancelled' && resource.data.get('removedByHand', null) != null;
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
+      // Draft 1.09: the guest's name on the eZee bookings tab (Accounting and Directors already read it through the catch-all)
+      match /private/{docId} {
+        allow read: if docId == 'main' && !isAI() && guestFull();
+      }
     }
 
     // Each unit's payout per month: completed statements, and Finance's past statements uploaded as reference.

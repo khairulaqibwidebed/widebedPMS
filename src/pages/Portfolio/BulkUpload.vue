@@ -9,7 +9,7 @@
       <router-link class="btn" to="/Portfolio/bulk-upload/converter" title="Turn your own Excel or CSV into the template layout">Converter</router-link>
     </div>
 
-    <ol class="steps bu-steps" aria-label="Steps">
+    <ol class="steps bu-steps" aria-label="Steps" v-show="!ezee">
       <li class="step" :class="{ current: !rows.length && !loading, done: rows.length || loading }"><span class="dot">1</span>Choose what and where</li>
       <li class="step" :class="{ current: loading, done: rows.length }"><span class="dot">2</span>Add the file</li>
       <li class="step" :class="{ current: rows.length && !done, done }"><span class="dot">3</span>Check and save</li>
@@ -29,6 +29,22 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2zm-2 8h14v10H5z"/></svg>
         <span><b>Booking details</b><small>Willow "Booking Details" sheet · saved as Offline bookings</small></span>
       </button>
+      <!-- 24 Nov 2026: eZee new and cancelled reservations, checked against the PMS before anything is saved (Accounting and Directors) -->
+      <template v-if="ezeeAllowed">
+        <button type="button" class="bu-kind" :class="{ on: kind === 'ezeeNew' }" :disabled="saving || ezeeBusy" @click="setKind('ezeeNew')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2zm-2 8h14v10H5zm6 1v3H8v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+          <span><b>New bookings (eZee)</b><small>eZee Reservation report · checked for clashes first</small></span>
+        </button>
+        <button type="button" class="bu-kind" :class="{ on: kind === 'ezeeCancel' }" :disabled="saving || ezeeBusy" @click="setKind('ezeeCancel')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2zm-2 8h14v10H5zm3.6 2.2L10.6 14 8.6 16l1.4 1.4 2-2 2 2 1.4-1.4-2-2 2-2-1.4-1.4-2 2-2-2z"/></svg>
+          <span><b>Cancel bookings (eZee)</b><small>Cancelled Reservation report (PDF) · confirm before cancelling</small></span>
+        </button>
+        <!-- 24 Nov 2026: once a month, the whole month's eZee report compared with what was uploaded day by day -->
+        <button type="button" class="bu-kind" :class="{ on: kind === 'ezeeMonth' }" :disabled="saving || ezeeBusy" @click="setKind('ezeeMonth')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v2H5a2 2 0 00-2 2v14a2 2 0 002 2h6.3a6 6 0 01-1-2H5V10h14v.3a6 6 0 012 1V6a2 2 0 00-2-2h-2V2h-2v2H9V2zm10 10a5 5 0 100 10 5 5 0 000-10zm2.3 3.3l1.4 1.4-4.2 4.2-2.7-2.7 1.4-1.4 1.3 1.3z"/></svg>
+          <span><b>Monthly check (eZee)</b><small>Whole month's Reservation report · find missed uploads, cancellations and clashes</small></span>
+        </button>
+      </template>
     </div>
 
     <!-- Properties: blank property file to fill in (public/templates) -->
@@ -90,7 +106,9 @@
 
 
     <!-- Drop zone -->
-    <label class="dropzone" :class="{ over: dragging }" v-show="!rows.length && !loading"
+    <BulkEzee v-if="ezee" :key="kind" :mode="kind" :properties="properties" @busy="ezeeBusy = $event" />
+
+    <label class="dropzone" :class="{ over: dragging }" v-show="!ezee && !rows.length && !loading"
            @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dragging = false; pick($event.dataTransfer.files)">
       <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l7 7h-4.5v6h-5v-6H5z"/></svg>
       <b>{{ allMode ? 'Drag all the property files here, or' : `Drag the ${{ properties: 'properties', owners: 'unit owners', bookings: 'booking details' }[kind]} file here, or` }}</b>
@@ -186,6 +204,7 @@
 import { markRaw } from 'vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import PropertyPicker from '@/components/PropertyPicker.vue';
+import BulkEzee from './BulkEzee.vue';
 import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimestamp, runTransaction, arrayUnion } from 'firebase/firestore';
 import { idPrefix } from '@/lib/lodgment.js';
 import { db } from '@/lib/firebase.js';
@@ -430,13 +449,16 @@ const COLS = {
 
 export default {
   popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
-  components: { PropertyPicker, OptionPicker },
+  components: { PropertyPicker, OptionPicker, BulkEzee },
   data() {
-    return { base: import.meta.env.BASE_URL, kind: 'properties', dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
+    return { base: import.meta.env.BASE_URL, kind: 'properties', ezeeBusy: false, dragging: false, loading: false, saving: false, savedSoFar: 0, error: '', done: '', fileName: '', columns: [], rows: [], sheetsNote: '',
       properties: [], driveStates: {}, propertyId: '', newProp: { name: '', code: '', state: '' }, sheets: [], sheet: '', parsed: markRaw({}), propHints: {}, sheetMap: {}, fix: null, bkCtx: null, bankFixes: {}, bankDraft: {}, bankErr: {}, tenantsMade: 0, tenantsLinked: 0 };
   },
   computed: {
-    previewCols() { return COLS[this.kind]; },
+    previewCols() { return COLS[this.kind] || []; },
+    // 24 Nov 2026: the eZee new and cancel uploads (their own screen, BulkEzee.vue)
+    ezee() { return ['ezeeNew', 'ezeeCancel', 'ezeeMonth'].includes(this.kind); },   // 24 Nov 2026: Monthly check
+    ezeeAllowed() { return me.role === 'director' || me.role === 'finance'; },
     // States a new property can get: every state for a Director, else my own
     // 17 Nov 2026: only states set up on Settings > States (with their Drive folder)
     myStateChoices() { const ok = setUpStates(this.driveStates); return stateChoices(me).filter(s => ok.includes(s)); },
