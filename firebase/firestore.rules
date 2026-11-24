@@ -1,4 +1,25 @@
 rules_version = '2';
+// Draft 1.09, 24 Nov 2026 (Crane): eZee bookings on Portfolio > Bookings (eZee bookings tab) and Bulk Upload > Monthly check.
+//   - bookings/{id} (eZee bookings): also read by Bookings Base or Full (not the AI Agent), so the booking team sees
+//     what was uploaded from eZee, not only Accounting. Writing is unchanged (Accounting / Directors).
+//   - bookings/{id}/private/main (guest name): also read by Bookings Full / Tenant Leads Full (guestFull), as offline bookings.
+//   - The Monthly check writes only what Accounting already could (new, changed and cancelled eZee bookings) and may save
+//     uploadedVia ('daily' | 'month' | 'report') on a booking; importBatches kind 'ezeeMonth'. No other change.
+// Draft 1.08, 24 Nov 2026 (Khairul): offline payment Charges part { type: 'charges', amount, note } (note = the Purpose, <= 1000
+//   characters). Money for a booking kept apart from the rent. Only Offline Payments Edit creates one (the Operations bill path still
+//   needs a bill). No other change.
+// Draft 1.07, 24 Nov 2026 (Khairul): Branch Directors (role 'branchDirector'). A Director's view and edit, limited to their own
+//   branches by the app (lib/property-scope.js), as for every other role. isDirector() is now true for them too; the new
+//   isTopDirector() (the real Director only) keeps Roles, config/* writes, brand logos, the old Maintenance Sheet settings
+//   and making or changing Directors. Their ticks: everything except bdDenied() (company-wide settings; KEEP IN STEP WITH
+//   BD_DENIED in lib/access.js). Staff accounts: Branch Directors add and edit staff only inside their own branches, Branch
+//   Directors included, never Directors (HR can't make Branch Directors). They update their own `properties` only with ids
+//   from their own branches (3 branches at most). branches/{id}: they edit only their own, add properties but not remove
+//   them, never create. maintenanceSheet/b_{branchId}: their own branches.
+// Draft 1.06, 23 Nov 2026 (Khairul): one Maintenance Sheet per branch: maintenanceSheet/b_{branchId} (Directors write, Accounting
+//   and Directors read, as maintenanceSheet/settings, which stays for the Apps Script's access check).
+// Draft 1.05, 23 Nov 2026 (Khairul): branches/{id} (Settings > Branch Management). All staff read; driveFolders.edit writes.
+//   users/{uid}.branches is saved with the rest of Staff accounts (no rule change there).
 // Draft 1.04, 23 Nov 2026 (Khairul): owner form tabs get their own ticks. owners/{id}/private/main (IC, date of birth,
 //   address, bank) is read only with the 'ownerCreds.view' tick (Owners · Credentials) plus Owners Base or Full, and written
 //   only with Owners Full plus that tick. private/contact stays Owners Full (read and write) as before. A tick list without
@@ -408,7 +429,12 @@ service cloud.firestore {
     function myRec()      { return signedIn() && exists(myRecord()) ? get(myRecord()).data : {}; }
     function roleOf(rec)  { return rec.get('active', true) == true ? rec.get('role', null) : null; }
     function role()       { return roleOf(myRec()); }
-    function isDirector() { return role() == 'director'; }
+    // Draft 1.07: Branch Directors get Director powers (limited to their branches in the app); isTopDirector() is the Director only
+    function isDirector() { return role() in ['director', 'branchDirector']; }
+    function isTopDirector() { return role() == 'director'; }
+    function isBD()       { return role() == 'branchDirector'; }
+    function myBranches() { return myRec().get('branches', []); }
+    function bdDenied()   { return ['bookingSettings.edit', 'agreementSetup.view', 'whatsNew.edit', 'playbook.edit', 'sops.edit']; }
     function isIT()       { return role() == 'it'; }
     function isHR()       { return role() == 'hr'; }
     function opsRole()    { return role() == 'operations'; }
@@ -453,10 +479,10 @@ service cloud.firestore {
     function permsFor(rec, r) { return r == null ? [] : (r == 'ai' ? roleDefault('ai') : ('perms' in rec ? rec.perms : roleDefault(r))); }
     function myPerms()    { let rec = myRec(); return permsFor(rec, roleOf(rec)); }
     // Draft 0.76: can() reads the record once; canIn() checks a list already read; canAny() checks several names at once.
-    function canIn(p, r, ps) { return r == 'director' || p in ps || (r != 'ai' && !('split.v2' in ps) && legacyIn(p, ps)); }
+    function canIn(p, r, ps) { return r == 'director' || (r == 'branchDirector' && !(p in bdDenied())) || p in ps || (r != 'ai' && !('split.v2' in ps) && legacyIn(p, ps)); }
     function can(p)       { let rec = myRec(); let r = roleOf(rec); return canIn(p, r, permsFor(rec, r)); }
     function canAnyIn(names, r, ps) {
-      return r == 'director' || ps.hasAny(names) || (r != 'ai' && !('split.v2' in ps)
+      return r == 'director' || (r == 'branchDirector' && names.removeAll(bdDenied()).size() > 0) || ps.hasAny(names) || (r != 'ai' && !('split.v2' in ps)
         && ((names.hasAny(['owners.view', 'bookings.view']) && 'portfolio.view' in ps)
           || (names.hasAny(['owners.edit', 'bookings.edit']) && 'portfolio.edit' in ps)
           || (names.hasAny(['bookings.view', 'bookings.edit']) && 'offlineInquiries.view' in ps)));
@@ -474,12 +500,12 @@ service cloud.firestore {
     function legacyHas(p) { return legacyIn(p, myPerms()); }
 
     // Finance data: any Finance page lets them read it; any Finance page ticked for Edit lets them change it.
-    function finEdit()    { let rec = myRec(); let r = roleOf(rec); return r == 'director' || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit']); }
-    function finView()    { let rec = myRec(); let r = roleOf(rec); return r == 'director' || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit', 'reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view']); }
+    function finEdit()    { let rec = myRec(); let r = roleOf(rec); return r in ['director', 'branchDirector'] || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit']); }
+    function finView()    { let rec = myRec(); let r = roleOf(rec); return r in ['director', 'branchDirector'] || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit', 'reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view']); }
     function finOrDir()   { return finEdit(); }
     function isFinance()  { return finEdit(); }
     // Finance-data readers, plus IT (view-only on everything, as before).
-    function staff()      { let rec = myRec(); let r = roleOf(rec); return r in ['director', 'it'] || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit', 'reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view']); }
+    function staff()      { let rec = myRec(); let r = roleOf(rec); return r in ['director', 'branchDirector', 'it'] || permsFor(rec, r).hasAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit', 'reports.view', 'ezeeUpload.view', 'expenses.view', 'monthEnd.view', 'invoices.view']); }
     // Offline Inquiries page: works the inquiries assigned to them (Create booking, tenants, direct bookings).
     function isOps()      { return can('offlineInquiries.view') && role() != 'ai'; }
     // Portfolio: View reads owners, properties, units and bookings. Edit (or Bulk Upload Edit) changes them,
@@ -491,7 +517,7 @@ service cloud.firestore {
     // Draft 1.04: Owners · Credentials. Older lists (no 'split.v3'): Owners Full or Bulk Upload Full give it.
     function ownerCredsOk() {
       let rec = myRec(); let r = roleOf(rec); let ps = permsFor(rec, r);
-      return r == 'director' || (r != null && r != 'ai' && ('ownerCreds.view' in ps
+      return r in ['director', 'branchDirector'] || (r != null && r != 'ai' && ('ownerCreds.view' in ps
         || (!('split.v3' in ps) && canAnyIn(['owners.edit', 'bulkUpload.edit'], r, ps))));
     }
     function ownerContactKeys() { return ['fullName', 'email', 'phone', 'whatsapp', 'wechat', 'coOwners', 'updatedAt', 'updatedBy']; }
@@ -576,7 +602,7 @@ service cloud.firestore {
 
     // ---- Issues: the tag each role answers to ('Admin' has no sign-in role yet) ----
     function myIssueTag() {
-      return { 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing', 'housekeeping': 'Housekeeping' }
+      return { 'branchDirector': 'Branch Director', 'finance': 'Finance', 'it': 'IT', 'hr': 'HR', 'operations': 'Operations', 'procurement': 'Procurement', 'marketing': 'Marketing', 'housekeeping': 'Housekeeping' }
         .get(role(), exists(roleDoc(role())) ? get(roleDoc(role())).data.get('name', '-') : '-');   // a role made on the Roles page is tagged by its name
     }
     // Draft 0.80: people tagged on the ticket (assigneeUids) too. Cheap checks first (1000-step limit per request).
@@ -594,7 +620,7 @@ service cloud.firestore {
     function dirSide(id) {
       let c = complaintNow(id);
       let r = role();
-      return c.kind == 'director' && (r == 'director' || (r == 'hr' && c.get('fromId', null) == request.auth.uid));
+      return c.kind == 'director' && (r in ['director', 'branchDirector'] || (r == 'hr' && c.get('fromId', null) == request.auth.uid));
     }
 
     // ================= Shared: private data, accounts, counters, logs =================
@@ -611,19 +637,38 @@ service cloud.firestore {
       allow read: if (guestFull() || finOrDir()) && resource.data.get('kind', '') == 'tenant';   // Draft 0.73: Full only
     }
 
+    // Draft 1.07: a staff record a Branch Director may write: never a Director, at least one branch, and only branches of their
+    // own. Another Branch Director is fine (Khairul 24 Nov 2026), with 3 branches at most.
+    function bdStaffOk(d) {
+      return d.get('role', '') != 'director' && d.get('branches', []) is list && d.get('branches', []).size() > 0
+        && d.get('branches', []).hasOnly(myBranches())
+        && (d.get('role', '') != 'branchDirector' || d.get('branches', []).size() <= 3);
+    }
+    function bdBranchIdsOk(bs) { return bs is list && bs.size() > 0 && bs.size() <= 3; }
+    function bdBranchProps(bs, i) { return bs.size() > i ? get(docPath('branches', bs[i])).data.get('propertyIds', []) : []; }
+
     match /users/{uid} {
       // Page ticks, when saved, are a list.
       function permsOk() { return !('perms' in request.resource.data) || request.resource.data.perms is list; }
       allow read: if signedIn() && (request.auth.uid == uid || staffAdmin() || isIT());
       // Agreement renewals: everyone picks who is in charge of an agreement from the staff list.
       allow read: if anyStaff();
-      allow create: if permsOk() && (isDirector() || (isHR() && request.resource.data.role != 'director'));
+      allow create: if permsOk() && (isTopDirector() || (isHR() && !(request.resource.data.role in ['director', 'branchDirector'])));
+      // Draft 1.07: Branch Directors add and edit staff only inside their own branches (Branch Directors too); never Directors.
+      allow create: if permsOk() && isBD() && bdStaffOk(request.resource.data);
+      allow update: if permsOk() && isBD() && uid != request.auth.uid && bdStaffOk(resource.data) && bdStaffOk(request.resource.data);
+      // Draft 1.07: a Branch Director's own property list follows their branches (lib/firebase.js profileOf). Only ids from their
+      // own branches (3 at most, written out: rules can't loop). 4 document reads at most.
+      allow update: if signedIn() && request.auth.uid == uid && changed().hasOnly(['properties']) && isBD()
+        && request.resource.data.properties is list && bdBranchIdsOk(resource.data.get('branches', []))
+        && request.resource.data.properties.hasOnly(bdBranchProps(resource.data.get('branches', []), 0)
+          .concat(bdBranchProps(resource.data.get('branches', []), 1)).concat(bdBranchProps(resource.data.get('branches', []), 2)));
       // A Director cannot remove their own Director role or switch themselves off (no lock-out).
-      allow update: if isDirector() && permsOk() && (uid != request.auth.uid
+      allow update: if isTopDirector() && permsOk() && (uid != request.auth.uid
         || (request.resource.data.role == 'director' && request.resource.data.get('active', true) == true));
       // HR: anyone except Directors and themselves, and never to Director.
       allow update: if isHR() && permsOk() && uid != request.auth.uid
-        && resource.data.role != 'director' && request.resource.data.role != 'director';
+        && !(resource.data.role in ['director', 'branchDirector']) && !(request.resource.data.role in ['director', 'branchDirector']);
       // Sign-in stamps lastLoginAt on your own record (Team activity).
       allow update: if signedIn() && !isAI() && request.auth.uid == uid && changed().hasOnly(['lastLoginAt']);
       // Draft 0.63 (lost in a later merge, put back in 0.76): whoever adds a property gets it on their own list. One id at
@@ -647,30 +692,38 @@ service cloud.firestore {
     // Roles page (Director only). Everyone signed in reads, so the app can show names and usual pages after sign-in.
     match /roles/{rid} {
       allow read: if signedIn();
-      allow create, update: if isDirector() && request.resource.data.perms is list && rid != 'director' && rid != 'ai';
+      allow create, update: if isTopDirector() && request.resource.data.perms is list && rid != 'director' && rid != 'ai' && rid != 'branchDirector';
       // Draft 0.74: the AI Agent's pages, view levels only
-      allow create, update: if isDirector() && rid == 'ai' && request.resource.data.perms is list
+      allow create, update: if isTopDirector() && rid == 'ai' && request.resource.data.perms is list
         && request.resource.data.perms.hasOnly(aiViewPerms());
-      allow delete: if isDirector() && rid != 'director' && rid != 'ai';
+      allow delete: if isTopDirector() && rid != 'director' && rid != 'ai' && rid != 'branchDirector';
     }
 
     // Draft 0.84: Maintenance Master Record Google Sheet settings (lib/maintenance-sheet.js).
     match /maintenanceSheet/{docId} {
       allow read: if billingWriter();
-      allow write: if docId == 'settings' && isDirector()
+      allow write: if docId == 'settings' && isTopDirector()
         && request.resource.data.scriptUrl is string && request.resource.data.scriptUrl.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec')
         && request.resource.data.get('sheetUrl', '') is string && request.resource.data.get('sheetUrl', '').size() <= 300;
+      // Draft 1.06: one Sheet per branch, maintenanceSheet/b_{branchId} (Branch Management > Links). An empty URL turns it off.
+      allow write: if docId.matches('b_[A-Za-z0-9]+') && (isTopDirector() || (isBD() && request.resource.data.get('branchId', '') in myBranches()))
+        && request.resource.data.keys().hasOnly(['branchId', 'scriptUrl', 'sheetUrl', 'updatedBy', 'updatedByName', 'updatedAt'])
+        && request.resource.data.branchId is string && docId == 'b_' + request.resource.data.branchId
+        && request.resource.data.scriptUrl is string
+        && (request.resource.data.scriptUrl == '' || request.resource.data.scriptUrl.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec'))
+        && request.resource.data.get('sheetUrl', '') is string && request.resource.data.get('sheetUrl', '').size() <= 300
+        && request.resource.data.updatedBy == request.auth.uid;
     }
 
     match /config/{docId} {
       allow read: if staff();
-      allow write: if isDirector();
+      allow write: if isTopDirector();
     }
 
     // Owner Leads defaults (Draft 0.70): read by whoever starts a listing; written by Directors (config/{docId} above).
     match /config/ownerLeadDefaults {
       allow read: if anyStaff();
-      allow write: if isDirector() && request.resource.data.setup is list && request.resource.data.setup.size() <= 40
+      allow write: if isTopDirector() && request.resource.data.setup is list && request.resource.data.setup.size() <= 40
         && request.resource.data.marketing is list && request.resource.data.marketing.size() <= 40;
     }
 
@@ -681,6 +734,21 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['states', 'updatedBy', 'updatedByName', 'updatedAt'])
         && request.resource.data.states is map && request.resource.data.states.size() <= 20
         && request.resource.data.updatedBy == request.auth.uid;
+    }
+    // Draft 1.05 (23 Nov 2026): Settings > Branch Management. Every staff member reads; the Branch Management tick
+    //   (driveFolders.edit, as the Drive folders) adds and edits. Never deleted (switch Active off instead).
+    match /branches/{id} {
+      allow read: if anyStaff();
+      allow create, update: if can('driveFolders.edit')
+        // Draft 1.07: Branch Directors edit only their own branches, never create one or take a property out
+        && (!isBD() || (resource != null && id in myBranches() && request.resource.data.propertyIds.hasAll(resource.data.get('propertyIds', []))))
+        && request.resource.data.keys().hasOnly(['name', 'state', 'active', 'propertyIds', 'driveLink', 'sheetLink', 'links',
+             'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.propertyIds is list && request.resource.data.propertyIds.size() <= 500
+        && request.resource.data.get('links', []) is list && request.resource.data.get('links', []).size() <= 12
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
     }
     // Draft 0.79: a property's own units folder (Property > Overview)
     match /config/driveUnits {
@@ -701,7 +769,7 @@ service cloud.firestore {
     // Draft 1.01: also the Booking settings tick (Portfolio > Bookings > gear > Booking settings > Invoice & T&Cs).
     match /config/invoiceDefaults {
       allow read: if anyStaff();
-      allow write: if (isDirector() || can('bookingSettings.edit'))
+      allow write: if (isTopDirector() || can('bookingSettings.edit'))
         && request.resource.data.keys().hasOnly(['header', 'terms', 'bank', 'updatedAt', 'updatedBy', 'updatedByName'])
         && request.resource.data.header is string && request.resource.data.header.size() <= 1000
         && request.resource.data.terms is string && request.resource.data.terms.size() <= 20000
@@ -712,7 +780,7 @@ service cloud.firestore {
     // here (its fields, who saved it, when, at most 30 rows). Checking every row by index went over Firestore's 1000-step
     // limit from 8 to 16 rows (emulator, 23 Nov 2026), so the rows (names up to 40, modes, amounts >= 0) are checked by
     // the settings page and cleaned again by every page that reads them (normSources / normFees). Cheap checks first.
-    function settingsWriter() { return isDirector() || can('bookingSettings.edit'); }
+    function settingsWriter() { return isTopDirector() || can('bookingSettings.edit'); }
     function settingsMeta(listKey) {
       let d = request.resource.data;
       return d.keys().hasOnly([listKey, 'updatedAt', 'updatedByUid', 'updatedByName'])
@@ -857,7 +925,7 @@ service cloud.firestore {
     // Brand logos: brandLogos/light and brandLogos/dark, a data URL each (<= 512 px). Director edits.
     match /brandLogos/{key} {
       allow read: if anyStaff();
-      allow create, update: if isDirector() && key in ['light', 'dark']
+      allow create, update: if isTopDirector() && key in ['light', 'dark']
         && request.resource.data.src is string && request.resource.data.src.size() <= 280000
         && request.resource.data.src.matches('^data:image/(png|webp);base64,.*');
       allow delete: if false;
@@ -995,11 +1063,17 @@ service cloud.firestore {
     // ===== Role dashboards (dash): Operations read today's check-ins/outs (parent docs only, no write).
     match /bookings/{reservationNo} {
       allow read: if staff() || isOps() || opsRole();
+      // Draft 1.09: Portfolio > Bookings > eZee bookings (Bookings Base or Full; never the AI Agent)
+      allow read: if !isAI() && canAny(['bookings.view', 'bookings.edit']);
       allow create, update: if finOrDir();
       // Draft 0.24 (Khairul): only a booking already removed by hand on Month-end (cancelled + removedByHand), by Finance/Director
       allow delete: if finOrDir() && resource.data.status == 'cancelled' && resource.data.get('removedByHand', null) != null;
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
+      // Draft 1.09: the guest's name on the eZee bookings tab (Accounting and Directors already read it through the catch-all)
+      match /private/{docId} {
+        allow read: if docId == 'main' && !isAI() && guestFull();
+      }
     }
 
     // Each unit's payout per month: completed statements, and Finance's past statements uploaded as reference.
@@ -1208,8 +1282,9 @@ service cloud.firestore {
     match /offlinePayments/{id} {
       // Draft 1.03: Rental / Utilities parts. At most 2 parts of the two shapes; the payment's amount is the parts added up.
       function partOk(x) {
-        return x is map && x.keys().hasOnly(['type', 'amount', 'forMonth', 'bills']) && x.amount is number && x.amount >= 0
-          && (x.type == 'rental' || (x.type == 'utilities' && x.bills is list && x.bills.size() <= 30));
+        return x is map && x.keys().hasOnly(['type', 'amount', 'forMonth', 'bills', 'note']) && x.amount is number && x.amount >= 0
+          && (x.type == 'rental' || (x.type == 'utilities' && x.bills is list && x.bills.size() <= 30)
+            || (x.type == 'charges' && x.get('note', '') is string && x.get('note', '').size() <= 1000));   // Draft 1.08
       }
       function partsOk(d) {
         return !('parts' in d) || (d.parts is list && d.parts.size() <= 2 && d.get('billIds', []) is list && d.get('billIds', []).size() <= 30
@@ -1572,7 +1647,7 @@ service cloud.firestore {
         && request.resource.data.link is string && request.resource.data.link.matches('/.*')
         && ((request.resource.data.recipientUid is string && request.resource.data.recipientRole == null)
           || (request.resource.data.recipientUid == null
-            && (request.resource.data.recipientRole in ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing', 'housekeeping']
+            && (request.resource.data.recipientRole in ['director', 'branchDirector', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing', 'housekeeping']
               // Draft 0.21: a role made on the Roles page (e.g. Maintenance)
               || (request.resource.data.recipientRole is string && exists(roleDoc(request.resource.data.recipientRole))))));
       // Read, unread, star and hide (Draft 0.22): the recipient adds or removes only their own uid in readBy / starredBy / hiddenBy.
@@ -1637,7 +1712,8 @@ service cloud.firestore {
           || (request.resource.data.anonymous == true && !('fromId' in request.resource.data)));
       // Director complaints: HR sends (Directors too, so the form can be tried out).
       allow create: if hrOrDir() && request.resource.data.kind == 'director' && request.resource.data.read == false
-        && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'read', 'fromId']) && request.resource.data.get('fromId', null) == request.auth.uid;
+        && newKeysOnly(['ref', 'kind', 'date', 'createdAt', 'read', 'fromId', 'branchId']) && request.resource.data.get('fromId', null) == request.auth.uid   // Draft 1.07: branchId
+        && (!('branchId' in request.resource.data) || request.resource.data.branchId is string);
       // Draft 0.25: HR opening a New staff complaint marks it Read by HR; the only change ever made to a staff complaint.
       allow update: if isHR() && resource.data.kind == 'staff' && resource.data.status == 'new'
         && changed().hasOnly(['status', 'readAt', 'readBy'])
@@ -1802,6 +1878,7 @@ service cloud.firestore {
       function agentKeys() {
         return ['name', 'company', 'agency', 'agencyOther', 'mobile', 'email', 'licenseNo', 'address', 'remarks', 'bankName', 'acctLast4',   // licenseNo: Draft 0.98
           'cardFront', 'cardBack', 'active', 'commDaily', 'commMonthly', 'commRev',   // comm*: Draft 0.95
+          'branchIds',   // Draft 1.07: the agent's branches
           'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'updatedBy', 'updatedByName'];
       }
       function cardOk(k) {
