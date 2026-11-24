@@ -1056,7 +1056,7 @@ export default {
   .op-table td { flex-wrap: wrap; row-gap: 2px; }
   .op-table td > div, .op-table td .clamp, .op-table td .op-code { white-space: normal; overflow: visible; text-overflow: clip; max-width: 100%; }
   .op-table td > div, .op-table td .op-code { flex: 0 1 auto; margin-left: auto; text-align: right; }
-  .op-table td .clamp { -webkit-line-clamp: unset; display: inline; }
+  .op-table td .clamp { -webkit-line-clamp: unset; line-clamp: unset; display: inline; }
 }   /* 1 1 100%: the buttons wrap instead of running off a phone (24 Nov 2026) */
 .who { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .tag.st-edited { background: #E6EEFB; color: #2B5DB8; }
