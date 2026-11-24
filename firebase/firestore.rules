@@ -1,10 +1,13 @@
 rules_version = '2';
+<<<<<<< HEAD
 // Draft 1.09, 24 Nov 2026 (Crane): eZee bookings on Portfolio > Bookings (eZee bookings tab) and Bulk Upload > Monthly check.
 //   - bookings/{id} (eZee bookings): also read by Bookings Base or Full (not the AI Agent), so the booking team sees
 //     what was uploaded from eZee, not only Accounting. Writing is unchanged (Accounting / Directors).
 //   - bookings/{id}/private/main (guest name): also read by Bookings Full / Tenant Leads Full (guestFull), as offline bookings.
 //   - The Monthly check writes only what Accounting already could (new, changed and cancelled eZee bookings) and may save
 //     uploadedVia ('daily' | 'month' | 'report') on a booking; importBatches kind 'ezeeMonth'. No other change.
+=======
+>>>>>>> 1643985ac9ff74f6975ddf47adc8bc1786ebe0eb
 // Draft 1.08, 24 Nov 2026 (Khairul): offline payment Charges part { type: 'charges', amount, note } (note = the Purpose, <= 1000
 //   characters). Money for a booking kept apart from the rent. Only Offline Payments Edit creates one (the Operations bill path still
 //   needs a bill). No other change.

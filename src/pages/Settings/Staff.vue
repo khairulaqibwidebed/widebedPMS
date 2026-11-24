@@ -221,11 +221,12 @@
               <span class="help" v-show="panel.role === AI_ROLE">AI Agent: read only, and it can't open the PMS screens. Its pages are set on Settings > Roles > AI Agent (Base only), never IC, bank details or payments.</span>
             </div>
             <!-- The properties they may see (12 Nov 2026, data access by property) -->
-            <StaffPropertiesField v-if="panel.role !== 'director' && panel.role !== AI_ROLE" v-model="panel.properties" :properties="allProperties" :disabled="cantEdit" />
+            <StaffPropertiesField v-if="panel.role !== 'director' && panel.role !== AI_ROLE" v-model="panel.properties" v-model:branch-ids="panel.branches" :branches="branches" :properties="allProperties" :disabled="cantEdit" />
             <p class="help" v-else-if="panel.role === 'director'">A Director sees every property.</p>
+            <p class="help" v-if="panel.role === 'branchDirector'">A Branch Director sees every property in their branches (1 to 3 branches), and properties follow the branch: one moved into the branch shows for them at their next sign-in or reload.</p>
 
             <!-- Page access: one tick per page, starting from the role's usual pages -->
-            <div class="field" v-if="panel.role !== 'director' && panel.role !== AI_ROLE">
+            <div class="field" v-if="panel.role !== 'director' && panel.role !== 'branchDirector' && panel.role !== AI_ROLE">
               <div class="perm-top">
                 <label>Page access</label>
                 <button type="button" class="link" @click="resetPerms()" :disabled="cantEdit || !panelCustom">Reset to {{ ROLE_LABEL[panel.role] }} defaults</button>
@@ -252,6 +253,7 @@
               <span class="help">Always open for everyone: Dashboard, Issues, Playbook, SOPs, Raise a Complaint and Profile. Statement Approvals, Brand Logos, Staff accounts, Audit log and complaints can't be ticked: they follow the role.</span>
             </div>
             <p class="help" v-else-if="panel.role === 'director'">A Director can open and change every page.</p>
+            <p class="help" v-else-if="panel.role === 'branchDirector'">A Branch Director can open and change every page a Director can, for their own branches only. Roles, Brand Logos, the Audit log and company-wide settings (booking settings, Agreement Setup, What's New, Playbook and SOP editing) stay with the Directors.</p>
 
             </div>
           </form>
@@ -279,6 +281,7 @@ import { useSession } from '@/stores/session.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { STATES, statesOf, statesText } from '@/lib/states.js';
 import StaffPropertiesField from '@/components/StaffPropertiesField.vue';
+import { loadBranches } from '@/lib/branches.js';
 import { HK_ROLE, hkEmail, usernameOf, usernameOk, cleanUsername, passwordProblem } from '@/lib/housekeeping.js';
 import { PAGES, ACCESS_ROWS, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel, levelsOf, rowLevel, setRowLevel, LEVEL_LABEL, levelLabel, AI_ROLE } from '@/lib/access.js';
 
@@ -318,6 +321,10 @@ async function createLogin(email, displayName, password = '') {
 
 // The property ids on a staff record (data access by property, 12 Nov 2026)
 const propsOf = u => (Array.isArray(u?.properties) ? u.properties.filter(Boolean) : []);
+const branchesOf = u => (Array.isArray(u?.branches) ? u.branches.filter(Boolean) : []);   // 23 Nov 2026: Branch Management
+// 24 Nov 2026: a Branch Director's own branches, and staff whose branches are all among them (rules Draft 1.07 bdStaffOk)
+const myBranchIds = () => (Array.isArray(me.branches) ? me.branches : []);
+const inMyBranches = u => { const b = branchesOf(u); return b.length > 0 && b.every(id => myBranchIds().includes(id)); };
 
 function audit(batch, action, uid, changes, reason) {
   batch.set(doc(collection(db, 'auditLog')), {
@@ -332,7 +339,7 @@ export default {
     return {
       usernameOf, ROLE_LABEL, CUSTOM_ROLES, GROUP_NOTES, LEVEL_LABEL, AI_ROLE, when, STATES, statesText, noStateOnly: false, allProperties: [],
       myUid: me.user.uid,
-      users: [], loading: true, error: '', okMsg: '',
+      users: [], branches: [], loading: true, error: '', okMsg: '',
       filter: 'active', roleFilter: '', search: '', changes: [], logsOpen: false, rolesOpen: false, logsLoading: false, logsError: '',
       filters: [{ key: 'active', label: 'Active' }, { key: 'off', label: 'Inactive' }],
       panel: {}, panelOpen: false
@@ -343,7 +350,8 @@ export default {
     ROLES() { return [...BUILTIN_ROLES, ...Object.keys(CUSTOM_ROLES).filter(r => CUSTOM_ROLES[r].active)]; },
     roleOptions() { return [{ value: '', label: 'All roles' }, ...[...this.ROLES, AI_ROLE].map(r => ({ value: r, label: ROLE_LABEL[r] || r }))]; },
     // AI Agent (16 Nov 2026): only a Director gives it
-    roleChoices() { return me.role === 'director' ? [...this.ROLES, AI_ROLE] : this.ROLES.filter(r => r !== 'director'); },
+    // 24 Nov 2026: only a Director makes Directors; Branch Directors also make Branch Directors (their own branches only); HR neither
+    roleChoices() { return me.role === 'director' ? [...this.ROLES, AI_ROLE] : this.ROLES.filter(r => r !== 'director' && (r !== 'branchDirector' || me.role === 'branchDirector')); },
     // The role's usual levels, to mark rows changed for this person
     rolePerms() { return presetOf(this.panel.role); },
     // The tick table, one heading per group (Finance, Portfolio…).
@@ -367,6 +375,8 @@ export default {
   async mounted() {
     await this.load();
     if ('add' in this.$route.query) this.openAdd();
+    // Branch Management links a staff name here (?open=uid)
+    else if (this.$route.query.open) { const u = this.users.find(x => x.id === this.$route.query.open); if (u) this.openEdit(u); }
   },
   methods: {
     async load() {
@@ -374,9 +384,16 @@ export default {
       try {
         // Every property, to pick from (Directors and HR manage staff; the list is not limited to their own properties)
         const [snap, ps] = await Promise.all([getDocs(collection(db, 'users')), getDocs(collection(db, 'properties')).catch(() => ({ docs: [] }))]);
+        this.branches = await loadBranches(true).catch(() => []);
         this.allProperties = ps.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.active !== false).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         this.users = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
+        // Branch Directors (24 Nov 2026): only their own branches, their properties and the staff in their branches (and themselves)
+        if (me.role === 'branchDirector') {
+          this.branches = this.branches.filter(b => myBranchIds().includes(b.id));
+          this.allProperties = this.allProperties.filter(p => (me.properties || []).includes(p.id));
+          this.users = this.users.filter(u => u.id === me.user.uid || inMyBranches(u));
+        }
       } catch (e) {
         console.error(e);
         this.error = e.code === 'permission-denied'
@@ -386,16 +403,20 @@ export default {
       this.loading = false;
     },
     // Someone whose saved ticks differ from their role's usual pages.
-    isCustom(u) { return u.role !== 'director' && Array.isArray(u.perms) && !samePerms(u.perms, presetOf(u.role)); },
+    isCustom(u) { return !['director', 'branchDirector'].includes(u.role) && Array.isArray(u.perms) && !samePerms(u.perms, presetOf(u.role)); },
     hasRoleFilter(u) { return (!this.roleFilter || u.role === this.roleFilter) && this.hasSearch(u) && (!this.noStateOnly || this.needsState(u)); },
     // An active account (not a Director) with no state: it sees no property data once the lock is on
-    needsState(u) { return u.active !== false && u.role !== 'director' && !propsOf(u).length; },
+    needsState(u) { return u.active !== false && u.role !== 'director' && u.role !== 'branchDirector' && !propsOf(u).length; },
     // "All (Director)" / "3 properties: Austin Hartamas, ..." / "None yet"
     propertiesText(u) {
       if (u.role === 'director') return 'All (Director)';
-      const ids = propsOf(u); if (!ids.length) return 'None yet';
+      if (u.role === 'branchDirector') { const bn = branchesOf(u).map(id => this.branches.find(x => x.id === id)?.name).filter(Boolean); return bn.length ? `All in ${bn.join(', ')}` : 'No branch yet'; }
+      const ids = propsOf(u);
+      const bn = branchesOf(u).map(id => this.branches.find(x => x.id === id)?.name).filter(Boolean);
+      const pre = bn.length ? `${bn.join(', ')}: ` : '';   // their branches first (23 Nov 2026)
+      if (!ids.length) return pre + 'None yet';
       const names = ids.map(id => this.allProperties.find(p => p.id === id)?.name || id);
-      return ids.length <= 2 ? names.join(', ') : `${ids.length} properties`;
+      return pre + (ids.length <= 2 ? names.join(', ') : `${ids.length} properties`);
     },
     // Search box: name, email or role (incl. "Intern"), any part, case ignored
     hasSearch(u) { const q = this.search.trim().toLowerCase(); return !q || [u.displayName, u.email, this.roleText(u)].some(x => String(x || '').toLowerCase().includes(q)); },
@@ -451,24 +472,26 @@ export default {
       } catch (e) { console.warn('audit read', e); this.changes = []; this.logsError = friendlyError(e, 'load the logs'); }
       this.logsLoading = false;
     },
-    roleColour(r) { return { director: 'red', finance: 'blue', it: 'grey', operations: 'amber', hr: 'green', procurement: 'grey', marketing: 'amber', housekeeping: 'blue' }[r] || 'grey'; },
+    roleColour(r) { return { director: 'red', branchDirector: 'red', finance: 'blue', it: 'grey', operations: 'amber', hr: 'green', procurement: 'grey', marketing: 'amber', housekeeping: 'blue' }[r] || 'grey'; },
     canSignIn(r) { return ALLOWED_ROLES.includes(r); },
     // HR manages staff accounts too, but can't touch Directors or make anyone a Director (the rules refuse it as well).
-    locked(u) { return me.role !== 'director' && u.role === 'director'; },
+    // 24 Nov 2026: Directors and Branch Directors are changed by a Director only; a Branch Director only staff in their own branches
+    // A Branch Director may change Branch Directors inside their own branches (24 Nov 2026), never Directors.
+    locked(u) { return me.role !== 'director' && (u.role === 'director' || (u.role === 'branchDirector' && me.role !== 'branchDirector') || (me.role === 'branchDirector' && !!u.id && !inMyBranches(u))); },
 
     // kind 'hk' = a housekeeper: username and password instead of an email (17 Nov 2026)
     openAdd(kind = 'staff') {
       this.okMsg = '';
       this.panelOpen = true;
       const role = kind === 'hk' ? HK_ROLE : 'finance';
-      this.panel = { mode: 'add', kind, displayName: '', email: '', username: '', password: '', showPw: false, role, perms: presetOf(role), properties: [], active: true, reason: '', isMe: false, busy: false, error: '', tab: 'account' };
+      this.panel = { mode: 'add', kind, displayName: '', email: '', username: '', password: '', showPw: false, role, perms: presetOf(role), properties: [], branches: [], active: true, reason: '', isMe: false, busy: false, error: '', tab: 'account' };
     },
     openEdit(u) {
       this.okMsg = '';
       this.panelOpen = true;
       this.panel = { mode: 'edit', kind: usernameOf(u.email) ? 'hk' : 'staff', username: usernameOf(u.email), newPassword: '', showPw: false,
         id: u.id, original: u, displayName: u.displayName || '', email: u.email, role: u.role || 'finance',
-        perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '', tab: 'account' };
+        perms: cleanPerms(permsOf({ role: u.role || 'finance', perms: u.perms })), properties: propsOf(u), branches: branchesOf(u), active: u.active !== false, reason: '', isMe: u.id === this.myUid, busy: false, error: '', tab: 'account' };
     },
     // Add staff: Username goes with the Housekeeping role, Work email with every other role (kept in step both ways)
     setKind(kind) {
@@ -490,11 +513,17 @@ export default {
       const hk = p.kind === 'hk', username = cleanUsername(p.username);
       const name = p.displayName.trim(), email = hk && p.mode === 'add' ? hkEmail(username) : p.email.trim().toLowerCase();
       // Saved only when different from the role's usual pages, so later changes to a role's defaults still reach them.
-      const noTicks = p.role === 'director' || p.role === AI_ROLE;   // Directors: everything; AI Agent: locked
+      const noTicks = p.role === 'director' || p.role === 'branchDirector' || p.role === AI_ROLE;   // Directors and Branch Directors: everything; AI Agent: locked
       const perms = noTicks ? [] : cleanPerms(p.perms);
       const custom = !noTicks && !samePerms(perms, presetOf(p.role));
-      const properties = p.role === 'director' ? [] : [...new Set(p.properties || [])].sort();   // Directors: always every property
+      const branches = p.role === 'director' ? [] : [...new Set(p.branches || [])].sort();
+      // Branch Directors (24 Nov 2026): their properties are their branches' properties (rules allow 3 branches at most)
+      const properties = p.role === 'director' ? [] : p.role === 'branchDirector'
+        ? [...new Set(this.branches.filter(b => branches.includes(b.id) && b.active).flatMap(b => b.propertyIds))].sort()
+        : [...new Set(p.properties || [])].sort();   // Directors: always every property
       if (!name) { p.tab = 'account'; return p.error = 'Enter their full name.'; }
+      if (p.role === 'branchDirector' && (!branches.length || branches.length > 3)) { p.tab = 'perms'; return p.error = 'A Branch Director needs 1 to 3 branches.'; }
+      if (me.role === 'branchDirector' && !branches.length) { p.tab = 'perms'; return p.error = 'Choose at least one of your branches.'; }
       // Housekeepers may start with no properties (17 Nov 2026)
       if (p.mode === 'add' && !noTicks && !hk && !properties.length) { p.tab = 'perms'; return p.error = 'Choose at least one property.'; }
       if (p.mode === 'add' && hk) {
@@ -513,12 +542,13 @@ export default {
         if (p.mode === 'add') {
           const uid = await createLogin(email, name, hk ? p.password : '');
           batch.set(doc(db, 'users', uid), {
-            displayName: name, email, role: p.role, active: true, properties, ...(hk ? { username } : {}),
+            displayName: name, email, role: p.role, active: true, properties, branches, ...(hk ? { username } : {}),
             ...(custom ? { perms } : {}),
             createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name
           });
           const changes = [{ field: 'role', old: null, new: p.role }];
           if (custom) changes.push({ field: 'perms', old: presetOf(p.role), new: perms });
+          if (branches.length) changes.push({ field: 'branches', old: [], new: branches });
           if (properties.length) changes.push({ field: 'properties', old: [], new: properties });
           audit(batch, 'staff.create', uid, changes, 'New staff account');
           await batch.commit();
@@ -529,16 +559,17 @@ export default {
           }
         } else {
           const o = p.original, changes = [];
-          const oldPerms = o.role === 'director' ? [] : cleanPerms(permsOf({ role: o.role, perms: o.perms }));
+          const oldPerms = ['director', 'branchDirector'].includes(o.role) ? [] : cleanPerms(permsOf({ role: o.role, perms: o.perms }));
           if (name !== (o.displayName || '')) changes.push({ field: 'displayName', old: o.displayName || '', new: name });
           if (p.role !== o.role) changes.push({ field: 'role', old: o.role || null, new: p.role });
           if (!samePerms(perms, oldPerms)) changes.push({ field: 'perms', old: oldPerms, new: perms });
+          if (p.role !== 'director' && !sameList(branches, branchesOf(o))) changes.push({ field: 'branches', old: branchesOf(o), new: branches });
           if (p.role !== 'director' && !sameList(properties, propsOf(o))) changes.push({ field: 'properties', old: propsOf(o), new: properties });
           if (p.active !== (o.active !== false)) changes.push({ field: 'active', old: o.active !== false, new: p.active });
           if (!changes.length) { p.busy = false; this.panelOpen = false; return; }
           if (!p.reason.trim()) { p.busy = false; p.tab = 'account'; return p.error = 'Add a short reason. It goes in the audit log.'; }
           batch.update(doc(db, 'users', p.id), {
-            displayName: name, role: p.role, active: p.active, perms: custom ? perms : deleteField(), ...(p.role === 'director' ? {} : { properties }),
+            displayName: name, role: p.role, active: p.active, perms: custom ? perms : deleteField(), ...(p.role === 'director' ? {} : { properties, branches }),
             updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name
           });
           audit(batch, 'staff.update', p.id, changes, p.reason.trim());

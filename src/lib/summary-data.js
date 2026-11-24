@@ -181,4 +181,4 @@ export async function propertyMonth(property, month, { me = null, canWrite = fal
 }
 
 // The person can write summaries back (the rules say the same).
-export const canWriteSummaries = me => ['director', 'finance'].includes(me?.role);
+export const canWriteSummaries = me => ['director', 'branchDirector', 'finance'].includes(me?.role);

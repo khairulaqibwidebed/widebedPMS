@@ -29,6 +29,29 @@ import { DEFAULT_ARRANGEMENTS, feeType } from '@/lib/fee-types.js';
 import { createProperty, saveOwner, saveUnit, freshOwnerCode, forgetProperties, forgetUnits } from '@/lib/portfolio-data.js';
 import { newPropertyId, clashIn, stateOf } from '@/lib/states.js';
 import { unitIdOf } from '@/lib/engine.js';
+import { loadBranches } from '@/lib/branches.js';
+
+// ---------- Branches (24 Nov 2026, Khairul) ----------
+// A listing's branch: its branchId, or (listings made before branches) the one active branch for its state, if only one.
+export function leadBranchId(l, branches) {
+  if (l?.branchId) return l.branchId;
+  const same = (branches || []).filter(b => b.active && b.state && b.state === l?.state);
+  return same.length === 1 ? same[0].id : '';
+}
+// Branch Directors see only their branches' listings; everyone else as before. branches = loadBranches() (null = not a Branch Director).
+export function leadsForMe(rows, branches, me = useSession()) {
+  if (me?.role !== 'branchDirector') return rows;
+  const mine = me.branches || [];
+  return (rows || []).filter(l => mine.includes(leadBranchId(l, branches)));
+}
+// The branch a new listing goes in: the creator's branch for that state, a Branch Director's first branch, else the state's only branch.
+async function newLeadBranch(state, me) {
+  const all = await loadBranches().catch(() => []), mine = me.branches || [];
+  const own = all.find(b => mine.includes(b.id) && b.state === state);
+  if (own) return own.id;
+  if (me.role === 'branchDirector' && mine.length) return mine[0];
+  return leadBranchId({ state }, all);
+}
 
 export const LINK_TYPE = 'newOwnerListing';
 export const LIST_LIMIT = 300;
@@ -36,10 +59,10 @@ export const FEE_PCT = 20;   // Procurement fee on renovation item costs
 
 // Who may create properties, units and owners in Portfolio (the rules: Directors and Finance, and Operations, Marketing and,
 // from rules Draft 0.66, Procurement create-only: no terms or bank details).
-export const PORTFOLIO_ADDERS = ['director', 'finance', 'operations', 'marketing', 'procurement'];
+export const PORTFOLIO_ADDERS = ['director', 'branchDirector', 'finance', 'operations', 'marketing', 'procurement'];
 // Who sees and edits the listing's private part (owner phone, email, IC, joint owners, Wifi password): Directors,
 // Procurement and (13 Nov 2026, rules Draft 0.66) Operations.
-export const CONTACT_READERS = ['director', 'procurement', 'operations'];
+export const CONTACT_READERS = ['director', 'branchDirector', 'procurement', 'operations'];
 
 // ---- Lead status (Phase 3, 11 Nov 2026). The TMS board "Owner Leads" has one column per status, both ways. ----
 // new = a TMS card nobody started in the PMS (no listing yet); the others are on the listing as `status`.
@@ -53,9 +76,9 @@ export const statusOf = l => (!l.status || l.status === 'inProgress' ? 'progress
 // Who changes a lead's status (Not proceeding, signed, moving the card): Directors, Procurement and (13 Nov 2026)
 // Operations. Marketing may only take it to Live (Go Live is theirs). Only Directors reopen a Not proceeding one.
 // The rules say the same (listingMover, Draft 0.66).
-export const STATUS_MOVERS = ['director', 'procurement', 'operations'];
+export const STATUS_MOVERS = ['director', 'branchDirector', 'procurement', 'operations'];
 // Who reads the Owner Leads board in the TMS (api/pms-task.js there)
-export const LEAD_READERS = ['director', 'procurement', 'marketing', 'operations'];
+export const LEAD_READERS = ['director', 'branchDirector', 'procurement', 'marketing', 'operations'];
 export const UNIT_TYPES = ['Studio', '1 bedroom', '2 bedroom', '3 bedroom', '4+ bedroom'];
 // Same list as Tenant Leads (Operations/SalesLeads.vue)
 export const SOURCES = ['Walk-in', 'Phone call', 'WhatsApp', 'Referral', 'Agent', 'Other'];
@@ -773,6 +796,7 @@ export async function createListing(fields, contact, task) {
   if (!fields.state) throw stop('Choose the state the listing is for.');
   const h = entry(task ? `Started from the task system task "${task.title}".` : 'Started the listing.');
   const defs = await loadLeadDefaults(true);   // Owner Leads > Defaults
+  const branchId = await newLeadBranch(fields.state, me);   // 24 Nov 2026
   return runTransaction(db, async tx => {
     const cRef = doc(db, 'counters', 'newOwnerListings');
     const cs = await tx.get(cRef);
@@ -781,7 +805,7 @@ export async function createListing(fields, contact, task) {
     const first = String(fields.remarks || '').trim();
     const data = { ...blank(), ...fields, ...(first ? { remarks: first, remarksLog: [remarkEntry(first)] } : {}), stage: 1, status: 'progress', startedOn: nowIso().slice(0, 10),
       tmsTaskId: task?.id || null, tmsSync: task ? { linked: false, pending: true, pendingNote: '', error: '', at: '' } : null,
-      createdByUid: me.user.uid, createdByName: me.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), history: [h] };
+      createdByUid: me.user.uid, createdByName: me.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), history: [h], branchId };
     data.setup = { ...data.setup, items: defs.setup.map(setupRow) };
     data.marketing = { ...data.marketing, items: defs.marketing.map(x => ({ title: x.title, group: x.group || '', on: false, note: '' })) };
     tx.set(cRef, { next: n + 1 });
@@ -826,7 +850,7 @@ export const listingLink = id => `/Procurement/listing-flow/${id}`;
 // Resolves { message }.
 export async function deleteListing(l, reason = '') {
   const me = useSession();
-  if (me.role !== 'director') throw Object.assign(new Error('Only Directors can delete a listing.'), { plain: true });
+  if (!['director', 'branchDirector'].includes(me.role)) throw Object.assign(new Error('Only Directors can delete a listing.'), { plain: true });
   const ref = listingRef(l.id), why = reason.trim();
   const b = writeBatch(db);
   b.delete(doc(ref, 'private', 'main'));
@@ -955,7 +979,7 @@ export async function reconcile(leads, listings) {
         continue;
       }
       if (lead.column === l.tmsColumn) continue;
-      const { changes, line } = leadChanges(l, lead.status, lead.column, { name: me.name, uid: me.user.uid, isDirector: me.role === 'director' });
+      const { changes, line } = leadChanges(l, lead.status, lead.column, { name: me.name, uid: me.user.uid, isDirector: ['director', 'branchDirector'].includes(me.role) });
       const b = writeBatch(db);
       if (line) {
         const h = entry(line);

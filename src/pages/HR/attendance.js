@@ -6,6 +6,7 @@
 import { db } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, serverTimestamp, Timestamp, deleteDoc, deleteField } from 'firebase/firestore';
 import { audit } from '@/lib/finance-data.js';
+import { seesStaff } from '@/lib/property-scope.js';
 
 // ---------- Settings ----------
 // The same defaults as the app and the Firestore rules (agreed 11 Nov 2026).
@@ -130,7 +131,7 @@ export async function loadFirstDay() {
 export async function loadStaff() {
   const snap = await getDocs(collection(db, 'users'));
   return snap.docs.map(d => ({ uid: d.id, ...d.data() }))
-    .filter(u => u.active !== false && u.role)
+    .filter(u => u.active !== false && u.role && seesStaff(u))   // Branch Directors: staff in their branches only (24 Nov 2026)
     .map(u => ({ uid: u.uid, name: u.displayName || u.email || 'Unknown', email: u.email || '', role: u.role, intern: !!u.intern }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

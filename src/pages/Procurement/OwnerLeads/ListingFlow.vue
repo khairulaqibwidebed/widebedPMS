@@ -131,8 +131,8 @@
         <div class="head-tools">
           <!-- 16 Nov 2026: for Directors a Manage listings drop-down (New listing, Set defaults, Update older listings); others get + New listing -->
           <div class="nl-menu" v-if="canEdit" v-esc="() => { nlMenu = false }">
-            <button type="button" class="btn btn-primary" :aria-expanded="String(nlMenu)" aria-haspopup="menu" @click="isDirector ? (nlMenu = !nlMenu) : openNewListing()">
-              {{ isDirector ? 'Manage listings' : '+ New listing' }}<svg v-if="isDirector" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg></button>
+            <button type="button" class="btn btn-primary" :aria-expanded="String(nlMenu)" aria-haspopup="menu" @click="isTop ? (nlMenu = !nlMenu) : openNewListing()">
+              {{ isTop ? 'Manage listings' : '+ New listing' }}<svg v-if="isTop" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg></button>
             <div class="nl-back" v-if="nlMenu" @click="nlMenu = false"></div>
             <div class="nl-pop" v-if="nlMenu" role="menu">
               <button type="button" role="menuitem" @click="nlMenu = false; openNewListing()"><b>New listing</b><small>For a unit with no task in the task system</small></button>
@@ -293,6 +293,8 @@ import { collection, doc, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { can } from '@/lib/access.js';
+import { loadBranches } from '@/lib/branches.js';
+import { leadsForMe } from '@/lib/owner-leads.js';
 import { liveMixin } from '@/lib/use-live.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { loadProperties } from '@/lib/finance-data.js';
@@ -337,16 +339,16 @@ export default {
     return {
       STAGES, LEAD_STATUS, UNIT_TYPES, SOURCES,
       newRemark: '',   // the Remarks "new comment" box: added to d.remarksLog on Save
-      uid: me.user?.uid || '', isDirector: me.role === 'director', mover: STATUS_MOVERS.includes(me.role), readsLeads: LEAD_READERS.includes(me.role),
+      uid: me.user?.uid || '', isDirector: ['director', 'branchDirector'].includes(me.role), isTop: me.role === 'director', mover: STATUS_MOVERS.includes(me.role), readsLeads: LEAD_READERS.includes(me.role),
       leads: [], leadsError: '', leadsLoaded: false, leadsIn: false, syncing: false, syncNotes: [], now: Date.now(),
       startLead: null, startForm: {}, startError: '', npOpen: false, npReason: '', delOpen: false, delReason: '', delTyped: '',
-      canEdit: can(me, 'newOwnerListings.edit'), hasInbox: ['director', 'procurement'].includes(me.role),
+      canEdit: can(me, 'newOwnerListings.edit'), hasInbox: ['director', 'branchDirector', 'procurement'].includes(me.role),
       canAddPortfolio: PORTFOLIO_ADDERS.includes(me.role), canSeeContact: CONTACT_READERS.includes(me.role),
-      whose: me.role === 'director' ? 'everyone' : 'mine',
+      whose: ['director', 'branchDirector'].includes(me.role) ? 'everyone' : 'mine',
       listings: [], listLoading: true, properties: [], owners: [], migrateOpen: false,
       moreOpen: false,     // the header's ⋯ menu (Not proceeding, Reopen)
       tmsSending: false,   // a save or Send now is on its way to the task system (progress bar instead of "Not sent")
-      mode: '', l: null, saved: null, d: null, c: blankContact(), c0: blankContact(), tab: 'agreement', wantStage: '', notFound: false, remoteChanged: false, newDirty: false, newOpen: false, nlMenu: false,
+      mode: '', l: null, saved: null, d: null, c: blankContact(), c0: blankContact(), tab: 'agreement', wantStage: '', notFound: false, remoteChanged: false, newDirty: false, newOpen: false, nlMenu: false, bdBranches: null,
       linked: [], tasksLoading: false, tasksError: '', showDetails: false, histOpen: false,
       formError: '', okMsg: '', error: '', loading: false, busy: false, pdfBusy: false
     };
@@ -374,7 +376,7 @@ export default {
     },
     // The page's list: every listing plus the TMS cards not started yet
     boardRows() { return leadRows(this.listings, this.leads, this.now); },
-    plan() { return this.isDirector ? migrationPlan(this.listings) : []; },
+    plan() { return this.isTop ? migrationPlan(this.listings) : []; },
     lastRemark() { const log = this.d?.remarksLog || []; return log[log.length - 1] || null; },
     dirty() { return !!this.d && !!this.saved && (!sameData(this.d, this.saved) || !sameData(this.c, this.c0) || !!this.newRemark.trim()); },
     stageKeys() { return this.d ? stagesFor(this.d) : STAGE_KEYS; },
@@ -404,12 +406,14 @@ export default {
     editable() { return this.canEdit && this.leadStatus !== 'cancelled'; }
   },
   created() { this.applyRoute(this.$route); },
-  mounted() {
+  async mounted() {
     loadProperties().then(list => { this.properties = list; }).catch(e => console.error('Could not load properties:', e));
     // Owners to pick on the Agreement stage (names from their private part)
     if (this.canAddPortfolio && this.canEdit) loadOwners(true, true).then(list => { this.owners = list; }).catch(e => console.warn('Could not load owners:', e.code || e.message));
+    // Branch Directors (24 Nov 2026): only their branches' listings
+    if (useSession().role === 'branchDirector') this.bdBranches = await loadBranches().catch(() => []);
     this.live('list', query(collection(db, 'newOwnerListings'), orderBy('createdAt', 'desc'), limit(LIST_LIMIT)),
-      rows => { const first = this.listLoading; this.listings = rows.map(toRow); this.listLoading = false; if (first) this.sync(); },
+      rows => { const first = this.listLoading; this.listings = leadsForMe(rows, this.bdBranches).map(toRow); this.listLoading = false; if (first) this.sync(); },
       { onError: e => { this.error = e.friendly; this.listLoading = false; } });
     // The TMS Owner Leads board, every 60 s (pauses while the tab is hidden)
     if (this.readsLeads) this.livePoll('leads', () => this.pollLeads(), 60000,
@@ -482,6 +486,7 @@ export default {
     onRow(id, row) {
       this.loading = false;
       if (!row) { this.notFound = true; this.l = null; this.d = null; return; }
+      if (useSession().role === 'branchDirector' && !leadsForMe([row], this.bdBranches || []).length) { this.notFound = true; this.l = null; this.d = null; return; }   // another branch's listing
       const r = toRow(row), first = !this.l || this.l.id !== id;
       if (first) {
         this.l = r; this.saved = draftOf(r); this.d = clone(this.saved);

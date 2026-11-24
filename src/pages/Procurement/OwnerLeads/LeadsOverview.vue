@@ -88,6 +88,8 @@ import { collection, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { can } from '@/lib/access.js';
+import { loadBranches } from '@/lib/branches.js';
+import { leadsForMe } from '@/lib/owner-leads.js';
 import { liveMixin } from '@/lib/use-live.js';
 import { ownerLeads } from '@/lib/tms.js';
 import { LEAD_STATUS, LEAD_KEYS, SOURCES, LIST_LIMIT, CONTACT_READERS, LEAD_READERS, toRow, leadRows, matches, full, listingLink,
@@ -104,7 +106,7 @@ export default {
   data() {
     const me = useSession();
     return { LEAD_STATUS, LEAD_KEYS, SOURCES, HINTS,
-      canEdit: can(me, 'newOwnerListings.edit'), canSeeContact: CONTACT_READERS.includes(me.role), isDirector: me.role === 'director', readsLeads: LEAD_READERS.includes(me.role),
+      canEdit: can(me, 'newOwnerListings.edit'), canSeeContact: CONTACT_READERS.includes(me.role), isDirector: ['director', 'branchDirector'].includes(me.role), readsLeads: LEAD_READERS.includes(me.role),
       listings: [], leads: [], contacts: {}, search: '', status: 'all', source: 'all', property: 'all',
       loading: true, busy: false, error: '', leadsError: '', okMsg: '', syncNotes: [], leadsIn: false, syncing: false, migrateOpen: false, now: Date.now() };
   },
@@ -118,11 +120,13 @@ export default {
         && (!s || matches({ id: r.listingId, property: r.property, unit: r.unit, ownerName: r.ownerName, title: r.subject, remarks: r.remarks }, s)))
         .sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.listingId || '').localeCompare(String(a.listingId || '')));
     },
-    plan() { return this.isDirector ? migrationPlan(this.listings) : []; }
+    plan() { return useSession().role === 'director' ? migrationPlan(this.listings) : []; }
   },
-  mounted() {
+  async mounted() {
+    // Branch Directors (24 Nov 2026): only their branches' listings
+    const branches = useSession().role === 'branchDirector' ? await loadBranches().catch(() => []) : null;
     this.live('list', query(collection(db, 'newOwnerListings'), orderBy('createdAt', 'desc'), limit(LIST_LIMIT)),
-      rows => { const first = this.loading; this.listings = rows.map(toRow); this.loading = false; if (first) this.sync(); },
+      rows => { const first = this.loading; this.listings = leadsForMe(rows, branches).map(toRow); this.loading = false; if (first) this.sync(); },
       { onError: e => { this.error = e.friendly; this.loading = false; } });
     if (this.readsLeads) this.livePoll('leads', () => this.pollLeads(), 60000, { onError: e => { this.leadsError = `Task system: ${e.message} New leads can't be shown right now; it tries again by itself.`; } });
   },

@@ -33,6 +33,6 @@ export function startPwa() {
 
 // Reload button on the bar: let the waiting version take over, then the page reloads (controllerchange above).
 export function applyUpdate() {
-  if (waiting) waiting.postMessage('skipWaiting');
+  if (waiting) { waiting.postMessage('skipWaiting'); setTimeout(() => location.reload(), 4000); }   // reload anyway if the switch-over is slow
   else location.reload();
 }

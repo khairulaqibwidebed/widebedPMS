@@ -74,7 +74,7 @@ export default {
   emits: ['close', 'saved'],
   data() {
     const s = this.doc.statement;
-    return { PAY, amt, dmy, monthName, busy: false, error: '', undoing: false, undoReason: '', isDirector: me.role === 'director',
+    return { PAY, amt, dmy, monthName, busy: false, error: '', undoing: false, undoReason: '', isDirector: ['director', 'branchDirector'].includes(me.role),
       f: { date: today(), amount: s.totals?.payout ?? '', ref: '' } };
   },
   computed: {

@@ -359,17 +359,17 @@ import { isCohOnly } from '@/lib/performance/calc.js';
 
 const session = useSession();
 // KPI review, rating and discussions: Directors only. can('performance.edit') doesn't grant it; firestore.rules agrees.
-const canManageKpi = computed(() => session.role === 'director');
+const canManageKpi = computed(() => ['director', 'branchDirector'].includes(session.role));
 // 19 Nov 2026 (firestore.rules Draft 0.90): HR also assign and edit KPIs on the "All employees" tab, for everyone except
 // themselves and the Directors (a Director assigns HR's). HR don't see ratings or review status (kpiSubmissions stay Director only).
-const canAssignKpi = computed(() => session.role === 'director' || session.role === 'hr');
+const canAssignKpi = computed(() => ['director', 'branchDirector', 'hr'].includes(session.role));
 
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
 const okMsg = ref('');
 // Director lands on the review dashboard by default; everyone else only ever sees their own KPIs.
-const tab = ref(session.role === 'director' ? 'admin' : 'mine');
+const tab = ref(['director', 'branchDirector'].includes(session.role) ? 'admin' : 'mine');
 
 const quarters = ref([]);
 const quarterId = ref('');

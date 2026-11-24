@@ -427,7 +427,7 @@ const bankShow = (k, v) => (k === 'bankAccount' ? `…${last4(v)}` : v);
 // Who may save bank details: Accounting, Directors, and anyone with the Bulk Upload Edit or Portfolio Edit tick
 // (Operations too, Khairul 12 Nov). The rules allow private/main bank fields for the same people (portfolioEditor()).
 function bankAllowed() {
-  if (me.role === 'director' || me.role === 'finance') return true;
+  if (['director', 'branchDirector', 'finance'].includes(me.role)) return true;
   return can(me, 'bulkUpload.edit') || can(me, 'portfolio.edit');
 }
 

@@ -47,7 +47,7 @@ export const PAGES = [
   { key: 'performance',      label: 'Performance Management',        group: 'Performance', to: ['/Performance/quarters'] },
   // 17 Nov 2026: Google Drive Folders (Settings). Base: see the page and the link check. Full: set a state's folder, create
   // unit folders, change a property's units folder. KEEP IN STEP WITH driveFolders in firestore.rules and api/drive.js.
-  { key: 'driveFolders',     label: 'Google Drive Folders',          group: 'Company Settings', to: ['/Settings/states'] },
+  { key: 'driveFolders',     label: 'Branch Management',             group: 'Company Settings', to: ['/Settings/branches', '/Settings/states'] },   // 23 Nov 2026: was Google Drive Folders (same key)
   // 17 Nov 2026: shown only on the AI Agent role (aiOnly). Everyone else reads these through their role.
   { key: 'aiIssues',         label: 'Issues (tickets and replies)',  group: 'AI Agent only', to: [], viewOnly: true, aiOnly: true },
   { key: 'aiAnnouncements',  label: 'Announcements',                 group: 'AI Agent only', to: [], viewOnly: true, aiOnly: true },
@@ -104,7 +104,7 @@ export const GROUP_NOTES = {
   Portfolio: 'Owners Base: names and contact only. Owners Full: can add and edit owners. Owners · Credentials: see (and with Full, change) IC, date of birth, address and bank details. Owners · Units & payouts: the owner\'s units, carried forward and payout history. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data. Early termination: end a booking early (move-out date, reason, the notice from the tenant) and record the deposit refund; they also need Bookings to open the booking. Only Directors can undo it. Booking settings: the gear on Bookings (invoice header, the default T&Cs and bank details).',
   Content: 'Everyone can read these. Full lets them change the text (What\'s New: post, edit and delete updates).',
   'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
-  'Company Settings': 'Google Drive Folders Base: see each state\'s folder and which properties and units are linked. Full: set a state\'s folder, create unit folders and change a property\'s units folder.',
+  'Company Settings': 'Branch Management Base: see the branches, their properties, links and staff, and each state\'s Drive folder. Full: add and edit branches, set a state\'s folder, create unit folders and change a property\'s units folder.',
   Marketing: 'Agent Database Base: the list of agents and their contact details. Full: add and edit agents and see their bank account number.',
   Performance: 'Quarterly performance management (quarters, COH, KPI, TMS administration). Everyone can still see their own results without this access.'
 };
@@ -174,9 +174,25 @@ export function permsOf(me) {
   return upgradePerms(Array.isArray(me.perms) ? me.perms : (PRESETS[me.role] || []));
 }
 
-// Can this person do this? e.g. can(me, 'expenses.edit'). Directors can do everything.
+// Branch Directors (24 Nov 2026, Khairul): a Director's view and edit, but only for their own branches (users/{uid}.branches;
+// their property list is worked out from those branches, lib/firebase.js profileOf). Company-wide settings stay with
+// Directors (view only for Branch Directors, may change later). KEEP IN STEP WITH bdDenied() in firestore.rules.
+export const BRANCH_DIRECTOR = 'branchDirector';
+export const DIRECTOR_ROLES = ['director', BRANCH_DIRECTOR];
+export const BD_DENIED = ['bookingSettings.edit', 'agreementSetup.view', 'whatsNew.edit', 'playbook.edit', 'sops.edit'];
+// dirLike: Director or Branch Director (Director powers; what they see is limited by lib/property-scope.js).
+// isTopDirector: the real Director only (Roles, company-wide settings, making Directors, every branch).
+export const dirLike = me => !!me && DIRECTOR_ROLES.includes(me.role);
+export const isTopDirector = me => !!me && me.role === 'director';
+export const isBranchDirector = me => !!me && me.role === BRANCH_DIRECTOR;
+
+// Can this person do this? e.g. can(me, 'expenses.edit'). Directors can do everything; Branch Directors everything
+// except the company-wide ticks in BD_DENIED.
 export function can(me, perm) {
-  return !!me && !!me.role && (me.role === 'director' || permsOf(me).includes(perm));
+  if (!me || !me.role) return false;
+  if (me.role === 'director') return true;
+  if (me.role === BRANCH_DIRECTOR) return !BD_DENIED.includes(perm);
+  return permsOf(me).includes(perm);
 }
 
 // The tickable page a route belongs to, or null (always-on and role-only pages).
@@ -197,7 +213,10 @@ export function canOpen(meta, me, allRoles = []) {
   if (!me || !me.role) return false;
   if (meta.need) return can(me, meta.need);   // 23 Nov 2026: one exact tick, e.g. 'bookingSettings.edit' (an Edit-only tick)
   if (meta.perm) return can(me, meta.perm + '.view');
-  return (meta.roles || allRoles).includes(me.role);
+  const roles = meta.roles || allRoles;
+  // Branch Directors open every Director page except the company-wide ones (meta.topOnly)
+  if (me.role === BRANCH_DIRECTOR && !meta.topOnly && roles.includes('director')) return true;
+  return roles.includes(me.role);
 }
 
 // Tidy a tick list: older lists upgraded, known keys only, Edit adds View, fixed order, no duplicates, SPLIT_MARK kept.

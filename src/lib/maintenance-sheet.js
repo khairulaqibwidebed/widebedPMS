@@ -14,10 +14,11 @@
 //   audit line "updated from Google Sheet". Edits to other synced columns are put back by the script / the next sync.
 // - Columns the PMS leaves blank (Status_One, Email_Status_One, Status_Two, Email_Status_Two, Update_By, Cost On) are the
 //   team's own: never written or read by the PMS.
-import { doc, getDoc, setDoc, writeBatch, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, writeBatch, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase.js';
 import { audit } from '@/lib/finance-data.js';
 import { normState } from '@/lib/states.js';
+import { loadBranches } from '@/lib/branches.js';
 import { loadMaintenance, masterContext, MASTER_HEADERS, r2, myMonth, localNow, ticketMonth, maintStatus, MAINT_STATUS } from '@/lib/maintenance.js';
 
 export const SHEET_EDITABLE = ['Area', 'Action Date', 'Solution/Action Taken', 'Cost Remarks'];
@@ -45,6 +46,52 @@ export async function saveSheetSettings(me, { scriptUrl, sheetUrl, states = [] }
   await setDoc(doc(db, 'maintenanceSheet', 'settings'), data);
   return data;
 }
+
+// ---------- one Sheet per branch (23 Nov 2026, Khairul) ----------
+// maintenanceSheet/b_{branchId}: { branchId, scriptUrl, sheetUrl, updated* }, set on Branch Management > a branch > Links
+// (Directors). Each branch's Sheet gets only its own properties' tickets. maintenanceSheet/settings stays: every Apps Script
+// checks the caller can read it (Code.gs), and until a branch has its own doc it is the old single Sheet (its
+// "Only properties in" states). A branch saved with the same web app URL replaces it (no ticket goes to a Sheet twice).
+export const branchSheetId = branchId => `b_${branchId}`;
+export async function loadSheetConfigs() {
+  let docs = [], branches = [];
+  try { docs = (await getDocs(collection(db, 'maintenanceSheet'))).docs.map(d => ({ id: d.id, ...d.data() })); } catch { return []; }   // not Accounting / Director
+  try { branches = await loadBranches(); } catch { branches = []; }
+  const out = [];
+  for (const d of docs.filter(x => x.id.startsWith('b_') && x.scriptUrl)) {
+    const b = branches.find(x => x.id === d.branchId);
+    out.push({ key: d.id, branchId: d.branchId, name: b?.name || 'Branch', scriptUrl: d.scriptUrl, sheetUrl: d.sheetUrl || b?.sheetLink || '', only: { propIds: b?.propertyIds || [] } });
+  }
+  const old = docs.find(x => x.id === 'settings');
+  if (old?.scriptUrl && !out.some(c => c.scriptUrl === old.scriptUrl)) {
+    const states = (old.states || []).map(normState).filter(Boolean);
+    const names = branches.filter(b => states.includes(normState(b.state))).map(b => b.name);
+    out.push({ key: 'settings', branchId: null, name: names.join(', ') || (states.length ? states.join(', ') : 'All properties'), scriptUrl: old.scriptUrl, sheetUrl: old.sheetUrl || '', only: { states }, legacy: true });
+  }
+  return out;
+}
+// Directors: save (or turn off, with an empty URL) a branch's Sheet. Also makes maintenanceSheet/settings if it was never
+// set up, because the Apps Script checks the caller can read it.
+export async function saveBranchSheet(me, branch, { scriptUrl, sheetUrl }) {
+  scriptUrl = String(scriptUrl || '').trim(); sheetUrl = String(sheetUrl || '').trim();
+  if (scriptUrl && !URL_OK.test(scriptUrl)) throw Object.assign(new Error('Paste the web app URL from Deploy > Manage deployments (it starts with https://script.google.com/macros/s/ and ends with /exec).'), { plain: true });
+  if (sheetUrl && !/^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl)) throw Object.assign(new Error('The Sheet link should start with https://docs.google.com/spreadsheets/'), { plain: true });
+  const data = { branchId: branch.id, scriptUrl, sheetUrl, updatedBy: me.user.uid, updatedByName: me.name, updatedAt: serverTimestamp() };
+  await setDoc(doc(db, 'maintenanceSheet', branchSheetId(branch.id)), data);
+  if (scriptUrl && !(await loadSheetSettings())?.scriptUrl) await saveSheetSettings(me, { scriptUrl, sheetUrl, states: branch.state ? [branch.state] : [] });
+  return data;
+}
+export async function loadBranchSheet(branchId) {
+  try { const s = await getDoc(doc(db, 'maintenanceSheet', branchSheetId(branchId))); return s.exists() ? s.data() : null; }
+  catch { return null; }
+}
+// Tickets for one Sheet: its branch's properties, or (old settings) its states
+const onlyOf = only => (Array.isArray(only) ? { states: only } : only || {});
+const keep = (only, ctx) => t => {
+  const o = onlyOf(only);
+  if (o.propIds) return o.propIds.includes(t.propertyId);
+  return !o.states?.length || o.states.includes(ctx?.propState[t.propertyId]);
+};
 
 // ---------- the script ----------
 async function call(url, payload) {
@@ -111,12 +158,13 @@ async function applyEdits(me, t, edits) {
 
 // Sync these tickets (all from one year) with the Sheet: Sheet edits first, then rewrite rows that differ.
 // sheetRows: what pull returned (re-pulled when not given). Returns { fromSheet, toSheet }.
-async function syncTickets(me, url, year, tickets, sheetRows, link = '', computed = [], months = null, states = []) {
+async function syncTickets(me, url, year, tickets, sheetRows, link = '', computed = [], months = null, only = []) {
+  if (onlyOf(only).propIds) tickets = tickets.filter(keep(only, null));   // a branch's Sheet: its properties only (fewer reads)
   const [ctx, j] = await Promise.all([   // units/owners and the Sheet at the same time
     tickets.length ? masterContext(tickets) : null,
     sheetRows ? null : call(url, { action: 'pull', year, headers: SHEET_HEADERS, months })]);
   if (j) { sheetRows = j.rows || []; link = j.url || ''; computed = j.computed || []; }
-  if (states.length && ctx) tickets = tickets.filter(t => states.includes(ctx.propState[t.propertyId]));   // e.g. the KL Sheet: KL properties only
+  tickets = tickets.filter(keep(only, ctx));   // this Sheet's branch (or old settings: its states) only
   const byId = Object.fromEntries(sheetRows.map(r => [String(r.ID || '').trim(), r]));
   let fromSheet = 0;
   for (const t of tickets) {
@@ -131,13 +179,13 @@ async function syncTickets(me, url, year, tickets, sheetRows, link = '', compute
 }
 
 // Full sync of some months of one year (Maintenance page load: its month; "Sync Google Sheet": the whole year so far)
-export async function syncMonths(me, url, months, onStep = () => {}, states = []) {
+export async function syncMonths(me, url, months, onStep = () => {}, only = []) {
   const year = months[0].slice(0, 4), tickets = [];
   const want = months.filter(x => x <= myMonth());
   onStep('Reading tickets…');
   (await Promise.all(want.map(m => loadMaintenance(m)))).forEach(list => tickets.push(...list));   // all months at once
   onStep('Syncing with Google Sheet…');
-  return syncTickets(me, url, year, tickets, null, '', [], want, states);   // the script reads only these month tabs
+  return syncTickets(me, url, year, tickets, null, '', [], want, only);   // the script reads only these month tabs
 }
 // Sheet settings (Director): make a year's file now instead of at its first sync. Returns { url, name, tabs }.
 export async function makeYearFile(url, year) {
@@ -148,7 +196,7 @@ export const yearMonths = year => Array.from({ length: 12 }, (_, i) => `${year}-
 
 // Quick check (every 2 minutes while the page is open): only tickets the Sheet has new edits for. Costs no Firestore
 // reads when nothing was edited.
-export async function syncSheetEdits(me, url, year, states = []) {
+export async function syncSheetEdits(me, url, year, only = []) {
   const j = await call(url, { action: 'pull', year, headers: SHEET_HEADERS }), sheetRows = j.rows || [];
   const ids = [...new Set(sheetRows.filter(pendingEdit).map(r => String(r.ID || '').trim()).filter(id => /^IS-\d+$/.test(id)))];
   if (!ids.length) return { fromSheet: 0, toSheet: 0, year, link: j.url || '' };
@@ -158,7 +206,7 @@ export async function syncSheetEdits(me, url, year, states = []) {
     const t = s?.exists() ? { id, ...s.data() } : null;
     if (t && t.status === 'done' && t.type === 'customer' && t.completion) tickets.push(t);
   }
-  return syncTickets(me, url, year, tickets, sheetRows, j.url || '', j.computed || [], null, states);
+  return syncTickets(me, url, year, tickets, sheetRows, j.url || '', j.computed || [], null, only);
 }
 
 // A ticket removed for good (18 Nov 2026): its row goes from every month tab of that year's file

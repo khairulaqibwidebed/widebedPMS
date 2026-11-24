@@ -26,11 +26,13 @@
 
     <section class="card">
       <div class="filters">
-        <div class="field grow"><label>Search</label><input class="input" v-model="q" placeholder="Search by name, property, ref…"></div>
+        <!-- 24 Nov 2026 (Khairul): Status drop-down back (removed 20 Nov), right after Search; it and the status cards above set the same filter.
+             Search fills the rest of the row. -->
+        <div class="field f-search"><label>Search</label><input class="input" v-model="q" placeholder="Search by name, property, ref…"></div>
+        <div class="field f-status"><label>Status</label><OptionPicker class="fld-pick" v-model="status" :options="STATUS_OPTS" label="Status" /></div>
         <div class="field"><label>Month</label><MonthPicker v-model="month" all-label="All months" @change="pickMonth" /></div>
         <FormField label="From date" type="date" v-model="from" @input="month = ''" />
         <FormField label="To date" type="date" v-model="to" @input="month = ''" />
-        <!-- 20 Nov 2026 (Khairul): Status drop-down removed; the status cards above filter the list (click again or Total submissions to clear) -->
       </div>
       <div class="list-head">
         <p class="help">{{ loading ? 'Loading…' : `${shown.length} record${shown.length === 1 ? '' : 's'}` }}</p>
@@ -121,6 +123,7 @@
             <div class="notice error" ref="edErr" v-show="formError" style="grid-column: 1 / -1">{{ formError }}</div>
             <FormField label="Payment Date" req type="date" v-model="ed.date" />
             <FormField v-if="!view.bookingId" label="Amount (RM)" req type="number" min="0" step="0.01" v-model="ed.amount" />
+            <FormField v-else-if="ed.isCharge" label="Charges amount (RM)" req type="number" min="0" step="0.01" v-model="ed.charge" />
             <FormField v-else label="Rental amount (RM)" type="number" min="0" step="0.01" v-model="ed.rental" />
             <div class="field"><label>Payment method</label>
               <OptionPicker class="fld-pick" v-model="ed.mode" :options="MODES" label="Payment method" /></div>
@@ -130,7 +133,7 @@
             <div class="field"><label>Unit</label>
               <OptionPicker class="fld-pick" v-model="ed.unitCode" :disabled="!ed.propertyId" :options="[{ value: '', label: 'Choose unit' }, ...units.map(x => ({ value: x.unitCode, label: x.unitCode }))]" label="Unit" searchable /></div>
             <FormField label="Guest / tenant name" req v-model="ed.guest" placeholder="Full name as on IC / passport" />
-            <div class="field" v-if="view.bookingId"><label :class="{ req: r2(ed.rental) > 0 }">For month</label>
+            <div class="field" v-if="view.bookingId && !ed.isCharge"><label :class="{ req: r2(ed.rental) > 0 }">For month</label>
               <OptionPicker class="fld-pick" v-model="ed.forMonth" :options="monthOptions(monthsAround(ed.date, ed.forMonth))" label="For month" /></div>
             <!-- 23 Nov 2026: the Utilities part; changing it updates the bills -->
             <div class="field wide" v-if="view.bookingId && ed.u"><label>Utilities</label>
@@ -306,6 +309,13 @@
                 <div class="field" v-if="f.bookingId"><label class="req">For month</label>
                   <OptionPicker class="fld-pick" v-model="f.forMonth" :options="monthOptions(f.bookingMonths, f.monthNotes)" label="For month" /></div>
               </template>
+              <!-- 24 Nov 2026 (Khairul): Charges = money for the booking kept apart from the rent (never counts towards a month).
+                   What it is for is typed in Purpose and saved on the Charges part too. -->
+              <template v-else-if="f.tab === 'charges'">
+                <FormField label="Amount (RM)" req type="number" min="0" step="0.01" v-model="f.charge" placeholder="0.00" />
+                <p class="help tab-off wide" v-if="!f.bookingId">Pick a booking in Guest / tenant name. A charge goes on its booking.</p>
+                <p class="help wide" v-else>Kept apart from the rent: it shows under Charges on the booking's Payments tab and does not count towards any month. Write what it is for in Purpose.</p>
+              </template>
               <template v-else>
                 <div class="field wide"><label class="req">Utility bills</label>
                   <p class="help tab-off" v-if="!f.bookingId">Pick a booking in Guest / tenant name to see its bills.</p>
@@ -313,10 +323,10 @@
               </template>
 
               <div class="op-sep wide"><span>Details</span></div>
-              <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box purpose-new" rows="3" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
+              <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box purpose-new" rows="3" maxlength="1000" v-model="f.purpose" :placeholder="f.tab === 'charges' ? 'What the charge is for, e.g. Damage: broken lamp in the bedroom' : 'e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950'"></textarea></div>
               <div class="field wide"><label class="req">Receipts / documents</label><DriveFiles kind="offline-payments" :record-id="newId" :label="nameOf(f)" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
               <!-- 19 Nov 2026: Payment code is filled when checking, so it shows only once the status is Checked -->
-              <div class="field wide" v-if="f.status === 'Checked'"><label>Payment code</label><input class="input" v-model="f.remarks"></div>
+              <div class="field wide" v-if="f.status === 'Checked'"><label class="req">Payment code</label><input class="input" v-model="f.remarks"></div>
             </template>
           </div>
           <div class="modal-foot">
@@ -326,6 +336,21 @@
         </form>
       </div>
     </template>
+
+    <!-- 24 Nov 2026 (Khairul): picking Checked on a payment with no payment code asks for it here; code and status save together -->
+    <div class="modal-back" v-if="chk" @click.self="chk.busy || (chk = null)" v-esc="() => { if (!chk.busy) chk = null }">
+      <form class="modal chk-modal" role="dialog" aria-labelledby="chkTitle" @submit.prevent="confirmChecked" novalidate>
+        <h2 id="chkTitle">Mark as Checked</h2>
+        <p class="help">{{ `${chk.r.guest || 'This payment'} · RM ${Number(chk.r.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Enter the payment code from the bank statement to mark it Checked.` }}</p>
+        <div class="field"><label class="req" for="chkCode">Payment code</label>
+          <input class="input" id="chkCode" ref="chkCode" v-model="chk.code" maxlength="300" autocomplete="off" placeholder="e.g. MB 30/10/26/NAME /200.00"></div>
+        <div class="notice error" v-show="chk.error">{{ chk.error }}</div>
+        <div class="modal-foot">
+          <button type="button" class="btn" :disabled="chk.busy" @click="chk = null">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="chk.busy || !chk.code.trim()">{{ chk.busy ? 'Saving…' : 'Mark Checked' }}</button>
+        </div>
+      </form>
+    </div>
   </main>
 </template>
 
@@ -378,13 +403,13 @@ const monthsBetween = (a, b) => {
   return out;
 };
 // 23 Nov 2026: rental (Rental tab), u (Utilities tab, lib/utility-bills.js blankUtil); amount is only typed for Unknown payments
-const blank = () => ({ date: today(), amount: '', rental: '', tab: 'rental', u: blankUtil(), lastAuto: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '', bookingId: '', bookingNo: '', forMonth: '', bookingMonths: [], monthNotes: {}, monthLabels: {} });
+const blank = () => ({ date: today(), amount: '', rental: '', charge: '', tab: 'rental', u: blankUtil(), lastAuto: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '', bookingId: '', bookingNo: '', forMonth: '', bookingMonths: [], monthNotes: {}, monthLabels: {} });
 
 export default {
   popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   mixins: [liveMixin],
   components: { PropertyPicker, FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus, ComboInput, UtilityPart },
-  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, imp: null, pendingLink: '', status: '', open: false, newId: '', view: null, editing: false, ed: {}, f: blank(), activeBookings: [], names: guestNames, viewBills: {}, bkNote: '', layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
+  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, imp: null, pendingLink: '', status: '', open: false, newId: '', view: null, chk: null, editing: false, ed: {}, f: blank(), activeBookings: [], names: guestNames, viewBills: {}, bkNote: '', layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: {
     view(r) { this.loadHistory(r); this.loadViewBills(r); },
     // 23 Nov 2026: the purpose fills itself from the Rental and Utilities tabs until it is typed over
@@ -399,13 +424,14 @@ export default {
     // Operations (no Offline Payments Edit tick) record utility payments as Pending (rules Draft 1.03)
     canPayUtil() { const me = useSession(); return can(me, 'bookingForms.view') || can(me, 'offlineInquiries.view'); },
     newStatusOptions() { return this.canEdit ? this.statusOptions('') : [{ value: 'Pending', label: 'Pending' }]; },
-    newTotal() { const f = this.f; return f.tab === 'utilities' ? (f.bookingId ? r2(f.u.amount) : 0) : r2(f.rental); },
-    payForOptions() { return this.canEdit ? [{ value: 'rental', label: 'Rental' }, { value: 'utilities', label: 'Utilities' }] : [{ value: 'utilities', label: 'Utilities' }]; },
+    newTotal() { const f = this.f; return f.tab === 'utilities' ? (f.bookingId ? r2(f.u.amount) : 0) : f.tab === 'charges' ? r2(f.charge) : r2(f.rental); },
+    payForOptions() { return this.canEdit ? [{ value: 'rental', label: 'Rental' }, { value: 'utilities', label: 'Utilities' }, { value: 'charges', label: 'Charges' }] : [{ value: 'utilities', label: 'Utilities' }]; },
     autoPurpose() {
+      if (this.f.tab === 'charges') return '';   // 24 Nov 2026: Charges: staff write what it is for
       const f = this.f, ut = f.tab === 'utilities', pool = utilPool(f.u), alloc = ut && f.bookingId ? utilAlloc(f.u) : [];
       return purposeText({ rental: ut ? 0 : f.rental, forMonth: f.forMonth, utilities: ut && f.bookingId ? f.u.amount : 0, bills: alloc.map(a => pool.find(b => b.id === a.billId)).filter(Boolean) }, monthName);
     },
-    isDirector() { return useSession().role === 'director'; },
+    isDirector() { return ['director', 'branchDirector'].includes(useSession().role); },
     // ---- ONE-TIME import (18 Nov 2026) ----
     impRows() { return this.imp?.list ? matchRows(this.imp.list, this.properties, this.imp.allUnits, this.imp.choice, this.imp.map) : []; },
     impPending() { return this.impRows.filter(r => r.how === 'pending').length; },
@@ -543,12 +569,15 @@ export default {
       const p = partsOf(r), out = [];
       if (Array.isArray(r.parts) && r.parts.length) {
         if (p.rental > 0) out.push({ k: 'r', label: `Rental${p.forMonth ? ' · ' + monthName(p.forMonth) : ''}`, amount: p.rental });
+        if (p.charges > 0) out.push({ k: 'c', label: 'Charges (kept apart from the rent)', amount: p.charges });
         if (p.utilities > 0) out.push({ k: 'u', label: 'Utilities', amount: p.utilities, bills: Object.entries(p.bills).map(([id, a]) => ({ id, amount: a, name: this.viewBills[id] ? datesText(this.viewBills[id]) : 'Bill ' + id.slice(0, 6) })) });
       }
       return out;
     },
     // 23 Nov 2026: the Rental · Utilities split only when a payment has both
-    partsShort(r) { const p = partsOf(r); return Array.isArray(r.parts) && r.parts.length && p.utilities > 0 && p.rental > 0 ? `Rental ${p.rental.toFixed(2)} · Utilities ${p.utilities.toFixed(2)}` : ''; },
+    partsShort(r) { const p = partsOf(r); return !Array.isArray(r.parts) || !r.parts.length ? '' : p.charges > 0 ? 'Charges' : p.utilities > 0 && p.rental > 0 ? `Rental ${p.rental.toFixed(2)} · Utilities ${p.utilities.toFixed(2)}` : ''; },
+    // 24 Nov 2026: Payment for, for the Excel / CSV
+    payFor(r) { const p = partsOf(r); return p.charges > 0 ? 'Charges' : p.utilities > 0 && p.rental > 0 ? 'Rental + Utilities' : p.utilities > 0 ? 'Utilities' : 'Rental'; },
     async pickBooking(o, { billId = '', quiet = false } = {}) {
       const b = this.activeBookings.find(x => x.id === o.key), f = this.f; if (!b) return;
       if (b.stay === 'Cancelled' && !quiet && !await askConfirm({ title: 'This booking is cancelled', message: `${b.bookingNo || b.id} was cancelled${b.cancelledReason ? ` (${b.cancelledReason})` : ''}. Link this payment to it anyway?`, confirmText: 'Use this booking' })) { f.guest = ''; return; }
@@ -644,15 +673,18 @@ export default {
       // Unknown only needs the date and amount; Pending and Checked need everything, including a receipt
       const unk = f.status === 'Unknown';
       // 23 Nov 2026 (Khairul): only the part chosen in Payment for is saved
-      const rental = unk ? r2(f.amount) : f.tab === 'rental' ? r2(f.rental) : 0, util = !unk && f.tab === 'utilities' && f.bookingId ? r2(f.u.amount) : 0, total = r2(rental + util);
+      const rental = unk ? r2(f.amount) : f.tab === 'rental' ? r2(f.rental) : 0, util = !unk && f.tab === 'utilities' && f.bookingId ? r2(f.u.amount) : 0;
+      const charge = !unk && f.tab === 'charges' ? r2(f.charge) : 0, total = r2(rental + util + charge);   // 24 Nov 2026: Charges
       const alloc = util > 0 ? utilAlloc(f.u) : [], newOn = !unk && f.tab === 'utilities' && f.bookingId && f.u.add.on && addTotal(f.u) > 0;
       const tab = t => { f.tab = t; return true; };
       this.formError = !f.date ? 'Choose the payment date.' : unk ? (!(rental > 0) ? 'Enter the amount.' : '')
         : f.tab === 'utilities' && !f.bookingId ? 'Pick a booking in Guest / tenant name to pay its utility bills.'
+        : f.tab === 'charges' && !f.bookingId ? 'Pick a booking in Guest / tenant name. A charge goes on its booking.'
         : !(total > 0) ? (f.tab === 'utilities' ? 'Tick the bills this payment pays.' : 'Enter the amount.')
         : !this.canEdit && !(util > 0) ? 'Without the Offline Payments Edit tick you can record utility payments only: set Payment for to Utilities.'
         : !f.propertyId ? 'Choose the property.' : !f.guest.trim() ? 'Enter the guest name.'
         : !f.mode ? 'Choose the payment method.'
+        : (f.status === 'Checked' && !String(f.remarks || '').trim()) ? 'Enter the payment code (needed for a Checked payment).'
         : (f.bookingId && rental > 0 && !/^\d{4}-\d{2}$/.test(f.forMonth || '') && tab('rental')) ? 'Choose the month this rental is for.'
         : (util > 0 && util > utilMax(f.u) + 0.005 && tab('utilities')) ? 'The Utilities amount is more than the ticked bills have left.'
         : (util > 0 && Math.abs(alloc.reduce((a, x) => a + x.amount, 0) - util) > 0.005 && tab('utilities')) ? 'Tick the bills this Utilities amount pays.'
@@ -680,14 +712,15 @@ export default {
           batch.set(doc(db, 'utilityBills', f.u.add.id), nb);
           audit(batch, me, { action: 'utilityBill.create', entity: `utilityBills/${f.u.add.id}`, propertyId: b.propertyId || null, changes: [{ field: 'total', old: null, new: nb.total }, { field: 'dates', old: null, new: datesText(nb) }, { field: 'lodgedFrom', old: null, new: 'payment' }] });
         }
-        const parts = linked && util > 0 ? [...(rental > 0 ? [{ type: 'rental', amount: rental, forMonth: f.forMonth || '' }] : []), { type: 'utilities', amount: util, bills: alloc }] : null;
+        const parts = linked && charge > 0 ? [{ type: 'charges', amount: charge, note: f.purpose.trim().slice(0, 1000) }]   // 24 Nov 2026: Charges, apart from the rent
+          : linked && util > 0 ? [...(rental > 0 ? [{ type: 'rental', amount: rental, forMonth: f.forMonth || '' }] : []), { type: 'utilities', amount: util, bills: alloc }] : null;
         batch.set(ref, { ...(st ? { state: st } : {}), date: f.date, amount: total, propertyId: f.propertyId, propertyName: prop?.name || '', unitCode: f.unitCode,
           guest: f.guest.trim(), purpose: f.purpose.trim(), mode: f.mode, bankRef: f.bankRef.trim(), docsLink: f.docsLink.trim(), remarks: f.status === 'Checked' ? f.remarks.trim() : '',
           status: f.status, verifiedByName: f.status === 'Pending' ? '' : me.name, verifiedDate: f.status === 'Pending' ? '' : today(), createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name,
           ...(linked ? { bookingId: f.bookingId, bookingNo: f.bookingNo, ...(rental > 0 ? { forMonth: f.forMonth } : {}) } : {}),
           ...(parts ? { parts, billIds: alloc.map(x => x.billId), billsAt: serverTimestamp() } : {}) });
         audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${ref.id}`, propertyId: f.propertyId, changes: [['amount', total], ['date', f.date], ['propertyName', prop?.name || ''], ['unitCode', f.unitCode], ['guest', f.guest.trim()], ['purpose', f.purpose.trim()], ['bankRef', f.bankRef.trim()], ['status', f.status],
-          ...(linked ? [['bookingNo', f.bookingNo], ['forMonth', rental > 0 ? f.forMonth : '']] : []), ...(parts ? [['rental', rental], ['utilities', alloc.map(x => `${x.billId} ${x.amount.toFixed(2)}`).join(', ')]] : [])].filter(([, v]) => v !== '').map(([field, v]) => ({ field, old: null, new: v })) });
+          ...(linked ? [['bookingNo', f.bookingNo], ['forMonth', rental > 0 ? f.forMonth : '']] : []), ...(parts && charge > 0 ? [['charges', charge]] : parts ? [['rental', rental], ['utilities', alloc.map(x => `${x.billId} ${x.amount.toFixed(2)}`).join(', ')]] : [])].filter(([, v]) => v !== '').map(([field, v]) => ({ field, old: null, new: v })) });
         await batch.commit();
         this.open = false; toast('Changes saved'); this.done = 'Offline payment submitted as ' + f.status + '.';
         if (f.status === 'Unknown') this.tellOperations({ id: ref.id, amount: total, guest: f.guest.trim(), unitCode: f.unitCode, date: f.date });
@@ -706,9 +739,9 @@ export default {
       const r = this.view;
       const pp = partsOf(r);
       this.ed = { date: r.date, amount: r.amount, propertyId: r.propertyId || '', unitCode: r.unitCode || '', guest: r.guest, purpose: r.purpose, mode: r.mode || '', bankRef: r.bankRef || '', remarks: r.remarks || '', forMonth: r.forMonth || pp.forMonth || '',
-        rental: pp.rental ? pp.rental.toFixed(2) : '', u: null };
-      // 23 Nov 2026: a booking's payment can pay its utility bills too; the bills it pays now start ticked
-      if (r.bookingId) { const u = blankUtil(pp.bills); u.amount = pp.utilities ? pp.utilities.toFixed(2) : ''; u.touched = true; this.ed.u = u; this.loadBookingBills({ id: r.bookingId, propertyId: r.propertyId }, this.ed.u); }
+        rental: pp.rental ? pp.rental.toFixed(2) : '', u: null, isCharge: pp.charges > 0, charge: pp.charges ? pp.charges.toFixed(2) : '' };
+      // 23 Nov 2026: a booking's payment can pay its utility bills too; the bills it pays now start ticked (not a Charges payment, 24 Nov 2026)
+      if (r.bookingId && !this.ed.isCharge) { const u = blankUtil(pp.bills); u.amount = pp.utilities ? pp.utilities.toFixed(2) : ''; u.touched = true; this.ed.u = u; this.loadBookingBills({ id: r.bookingId, propertyId: r.propertyId }, this.ed.u); }
       this.formError = ''; this.editing = true;   // a receipt uploaded before pressing Add details is kept
       try {
         if (!this.properties.length) this.properties = await loadProperties();
@@ -724,9 +757,10 @@ export default {
       const e = this.ed, r = this.view;
       // 23 Nov 2026: a booking's payment is Rental + Utilities; the bills it pays follow the change
       const pp = partsOf(r), withBills = !!r.bookingId && !!e.u;
-      const rental = withBills ? r2(e.rental) : r2(e.amount), util = withBills ? r2(e.u.amount) : 0, total = r2(rental + util);
+      const charge = e.isCharge ? r2(e.charge) : 0, rental = e.isCharge ? 0 : withBills ? r2(e.rental) : r2(e.amount), util = withBills ? r2(e.u.amount) : 0, total = r2(rental + util + charge);
       const alloc = util > 0 ? utilAlloc(e.u) : [];
       this.formError = !e.date ? 'Choose the payment date.' : !(total > 0) ? 'Enter the amount.' : !e.propertyId ? 'Choose the property.' : !String(e.guest).trim() ? 'Enter the guest name.' : !String(e.purpose).trim() ? 'Enter the purpose.'
+        : (this.canEdit && r.status === 'Checked' && !String(e.remarks || '').trim()) ? 'A Checked payment needs its payment code.'
         : (r.bookingId && rental > 0 && !/^\d{4}-\d{2}$/.test(e.forMonth || '')) ? 'Choose the month this payment is for.'
         : withBills && e.u.bills === null ? 'The utility bills are still loading.'
         : (util > 0 && util > utilMax(e.u) + 0.005) ? 'The Utilities amount is more than the ticked bills have left.'
@@ -737,14 +771,15 @@ export default {
         guest: String(e.guest).trim(), purpose: String(e.purpose).trim(), mode: e.mode || '', bankRef: String(e.bankRef).trim(), ...(this.canEdit ? { remarks: String(e.remarks || '').trim() } : {}), ...(r.bookingId ? { forMonth: rental > 0 ? e.forMonth : '' } : {}) };
       const now = Object.fromEntries(alloc.map(x => [x.billId, x.amount]));
       const billsChanged = withBills && JSON.stringify(Object.entries(pp.bills).sort()) !== JSON.stringify(Object.entries(now).sort());
-      if (withBills && (util > 0 || (Array.isArray(r.parts) && r.parts.length))) {
+      if (e.isCharge) { data.parts = [{ type: 'charges', amount: charge, note: data.purpose.slice(0, 1000) }]; data.billIds = []; }   // 24 Nov 2026
+      else if (withBills && (util > 0 || (Array.isArray(r.parts) && r.parts.length))) {
         data.parts = [...(rental > 0 ? [{ type: 'rental', amount: rental, forMonth: e.forMonth || '' }] : []), ...(util > 0 ? [{ type: 'utilities', amount: util, bills: alloc }] : [])];
         data.billIds = alloc.map(x => x.billId);
       }
       const ops = this.opsEdit(r);
       if (ops && this.pendingLink) data.docsLink = this.pendingLink;
       const same = k => (k === 'parts' || k === 'billIds' ? JSON.stringify(r[k] || []) === JSON.stringify(data[k]) : (r[k] ?? '') === data[k]);
-      const changes = Object.keys(data).filter(k => !same(k)).map(k => (k === 'parts' ? { field: 'parts', old: this.partsShort(r) || '', new: `Rental ${rental.toFixed(2)} · Utilities ${util.toFixed(2)}` }
+      const changes = Object.keys(data).filter(k => !same(k)).map(k => (k === 'parts' ? { field: 'parts', old: e.isCharge ? `Charges ${pp.charges.toFixed(2)}` : this.partsShort(r) || '', new: e.isCharge ? `Charges ${charge.toFixed(2)}` : `Rental ${rental.toFixed(2)} · Utilities ${util.toFixed(2)}` }
         : k === 'billIds' ? { field: 'utilities', old: Object.entries(pp.bills).map(([id, a]) => `${id} ${a.toFixed(2)}`).join(', '), new: alloc.map(x => `${x.billId} ${x.amount.toFixed(2)}`).join(', ') }
         : { field: k, old: r[k] ?? '', new: data[k] }));
       if (!changes.length) { this.editing = false; return; }
@@ -785,23 +820,41 @@ export default {
       } catch (e) { this.view = null; this.error = e.code === 'permission-denied' ? 'Deleting was refused. Only Directors can delete payments (Firestore rules 0.72 must be published).' : friendlyError(e, 'delete the payment'); window.scrollTo(0, 0); }
       this.busy = false;
     },
-    async patch(r, data, field, was) {
+    async patch(r, data, field, was, more = []) {
       this.error = ''; this.done = '';
       const me = useSession();
       try {
         const batch = writeBatch(db);
         batch.update(doc(db, 'offlinePayments', r.id), data);
-        audit(batch, me, { action: 'offlinePayment.update', entity: `offlinePayments/${r.id}`, propertyId: r.propertyId || null, changes: [{ field, old: was, new: data[field] }] });
+        audit(batch, me, { action: 'offlinePayment.update', entity: `offlinePayments/${r.id}`, propertyId: r.propertyId || null, changes: [{ field, old: was, new: data[field] }, ...more] });
         await batch.commit(); Object.assign(r, data); toast('Changes saved');
       } catch (e) { this.error = friendlyError(e, 'save the change'); }
     },
     async setStatus(r, v) {
       if (v === r.status) return;
+      // 24 Nov 2026 (Khairul): a payment can't be Checked without its payment code; a small popup asks for it (confirmChecked)
+      if (v === 'Checked' && !String(r.remarks || '').trim()) {
+        this.chk = { r, code: '', error: '', busy: false };
+        this.$nextTick(() => this.$refs.chkCode?.focus());
+        return;
+      }
+      await this.applyStatus(r, v);
+    },
+    async confirmChecked() {
+      const c = this.chk, code = c.code.trim();
+      if (!code) return this.$refs.chkCode?.focus();   // the button is off until a code is typed (Enter on an empty box does nothing)
+      c.busy = true; c.error = '';
+      const ok = await this.applyStatus(c.r, 'Checked', { remarks: code }, [{ field: 'remarks', old: c.r.remarks || '', new: code }]);
+      if (ok) this.chk = null; else { c.busy = false; c.error = this.error || 'Could not save. Try again.'; }
+    },
+    // Saves a status change (plus any extra fields, e.g. the payment code) and sends the usual notifications. true when saved.
+    async applyStatus(r, v, extra = {}, more = []) {
       const me = useSession();
-      await this.patch(r, { status: v, verifiedByName: v === 'Pending' ? '' : me.name, verifiedDate: v === 'Pending' ? '' : today() }, 'status', r.status);
-      if (r.status !== v) return;   // not saved (the error is shown)
+      await this.patch(r, { ...extra, status: v, verifiedByName: v === 'Pending' ? '' : me.name, verifiedDate: v === 'Pending' ? '' : today() }, 'status', r.status, more);
+      if (r.status !== v) return false;   // not saved (the error is shown)
       if (v === 'Unknown') this.tellOperations(r);
       if (v === 'Checked') this.tellFiller(r, me);
+      return true;
     },
     // Checked: the person who filled in an Unknown payment (Operations) hears that Finance checked it (3 Nov 2026)
     tellFiller(r, me) {
@@ -838,8 +891,8 @@ export default {
         const byProp = rowsOf(group(r => r.propertyName || '—')), byMonth = rowsOf(group(r => String(r.date).slice(0, 7)));
         const when = t => t?.toDate ? t.toDate().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '';
         const hasReceipt = r => (r.docsLink ? 'Yes' : 'No');
-        const payHead = ['Payment Date', 'Booking no.', 'Property', 'Unit', 'Guest / tenant', 'Purpose', 'Amount (RM)', 'Status', 'Payment mode', 'Bank reference', 'Receipt uploaded', 'Documents link', 'Submitted by', 'Submitted on', 'Verified by', 'Verified date', 'Edited by', 'Edited on', 'Payment code', 'Payment ID', 'Booking ID'];
-        const payRow = r => [r.date, r.bookingNo || '', r.propertyName || '', r.unitCode || '', r.guest || '', r.purpose || '', money(r.amount), r.status || '', r.mode || '', r.bankRef || '', hasReceipt(r), r.docsLink || '', r.submittedByName || '', when(r.createdAt), r.verifiedByName || '', r.verifiedDate || '', r.editedByName || '', when(r.editedAt), r.remarks || '', r.id, r.bookingId || ''];
+        const payHead = ['Payment Date', 'Booking no.', 'Property', 'Unit', 'Guest / tenant', 'Purpose', 'Payment for', 'Amount (RM)', 'Status', 'Payment mode', 'Bank reference', 'Receipt uploaded', 'Documents link', 'Submitted by', 'Submitted on', 'Verified by', 'Verified date', 'Edited by', 'Edited on', 'Payment code', 'Payment ID', 'Booking ID'];
+        const payRow = r => [r.date, r.bookingNo || '', r.propertyName || '', r.unitCode || '', r.guest || '', r.purpose || '', this.payFor(r), money(r.amount), r.status || '', r.mode || '', r.bankRef || '', hasReceipt(r), r.docsLink || '', r.submittedByName || '', when(r.createdAt), r.verifiedByName || '', r.verifiedDate || '', r.editedByName || '', when(r.editedAt), r.remarks || '', r.id, r.bookingId || ''];
         const payments = [payHead, ...list.map(payRow)];
         const title = [[`Offline payments · ${propName} · ${from} to ${to}`], [`Made ${new Date().toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })} by ${useSession().name || ''}`], []];
         const file = `Offline_payments_${propName.replace(/[^A-Za-z0-9]+/g, '_')}_${label}`;
@@ -849,7 +902,7 @@ export default {
           const sheet = (rows, name, widths) => { const ws = X.utils.aoa_to_sheet(rows); ws['!cols'] = widths.map(w => ({ wch: w })); X.utils.book_append_sheet(wb, ws, name); };
           sheet([...title, ...overview, ['By status', 'Payments', 'Total (RM)', 'Share'], ...byStatus, [], ['By property', ...head.slice(1)], ...byProp, sum(byProp)], 'Summary', [34, 14, 16, 14, 14, 14, 14]);
           if (R.type !== 'monthly') sheet([...title, ['By month', ...head.slice(1)], ...byMonth, sum(byMonth)], 'By month', [14, 12, 14, 14, 14, 14, 14]);
-          sheet(payments, 'Payments', [12, 12, 28, 14, 24, 40, 14, 12, 14, 18, 12, 30, 18, 20, 18, 14, 18, 20, 30, 24, 24]);
+          sheet(payments, 'Payments', [12, 12, 28, 14, 24, 40, 18, 14, 12, 14, 18, 12, 30, 18, 20, 18, 14, 18, 20, 30, 24, 24]);
           const out = X.write(wb, { type: 'array', bookType: 'xlsx' });
           download(`${file}.xlsx`, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
         }
@@ -1003,7 +1056,7 @@ export default {
   .op-table td { flex-wrap: wrap; row-gap: 2px; }
   .op-table td > div, .op-table td .clamp, .op-table td .op-code { white-space: normal; overflow: visible; text-overflow: clip; max-width: 100%; }
   .op-table td > div, .op-table td .op-code { flex: 0 1 auto; margin-left: auto; text-align: right; }
-  .op-table td .clamp { -webkit-line-clamp: unset; display: inline; }
+  .op-table td .clamp { -webkit-line-clamp: unset; line-clamp: unset; display: inline; }
 }   /* 1 1 100%: the buttons wrap instead of running off a phone (24 Nov 2026) */
 .who { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .tag.st-edited { background: #E6EEFB; color: #2B5DB8; }
@@ -1019,6 +1072,8 @@ export default {
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 8px; }
 .filters .grow { flex: 1; min-width: 220px; }
+.filters .f-status { width: 160px; }   /* wide enough for "Unknown" / "Edited" in its list (24 Nov 2026) */
+.filters .f-search { flex: 1; min-width: 220px; }   /* fills the rest of the row */
 .field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
 /* 20 Nov 2026 (Khairul): fixed column widths so the table fits a laptop screen with no sideways scroll; long text ends in … */
 .op-table { table-layout: fixed; width: 100%; }
@@ -1102,6 +1157,8 @@ export default {
 .modal { max-width: 920px; width: min(920px, 100%); }
 .modal { padding: 18px 24px 0; }
 .modal .modal-foot { padding: 12px 0 18px; margin-top: 8px; }
+.chk-modal { max-width: 440px; }
+.chk-modal h2 { margin-bottom: 6px; }
 .del-btn { margin-right: auto; color: var(--danger); }
 .del-btn:hover:not(:disabled) { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; }
 .modal .field { margin-bottom: 0; }

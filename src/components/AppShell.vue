@@ -88,9 +88,14 @@
       <div class="pwa-bar off" role="status" v-if="pwa.offline">
         <b>You're offline.</b><span>Pages can't load or save until the connection is back.</span>
       </div>
-      <div class="pwa-bar" role="status" v-if="pwa.updateReady">
-        <b>New version available.</b><span>Reload to get the latest changes. Save what you're typing first.</span>
-        <button type="button" class="btn btn-primary" @click="applyUpdate">Reload</button>
+      <!-- 23 Nov 2026 (Khairul): a new version is a popup in the middle of the screen that can't be closed; Reload is the only way on -->
+      <div class="upd-back" v-if="pwa.updateReady" role="alertdialog" aria-modal="true" aria-labelledby="updTitle" aria-describedby="updText">
+        <div class="upd-box">
+          <span class="upd-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></span>
+          <h2 id="updTitle">A new version of the PMS is ready</h2>
+          <p id="updText">Reload to keep working. Anything you haven't saved on this page will be lost, so copy it first if you need to.</p>
+          <button type="button" class="btn btn-primary upd-btn" :disabled="reloadingApp" @click="reloadingApp = true; applyUpdate()" ref="updBtn">{{ reloadingApp ? 'Reloading…' : 'Reload now' }}</button>
+        </div>
       </div>
       <RouterView :key="$route.fullPath" />
     </div>
@@ -154,7 +159,7 @@ const DESKTOP_QUERY = '(min-width: 1025px)';
 export default {
   components: { NavItem, CommandPalette, Avatar, NotificationBell },
   data: () => ({
-    ROLE_LABEL, quota, whatsNew, pwa, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
+    ROLE_LABEL, quota, whatsNew, pwa, reloadingApp: false, menuOpen: false, userOpen: false, paletteOpen: false, openGroup: -1,
     collapsed: readCollapsed(),
     wide: window.matchMedia(DESKTOP_QUERY).matches
   }),
@@ -380,6 +385,12 @@ html.nav-locked, html.nav-locked body { overflow: hidden; }
 }
 .pwa-bar { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; padding: 10px 20px; background: var(--accent-soft); color: var(--accent); border-bottom: 1px solid var(--border); font-size: 13px; }
 .pwa-bar span { flex: 1; min-width: 180px; color: var(--text-2); }
+.upd-back { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 16px; background: rgba(10,12,16,.65); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.upd-box { width: 100%; max-width: 420px; background: var(--surface); border-radius: 16px; padding: 28px 26px 24px; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,.3); display: grid; justify-items: center; gap: 10px; }
+.upd-ico { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.upd-box h2 { margin: 6px 0 0; font-size: 19px; }
+.upd-box p { margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: var(--text-2); }
+.upd-btn { width: 100%; min-height: 44px; font-size: 15px; }
 .pwa-bar.off { background: var(--amber-soft); color: var(--amber); }
 .quota-bar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 10px 20px; background: var(--red-soft); color: var(--red); border-bottom: 1px solid var(--border); font-size: 13px; }
 .quota-bar span { flex: 1; min-width: 200px; color: var(--text-2); }

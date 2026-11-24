@@ -271,7 +271,7 @@ import FormField from '@/components/FormField.vue';
 import { askConfirm } from '@/lib/confirm.js';
 import { audit, friendlyError, loadProperties } from '@/lib/finance-data.js';
 import { stateChoices, statesOf, stateOf } from '@/lib/states.js';
-import { scoped, countScoped } from '@/lib/property-scope.js';
+import { scoped, countScoped, canSee } from '@/lib/property-scope.js';
 import { STATUS, CONTACT_ALL, MON, nowIso, isoOf, num, phoneKey, searchWords, findTenant, privateOf, guestContact } from '@/lib/offline.js';
 // Direct service connection matching Issues.vue
 import { notifyRole, notifyUser } from '@/services/notificationService.js';
@@ -285,9 +285,9 @@ const me = useSession();
 const PICKABLE = ['interested', 'considering', 'uninterested'];   // Booked is set only by Create booking
 const FILTERS = [{ key: 'all', label: 'All' }, { key: 'new', label: 'New' }, { key: 'interested', label: 'Interested (Pending payment)' },
   { key: 'considering', label: 'Considering' }, { key: 'uninterested', label: 'Uninterested' }, { key: 'booked', label: 'Booked' }];
-const ASSIGNERS = ['director'];
-const LOGGERS = ['director'];
-const SEE_ALL = ['director', 'finance', 'it'];
+const ASSIGNERS = ['director', 'branchDirector'];
+const LOGGERS = ['director', 'branchDirector'];
+const SEE_ALL = ['director', 'branchDirector', 'finance', 'it'];   // Branch Directors: then only their branches' leads (loadList)
 const SOURCES = ['Walk-in', 'Phone call', 'WhatsApp', 'Referral', 'Agent', 'Other'];
 const LIST_LIMIT = 500;
 const emailOk = e => !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
@@ -339,7 +339,7 @@ export default {
     discardUpdate() { const l = this.lead; this.upd = { assignedToUid: l.assignedToUid || '', status: l.status, note: '' }; this.formError = ''; },
     // Everyone who should hear about a new inquiry or a status change
     // (the roles must match NOTIFY_ROLES / the Firestore rules)
-    inquiryRoles() { return ['finance', 'director', 'operations']; },
+    inquiryRoles() { return ['finance', 'director', 'branchDirector', 'operations']; },
 
     // Shared notification helper structured cleanly like Issues.vue
     async notify({ title, message, roles = [], uids = [], refId = null, link = '/Notifications', skipSelf = true }) {
@@ -415,7 +415,7 @@ export default {
       const col = collection(db, 'offlineInquiries');
       const snap = await getDocs(SEE_ALL.includes(me.role) ? query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT))
         : query(col, where('assignedToUid', '==', me.user.uid), limit(LIST_LIMIT)));
-      const leads = snap.docs.map(d => this.toLead(d.id, d.data()));
+      const leads = snap.docs.filter(d => me.role !== 'branchDirector' || !d.data().propertyId || canSee(d.data().propertyId)).map(d => this.toLead(d.id, d.data()));
       const priv = await Promise.all(leads.map(ld => this.canSeeContact(ld) ? privateOf(doc(db, 'offlineInquiries', ld.id)).catch(() => ({})) : {}));
       leads.forEach((ld, i) => Object.assign(ld, priv[i]));
       this.leads = leads;

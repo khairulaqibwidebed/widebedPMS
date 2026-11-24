@@ -133,6 +133,10 @@
           <div class="field" style="max-width:360px"><label for="agLicense">License number</label><input class="input" id="agLicense" v-model="f.licenseNo" placeholder="e.g. REN 37139" maxlength="60"></div>
           <div class="field"><label for="agAddress">Address</label><textarea class="input" id="agAddress" v-model="f.address" rows="3" placeholder="Street, city, postcode, state" maxlength="500"></textarea></div>
           <!-- 20 Nov 2026 (Khairul): free-text remarks about the agent -->
+          <!-- 24 Nov 2026 (Khairul): the agent's branches. Branch Directors see only agents in their branches. -->
+          <div class="field" v-if="branchList.length"><label :class="{ req: isBD }">Branches</label>
+            <div class="ag-branches"><label class="check" v-for="b in branchList" :key="b.id"><input type="checkbox" :value="b.id" v-model="f.branchIds"><span>{{ b.name }}</span></label></div>
+          </div>
           <div class="field"><label for="agRemarks">Remarks</label><textarea class="input" id="agRemarks" v-model="f.remarks" rows="3" placeholder="e.g. Prefers WhatsApp, covers Mont Kiara and Bangsar" maxlength="1000"></textarea></div>
 
           <div class="form-sec">Commission <span class="help ag-sec-note">· % the agent earns; leave empty if not agreed</span></div>
@@ -225,6 +229,7 @@ import { askConfirm } from '@/lib/confirm.js';
 import { ensureFolders, uploadForLink, fileBlob } from '@/lib/drive.js';
 import RefreshButton from '@/components/RefreshButton.vue';
 import FileViewer from '@/components/FileViewer.vue';
+import { loadBranches } from '@/lib/branches.js';
 import { AGENCIES, BANKS, agencyLabel, agencyColor, loadAgents, loadBank, loadCommissionHistory, pct, pctText, saveAgent, deleteAgent, newAgentId } from './agents.js';
 
 const me = useSession();
@@ -236,17 +241,17 @@ const numOrEmpty = v => (v === null || v === undefined ? '' : v);
 function blankForm() {
   return { id: '', name: '', company: '', agency: 'property', agencyOther: '', mobile: '', email: '', licenseNo: '', address: '', remarks: '', bankName: '', holder: '', accountNo: '',
     commDaily: '', commMonthly: '', commFrom: today(), commNote: '', commStart: [null, null],
-    cardFront: null, cardBack: null, active: true, error: '', bankLoading: false, uploading: { cardFront: false, cardBack: false }, pct: { cardFront: 0, cardBack: 0 } };
+    cardFront: null, cardBack: null, active: true, branchIds: [], error: '', bankLoading: false, uploading: { cardFront: false, cardBack: false }, pct: { cardFront: 0, cardBack: 0 } };
 }
 
 export default {
   components: { RefreshButton, FileViewer },
   data() {
-    return { AGENCIES, BANKS, SIDES, agents: [], loading: true, busy: false, error: '', okMsg: '', filter: 'all', search: '', drawer: null, f: blankForm() };
+    return { AGENCIES, BANKS, SIDES, branchList: [], isBD: me.role === 'branchDirector', agents: [], loading: true, busy: false, error: '', okMsg: '', filter: 'all', search: '', drawer: null, f: blankForm() };
   },
   computed: {
     canEdit() { return can(me, 'agents.edit'); },
-    isDirector() { return me.role === 'director'; },
+    isDirector() { return ['director', 'branchDirector'].includes(me.role); },
     filters() {
       return [{ id: 'all', label: 'All', n: this.agents.length }, ...AGENCIES.map(t => ({ id: t.id, label: t.label, n: this.agents.filter(a => a.agency === t.id).length }))];
     },
@@ -274,6 +279,8 @@ export default {
   },
   async mounted() {
     if (this.canEdit) ensureFolders();
+    // Branches to pick on the form (24 Nov 2026). A Branch Director: only their own.
+    loadBranches().then(all => { this.branchList = all.filter(b => b.active && (!this.isBD || (me.branches || []).includes(b.id))); }).catch(() => {});
     await this.go();
   },
   unmounted() { this.dropPreviews(); },
@@ -287,7 +294,11 @@ export default {
     stampText(t) { return t?.toDate ? t.toDate().toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; },
     async go() {
       this.loading = true; this.error = '';
-      try { this.agents = await loadAgents(); }
+      try {
+        const all = await loadAgents();
+        // Branch Directors (24 Nov 2026): only agents in one of their branches (agents with no branch: Directors only)
+        this.agents = this.isBD ? all.filter(a => (a.branchIds || []).some(b => (me.branches || []).includes(b))) : all;
+      }
       catch (e) { this.error = friendlyError(e, 'load the agents'); }
       this.loading = false;
     },
@@ -333,6 +344,7 @@ export default {
         email: a.email || '', licenseNo: a.licenseNo || '', address: a.address || '', remarks: a.remarks || '', bankName: a.bankName || '', cardFront: a.cardFront || null, cardBack: a.cardBack || null, active: a.active !== false, bankLoading: true,
         commDaily: numOrEmpty(a.commDaily), commMonthly: numOrEmpty(a.commMonthly), commStart: [a.commDaily ?? null, a.commMonthly ?? null] });
       else f.id = newAgentId();
+      f.branchIds = a ? [...(a.branchIds || [])] : this.isBD ? [...(me.branches || [])] : [];   // a Branch Director's new agent starts in their branches
       this.drawer = { mode: 'edit', agent: a };
       if (a) {
         try { const b = await loadBank(a.id); if (b) { f.holder = b.holder || ''; f.accountNo = b.accountNo || ''; } }
@@ -341,7 +353,7 @@ export default {
       }
       this.start = this.snap();
     },
-    snap() { const f = this.f; return JSON.stringify([f.name, f.company, f.agency, f.agencyOther, f.mobile, f.email, f.licenseNo, f.address, f.remarks, f.bankName, f.holder, f.accountNo, f.cardFront?.fileId, f.cardBack?.fileId, pct(f.commDaily), pct(f.commMonthly)]); },
+    snap() { const f = this.f; return JSON.stringify([(f.branchIds || []).join(), f.name, f.company, f.agency, f.agencyOther, f.mobile, f.email, f.licenseNo, f.address, f.remarks, f.bankName, f.holder, f.accountNo, f.cardFront?.fileId, f.cardBack?.fileId, pct(f.commDaily), pct(f.commMonthly)]); },
     dirty() { return this.drawer?.mode === 'edit' && this.snap() !== this.start; },
     async upload(key, e) {
       const file = e.target.files[0]; e.target.value = '';
@@ -374,7 +386,7 @@ export default {
     },
     async save() {
       if (this.drawer?.bankFailed) return;
-      this.f.error = this.validate();
+      this.f.error = this.validate() || (this.isBD && !this.f.branchIds.some(b => (me.branches || []).includes(b)) ? 'Tick at least one of your branches.' : '');
       if (this.f.error) return;
       this.busy = true; this.okMsg = '';
       try {
@@ -405,6 +417,8 @@ export default {
 </script>
 
 <style scoped>
+.ag-branches { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.ag-branches .check { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; }
 .form-sec { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 24px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .drawer-body > .form-sec:first-child, .notice + .form-sec { margin-top: 0; }
 .head-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

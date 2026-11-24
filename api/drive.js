@@ -154,7 +154,7 @@ async function driveAccess(user) {
   const u = await readDoc(user, `users/${user.uid}`);
   if (!u || u.active?.booleanValue === false) return '';
   const role = u.role?.stringValue || '';
-  if (role === 'director') return 'edit';
+  if (role === 'director' || role === 'branchDirector') return 'edit';   // 24 Nov 2026: Branch Directors as Directors
   const listOf = f => (f?.perms?.arrayValue?.values || []).map(v => v.stringValue);
   let perms = u.perms ? listOf(u) : null;
   if (!perms) { const r = role ? await readDoc(user, `roles/${role}`) : null; perms = r?.perms ? listOf(r) : null; }
@@ -380,7 +380,7 @@ async function checkComplaint(user, recordId, action, area) {
   const f = (await r.json()).fields || {};
   const kind = COMPLAINT[area].kind;
   if (f.kind?.stringValue !== kind) throw new HttpError(403, 'That complaint is not in this area.');
-  if (action === 'session' && f.status?.stringValue === 'closed' && (await roleOf(user)) !== (kind === 'staff' ? 'hr' : 'director'))
+  if (action === 'session' && f.status?.stringValue === 'closed' && !(kind === 'staff' ? ['hr'] : ['director', 'branchDirector']).includes(await roleOf(user)))
     throw new HttpError(403, 'This complaint is closed.');
   return f;
 }
