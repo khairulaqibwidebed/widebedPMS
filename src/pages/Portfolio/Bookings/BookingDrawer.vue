@@ -139,6 +139,19 @@
           <p class="help" v-if="editable && chargesChanged">Month charges changed: add a reason below and Save booking to keep them.</p>
           <p class="help">{{ isLong ? `${leaseLabel(nightsNow)}: each month is rent and charges against the Checked payments for that month. Paid over a month's total is carried to the next month.` : 'Short term: the rental is due in the check-in month; Checked payments count in the month they are for.' }}</p>
         </template>
+        <!-- 24 Nov 2026 (Khairul): Charges payments (Offline Payments, Payment for = Charges) on their own, never in a month's paid -->
+        <template v-if="chargePays.length">
+          <div class="form-sec">Charges <span class="help" style="text-transform:none;letter-spacing:0;font-weight:400">· kept apart from the rent</span></div>
+          <div class="tp-list">
+            <div class="cg-row" v-for="x in chargePays" :key="x.id">
+              <span class="cg-main"><span>{{ dmy(x.date) }}</span><small>{{ x.note || '—' }}</small></span>
+              <span><span class="pill" :class="x.status === 'Checked' ? 'green' : 'blue'">{{ x.status === 'Checked' ? 'Checked' : 'Pending check' }}</span></span>
+              <b class="tp-amt">{{ `RM ${amt(x.amount)}` }}</b>
+            </div>
+          </div>
+          <div class="cal-row" style="margin-top:6px"><span><b>Charges paid</b> <small class="muted">(Checked)</small></span><b>{{ `RM ${amt(chargesPaid)}` }}</b></div>
+          <p class="help">Recorded on Accounting › Offline Payments with Payment for = Charges. They do not count towards any month's rent.</p>
+        </template>
         </div>
         <div v-show="tab === 'invoice'">
         <!-- 20 Nov 2026: the invoice for any booking (was Awaiting payment only): the full invoice or one month's page -->
@@ -425,6 +438,9 @@ export default {
     extraTotal() { return this.cal.reduce((a, c) => a + c.extra, 0); },
     chargesChanged() { return JSON.stringify(cleanCharges(this.bk.f.monthCharges)) !== JSON.stringify(cleanCharges(allMonthCharges(this.bk))); },
     totalPaid() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + rentalOf(x), 0); },
+    // 24 Nov 2026 (Khairul): Charges payments, shown on their own (lib/utility-bills.js partsOf); Checked ones are paid
+    chargePays() { return (this.bk.payments || []).map(p => ({ ...p, pp: partsOf(p) })).filter(p => p.pp.charges > 0).map(p => ({ id: p.id, date: p.date, status: p.status, amount: p.pp.charges, note: p.pp.chargeNote || p.purpose || '' })).sort((a, b) => String(a.date).localeCompare(String(b.date))); },
+    chargesPaid() { return this.chargePays.filter(payCounts).reduce((a, x) => a + x.amount, 0); },
     totalChecked() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + (Number(x.amount) || 0), 0); },
     // 23 Nov 2026: utility bills. Edit as today: Accounting (finance edit ticks), Directors and the Booking forms tick (rules Draft 1.03)
     canEditBill() { return ['director', 'branchDirector'].includes(me.role) || ['bookingForms.view', 'ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit'].some(p => can(me, p)); },
@@ -511,7 +527,7 @@ export default {
     payParts(p) {
       if (!Array.isArray(p.parts) || !p.parts.length) return '';
       const pp = partsOf(p), names = Object.entries(pp.bills).map(([id, a]) => { const b = (this.bk.bills || []).find(y => y.id === id); return `${b ? datesText(b) : 'bill'} RM ${amt(a)}`; });
-      return [pp.rental > 0 ? `Rental RM ${amt(pp.rental)}` : '', pp.utilities > 0 ? `Utilities RM ${amt(pp.utilities)}${names.length ? ' (' + names.join(', ') + ')' : ''}` : ''].filter(Boolean).join(' · ');
+      return [pp.charges > 0 ? `Charges RM ${amt(pp.charges)} (not rent)` : '', pp.rental > 0 ? `Rental RM ${amt(pp.rental)}` : '', pp.utilities > 0 ? `Utilities RM ${amt(pp.utilities)}${names.length ? ' (' + names.join(', ') + ')' : ''}` : ''].filter(Boolean).join(' · ');
     },
     openBill(x) { this.billOpen = this.billOpen === x.id ? '' : x.id; this.billEd = null; this.billErr = ''; },
     startBillEdit(x) {
@@ -735,6 +751,11 @@ export default {
 .ub-foot { display: flex; gap: 18px; flex-wrap: wrap; justify-content: flex-end; padding: 8px 12px; font-size: 14px; color: var(--text-2); }
 .ub-foot b { color: var(--text); }
 .pay-part { font-size: 12px; color: var(--muted); padding: 0 0 6px 12px; }
+/* 24 Nov 2026: Charges list on the Payments tab */
+.cg-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--border); }
+.cg-row:first-child { border-top: 0; }
+.cg-main { display: grid; gap: 1px; }
+.cg-main small { color: var(--muted); font-size: 12px; white-space: pre-line; }
 @media (max-width: 640px) { .ub-line { grid-template-columns: 1fr 1fr; } }
 .bk-where { font-size: 14px; font-weight: 400; margin: 0; }   /* 20 Nov 2026: property, unit and source beside the booking no. */
 .bk-tabs { margin: -6px 0 18px; overflow: visible; }   /* 20 Nov 2026 (Khairul): no sticking or scrolling; the tabs stay in place */

@@ -1,4 +1,7 @@
 rules_version = '2';
+// Draft 1.08, 24 Nov 2026 (Khairul): offline payment Charges part { type: 'charges', amount, note } (note = the Purpose, <= 1000
+//   characters). Money for a booking kept apart from the rent. Only Offline Payments Edit creates one (the Operations bill path still
+//   needs a bill). No other change.
 // Draft 1.07, 24 Nov 2026 (Khairul): Branch Directors (role 'branchDirector'). A Director's view and edit, limited to their own
 //   branches by the app (lib/property-scope.js), as for every other role. isDirector() is now true for them too; the new
 //   isTopDirector() (the real Director only) keeps Roles, config/* writes, brand logos, the old Maintenance Sheet settings
@@ -1267,8 +1270,9 @@ service cloud.firestore {
     match /offlinePayments/{id} {
       // Draft 1.03: Rental / Utilities parts. At most 2 parts of the two shapes; the payment's amount is the parts added up.
       function partOk(x) {
-        return x is map && x.keys().hasOnly(['type', 'amount', 'forMonth', 'bills']) && x.amount is number && x.amount >= 0
-          && (x.type == 'rental' || (x.type == 'utilities' && x.bills is list && x.bills.size() <= 30));
+        return x is map && x.keys().hasOnly(['type', 'amount', 'forMonth', 'bills', 'note']) && x.amount is number && x.amount >= 0
+          && (x.type == 'rental' || (x.type == 'utilities' && x.bills is list && x.bills.size() <= 30)
+            || (x.type == 'charges' && x.get('note', '') is string && x.get('note', '').size() <= 1000));   // Draft 1.08
       }
       function partsOk(d) {
         return !('parts' in d) || (d.parts is list && d.parts.size() <= 2 && d.get('billIds', []) is list && d.get('billIds', []).size() <= 30
