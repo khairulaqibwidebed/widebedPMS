@@ -4,6 +4,11 @@
 // Per-table polish uses classes on the cells (see app.css): ct-title, ct-badge, ct-hide, ct-actions.
 const PHONE = '(max-width: 600px)';
 const TABLES = 'table.table, table.perm-table';
+// Half screen and tablets (24 Nov 2026): tables marked cards-tablet also show as cards up to 1024px, the width where the
+// sidebar becomes a drawer. For wide tables that must fit the page without sideways scrolling (Roles, Staff accounts).
+const TABLET = '(max-width: 1024px)';
+const TABLET_TABLES = 'table.cards-tablet';
+let phoneMq = null;
 
 // Heading text per column, following colspan in the heading row.
 function headings(table) {
@@ -39,12 +44,13 @@ function label(table) {
 let queued = false;
 function run() {
   queued = false;
-  document.querySelectorAll(TABLES).forEach(label);
+  document.querySelectorAll(phoneMq && phoneMq.matches ? TABLES : TABLET_TABLES).forEach(label);
 }
 function queue() { if (!queued) { queued = true; requestAnimationFrame(run); } }
 
 export function startCardTables() {
-  const mq = window.matchMedia(PHONE);
+  phoneMq = window.matchMedia(PHONE);
+  const mq = window.matchMedia(TABLET);   // the wider of the two: the observer runs whenever any table may be cards
   let observer = null;
   const toggle = () => {
     if (mq.matches && !observer) {

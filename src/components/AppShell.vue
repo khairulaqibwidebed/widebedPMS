@@ -94,6 +94,31 @@
       </div>
       <RouterView :key="$route.fullPath" />
     </div>
+    <!-- Phone tab bar (24 Nov 2026): the pages everyone uses most, one thumb away. Every role has Dashboard, Issues and
+         Notifications. Shown on phones only (app.css hides it while a pop-up, side panel or full-screen form is open, or
+         while typing). Menu opens the same slide-in sidebar as the button at the top. -->
+    <nav class="tabbar" aria-label="Quick links">
+      <router-link to="/Dashboard" class="tab-it" :class="{ on: active === 'Dashboard' }">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span>Home</span>
+      </router-link>
+      <router-link to="/Operations/issues" class="tab-it" :class="{ on: active === 'Issues' }">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+        <span>Issues</span>
+      </router-link>
+      <button type="button" class="tab-it" @click="paletteOpen = true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span>Search</span>
+      </button>
+      <router-link to="/Notifications" class="tab-it" :class="{ on: active === 'Notifications' }">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span>Alerts</span>
+      </router-link>
+      <button type="button" class="tab-it" :class="{ on: menuOpen }" :aria-expanded="String(menuOpen)" @click="menuOpen = !menuOpen">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <span>Menu</span>
+      </button>
+    </nav>
     <CommandPalette v-if="paletteOpen" :groups="groups" @close="paletteOpen = false" />
   </div>
 </template>
@@ -122,8 +147,9 @@ const COLLAPSED_KEY = 'wb.navCollapsed';
 function readCollapsed() { try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch (_) { return false; } }
 
 // The icon rail only exists on desktop. Keep this equal to the breakpoint in the <style> block below,
-// and one pixel above the 860px where app.css turns the sidebar into a drawer.
-const DESKTOP_QUERY = '(min-width: 861px)';
+// and one pixel above the 1024px where app.css turns the sidebar into a drawer (24 Nov 2026: was 861 / 860, so a
+// half-screen desktop window or a tablet now gets the drawer and the whole width for the page).
+const DESKTOP_QUERY = '(min-width: 1025px)';
 
 export default {
   components: { NavItem, CommandPalette, Avatar, NotificationBell },
@@ -227,7 +253,7 @@ export default {
    Side padding grows with the screen so big monitors don't look cramped at the edges. */
 main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px, 2.2vw, 36px) clamp(16px, 3vw, 56px) 48px;box-sizing: border-box;}
 /* Ensure flex grids inside dashboards scale down on smaller screens */
-.grid-2 {display: grid;grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));gap: 20px;}
+.grid-2 {display: grid;grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));gap: 20px;}   /* min(…, 100%): fits small phones (330px) too (24 Nov 2026) */
 
 /* Department header: icon + label + chevron. */
 .nav-group-btn { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; transition: gap .25s var(--nav-ease), padding .25s var(--nav-ease), background .2s ease; }
@@ -299,13 +325,13 @@ main.content {flex: 1;width: 100%;max-width: none;margin: 0;padding: clamp(20px,
 .bell-btn {position: relative;}
 .notification-dot {position: absolute;top: 8px;right: 8px;width: 8px;height: 8px;background-color: #e53935;border-radius: 50%;border: 2px solid #fff;}
 
-/* Phone drawer: dvh so the pinned button is not hidden under the browser's address bar; keep clear of the home bar. */
-@media (max-width: 860px) {
+/* Drawer (half screen, tablet, phone): dvh so the pinned button is not hidden under the browser's address bar; keep clear of the home bar. */
+@media (max-width: 1024px) {
   .app .sidebar { height: 100vh; height: 100dvh; }
   .app .side-foot { padding-bottom: env(safe-area-inset-bottom, 0px); }
 }
 
-@media (min-width: 861px) { /* keep equal to DESKTOP_QUERY in the script, and one above the drawer breakpoint (860px) in app.css */
+@media (min-width: 1025px) { /* keep equal to DESKTOP_QUERY in the script, and one above the drawer breakpoint (1024px) in app.css */
   .app.collapsed { --sidebar-w: 68px; }
   .app.collapsed .sidebar-toggle { justify-content: center; gap: 0; }
   .app.collapsed .toggle-label { max-width: 0; opacity: 0; }
@@ -343,10 +369,13 @@ html.nav-locked, html.nav-locked body { overflow: hidden; }
 .top-brand { display: none; align-items: center; gap: 8px; margin-right: auto; color: var(--text); font-weight: 700; font-size: 15px; text-decoration: none; white-space: nowrap; }
 .top-brand .brand-mark { width: 28px; height: 28px; font-size: 14px; }
 .menu-btn { width: 44px; height: 44px; padding: 0; }
-/* Phone top bar: menu button on the left, account and bell on the right. No logo or search (Khairul, 3 Nov). */
-@media (max-width: 860px) {
+/* Half screen and tablet: menu button on the left, then search, account and bell. */
+@media (max-width: 1024px) {
   .menu-btn { margin-right: auto; }
   .topbar { gap: 8px; }
+}
+/* Phone top bar: menu button on the left, account and bell on the right. No logo or search (Khairul, 3 Nov). */
+@media (max-width: 860px) {
   .topbar .search-btn { display: none; }
 }
 .pwa-bar { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; padding: 10px 20px; background: var(--accent-soft); color: var(--accent); border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -354,4 +383,24 @@ html.nav-locked, html.nav-locked body { overflow: hidden; }
 .pwa-bar.off { background: var(--amber-soft); color: var(--amber); }
 .quota-bar { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 10px 20px; background: var(--red-soft); color: var(--red); border-bottom: 1px solid var(--border); font-size: 13px; }
 .quota-bar span { flex: 1; min-width: 200px; color: var(--text-2); }
+
+/* ---------- Phone tab bar (24 Nov 2026) ---------- */
+.tabbar { display: none; }
+@media (max-width: 600px) {
+  .tabbar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--surface);
+    border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: 0 -4px 16px rgba(26,29,35,.05); }
+  .tab-it { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    height: 58px; border: 0; background: none; padding: 0; color: var(--muted); font: inherit; font-size: 11px; font-weight: 600;
+    text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .tab-it.on { color: var(--accent); }
+  .tab-it:active { background: var(--hover); }
+  /* Room under every page so the last row isn't hidden behind the bar */
+  .app .main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
+  /* Out of the way while a pop-up, side panel or full-screen form is open, or while typing (the keyboard is up) */
+  /* body:has, not .app:has: some pop-ups (file viewer, guides) are moved to the end of the page */
+  body:has(.modal-back, .drawer, .drawer-back, .palette-back, .form-frame.sheet) .tabbar,
+  body:has(input:focus, textarea:focus, select:focus, [contenteditable="true"]:focus) .tabbar { display: none; }
+  body:has(.modal-back, .drawer, .drawer-back, .form-frame.sheet) .app .main,
+  body:has(input:focus, textarea:focus, select:focus, [contenteditable="true"]:focus) .app .main { padding-bottom: 0; }
+}
 </style>

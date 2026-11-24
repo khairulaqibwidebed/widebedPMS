@@ -986,7 +986,16 @@ export default {
 .kpis .kpi { padding: 12px 14px; }
 .kpis .kpi .label { font-size: 12px; }
 .kpis .kpi .value { font-size: 22px; margin-top: 2px; }
-@media (max-width: 800px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .head-actions { flex-wrap: wrap; } }
+@media (max-width: 800px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .head-actions { flex-wrap: wrap; flex: 1 1 100%; margin-left: 0; min-width: 0; } }
+/* Phones: the buttons share the width and wrap; + New offline payment takes its own full line (24 Nov 2026) */
+@media (max-width: 600px) { .head-actions .btn { flex: 1 1 auto; } .head-actions .btn-primary { flex-basis: 100%; } }
+/* Phone cards: property and unit, purpose and payment code wrap onto more lines instead of being cut short with "…" */
+@media (max-width: 600px) {
+  .op-table td { flex-wrap: wrap; row-gap: 2px; }
+  .op-table td > div, .op-table td .clamp, .op-table td .op-code { white-space: normal; overflow: visible; text-overflow: clip; max-width: 100%; }
+  .op-table td > div, .op-table td .op-code { flex: 0 1 auto; margin-left: auto; text-align: right; }
+  .op-table td .clamp { -webkit-line-clamp: unset; display: inline; }
+}   /* 1 1 100%: the buttons wrap instead of running off a phone (24 Nov 2026) */
 .who { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .tag.st-edited { background: #E6EEFB; color: #2B5DB8; }
 .rep-modal { max-width: 640px; }
@@ -1004,6 +1013,8 @@ export default {
 .field label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
 /* 20 Nov 2026 (Khairul): fixed column widths so the table fits a laptop screen with no sideways scroll; long text ends in … */
 .op-table { table-layout: fixed; width: 100%; }
+/* Half screen and narrower (24 Nov 2026): the fixed columns need about 860px, else Purpose shrinks to nothing; scroll sideways in the box instead */
+@media (min-width: 601px) and (max-width: 1024px) { .op-table { min-width: 860px; } }   /* not on phones: there the rows are cards and must fit the screen */
 .op-table td, .op-table th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 10px; padding-right: 10px; }
 .op-table td > div { overflow: hidden; text-overflow: ellipsis; }
 .op-table td.purpose-cell { white-space: normal; }

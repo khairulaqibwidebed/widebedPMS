@@ -88,8 +88,8 @@ onMounted(() => {
 .ag-guide-here { background: var(--accent-soft); border-radius: 12px; padding: 14px 16px; display: grid; gap: 2px; }
 .ag-guide-here small { color: var(--text-2); font-size: 12px; }
 .ag-guide-here b { font-size: 16px; }
-.ag-guide-here ul { margin: 8px 0 0; padding-left: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px 28px; font-size: 13px; line-height: 1.45; }
-.ag-guide-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+.ag-guide-here ul { margin: 8px 0 0; padding-left: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 6px 28px; font-size: 13px; line-height: 1.45; }
+.ag-guide-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)); gap: 12px; }
 .ag-guide-steps li { display: flex; gap: 12px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
 .ag-guide-steps li.here { border-color: var(--accent); background: var(--surface); }
 .ag-guide-num { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--chip); color: var(--text); font-size: 13px; font-weight: 700; display: grid; place-items: center; }

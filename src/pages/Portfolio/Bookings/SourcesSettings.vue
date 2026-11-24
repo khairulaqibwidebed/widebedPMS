@@ -10,7 +10,7 @@
     <div class="notice error" v-show="error">{{ error }}</div>
     <div class="notice ok" v-show="okMsg">{{ okMsg }}</div>
 
-    <section class="card" v-if="!loading">
+    <section class="card src-card" v-if="!loading">
       <div class="src-head" aria-hidden="true"><span></span><span>Name</span><span>Active</span><span>Bookings</span><span></span></div>
       <div class="src-row" v-for="(s, i) in list" :key="s.id" :class="{ over: overAt === i, hidden: !s.active }"
         draggable="true" @dragstart="dragFrom = i" @dragover.prevent="overAt = i" @dragleave="overAt = -1" @drop.prevent="drop(i)" @dragend="dragFrom = -1; overAt = -1">
@@ -162,7 +162,9 @@ export default {
 .input.bad { border-color: var(--danger); }
 .bad-text { color: var(--danger); font-size: 12px; }
 .src-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 14px; }
-@media (max-width: 760px) {
+/* Rows follow the card's own width, not the window's (24 Nov 2026: was @media 760px, too wide beside the sidebar) */
+.src-card { container-type: inline-size; }
+@container (max-width: 620px) {
   .src-head { display: none; }
   .src-row { grid-template-columns: 92px minmax(0, 1fr); }
   .src-row > span:nth-child(n+3) { grid-column: 2; min-height: 0; }

@@ -83,7 +83,8 @@ export default {
 .bs-tab:hover { color: var(--accent); background: var(--accent-soft); }
 .bs-tab.on { color: var(--accent); font-weight: 600; background: var(--accent-soft); border-left-color: var(--accent); }
 /* Phone: the tabs stack above the settings */
-@media (max-width: 760px) {
+/* Also 1025–1180px: with the sidebar open the settings body is too narrow for a side menu, so the menu goes on top (24 Nov 2026) */
+@media (max-width: 760px), (min-width: 1025px) and (max-width: 1180px) {
   .bs-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .bs-tabs { position: static; border: 1px solid var(--border); border-radius: 12px; padding: 4px; background: var(--surface); }
 }

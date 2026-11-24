@@ -1108,7 +1108,7 @@ export default {
 .inv-stat b { font-size: 18px; color: var(--text); }
 .inv-stat.main { flex: 2 1 240px; background: var(--accent-soft); border-color: transparent; }
 .inv-stat.main b { font-size: 24px; color: var(--accent); }
-.inv-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.inv-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 14px; }
 .inv-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; background: var(--surface); }
 .inv-card h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .inv-kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
