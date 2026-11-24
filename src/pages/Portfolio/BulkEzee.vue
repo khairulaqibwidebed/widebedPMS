@@ -141,13 +141,14 @@
                   <button type="button" class="link bz-cmp-btn" @click="openCompare(x, sec.key)">Compare and edit</button></td>
                 <td v-if="sec.key !== 'cant'" @click.stop>
                   <span class="pill green" v-if="madeOf(x, cur)" :title="madeOf(x, cur).id">{{ `${madeOf(x, cur).bookingNo}${madeOf(x, cur).saved ? ' saved' : ''}` }}</span>
-                  <template v-else-if="stagedOf(x, cur)"><span class="pill amber">Pending confirm to add</span>
-                    <div class="muted bz-small" style="margin-top:4px">{{ stagedOf(x, cur).label }}</div>
+                  <div class="bz-stage" v-else-if="stagedOf(x, cur)">
+                    <span class="pill amber bz-pill">{{ fillTarget(x) ? 'Pending confirm to fill' : 'Pending confirm to add' }}</span>
+                    <div class="bz-stage-meta">{{ stagedOf(x, cur).label }}</div>
                     <div class="bz-with" v-if="stagedOf(x, cur).error">{{ stagedOf(x, cur).error }}</div>
-                    <button type="button" class="link bz-cmp-btn" @click="openForm(x, cur)">Edit</button>
-                    <button type="button" class="link bz-cmp-btn" @click="unstage(x, cur)">Remove</button></template>
-                  <button type="button" class="btn btn-sm" v-else-if="canForm(x)" @click="openForm(x, cur)">Fill in booking form</button>
-                  <span class="muted" v-else>—</span></td>
+                    <div class="bz-stage-acts"><button type="button" class="link" @click="openForm(x, cur)">Edit</button><button type="button" class="link" @click="unstage(x, cur)">Remove</button></div>
+                  </div>
+                  <button type="button" class="btn btn-sm" :class="{ 'btn-primary': !doneMsg }" v-else-if="needsForm(x, cur)" @click="openForm(x, cur)">{{ fillTarget(x) ? `Fill in ${fillTarget(x).ref}` : 'Fill in booking form' }}</button>
+                  <span class="muted" v-else :title="canForm(x) ? 'Choose Add to fill in its booking form' : ''">{{ canForm(x) && sec.opts ? 'Choose Add first' : '—' }}</span></td>
               </tr></tbody>
             </table></div>
             <button type="button" class="btn bz-more" v-if="sec.key === 'ready' && sec.items.length > limit" @click="limit = 100000">{{ `Show all ${sec.items.length}` }}</button>
@@ -161,8 +162,23 @@
             <div class="kpi"><div class="label">Will be cancelled</div><div class="value">{{ c.cancel.length }}</div><div class="hint">found, details match</div></div>
             <div class="kpi"><div class="label">Check first</div><div class="value" :class="{ alert: c.check.length }">{{ c.check.length }}</div><div class="hint">left as they are unless ticked</div></div>
             <div class="kpi"><div class="label">Can't cancel</div><div class="value">{{ c.blocked.length }}</div><div class="hint">month completed</div></div>
+            <div class="kpi"><div class="label">Still in Bookings</div><div class="value" :class="{ alert: c.offOnly.length }">{{ c.offOnly.length }}</div><div class="hint">cancelled for Accounting, still booked</div></div>
             <div class="kpi"><div class="label">Nothing to do</div><div class="value">{{ c.nothing.length }}</div><div class="hint">already cancelled or not found</div></div>
           </div>
+
+          <!-- 24 Nov 2026: the booking in Portfolio > Bookings (offline booking with this eZee reservation no.) is cancelled too -->
+          <section class="bz-group red" v-if="c.offOnly.length">
+            <header><b>{{ `Still booked in Portfolio › Bookings · ${c.offOnly.length}` }}</b><span>eZee has these cancelled (and Accounting's copy is already cancelled or missing), but the booking made in the PMS is still active. Default: Cancel.</span></header>
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>Reservation</th><th>Booking in Bookings</th><th>Why</th><th>Do</th></tr></thead>
+              <tbody><tr v-for="x in c.offOnly" :key="'o' + x.row.resNo + (x.row.folioNo || '')">
+                <td><b>{{ x.row.resNo }}</b><div class="muted">{{ reportLine(x.row) }}</div></td>
+                <td><div v-for="o in x.offline" :key="o.id">{{ `${o.bookingNo || o.id} · ${o.unitCode || '—'}` }}<div class="muted">{{ `${stay(o)}${o.status === 'pending' ? ' · Awaiting payment' : ''}` }}</div></div></td>
+                <td>{{ x.why }}</td>
+                <td><span class="bz-seg"><button type="button" :class="{ on: !x.go }" @click="x.go = false">Leave</button><button type="button" :class="{ on: x.go, danger: x.go }" @click="x.go = true">Cancel</button></span></td>
+              </tr></tbody>
+            </table></div>
+          </section>
 
           <section class="bz-group red" v-if="c.check.length">
             <header><b>{{ `Check first · ${c.check.length}` }}</b><span>Default: Leave. Choose Cancel only when you are sure it is the same booking.</span></header>
@@ -178,13 +194,14 @@
           </section>
 
           <section class="bz-group amber" v-if="c.cancel.length">
-            <header><b>{{ `Will be cancelled · ${c.cancel.length}` }}</b><span>Marked Cancelled with eZee's cancel date, who cancelled and the remark. Nothing is deleted.</span></header>
+            <header><b>{{ `Will be cancelled · ${c.cancel.length}` }}</b><span>Marked Cancelled with eZee's cancel date, who cancelled and the remark, here and in Portfolio › Bookings. Nothing is deleted.</span></header>
             <div class="table-wrap"><table class="table">
-              <thead><tr><th>Reservation</th><th>Guest</th><th>Room · stay in the PMS</th><th>Source</th><th>Cancelled</th><th>Remark</th><th>Matched on</th></tr></thead>
+              <thead><tr><th>Reservation</th><th>Guest</th><th>Room · stay in the PMS</th><th>Source</th><th>Cancelled</th><th>Remark</th><th>Matched on</th><th>Also in Bookings</th></tr></thead>
               <tbody><tr v-for="x in c.cancel" :key="x.booking.id">
                 <td>{{ x.booking.id }}</td><td>{{ x.booking.guestName || x.row.guest || '—' }}</td><td>{{ `${x.booking.unitCode || '—'} · ${stay(x.booking)}` }}</td>
                 <td>{{ x.row.source || x.booking.source || '—' }}</td><td>{{ dmy(x.row.cancelDate) || '—' }}</td><td>{{ x.row.remark || '—' }}</td>
                 <td>{{ matchedOn(x) }}</td>
+                <td>{{ (x.offline || []).map(o => o.bookingNo || o.id).join(', ') || '—' }}</td>
               </tr></tbody>
             </table></div>
           </section>
@@ -203,14 +220,14 @@
 
       <div class="bz-foot">
         <span class="muted">{{ footNote }}</span>
-        <button type="button" class="btn" :class="isNew ? 'btn-primary' : 'btn-danger'" :disabled="!count || busy" @click="openConfirm">{{ isNew ? 'Continue to confirm' : `Continue to cancel ${count}` }}</button>
+        <button type="button" class="btn" :class="isNew ? 'btn-primary' : 'btn-danger'" :disabled="!count || busy || (isNew && unfilledAll > 0)" :title="isNew && unfilledAll ? 'Fill in the booking form of every row being added first' : ''" @click="openConfirm">{{ isNew ? 'Continue to confirm' : `Continue to cancel ${count}` }}</button>
       </div>
     </template>
 
     <!-- 24 Nov 2026: the New booking form for one eZee row (the same form as Portfolio > Bookings > + New booking) -->
     <div class="modal-back" v-if="form" @click.self="closeForm">
       <div class="modal bz-form-modal" role="dialog" aria-modal="true" aria-label="New booking from eZee">
-        <div class="bz-form-head"><span><b>{{ `New booking · eZee ${form.prefill.ezeeNo}` }}</b>
+        <div class="bz-form-head"><span><b>{{ form.prefill.fillId ? `Fill in ${fillTarget(form.x)?.ref || form.prefill.fillId} · eZee ${form.prefill.ezeeNo}` : `New booking · eZee ${form.prefill.ezeeNo}` }}</b>
             <span class="muted bz-small" v-if="!form.now && queue.length">{{ ` · row ${queueAt(form) + 1} of ${queue.length} to fill in` }}</span></span>
           <span class="bz-form-acts"><button type="button" class="btn btn-sm" v-if="!form.now && nextAfter(form)" @click="skipRow">Skip this row</button>
             <button type="button" class="btn btn-sm" @click="closeForm">Close</button></span></div>
@@ -219,7 +236,7 @@
     </div>
     <!-- Continue to confirm: each pending row is saved by the same form, with no screen, one after another -->
     <div v-if="committing" style="display:none" aria-hidden="true">
-      <ReservationForm :key="committing.key" :prefill="committing.prefill" auto-save @saved="committing.onSaved" @done="committing.resolve" />
+      <ReservationForm :key="committing.key" :prefill="committing.prefill" auto-save pay-checked @saved="committing.onSaved" @done="committing.resolve" />
     </div>
 
     <!-- Review one row: the system's record next to the file's, what will change, and the file's details can be edited -->
@@ -271,7 +288,6 @@
             <div v-for="pt in ready" :key="pt.key"><span>{{ pt.label }}</span><b>{{ [`${pt.adds.length} new`, pt.stagedRows.length && `${pt.stagedRows.length} to Bookings`, `${pt.updates.length} updated`, pt.fills.length && `${pt.fills.length} filled in`, pt.readds.length && `${pt.readds.length} added again`, pt.forced.length && `${pt.forced.length} clash added`, pt.replaces.length && `${pt.replaces.length} replaced`, pt.cancels.length && `${pt.cancels.length} cancelled`, pt.edits && `${pt.edits} edited`].filter(Boolean).join(' · ') }}</b></div>
           </div>
           <div class="notice ok" v-if="stagedAll.length">{{ `${stagedAll.length} ${stagedAll.length === 1 ? 'row is' : 'rows are'} added to Portfolio › Bookings as bookings (Pending confirm to add).` }}</div>
-          <div class="notice warn" v-if="unfilledAll">{{ `${unfilledAll} new ${unfilledAll === 1 ? 'row has' : 'rows have'} no booking form filled in: saved for Accounting only. Fill them in later from the list after saving.` }}</div>
           <div class="notice error" v-if="cancelsAll.length">{{ `These will be cancelled in the PMS (their nights leave the owner statements): ${cancelsAll.map(x => `${x.booking.id} (${x.booking.unitCode || '—'})`).join(', ')}.` }}</div>
           <p class="muted bz-small" v-if="skippedTotal">{{ `${skippedTotal} rows skipped or left out (already in the PMS, clashes, changes kept, or rows that can't be added).` }}</p>
           <div class="notice warn" v-if="forcedAll.length">{{ `These will double-book their room: ${forcedAll.map(x => `${x.r.reservationNo} (${x.r.unitCode})`).join(', ')}.` }}</div>
@@ -284,6 +300,7 @@
           <h2 id="bzConfirmTitle">{{ `Cancel ${count} ${count === 1 ? 'booking' : 'bookings'}?` }}</h2>
           <p class="muted" style="margin-top:-8px">Their nights leave the owner statements of the months they are in.</p>
           <div class="bz-sum"><div v-for="r in byMonth" :key="r.key"><span>{{ `${r.label} · ${monthName(r.month)}` }}</span><b>{{ `${r.n} · RM ${amt(r.total)}` }}</b></div></div>
+          <div class="notice warn" v-if="offTotal">{{ `${offTotal} ${offTotal === 1 ? 'booking' : 'bookings'} in Portfolio › Bookings ${offTotal === 1 ? 'is' : 'are'} cancelled too (same eZee reservation no.).` }}</div>
           <div class="notice error" v-if="fromCheck">{{ `Includes ${fromCheck} you chose under Check first.` }}</div>
           <label for="bzType" class="bz-type-label">{{ `Type CANCEL ${count} to confirm` }}</label>
           <input id="bzType" class="input" v-model="typed" :placeholder="`CANCEL ${count}`" autocomplete="off">
@@ -324,7 +341,7 @@ const FIELDS = [{ k: 'guest', label: 'Guest', edit: 'text' }, { k: 'unit', label
 const EDITABLE = ['guest', 'unitId', 'arrival', 'departure', 'source', 'rateType'];
 const OFFLINE_KEYS = ['guest', 'unit', 'arrival', 'departure', 'nights', 'source', 'status'];
 const nightsOf = (a, d) => (a && d && d > a ? Math.round((Date.parse(d) - Date.parse(a)) / 864e5) : 0);
-const EMPTY_CAN = { cancel: [], check: [], blocked: [], nothing: [] };
+const EMPTY_CAN = { cancel: [], check: [], blocked: [], nothing: [], offOnly: [] };
 const EMPTY_MONTH = { gone: [], missing: [] };
 const chunks = (list, n) => { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; };
 const monthAdd = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
@@ -372,7 +389,12 @@ export default {
     // Properties found and checked, with what each one will save
     ready() {
       return this.parts.filter(p => p.prop && (p.g || p.c)).map(p => {
-        if (!this.isNew) return { ...p, list: [...p.c.cancel, ...p.c.check.filter(x => x.go)] };
+        if (!this.isNew) {
+          const list = [...p.c.cancel, ...p.c.check.filter(x => x.go)], offOnly = (p.c.offOnly || []).filter(x => x.go);
+          // 24 Nov 2026: the offline bookings (Portfolio > Bookings) of these reservations, cancelled with them
+          const offs = [...list, ...offOnly].flatMap(x => x.offline || []).filter((o, i, a) => a.findIndex(z => z.id === o.id) === i);
+          return { ...p, list, offOnly, offs };
+        }
         const take = [...p.g.clash, ...p.g.cancelled].filter(x => x.choice === 'add');
         const forced = take.filter(x => x.with.length), readds = p.g.cancelled.filter(x => x.choice === 'add');
         // Replace (24 Nov 2026): the file's row is added and the PMS eZee bookings it clashes with are cancelled
@@ -383,19 +405,22 @@ export default {
         const fromReplace = replaces.flatMap(x => x.with.map(w => ({ booking: byId.get(w.id), why: `Replaced by ${x.r.docId} from the file`, replacedBy: x.r.docId }))).filter(y => y.booking);
         const cancels = [...mg.gone, ...mg.missing].filter(x => x.choice === 'cancel' && !x.locked).concat(fromReplace)
           .filter((y, i, a) => a.findIndex(z => z.booking.id === y.booking.id) === i);
-        const stagedRows = this.formRows(p).filter(x => this.stagedOf(x, p) && !this.madeOf(x, p));
+        const stagedRows = this.formRows(p).filter(x => this.stagedOf(x, p)?.bk && !this.madeOf(x, p));
         return { ...p, forced, readds, adds, updates, fills, replaces, cancels, stagedRows, edits: [...adds, ...updates, ...fills].filter(x => x.edited?.length).length };
-      }).filter(p => (this.isNew ? p.adds.length + p.updates.length + p.fills.length + p.cancels.length + p.stagedRows.length : p.list.length));
+      }).filter(p => (this.isNew ? p.adds.length + p.updates.length + p.fills.length + p.cancels.length + p.stagedRows.length : p.list.length + p.offOnly.length));
     },
     unsettled() { return this.parts.filter(p => !p.prop); },
     forcedAll() { return this.ready.flatMap(p => p.forced || []); },
     cancelsAll() { return this.ready.flatMap(p => p.cancels || []); },
     stagedAll() { return this.ready.flatMap(p => (p.stagedRows || []).map(x => ({ x, part: p }))); },
     // New rows (to add) with no booking form filled in and no booking in the PMS
-    unfilledAll() { return this.ready.reduce((t, p) => t + p.adds.filter(x => this.canForm(x) && !this.stagedOf(x, p) && !this.madeOf(x, p)).length, 0); },
+    // 24 Nov 2026 (Khairul/Crane): every row being added must have its booking form filled in (Pending confirm to add)
+    // before Continue to confirm. Skipped rows don't need one.
+    unfilledRows() { return this.parts.filter(p => p.prop && p.g).flatMap(p => this.formRows(p).filter(x => !this.stagedOf(x, p) && !this.madeOf(x, p)).map(x => ({ x, part: p }))); },
+    unfilledAll() { return this.unfilledRows.length; },
     // Rows waiting for the booking form, in the order they are shown (the form opens on the first, then the next)
     queue() { return this.parts.filter(p => p.prop && p.g).flatMap(p => this.formRows(p).filter(x => !this.madeOf(x, p)).map(x => ({ x, part: p }))); },
-    count() { return this.ready.reduce((t, p) => t + (this.isNew ? p.adds.length + p.updates.length + p.fills.length + p.cancels.length + p.stagedRows.length : p.list.length), 0); },
+    count() { return this.ready.reduce((t, p) => t + (this.isNew ? p.adds.length + p.updates.length + p.fills.length + p.cancels.length + p.stagedRows.length : p.list.length + p.offOnly.length), 0); },
     // The groups of the property in view, in the order they are shown, with their choices
     sections() {
       const g = this.g;
@@ -461,6 +486,7 @@ export default {
           edit: c.editable ? f.edit : null, edited: c.x.orig && origV !== undefined && String(origV ?? '') !== String((f.k === 'guest' ? c.x.guest : f.k === 'unit' ? c.x.r.unitCode : c.x.r[f.k]) ?? ''), orig: fmt(f.k, origV) };
       });
     },
+    offTotal() { return this.isNew ? 0 : this.ready.reduce((t, p) => t + (p.offs || []).length, 0); },
     fromCheck() { return this.parts.reduce((t, p) => t + (p.c ? p.c.check.filter(x => x.go).length : 0), 0); },
     skippedTotal() {
       return this.parts.filter(p => p.g).reduce((t, p) => t + p.g.same.length + p.g.cant.length + p.g.cancelled.filter(x => x.choice !== 'add').length + p.g.other.length
@@ -475,6 +501,7 @@ export default {
       return Object.values(t).sort((a, b) => a.label.localeCompare(b.label) || a.month.localeCompare(b.month));
     },
     footNote() {
+      if (this.isNew && this.unfilledAll) return `Fill in the booking form (or Check details) for ${this.unfilledAll} ${this.unfilledAll === 1 ? 'row' : 'rows'} being added or filled in (${this.unfilledRows.slice(0, 4).map(y => y.x.r.reservationNo).join(', ')}${this.unfilledAll > 4 ? ', …' : ''}), or set ${this.unfilledAll === 1 ? 'it' : 'them'} to Skip. Then Continue to confirm.`;
       if (!this.count) return this.isNew ? 'Nothing to save.' : 'Nothing to cancel.';
       const where = plural(this.ready.length, 'property', 'properties');
       if (this.isMonth) return `${this.count} changes across ${where} (every tab: adds, updates, fill-ins and cancellations). Nothing is saved until you confirm.`;
@@ -499,9 +526,9 @@ export default {
         return [`${add} new`, gone && `${gone} only in the PMS`, g.cancelled.length && `${g.cancelled.length} cancelled here`, g.fill.length && `${g.fill.length} to fill in`, g.changed.length && `${g.changed.length} changed`, g.clash.length && `${g.clash.length} ${g.clash.length === 1 ? 'clash' : 'clashes'}`].filter(Boolean).join(' · ');
       }
       const c = p.c;
-      return [`${c.cancel.length + c.check.filter(x => x.go).length} to cancel`, c.check.length && `${c.check.length} to check`].filter(Boolean).join(' · ');
+      return [`${c.cancel.length + c.check.filter(x => x.go).length + c.offOnly.filter(x => x.go).length} to cancel`, c.check.length && `${c.check.length} to check`].filter(Boolean).join(' · ');
     },
-    needsLook(p) { const x = this.isNew ? p.g : p.c, mg = (this.isMonth && p.mg) || EMPTY_MONTH; return !p.prop || (!!x && (this.isNew ? x.clash.length + x.fill.length + mg.gone.length + mg.missing.length > 0 : x.check.length > 0)); },
+    needsLook(p) { const x = this.isNew ? p.g : p.c, mg = (this.isMonth && p.mg) || EMPTY_MONTH; return !p.prop || (!!x && (this.isNew ? x.clash.length + x.fill.length + mg.gone.length + mg.missing.length + this.formRows(p).filter(y => !this.stagedOf(y, p) && !this.madeOf(y, p)).length > 0 : x.check.length + x.offOnly.length > 0)); },
     // Replace is offered when every clash is an eZee booking saved in the PMS (an offline booking is cancelled on its own page)
     // and none of them sits in a completed owner statement
     canReplace(x, part = this.cur) {
@@ -527,6 +554,7 @@ export default {
     madeOf(x, part) {
       const m = part && this.made[`${part.key}|${x.r.docId}`];
       if (m) return m;
+      if (this.fillTarget(x)) return null;   // being filled in: done once saved (made)
       const e = x.existing, off = e && 'bookingNo' in e && !('reservationNo' in e) ? e : null;
       const same = off || (part?.ctx?.offline || []).find(o => o.status !== 'cancelled' && o.ezeeReservationNo && o.ezeeReservationNo === x.r.reservationNo);
       return same ? { id: same.id, bookingNo: same.bookingNo || same.id } : null;
@@ -538,8 +566,14 @@ export default {
     // Rows a booking form is offered for: new rows (ready, and clash / cancelled ones being added) and changed ones
     formRows(p) {
       const g = p.g; if (!g) return [];
-      return [...g.ready, ...g.clash.filter(x => x.choice === 'add' || x.choice === 'replace'), ...g.cancelled.filter(x => x.choice === 'add')].filter(x => this.canForm(x));
+      // 24 Nov 2026: and Fill in blank details: on an eZee booking (no booking in Bookings yet: one is made), or on a booking in
+      // Bookings (that booking opens in the form, its blanks filled from the file, and is updated)
+      return [...g.ready, ...g.clash.filter(x => x.choice === 'add' || x.choice === 'replace'), ...g.cancelled.filter(x => x.choice === 'add'),
+        ...g.fill.filter(x => x.choice === 'fill')].filter(x => this.canForm(x) || this.fillTarget(x));
     },
+    needsForm(x, part) { return !!part && this.formRows(part).includes(x); },
+    // Fill in blank details on a booking already in Portfolio > Bookings: that booking opens in the form (no new one is made)
+    fillTarget(x) { return x.choice === 'fill' && x.target?.kind === 'offline' ? x.target : null; },
     queueAt(f) { return this.queue.findIndex(y => y.part === f.part && y.x.r.docId === f.x.r.docId); },
     nextAfter(f) {
       const q = this.queue, i = f ? this.queueAt(f) : -1;
@@ -550,7 +584,7 @@ export default {
     onStaged(e) {
       const f = this.form; if (!f) return;
       this.staged = { ...this.staged, [this.key(f.x, f.part)]: { bk: e.bk, pending: e.pending, label: e.label, error: '' } };
-      this.flash = `${f.x.r.reservationNo}: Pending confirm to add. It is added to the system when you press Continue to confirm.`;
+      this.flash = `${f.x.r.reservationNo}: ${this.fillTarget(f.x) ? 'Pending confirm to fill' : 'Pending confirm to add'}. It is saved when you press Continue to confirm.`;
       f.dirty = false;
       this.openNext(f);
     },
@@ -559,18 +593,19 @@ export default {
     commitRow(x, part) {
       const st = this.stagedOf(x, part);
       return new Promise(resolve => {
-        this.committing = { key: `c|${this.key(x, part)}|${Date.now()}`, prefill: { ezeeNo: x.r.reservationNo, bk: st.bk }, resolve,
+        const ft = this.fillTarget(x);
+        this.committing = { key: `c|${this.key(x, part)}|${Date.now()}`, prefill: { ezeeNo: x.r.reservationNo, bk: st.bk, ...(ft ? { fillId: ft.id } : {}) }, resolve,
           onSaved: e => { this.made = { ...this.made, [this.key(x, part)]: { id: e.bookingId, bookingNo: e.bookingNo, saved: true } }; } };
       }).then(r => { this.committing = null; return r; });
     },
-    rowClick(x, group) { if (group !== 'cant' && this.canForm(x) && !this.madeOf(x, this.cur)) this.openForm(x, this.cur, !!this.doneMsg); else this.openCompare(x, group); },
+    rowClick(x, group) { if (group !== 'cant' && this.needsForm(x, this.cur) && !this.madeOf(x, this.cur)) this.openForm(x, this.cur, !!this.doneMsg); else this.openCompare(x, group); },
     // now = after the upload was saved: the form saves straight away (there is no Continue to confirm any more)
     openForm(x, part, now = false) {
       if (!part?.prop || this.madeOf(x, part)) return;
-      const st = this.stagedOf(x, part);
+      const st = this.stagedOf(x, part), ft = this.fillTarget(x);
       this.form = { key: `${part.key}|${x.r.docId}|${Date.now()}`, x, part, now, dirty: false, done: false,
         prefill: { ezeeNo: x.r.reservationNo, name: x.guest || '', propertyId: part.prop.id, unitId: x.r.unitId, arrival: x.r.arrival, departure: x.r.departure,
-          source: x.r.source || '', total: x.r.totalInclTax || 0, ...(st ? { bk: st.bk } : {}) } };
+          source: x.r.source || '', total: x.r.totalInclTax || 0, ...(ft ? { fillId: ft.id } : {}), ...(st ? { bk: st.bk } : {}) } };
     },
     async closeForm() {
       if (this.form?.dirty && !this.form.done && !(await askConfirm({ title: 'Close the form?', message: "What you've entered will be lost.", confirmText: 'Close', danger: true }))) return;
@@ -651,7 +686,7 @@ export default {
       this.cmp = null;
     },
     reset() { Object.assign(this, { form: null, made: {}, staged: {}, committing: null, fileMonths: [], fullMonths: [], flash: '', cmp: null, doneLinks: [], error: '', doneMsg: '', fileName: '', note: '', checked: false, parts: [], tab: '', m: { stated: null, read: 0 }, limit: 30, confirming: false, ticked: false, typed: '', percent: 0, rows: markRaw([]) }); },
-    openConfirm() { this.ticked = false; this.typed = ''; this.confirming = true; },
+    openConfirm() { if (this.isNew && this.unfilledAll) return; this.ticked = false; this.typed = ''; this.confirming = true; },
 
     // The rows of a file split by property code, each matched to a property in the PMS (a tab each)
     split(list, codeOf, buildingOf) {
@@ -784,7 +819,8 @@ export default {
           await rb.commit();
         }
         // Blank details filled in: only the blank fields are written
-        for (const pt of parts) for (const list of chunks(pt.fills, 100)) {
+        // A Fill in on a booking in Portfolio > Bookings is saved by its booking form below (not twice)
+        for (const pt of parts) for (const list of chunks(pt.fills.filter(x => !(this.fillTarget(x) && this.stagedOf(x, pt)?.bk)), 100)) {
           const fb = writeBatch(db), dirty = new Map();
           for (const x of list) {
             const set = Object.assign({}, ...x.fills.map(f => f.doc)), priv = Object.assign({}, ...x.fills.map(f => f.priv));
@@ -909,6 +945,25 @@ export default {
       for (const m of [...new Set(bookings.map(b => b.departureMonth).filter(Boolean))]) doneBy[m] = await completedUnitIds(p.id, m);
       const out = matchCancellations(rows, bookings, { done: b => !!doneBy[b.departureMonth]?.has(b.unitId), today: today() });
       out.check.forEach(x => { x.go = false; });
+      // 24 Nov 2026: the booking made in the PMS for each reservation (offlineBookings with this eZee reservation no., made from
+      // Bulk Upload > New bookings or keyed in by hand). It is what Portfolio > Bookings lists, so it is cancelled too.
+      const offBy = new Map();
+      for (const n of chunks([...new Set(rows.map(r => r.resNo))], 30)) {
+        const snap = await getDocs(query(collection(db, 'offlineBookings'), where('propertyId', '==', p.id), where('ezeeReservationNo', 'in', n)));
+        snap.docs.forEach(d => { const o = { id: d.id, ...d.data() }; if (o.status === 'cancelled') return; if (!offBy.has(o.ezeeReservationNo)) offBy.set(o.ezeeReservationNo, []); offBy.get(o.ezeeReservationNo).push(o); });
+      }
+      for (const x of [...out.cancel, ...out.check, ...out.blocked]) x.offline = offBy.get(x.booking?.reservationNo || x.row.resNo) || [];
+      // Already cancelled for Accounting (or never uploaded there), but still active in Portfolio > Bookings: its own group
+      out.offOnly = [];
+      const seen = new Set();
+      out.nothing = out.nothing.filter(x => {
+        const o = (offBy.get(x.row.resNo) || []).filter(v => !seen.has(v.id));
+        if (!o.length) return true;
+        o.forEach(v => seen.add(v.id));
+        out.offOnly.push({ row: x.row, booking: x.booking, offline: o, go: true,
+          why: x.booking ? 'Already cancelled for Accounting, but the booking in Portfolio › Bookings is still active.' : 'Only in Portfolio › Bookings (not uploaded from eZee).' });
+        return false;
+      });
       part.c = out;
     },
 
@@ -935,19 +990,31 @@ export default {
             done += part.length; this.percent = Math.round(5 + 85 * done / total);
           }
         }
+        // 24 Nov 2026: their bookings in Portfolio > Bookings (offline bookings), the same way as Cancel booking in the booking drawer
+        let offDone = 0;
+        for (const pt of parts) for (const list of chunks(pt.offs, 200)) {
+          const ob = writeBatch(db);
+          for (const o of list) {
+            ob.update(doc(db, 'offlineBookings', o.id), { status: 'cancelled', cancelledReason: `Cancelled in eZee (${o.ezeeReservationNo}), ${this.fileName}`.slice(0, 300),
+              cancelledAt: serverTimestamp(), cancelledBy: me.user.uid, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+            audit(ob, me, { action: 'offlineBooking.cancel', entity: `offlineBookings/${o.id}`, propertyId: o.propertyId || pt.prop.id,
+              changes: [{ field: 'status', old: o.status || 'active', new: 'cancelled' }], reason: `eZee ${o.ezeeReservationNo} cancelled (${this.fileName})` });
+          }
+          await ob.commit(); offDone += list.length;
+        }
         const b = writeBatch(db), pids = parts.map(p => p.prop.id);
         const all = parts.flatMap(p => p.list);
         const leftToCheck = this.parts.reduce((t, p) => t + (p.c ? p.c.check.filter(x => !x.go).length : 0), 0);
         b.set(batchRef, { kind: 'ezeeCancel', fileName: this.fileName, filePath: null, months: [...new Set(all.map(x => x.booking.departureMonth).filter(Boolean))].sort(),
           propertyIds: pids, states: await statesFor(pids),
           counts: { read: this.m.read, stated: this.m.stated, cancelled: total, fromCheckFirst: this.fromCheck, leftToCheck,
-            perProperty: Object.fromEntries(parts.map(p => [p.prop.id, p.list.length])) }, result: 'ok',
+            offlineCancelled: offDone, perProperty: Object.fromEntries(parts.map(p => [p.prop.id, p.list.length])) }, result: 'ok',
           uploadedBy: me.user.uid, uploadedByName: me.name, uploadedAt: serverTimestamp() });
         for (const pt of parts) audit(b, me, { action: 'ezee.bulkCancel', entity: `importBatches/${batchRef.id}`, propertyId: pt.prop.id,
           changes: pt.list.slice(0, 200).map(x => ({ field: x.booking.id, old: `active · ${x.booking.unitCode || ''} · ${x.booking.arrival} – ${x.booking.departure} · RM ${amt(x.booking.totalInclTax)}`,
             new: `cancelled ${x.row.cancelDate || ''}${x.why ? ' (checked by hand)' : ''}` })), reason: this.fileName });
         await b.commit(); clearCache();
-        this.doneMsg = `Cancelled ${total} ${total === 1 ? 'booking' : 'bookings'}: ${parts.map(p => `${p.label} ${p.list.length}`).join(' · ')}.${leftToCheck ? ` ${leftToCheck} left to check by hand.` : ''}`;
+        this.doneMsg = `Cancelled ${all.length} eZee ${all.length === 1 ? 'booking' : 'bookings'}${offDone ? ` and ${offDone} in Portfolio › Bookings` : ''}: ${parts.map(p => `${p.label} ${p.list.length + p.offOnly.length}`).join(' · ')}.${leftToCheck ? ` ${leftToCheck} left to check by hand.` : ''}`;
         this.checked = false;
       } catch (e) { this.error = e.code ? friendlyError(e, 'cancel the bookings') : e.message; }
       this.busy = false; this.percent = 0;
@@ -1019,6 +1086,12 @@ export default {
 /* 24 Nov 2026: the New booking form in a wide popup */
 .bz-form-modal { max-width: 1100px; width: 100%; max-height: calc(100vh - 40px); overflow-y: auto; }
 .bz-form-acts { display: flex; gap: 8px; }
+/* Pending confirm to add: the tag on one line, then who / room / status, then Edit and Remove side by side */
+.bz-stage { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 190px; }
+.bz-pill { white-space: nowrap; }
+.bz-stage-meta { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.bz-stage-acts { display: flex; gap: 14px; font-size: 12.5px; }
+.bz-stage-acts .link { font-weight: 600; }
 .bz-form-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; position: sticky; top: -1px; background: var(--surface); padding: 4px 0 8px; z-index: 5; }
 /* Monthly check: the months the file holds in full */
 .bz-months { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }

@@ -5,6 +5,7 @@
       <h2>Reservation Lodgment Form</h2>
       <p class="sub" v-if="resume">{{ `Finishing ${resume.bookingNo || resume.id} (Awaiting payment). Add the payment and door passcodes, then save. Tenant and stay were saved with the booking.` }}</p>
       <p class="sub" v-else-if="lead">{{ `From ${lead.id} · ${lead.lookingFor}. Saving marks the inquiry as paid and saves the customer as a tenant.` }}</p>
+      <p class="sub" v-else-if="fillOf">{{ `Filling in ${fillOf.bookingNo || fillOf.id} from eZee reservation ${prefill.ezeeNo}. What the booking already has is kept; its blank details are filled in from the file. Check them, add anything missing, then ${stageOnly ? 'Save to pending confirm' : 'save'}. Deposit, fees and payments stay as they are.` }}</p>
       <p class="sub" v-else-if="prefill">{{ `From eZee reservation ${prefill.ezeeNo}. The room, dates, guest and source are filled in from the file: add the phone, IC, rent and status, then Save to pending confirm. It is added to the system when you press Continue to confirm on the upload.` }}</p>
       <p class="sub" v-else>Log a booking: tenant, stay, rent and deposit, payment and door passcodes. A booking without an inquiry, e.g. a walk-in or a returning tenant. Saving saves the customer as a tenant.</p>
     </div>
@@ -303,7 +304,7 @@
 // One draft per form per inquiry; only that person can read it (Firestore rules 0.69). Saving the booking deletes it.
 // Both: tenants/{TEN-0001} + private/main (a returning tenant is found by phone), lodgmentCounters (DM-014 booking no.),
 // the payment in offlinePayments (status Pending), door passcodes in offlineBookings/{id}/private/main, an audit entry, notifications.
-import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, where, runTransaction, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, where, runTransaction, arrayUnion, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { stateFor } from '@/lib/states.js';
@@ -380,14 +381,20 @@ export default {
   // stageOnly (24 Nov 2026, Bulk Upload eZee): the last button checks everything (and the room) but saves nothing; it
   //   emits 'staged' with the form as filled in, and the row waits as "Pending confirm to add".
   // autoSave: prefill.bk (a staged form) is opened and saved straight away, with no screen; emits 'done' { ok, error }.
+  // prefill.fillId: an offline booking already in Portfolio > Bookings whose blank details the eZee file has (Fill in blank
+  //   details). The form opens that booking, the blanks filled from the file; saving updates it (no new booking is made).
   props: { leadId: { type: String, default: '' }, resumeId: { type: String, default: '' }, prefill: { type: Object, default: null },
-    stageOnly: { type: Boolean, default: false }, autoSave: { type: Boolean, default: false } },
+    stageOnly: { type: Boolean, default: false }, autoSave: { type: Boolean, default: false },
+    // payChecked (24 Nov 2026): Bulk Upload eZee rows, confirmed by Accounting / a Director on Continue to confirm. The payment is
+    // saved as Checked by them (when they hold Offline Payments Edit), so the booking shows Paid at once instead of waiting.
+    payChecked: { type: Boolean, default: false } },
   emits: ['dirty', 'saved', 'close', 'staged', 'done'],
   data() {
     return {
       GENDERS, RENTAL_STATUSES, RENT_TYPES, YEARS, PAY_MODES, FEES,
       sources: normSources(null), feeSet: normFees(null), autoFees: {},   // 23 Nov 2026: Booking settings (read once per visit)
       lead: null, tenant: null, bk: {}, properties: [], units: [], start: '', nameHits: [], nameTimer: null,
+      fillOf: null,   // 24 Nov 2026: the booking being filled in (prefill.fillId)
       draft: null, draftBusy: false, draftMsg: '', resume: null, resumeFees: '', agents: null, agentsMsg: '', staff: [], pendingSaved: false, invoice: null, invoiceNo: '',
       step: 0, ready: false, saved: false, savedLink: null, canBookings: can(useSession(), 'bookings.view'), blocked: '', okMsg: '', formError: '', loading: true, busy: false
     };
@@ -475,6 +482,7 @@ export default {
     steps() {
       const all = this.allSteps, st = this.bk.rentalStatus;
       if (this.resume) return all;
+      if (this.fillOf) return all.filter(x => ['tenant', 'stay', 'rent', 'review'].includes(x.key));   // payments stay on the booking
       const hide = st === 'Unpaid' ? ['payment', 'handover'] : st === 'Paid' ? ['invoice'] : ['invoice', 'payment', 'handover'];
       return all.filter(x => !hide.includes(x.key));
     },
@@ -658,6 +666,7 @@ export default {
       try { this.properties = await loadProperties(); } catch { this.properties = []; this.formError = 'Could not load the property list. Check your connection and reload.'; }
       if (this.prefill?.bk) await this.restoreStaged(this.prefill.bk);
       else if (this.prefill) await this.applyPrefill(this.prefill);
+      if (this.prefill?.fillId) await this.loadFill(this.prefill, !this.prefill.bk);
       this.start = typed(this.bk);
       this.ready = true;
       if (this.prefill) { if (this.prefill.bk && !this.autoSave) this.step = Math.max(0, this.steps.length - 1); return; }   // no draft offer for eZee rows
@@ -675,6 +684,52 @@ export default {
       const n = b.arrival && b.departure ? Math.round((Date.parse(b.departure) - Date.parse(b.arrival)) / 864e5) : 0;
       if (n > 0) b.rentType = termValue({ nights: n, arrival: b.arrival, departure: b.departure });
       if (+p.total > 0) { if (n >= LONG_TERM_NIGHTS) b.monthlyRent = ''; else b.rental = String(Math.round(+p.total * 100) / 100); }
+    },
+    // 24 Nov 2026: Fill in blank details. The booking's own details win; what it has blank keeps the file's value (applyPrefill).
+    async loadFill(p, overlay) {
+      const snap = await getDoc(doc(db, 'offlineBookings', p.fillId)).catch(e => { if (e.code === 'permission-denied') return null; throw e; });
+      if (!snap?.exists()) { this.blocked = `Booking ${p.fillId} was not found, or you can't open it.`; return; }
+      const d = snap.data();
+      if (d.status === 'cancelled') { this.blocked = `${d.bookingNo || p.fillId} is cancelled. Bring it back in Bookings first.`; return; }
+      this.fillOf = { id: p.fillId, ...d };
+      if (!overlay) return;
+      const t = d.tenantId ? await getDoc(doc(db, 'tenants', d.tenantId, 'private', 'main')).catch(() => null) : await getDoc(doc(db, 'offlineBookings', p.fillId, 'private', 'main')).catch(() => null);
+      const g = t?.exists() ? t.data() : {}, b = this.bk, v = x => (x || x === 0 ? String(x) : ''), keep = (k, val) => { if (String(val ?? '').trim()) b[k] = String(val); };
+      keep('name', g.name || g.fullName); keep('phone', g.phone); keep('email', g.email); keep('icPassport', g.icPassport); keep('nationality', g.nationality);
+      keep('dob', g.dob); keep('gender', g.gender); keep('genderOther', g.genderOther);
+      if (d.unitId && d.unitId !== b.unitId) { b.unitId = d.unitId; if (!this.units.some(u => u.id === d.unitId)) { try { this.units = await loadUnits(d.propertyId || b.propertyId); } catch { /* kept */ } } }
+      keep('arrival', d.arrival); keep('departure', d.departure); keep('rentType', d.rentType); keep('bookingSource', d.bookingSource); keep('agentId', d.agentId);
+      keep('salesPersonUid', d.salesPersonUid); keep('rentalStatus', d.rentalStatus || (d.status === 'pending' ? 'Unpaid' : ''));
+      if (d.longTerm) { keep('monthlyRent', v(d.monthlyRent || d.rental)); b.rental = ''; } else keep('rental', v(d.rental));
+      keep('ezeeNo', d.ezeeReservationNo);
+    },
+    // Saves the filled-in booking: its stay, rent and source, and the guest's details (on the tenant record, or on the booking
+    // for an imported one). Deposit, fees and payments stay as they are (the booking's Payments tab).
+    async saveFill() {
+      const b = this.bk, o = this.fillOf;
+      this.busy = true; this.formError = '';
+      try {
+        const unitCode = this.units.find(u => u.id === b.unitId)?.unitCode || await this.unitCodeOf(b.unitId);
+        const ag = this.isAgent ? this.agentOf(b.agentId) : null, sp = this.staff.find(x => x.uid === b.salesPersonUid);
+        const main = { unitId: b.unitId, unitCode, arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm, rentType: b.rentType,
+          bookingSource: b.bookingSource, agentId: ag?.id || '', agentName: ag?.name || '', agentCompany: ag?.company || '',
+          salesPersonUid: sp?.uid || o.salesPersonUid || '', salesPersonName: sp?.name || o.salesPersonName || '', rentalStatus: b.rentalStatus,
+          rental: this.longTerm ? toCents(b.monthlyRent) : toCents(b.rental), monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, ezeeReservationNo: b.ezeeNo.trim() };
+        const details = { name: b.name.trim(), phone: b.phone.trim(), phoneKey: phoneKey(b.phone), email: b.email.trim(), icPassport: b.icPassport.trim(), nationality: b.nationality.trim(),
+          dob: b.dob || '', gender: b.gender || '', genderOther: b.gender === 'Other' ? b.genderOther.trim() : '' };
+        const changes = Object.keys(main).filter(k => String(o[k] ?? '') !== String(main[k] ?? '')).map(k => ({ field: k, old: o[k] ?? null, new: main[k] }));
+        const batch = writeBatch(db), ref = doc(db, 'offlineBookings', o.id);
+        batch.update(ref, { ...main, updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+        const gRef = o.tenantId ? doc(db, 'tenants', o.tenantId) : ref;
+        batch.set(doc(gRef, 'private', 'main'), o.tenantId ? { kind: 'tenant', ...details, searchWords: searchWords(b.name) } : details, { merge: true });
+        batch.set(doc(gRef, 'private', 'contact'), guestContact(details), { merge: true });
+        audit(batch, me, { action: 'offlineBooking.update', entity: `offlineBookings/${o.id}`, propertyId: o.propertyId || b.propertyId || null,
+          changes: [...changes, ...Object.keys(details).map(k => ({ field: `private.${k}`, old: null, new: null }))], reason: `Filled in from eZee ${b.ezeeNo.trim()} (Bulk Upload)` });
+        await batch.commit();
+        this.$emit('saved', { bookingId: o.id, bookingNo: o.bookingNo || o.id, tenantId: o.tenantId || null, ezeeNo: b.ezeeNo.trim(), pending: false, filled: true });
+        this.okMsg = `${o.bookingNo || o.id} updated from eZee ${b.ezeeNo.trim()}.`; this.saved = true;
+      } catch (e) { this.formError = errText(e, 'save the booking'); }
+      this.busy = false;
     },
     // A form already filled in and staged (Pending confirm to add): put back as it was, like a draft
     async restoreStaged(json) {
@@ -927,7 +982,8 @@ export default {
       const b = this.bk;
       return { date: b.payDate || today(), amount: toCents(b.amount), mode: b.payMode, propertyId: b.propertyId, propertyName: prop?.name || '', unitCode: unitCode || b.unitId || '', unitId: b.unitId || '',
         guest: b.name.trim(), purpose: b.note.trim() || `Booking ${bookingNo}`, bankRef: b.paymentRef.trim(), docsLink: b.docsLink || '', remarks: '',
-        status: 'Pending', verifiedByName: '', verifiedDate: '', bookingId, bookingNo,
+        ...(this.payChecked && can(me, 'offlinePayments.edit') ? { status: 'Checked', verifiedByName: me.name, verifiedDate: today() } : { status: 'Pending', verifiedByName: '', verifiedDate: '' }),
+        bookingId, bookingNo,
         forMonth: (b.arrival || b.payDate || today()).slice(0, 7),   // 19 Nov 2026: the booking's first payment is for its check-in month
         createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name };
     },
@@ -936,7 +992,7 @@ export default {
       try {
         const hit = x => x.status !== 'cancelled' && (x.arrival || '') < b.departure && (x.departure || '9999') > b.arrival;
         const offs = await getDocs(query(collection(db, 'offlineBookings'), where('propertyId', '==', b.propertyId), where('unitId', '==', b.unitId)));
-        for (const d of offs.docs) if (hit(d.data())) return { no: d.data().bookingNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
+        for (const d of offs.docs) if (d.id !== this.fillOf?.id && hit(d.data())) return { no: d.data().bookingNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
         const months = []; let y = +b.arrival.slice(0, 4), m = +b.arrival.slice(5, 7);
         const endKey = b.departure.slice(0, 7);
         for (let i = 0; i < 29; i++) { const k = `${y}-${String(m).padStart(2, '0')}`; months.push(k); if (k >= endKey) { m++; if (m > 12) { m = 1; y++; } months.push(`${y}-${String(m).padStart(2, '0')}`); break; } m++; if (m > 12) { m = 1; y++; } }
@@ -965,7 +1021,7 @@ export default {
         : this.nights < 0 ? "Check-out can't be before check-in."
         : this.longTerm && !(+b.monthlyRent > 0) ? 'Add the monthly rent.'
         : this.feeSet.some(f => +this.feeVal(f) < 0) || +b.securityDeposit < 0 ? "The deposit and fees can't be below 0." : '';
-      const err = base || (pending ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
+      const err = base || (pending || this.fillOf ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
         : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
         : +b.amount > 0 && !b.note.trim() ? 'Add the purpose of the payment.'
         : +b.amount > 0 && !b.docsLink ? 'Upload at least one receipt for the payment.'
@@ -984,6 +1040,7 @@ export default {
         this.start = typed(this.bk);
         return;
       }
+      if (this.fillOf) return this.saveFill();
       if (!ld) return this.saveDirect(pending);
 
       this.busy = true; this.formError = '';
