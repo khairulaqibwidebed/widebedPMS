@@ -416,7 +416,8 @@ import { syncIssue, maintenanceBoards } from '@/lib/tms.js';
 
 const me = useSession();
 const myRole = issueTagOf(me.role);          // the word saved on tickets: 'Finance' (shown as Accounting), 'Director'
-const isDirector = me.role === 'director';
+const isDirector = ['director', 'branchDirector'].includes(me.role);
+const isBD = me.role === 'branchDirector';   // 24 Nov 2026: Branch Directors see their branches' tickets (and in-house ones they are on)
 // Posts, Raised by and the ticket's audit trail show the person's name with their role as a badge.
 const myLabel = me.name || (isDirector ? 'Director' : `${myRole} user`);
 // Every role raises, comments on and works its own tickets. IT included (Khairul 21 Oct), though IT is view-only elsewhere.
@@ -535,7 +536,9 @@ export default {
     loadList() {
       if (this.liveStops.mine || this.liveStops.all) return Promise.resolve();
       const col = collection(db, 'issues');
-      const parts = isDirector ? { all: query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT)) }
+      const parts = isDirector && !isBD ? { all: query(col, orderBy('createdAt', 'desc'), limit(LIST_LIMIT)) }
+        : isBD ? { ...Object.fromEntries(scoped(query(col, limit(LIST_LIMIT))).map((q, i) => ['prop' + i, q])), mine: query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)),
+          people: query(col, where('assigneeUids', 'array-contains', me.user.uid), limit(LIST_LIMIT)) }
         : { tagged: query(col, where('tags', 'array-contains', myRole), limit(LIST_LIMIT)), mine: query(col, where('raisedByUid', '==', me.user.uid), limit(LIST_LIMIT)),
           // 18 Nov 2026: tickets I am tagged on as a person (People), whatever roles are tagged (rules Draft 0.80)
           people: query(col, where('assigneeUids', 'array-contains', me.user.uid), limit(LIST_LIMIT)) };

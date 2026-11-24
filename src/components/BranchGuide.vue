@@ -17,7 +17,7 @@
 
       <div class="bg-body" ref="body">
         <!-- 1. The big picture -->
-        <section id="bg-what" class="bg-sec">
+        <section v-show="at === 'what'" id="bg-what" class="bg-sec">
           <h3><span class="bg-num">1</span>What a branch is</h3>
           <p>A branch is a group of properties run by one team, usually one city or state. Each branch keeps four things together:</p>
           <div class="bg-map">
@@ -33,7 +33,7 @@
         </section>
 
         <!-- 2. The page -->
-        <section id="bg-page" class="bg-sec">
+        <section v-show="at === 'page'" id="bg-page" class="bg-sec">
           <h3><span class="bg-num">2</span>Finding your way around</h3>
           <div class="bg-screens">
             <div class="bg-screen">
@@ -65,7 +65,7 @@
         </section>
 
         <!-- 3. New branch -->
-        <section id="bg-new" class="bg-sec">
+        <section v-show="at === 'new'" id="bg-new" class="bg-sec">
           <h3><span class="bg-num">3</span>Adding a new branch</h3>
           <ol class="bg-steps">
             <li><span class="bg-step">1</span><div><b>Click + New branch</b><small>Under the page title, above the branch list.</small></div></li>
@@ -77,7 +77,7 @@
         </section>
 
         <!-- 4. Moving a property -->
-        <section id="bg-move" class="bg-sec bg-feature">
+        <section v-show="at === 'move'" id="bg-move" class="bg-sec bg-feature">
           <h3><span class="bg-num">4</span>Moving a property to another branch</h3>
           <p>Example: <b>Cove Serviced Suite @ Malacca</b> is in the <b>Kuala Lumpur</b> branch today and should move to a new <b>Malacca</b> branch.</p>
           <div class="bg-move">
@@ -99,7 +99,7 @@
         </section>
 
         <!-- 5. Staff -->
-        <section id="bg-staff" class="bg-sec">
+        <section v-show="at === 'staff'" id="bg-staff" class="bg-sec">
           <h3><span class="bg-num">5</span>Putting staff in a branch</h3>
           <p>Staff are set on <b>Settings › Staff accounts</b>, not on this page (only Directors and HR change access). The branch's <b>Staff</b> tab shows who is in it; click a name to open their account.</p>
           <div class="bg-funnel">
@@ -116,7 +116,7 @@
         </section>
 
         <!-- 6. Drive -->
-        <section id="bg-drive" class="bg-sec">
+        <section v-show="at === 'drive'" id="bg-drive" class="bg-sec">
           <h3><span class="bg-num">6</span>The Drive folder tab</h3>
           <p>Shows the Google Drive folder for the branch's <b>state</b> and checks every property in it. Click the state row to open or close the list; click a property's units to see each unit folder.</p>
           <div class="bg-dots">
@@ -132,17 +132,26 @@
         </section>
 
         <!-- 7. Access -->
-        <section id="bg-who" class="bg-sec">
+        <section v-show="at === 'who'" id="bg-who" class="bg-sec">
           <h3><span class="bg-num">7</span>Who can do what</h3>
           <div class="bg-table">
             <div class="bg-trow head"><span>Who</span><span>See this page</span><span>Change branches</span><span>Put staff in branches</span></div>
             <div class="bg-trow"><span><b>Directors</b></span><span class="y">Yes</span><span class="y">Yes</span><span class="y">Yes</span></div>
+            <!-- 24 Nov 2026: Branch Directors -->
+            <div class="bg-trow"><span><b>Branch Directors</b><small>Their own branches only</small></span><span class="y">Own branches</span><span class="y">Own branches (no new branch, no moving a property out)</span><span class="y">Own branches</span></div>
             <div class="bg-trow"><span><b>Branch Management · Full</b><small>Operations by default</small></span><span class="y">Yes</span><span class="y">Yes</span><span class="n">No</span></div>
             <div class="bg-trow"><span><b>Branch Management · Base</b></span><span class="y">Yes</span><span class="n">View only</span><span class="n">No</span></div>
             <div class="bg-trow"><span><b>HR</b></span><span class="n">If ticked</span><span class="n">If ticked</span><span class="y">Yes</span></div>
           </div>
           <p class="bg-small">The Branch Management tick is on Staff accounts (per person) or Roles (per role), under Company Settings.</p>
         </section>
+      </div>
+      <!-- 24 Nov 2026 (Khairul): one section per page, Back / Next instead of scrolling -->
+      <div class="bg-foot">
+        <button type="button" class="btn" v-if="idx > 0" @click="go(SECTIONS[idx - 1].key)">‹ Back</button>
+        <span class="bg-count">{{ `${idx + 1} of ${SECTIONS.length}` }}</span>
+        <button type="button" class="btn btn-primary" v-if="idx < SECTIONS.length - 1" @click="go(SECTIONS[idx + 1].key)">Next ›</button>
+        <button type="button" class="btn btn-primary" v-else @click="$emit('close')">Done</button>
       </div>
     </div>
   </div>
@@ -156,21 +165,17 @@ const SECTIONS = [
 export default {
   props: { start: { type: String, default: 'what' } },
   emits: ['close'],
-  data() { return { SECTIONS, at: this.start }; },
-  mounted() { if (this.start !== 'what') this.$nextTick(() => this.go(this.start)); },
+  data() { return { SECTIONS, at: SECTIONS.some(x => x.key === this.start) ? this.start : 'what' }; },
+  computed: { idx() { return SECTIONS.findIndex(x => x.key === this.at); } },
   methods: {
-    go(key) {
-      this.at = key;
-      const el = this.$refs.body?.querySelector(`#bg-${key}`);
-      if (el) this.$refs.body.scrollTo({ top: el.offsetTop - this.$refs.body.offsetTop - 4, behavior: 'smooth' });
-    }
+    go(key) { this.at = key; }   // each number is its own page (24 Nov 2026)
   }
 };
 </script>
 
 <style scoped>
-.bg { max-width: 880px; width: calc(100% - 32px); padding: 0; overflow: hidden; display: flex; flex-direction: column; max-height: 86vh; }
-.bg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 22px 24px 12px; background: linear-gradient(180deg, var(--accent-soft), transparent); }
+.bg { max-width: 880px; width: calc(100% - 32px); padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.bg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 22px 24px 12px; }
 .bg-head h2 { margin: 0; font-size: 20px; }
 .bg-lead { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
 .bg-x { font-size: 22px; line-height: 1; background: none; border: 0; cursor: pointer; color: var(--muted); padding: 4px 8px; }
@@ -178,7 +183,9 @@ export default {
 .bg-chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12px; font-weight: 600; color: var(--text-2); cursor: pointer; }
 .bg-chip:hover { border-color: var(--accent); color: var(--accent); }
 .bg-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.bg-body { overflow-y: auto; padding: 18px 24px 26px; display: grid; gap: 26px; }
+.bg-body { padding: 18px 24px 22px; display: grid; align-content: start; min-height: 420px; }   /* one page at a time, no scrolling; same height on every page */
+.bg-foot { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-top: 1px solid var(--border); }
+.bg-count { margin-right: auto; font-size: 13px; color: var(--muted); }
 .bg-sec h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 17px; }
 .bg-sec p { margin: 0 0 12px; font-size: 14px; line-height: 1.55; color: var(--text-2); }
 .bg-num { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 14px; flex: none; }
@@ -217,7 +224,7 @@ export default {
 .bg-srow i.pill { height: 12px; border-radius: 999px; }
 .bg-srow em, .bg-sfoot em { margin-left: auto; font-style: normal; font-size: 10px; font-weight: 700; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; background: var(--surface); }
 .bg-mini-av { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 8px; font-weight: 700; background: var(--accent-soft); color: var(--accent); flex: none; }
-.bg-shead { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 8px; background: linear-gradient(180deg, var(--accent-soft), transparent); }
+.bg-shead { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 8px; background: var(--accent-soft); }
 .bg-tog { margin-left: auto; width: 22px; height: 12px; border-radius: 999px; background: var(--accent); }
 .bg-stabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding: 0 2px; }
 .bg-stabs em { font-style: normal; font-size: 9px; font-weight: 700; color: var(--muted); padding: 4px 0; }
@@ -274,5 +281,6 @@ export default {
   .bg-spoke::before, .bg-arrow, .bg-farrow { display: none; }
   .bg-flow i { width: 2px; height: 24px; }
   .bg-trow { grid-template-columns: 1.4fr 1fr 1fr 1fr; }
+  .bg-body { min-height: 0; }
 }
 </style>

@@ -1,5 +1,7 @@
 // lib/property-scope.js (12 Nov 2026, data access Phase 3, by PROPERTY): staff see only the properties on their staff
 // record (users/{uid}.properties, a list of property ids set on Settings > Staff). Directors see everything.
+// Branch Directors (24 Nov 2026): their list is their branches' properties (lib/firebase.js profileOf), so every
+// scoped list below shows only their branches.
 //
 //   myProperties()             null for a Director (no filter), else the list of ids (['no-property-assigned'] when empty, so lists
 //                              come back empty instead of failing: Firestore refuses an empty `in`).
@@ -17,7 +19,7 @@
 //
 // Dev only (npm run dev): guard(q) warns in the console when a non-Director runs a list query on a property-linked
 // collection without a propertyId / propertyIds / id filter. use-live listen() calls it; so do getScoped and docsOf.
-import { query, where, documentId, getDocs, getCountFromServer, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { query, where, documentId, getDocs, getCountFromServer, doc, updateDoc, arrayUnion, serverTimestamp, collection } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 
@@ -49,6 +51,15 @@ export async function giveMeProperties(ids, me = session()) {
   const add = [...new Set((ids || []).filter(Boolean))].filter(id => !had.has(id));
   if (!me || me.role === 'director' || !add.length) return;
   me.properties = [...had, ...add];
+  // Branch Directors (24 Nov 2026): the new property goes into their (first) branch, then onto their own list
+  if (me.role === 'branchDirector') {
+    const b = (me.branches || [])[0]; if (!b) return;
+    try {
+      await updateDoc(doc(db, 'branches', b), { propertyIds: arrayUnion(...add), updatedAt: serverTimestamp(), updatedBy: me.user.uid, updatedByName: me.name || '' });
+      await updateDoc(doc(db, 'users', me.user.uid), { properties: [...new Set(me.properties)].sort() });
+    } catch (e) { console.warn('Could not add the new property to your branch (rules Draft 1.07 needed):', e.code || e.message); }
+    return;
+  }
   try { for (const id of add) await updateDoc(doc(db, 'users', me.user.uid), { properties: arrayUnion(id) }); }
   catch (e) { console.warn('Could not add the new property to your staff record (rules Draft 0.63 needed):', e.code || e.message); }
 }
@@ -128,4 +139,19 @@ export function guard(q) {
     if (warned.has(key)) return; warned.add(key);
     console.warn(`[property-scope] Not scoped: a list query on "${coll}" has no propertyId filter. Use scoped().`, where);
   } catch (_) { /* never break a page over a dev check */ }
+}
+
+// ---------- Staff by branch (24 Nov 2026, Khairul) ----------
+// Branch Directors see HR and staff lists only for staff in their own branches (and themselves). Everyone else: everyone.
+// u = a staff record ({ id or uid, branches }). Same test as Staff accounts and rules Draft 1.07 bdStaffOk.
+export function seesStaff(u, me = session()) {
+  if (me?.role !== 'branchDirector') return true;
+  const uid = u?.id || u?.uid, mine = me.branches || [], b = Array.isArray(u?.branches) ? u.branches.filter(Boolean) : [];
+  return uid === me.user?.uid || (b.length > 0 && b.every(id => mine.includes(id)));
+}
+// The uids a Branch Director may see (null = no limit), read from the staff list once.
+export async function myStaffUids(me = session()) {
+  if (me?.role !== 'branchDirector') return null;
+  const snap = await getDocs(collection(db, 'users'));
+  return new Set(snap.docs.filter(d => seesStaff({ id: d.id, ...d.data() }, me)).map(d => d.id));
 }

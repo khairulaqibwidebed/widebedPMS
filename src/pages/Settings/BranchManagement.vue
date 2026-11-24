@@ -16,7 +16,7 @@
     <div class="notice error" v-show="error">{{ error }}</div>
 
     <!-- First set-up: one branch per state, with its properties and Drive folder -->
-    <section class="card bm-setup" v-if="!form && !loading && !branches.length && canEdit">
+    <section class="card bm-setup" v-if="!form && !loading && !branches.length && canEdit && !isBD">
       <h2>No branches yet</h2>
       <p class="help">Start with one branch per state: each gets the properties in that state and the state's Google Drive folder. You can rename, split and move properties afterwards.</p>
       <button class="btn btn-primary" type="button" :disabled="busy || !seedCount" @click="seed()">{{ busy ? 'Creating…' : `Create ${seedCount} branch${seedCount === 1 ? '' : 'es'} from states` }}</button>
@@ -44,8 +44,8 @@
 
     <!-- Skeletons while loading (23 Nov 2026): the list, or the branch opened from the address -->
     <div class="card table-wrap bm-overview" v-if="loading && !branches.length && !$route.query.b">
-      <table class="table bm-table"><thead><tr><th>Branch</th><th>State</th><th class="num">Properties</th><th class="num">Staff</th><th></th></tr></thead>
-        <tbody><SkeletonRows table :cols="5" :rows="3" /></tbody></table>
+      <table class="table bm-table"><thead><tr><th>Branch</th><th>State</th><th>Drive folder</th><th class="num">Links</th><th class="num">Properties</th><th>Staff</th><th></th></tr></thead>
+        <tbody><SkeletonRows table :cols="7" :rows="3" /></tbody></table>
     </div>
     <section class="card bm-detail bm-skel" v-if="loading && !form && $route.query.b">
       <div class="bm-top"><div class="bm-title"><span class="bm-av"></span><div class="bm-skcol"><span class="sk" style="width:180px;height:18px"></span><span class="sk" style="width:120px;height:10px"></span></div></div></div>
@@ -60,18 +60,26 @@
         <button class="btn bm-info" type="button" @click="guideOpen = true" aria-label="How Branch Management works" title="How Branch Management works">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
         </button>
-        <button class="btn btn-primary" type="button" v-if="canEdit" @click="startNew()">+ New branch</button>
+        <button class="btn btn-primary" type="button" v-if="canEdit && !isBD" @click="startNew()">+ New branch</button>
       </div>
     </div>
     <div class="card table-wrap bm-overview" v-if="!form && branches.length">
       <table class="table bm-table">
-        <thead><tr><th>Branch</th><th>State</th><th class="num">Properties</th><th class="num">Staff</th><th></th></tr></thead>
+        <thead><tr><th>Branch</th><th>State</th><th>Drive folder</th><th class="num">Links</th><th class="num">Properties</th><th>Staff</th><th></th></tr></thead>
         <tbody>
           <tr v-for="(b, i) in branches" :key="b.id" class="bm-row" :style="{ animationDelay: `${Math.min(i, 10) * 40}ms` }" :class="{ off: !b.active }" @click="open(b)">
-            <td><span class="bm-cell-name"><span class="bm-av sm">{{ initials(b.name) }}</span><b>{{ b.name }}</b><span class="tag bm-arch" v-if="!b.active">Archived</span></span></td>
+            <!-- 24 Nov 2026 (Khairul): fuller rows: property names under the branch, Drive folder, links, staff initials -->
+            <td><span class="bm-cell-name"><span class="bm-av md">{{ initials(b.name) }}</span>
+              <span class="bm-name-col"><span><b>{{ b.name }}</b><span class="tag bm-arch" v-if="!b.active">Archived</span></span>
+                <span class="bm-sub">{{ propSummary(b) }}</span></span></span></td>
             <td><span class="bm-pill" v-if="b.state">{{ b.state }}</span><span class="muted" v-else>—</span></td>
+            <td><span class="bm-pill" :class="b.driveLink ? 'on' : 'warn'">{{ b.driveLink ? 'Linked' : 'Not linked' }}</span></td>
+            <td class="num">{{ b.links.length }}</td>
             <td class="num">{{ b.propertyIds.length }}</td>
-            <td class="num">{{ staffIn(b.id).length }}</td>
+            <td><span class="bm-faces" v-if="staffIn(b.id).length" :title="staffIn(b.id).map(u => u.displayName || u.email).join(', ')">
+                <span class="bm-face" v-for="u in staffIn(b.id).slice(0, 3)" :key="u.id">{{ initials(u.displayName || u.email) }}</span>
+                <span class="bm-face more" v-if="staffIn(b.id).length > 3">{{ `+${staffIn(b.id).length - 3}` }}</span></span>
+              <span class="muted" v-else>None</span></td>
             <td class="bm-rmcell"><button type="button" class="btn btn-sm" @click.stop="open(b)">{{ canEdit ? 'Edit' : 'View' }}</button></td>
           </tr>
         </tbody>
@@ -90,7 +98,7 @@
           </div>
           <label class="bm-switch" :class="{ dis: !canEdit }" :title="form.active ? 'Active' : 'Archived (hidden on Staff accounts)'">
             <span>{{ form.active ? 'Active' : 'Archived' }}</span>
-            <input type="checkbox" v-model="form.active" :disabled="!canEdit"><i aria-hidden="true"></i>
+            <input type="checkbox" v-model="form.active" :disabled="!canEdit || isBD"><i aria-hidden="true"></i>
           </label>
         </div>
 
@@ -126,13 +134,13 @@
             <Paged :items="shownProps" v-slot="{ pageRows }" v-if="shownProps.length">
               <div class="table-wrap">
                 <table class="table bm-table">
-                  <thead><tr><th>Property</th><th>Code</th><th>State</th><th v-if="canEdit"></th></tr></thead>
+                  <thead><tr><th>Property</th><th>Code</th><th>State</th><th v-if="canEdit && !isBD"></th></tr></thead>
                   <tbody>
                     <tr v-for="p in pageRows" :key="p.id">
                       <td class="strong">{{ p.name }}<span class="tag bm-move" v-if="movingFrom(p.id)">{{ `moves from ${movingFrom(p.id)}` }}</span></td>
                       <td><span class="bm-code">{{ p.code || '—' }}</span></td>
                       <td class="muted">{{ shortState(p.state) || '—' }}</td>
-                      <td v-if="canEdit" class="bm-rmcell"><button type="button" class="bm-dots" :aria-label="`More for ${p.name}`" aria-haspopup="menu" :aria-expanded="String(menu && menu.id === p.id)" @click="openMenu($event, p)">
+                      <td v-if="canEdit && !isBD" class="bm-rmcell"><button type="button" class="bm-dots" :aria-label="`More for ${p.name}`" aria-haspopup="menu" :aria-expanded="String(menu && menu.id === p.id)" @click="openMenu($event, p)">
                         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button></td>
                     </tr>
                   </tbody>
@@ -145,10 +153,8 @@
 
           <!-- Links -->
           <template v-else-if="tab === 'links'">
-            <div class="bm-stack">
-              <div class="field"><label for="bmSheet">Maintenance Google Sheet</label>
-                <div class="bm-url"><input class="input" id="bmSheet" v-model="form.sheetLink" :disabled="!canEdit" placeholder="https://docs.google.com/spreadsheets/…"><a v-if="isUrl(form.sheetLink)" :href="form.sheetLink" target="_blank" rel="noopener" class="bm-open">Open ↗</a></div></div>
-            </div>
+            <!-- 24 Nov 2026 (Khairul): the "Maintenance Google Sheet" link box was removed. Open Sheet on the Maintenance page uses
+                 the address the Apps Script sends back on each sync (right file every year); a link already saved stays as a fallback. -->
             <!-- 23 Nov 2026 (Khairul): each branch its own Maintenance Master Record Sheet (Directors). lib/maintenance-sheet.js -->
             <div class="bm-sync" v-if="isDirector && !form.isNew">
               <div class="bm-sync-head"><b>Sheet sync</b>
@@ -161,7 +167,7 @@
                 <div class="notice ok" v-show="sync.ok">{{ sync.ok }}</div>
                 <div class="field"><label for="bmScript">Apps Script web app URL</label>
                   <input class="input" id="bmScript" v-model="sync.scriptUrl" placeholder="https://script.google.com/macros/s/…/exec"></div>
-                <p class="help">The Sheet link above is saved with it (and is where "Open Sheet" goes on the Maintenance page).</p>
+                <p class="help">"Open Sheet" on the Maintenance page goes to this script's Sheet for the year shown.</p>
                 <div class="bm-sync-acts">
                   <button type="button" class="btn" v-if="sync.saved" :disabled="sync.busy" @click="makeYear()">{{ `Make ${nextYear} file now` }}</button>
                   <span style="flex:1"></span>
@@ -199,7 +205,7 @@
                   <tr v-for="u in staffIn(form.id)" :key="u.id">
                     <td class="strong"><RouterLink v-if="canStaff" :to="{ path: '/Settings/staff', query: { open: u.id } }">{{ u.displayName || u.email }}</RouterLink><template v-else>{{ u.displayName || u.email }}</template></td>
                     <td>{{ ROLE_LABEL[u.role] || u.role }}</td>
-                    <td>{{ u.role === 'director' ? 'All' : `${(u.properties || []).filter(p => allIds(form).includes(p)).length} of ${allIds(form).length}` }}</td>
+                    <td>{{ u.role === 'director' ? 'All' : u.role === 'branchDirector' ? 'All in branch' : `${(u.properties || []).filter(p => allIds(form).includes(p)).length} of ${allIds(form).length}` }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -262,7 +268,7 @@ export default {
   data() {
     const me = useSession();
     return { ROLE_LABEL, MAX_LINKS, ICONS, loading: true, busy: false, error: '', formError: '', branches: [], properties: [], users: [], driveStates: {},
-      form: null, guideOpen: false, menu: null, mv: null, sync: null, isDirector: me.role === 'director', nextYear: String(new Date().getFullYear() + 1), tab: 'details', q: '', canEdit: canEditBranches(me), canStaff: ['director', 'hr'].includes(me.role) };
+      form: null, guideOpen: false, menu: null, mv: null, sync: null, isDirector: ['director', 'branchDirector'].includes(me.role), isBD: me.role === 'branchDirector', nextYear: String(new Date().getFullYear() + 1), tab: 'details', q: '', canEdit: canEditBranches(me), canStaff: ['director', 'branchDirector', 'hr'].includes(me.role) };
   },
   computed: {
     stateOptions() { return [{ value: '', label: 'No state' }, ...STATES.map(s => ({ value: s, label: s }))]; },
@@ -329,7 +335,7 @@ export default {
       m.busy = true; m.error = '';
       try {
         await saveBranch(useSession(), { ...copy(to), propertyIds: [...new Set([...to.propertyIds, m.p.id])] }, { all: this.branches });
-        this.branches = await loadBranches(true);
+        this.branches = (await loadBranches(true)).filter(b => !this.isBD || (useSession().branches || []).includes(b.id));
         this.form.propertyIds = this.form.propertyIds.filter(x => x !== m.p.id);   // unsaved edits on this branch are kept
         toast(`${m.p.name} moved to ${to.name}.`);
         this.mv = null;
@@ -366,6 +372,13 @@ export default {
     movingFrom(id) { const b = this.branches.find(x => x.id !== this.form.id && x.propertyIds.includes(id)); return b ? b.name : ''; },
     propName(id) { const p = this.properties.find(x => x.id === id); return p ? p.name : id; },
     allIds(f) { return [...f.propertyIds, ...this.hidden]; },
+    // Branch list: the first property names, then "+N more" (24 Nov 2026)
+    propSummary(b) {
+      const names = b.propertyIds.map(id => this.properties.find(p => p.id === id)?.name).filter(Boolean);
+      if (!b.propertyIds.length) return 'No properties yet';
+      const more = b.propertyIds.length - Math.min(names.length, 3);
+      return names.slice(0, 3).join(', ') + (more > 0 ? ` +${more} more` : '');
+    },
     staffIn(id) { return this.users.filter(u => u.active !== false && Array.isArray(u.branches) && u.branches.includes(id)).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '')); },
     async load() {
       this.loading = true; this.error = '';
@@ -375,7 +388,7 @@ export default {
           getDocs(collection(db, 'users')).then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))).catch(() => []),
           loadDriveStates().catch(() => ({}))
         ]);
-        Object.assign(this, { branches, properties, users, driveStates });
+        Object.assign(this, { branches: this.isBD ? branches.filter(b => (useSession().branches || []).includes(b.id)) : branches, properties, users, driveStates });   // Branch Directors: their own branches only (24 Nov 2026)
         if (this.form && !this.form.isNew) { const b = branches.find(x => x.id === this.form.id); this.form = b ? copy(b) : null; }
       } catch (e) { this.error = friendlyError(e, 'load the branches'); }
       this.loading = false;
@@ -384,7 +397,7 @@ export default {
     fromRoute() {
       const id = this.$route.query.b;
       if (!id) { this.form = null; this.formError = ''; return; }
-      if (id === 'new') { if (!this.form?.isNew && this.canEdit) this.newForm(); return; }
+      if (id === 'new') { if (!this.form?.isNew && this.canEdit && !this.isBD) this.newForm(); return; }
       const b = this.branches.find(x => x.id === id);
       if (b && this.form?.id !== id) this.setForm(b);
     },
@@ -444,6 +457,14 @@ export default {
 .bm-cell-name { display: inline-flex; align-items: center; gap: 10px; }
 .bm-av { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; flex: none; font-weight: 700; font-size: 16px; background: var(--accent-soft); color: var(--accent); }
 .bm-av.sm { width: 32px; height: 32px; border-radius: 9px; font-size: 12px; }
+.bm-av.md { width: 40px; height: 40px; border-radius: 11px; font-size: 13px; }
+.bm-name-col { display: grid; gap: 3px; min-width: 0; }
+.bm-sub { font-size: 12.5px; color: var(--muted); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-faces { display: inline-flex; align-items: center; }
+.bm-face { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 10.5px; font-weight: 700; background: var(--accent-soft); color: var(--accent); border: 2px solid var(--surface); margin-left: -6px; }
+.bm-face:first-child { margin-left: 0; }
+.bm-face.more { background: var(--chip, #f3f4f6); color: var(--text-2); }
+.bm-overview .bm-table td { padding-top: 14px; padding-bottom: 14px; }
 .bm-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--chip, #f3f4f6); color: var(--text-2); }
 .bm-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; }
 .bm-ti { flex: none; }

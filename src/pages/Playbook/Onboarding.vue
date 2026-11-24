@@ -305,7 +305,7 @@ export default {
     return {
       TABS, how: copy(HOW), who: copy(WHO), dayOne: [...DAY_ONE], dayOneNote: DAY_ONE_NOTE, walk: copy(WALK), faq: copy(FAQ), gloss: copy(GLOSS),
       editTab: '', askLeave: false, goTab: '', dc: {}, newRole: '', stages: withIds(STAGES), newcomers: [],
-      seesAll: ['director', 'hr'].includes(me.role), canEdit: ['director', 'hr'].includes(me.role), intern: !!me.intern,
+      seesAll: ['director', 'branchDirector', 'hr'].includes(me.role), canEdit: ['director', 'hr'].includes(me.role), intern: !!me.intern,
       tab: 'checklist', walkRole: me.role === 'finance' ? 'Accounting' : 'Everyone', ticks: {},
       loading: true, error: '', editing: false, draft: [], editErr: '', busy: false
     };

@@ -138,7 +138,7 @@ import {
 import { STATUSES, STATUS_LABELS, STATUS_HELP, normalizeStatus } from '@/lib/performance/quarterStatus.js';
 
 const session = useSession();
-const canEdit = computed(() => session.role === 'director' || can(session, 'performance.edit'));
+const canEdit = computed(() => can(session, 'performance.edit'));   // Directors and Branch Directors: can() is true
 
 const loading = ref(true);
 const saving = ref(false);

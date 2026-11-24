@@ -174,9 +174,25 @@ export function permsOf(me) {
   return upgradePerms(Array.isArray(me.perms) ? me.perms : (PRESETS[me.role] || []));
 }
 
-// Can this person do this? e.g. can(me, 'expenses.edit'). Directors can do everything.
+// Branch Directors (24 Nov 2026, Khairul): a Director's view and edit, but only for their own branches (users/{uid}.branches;
+// their property list is worked out from those branches, lib/firebase.js profileOf). Company-wide settings stay with
+// Directors (view only for Branch Directors, may change later). KEEP IN STEP WITH bdDenied() in firestore.rules.
+export const BRANCH_DIRECTOR = 'branchDirector';
+export const DIRECTOR_ROLES = ['director', BRANCH_DIRECTOR];
+export const BD_DENIED = ['bookingSettings.edit', 'agreementSetup.view', 'whatsNew.edit', 'playbook.edit', 'sops.edit'];
+// dirLike: Director or Branch Director (Director powers; what they see is limited by lib/property-scope.js).
+// isTopDirector: the real Director only (Roles, company-wide settings, making Directors, every branch).
+export const dirLike = me => !!me && DIRECTOR_ROLES.includes(me.role);
+export const isTopDirector = me => !!me && me.role === 'director';
+export const isBranchDirector = me => !!me && me.role === BRANCH_DIRECTOR;
+
+// Can this person do this? e.g. can(me, 'expenses.edit'). Directors can do everything; Branch Directors everything
+// except the company-wide ticks in BD_DENIED.
 export function can(me, perm) {
-  return !!me && !!me.role && (me.role === 'director' || permsOf(me).includes(perm));
+  if (!me || !me.role) return false;
+  if (me.role === 'director') return true;
+  if (me.role === BRANCH_DIRECTOR) return !BD_DENIED.includes(perm);
+  return permsOf(me).includes(perm);
 }
 
 // The tickable page a route belongs to, or null (always-on and role-only pages).
@@ -197,7 +213,10 @@ export function canOpen(meta, me, allRoles = []) {
   if (!me || !me.role) return false;
   if (meta.need) return can(me, meta.need);   // 23 Nov 2026: one exact tick, e.g. 'bookingSettings.edit' (an Edit-only tick)
   if (meta.perm) return can(me, meta.perm + '.view');
-  return (meta.roles || allRoles).includes(me.role);
+  const roles = meta.roles || allRoles;
+  // Branch Directors open every Director page except the company-wide ones (meta.topOnly)
+  if (me.role === BRANCH_DIRECTOR && !meta.topOnly && roles.includes('director')) return true;
+  return roles.includes(me.role);
 }
 
 // Tidy a tick list: older lists upgraded, known keys only, Edit adds View, fixed order, no duplicates, SPLIT_MARK kept.

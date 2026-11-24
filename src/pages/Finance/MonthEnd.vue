@@ -234,12 +234,12 @@
           <!-- Approve & complete is per unit (Khairul, Oct 2026) -->
           <div class="unit-done" v-if="sel.status === 'completed'">
             <p class="help" style="margin:14px 0 10px">{{ `Completed${sel.completedByName ? ' by ' + sel.completedByName : ''}${sel.revision > 1 ? ` · revision ${sel.revision}` : ''}. This statement is read-only.` }}</p>
-            <button class="btn" v-show="role === 'director' && !reopening && !paidOut(sel)" @click="reopening = true" :disabled="busy">Reopen statement (Director)</button>
+            <button class="btn" v-show="isDir() && !reopening && !paidOut(sel)" @click="reopening = true" :disabled="busy">Reopen statement (Director)</button>
             <p class="help" v-if="paidOut(sel)">Paid to the owner, so it can't be reopened. A Director can undo the payment on Invoices & Receipts first.</p>
           </div>
           <div class="unit-done" v-else-if="sentState(sel) === 'submitted'">
             <div class="notice ok">{{ `Sent to the Director${approvals[sel.unitId].submittedByName ? ' by ' + approvals[sel.unitId].submittedByName : ''}. The numbers are frozen until they approve or send it back.` }}</div>
-            <RouterLink class="btn btn-primary" to="/Finance/statement-approvals" v-if="role === 'director'" style="margin-right:8px">Review in Statement Approvals</RouterLink>
+            <RouterLink class="btn btn-primary" to="/Finance/statement-approvals" v-if="isDir()" style="margin-right:8px">Review in Statement Approvals</RouterLink>
             <button class="btn" v-show="!pulling" @click="pulling = true" :disabled="busy">Pull back</button>
             <ConfirmReason v-if="pulling" :title="`Pull ${sel.unitCode} back?`" text="It becomes editable again. You can send it again when it is ready." label="Reason" placeholder="e.g. A booking was missing" v-model="pullReason" confirm-text="Pull back" :busy="busy" @confirm="pullBack()" @cancel="pulling = false" />
           </div>
@@ -410,7 +410,7 @@ export default {
       await this.load();
       // Opened from Invoices & Receipts (Recall): go straight to the unit, with the reopen box open for a Director
       const unit = params.get('unit');
-      if (unit && this.rows.some(x => x.unitId === unit)) { await this.reloadAt(unit); if (params.get('recall') && me.role === 'director' && !this.paidOut(this.sel)) this.reopening = true; }
+      if (unit && this.rows.some(x => x.unitId === unit)) { await this.reloadAt(unit); if (params.get('recall') && ['director', 'branchDirector'].includes(me.role) && !this.paidOut(this.sel)) this.reopening = true; }
     } catch (e) { this.error = friendlyError(e, 'load the page'); this.loading = false; }
   },
   computed: {
@@ -603,7 +603,8 @@ export default {
     poolUnconfirmed() { return this.poolZeroRows().filter(r => r.status !== 'completed' && !this.poolZero[r.unitId]); },
     poolOneOwner() { const o = new Set(this.poolRows().map(r => r.ownerId || '')); return this.poolRows().length > 1 && o.size === 1 && !o.has(''); },
     poolHead() { const p = this.poolInfo(); return p ? `${this.poolRows().length} units · pot RM ${amt(p.pot)} · Net Rental # ${pct(p.netRentalPct)}` : `${this.poolRows().length} units`; },
-    canEditPool() { return ['director', 'finance'].includes(me.role); },
+    canEditPool() { return ['director', 'branchDirector', 'finance'].includes(me.role); },
+    isDir() { return ['director', 'branchDirector'].includes(me.role); },   // 24 Nov 2026: Branch Directors too
     // Tick or untick "Confirmed 0 bookings" (saved on the month document with who and when, and in the audit log)
     async confirmZero(r, on) {
       if (!this.canEditPool()) return;
@@ -961,7 +962,7 @@ export default {
     // Director only: the unit's statement is saved as a revision, then it is a draft again.
     async reopen() {
       const r = this.sel;
-      if (!r || r.status !== 'completed' || me.role !== 'director' || !this.overrideReason.trim()) return;
+      if (!r || r.status !== 'completed' || !['director', 'branchDirector'].includes(me.role) || !this.overrideReason.trim()) return;
       if (this.paidOut(r)) { this.error = `${r.unitCode} is marked Paid. Undo the payment on Invoices & Receipts before reopening it.`; return; }
       this.busy = true; this.error = '';
       try {

@@ -8,7 +8,7 @@ import { db, ROLE_LABEL, CUSTOM_ROLES, BUILTIN_TAG } from './firebase.js';
 
 // Role colours (also used by the role badges). Solid enough for a white letter in light and dark mode.
 export const ROLE_COLOR = {
-  director: '#E0603F', finance: '#2F86D6', operations: '#C98A12', it: '#7E5BD6',
+  director: '#E0603F', branchDirector: '#C2410C', finance: '#2F86D6', operations: '#C98A12', it: '#7E5BD6',
   hr: '#1C9A8F', procurement: '#3E9B5A', marketing: '#D6457E', housekeeping: '#2F9DB8'
 };
 export const roleColor = role => ROLE_COLOR[roleKey(role)] || CUSTOM_ROLES[roleKey(role)]?.color || '#7A8190';

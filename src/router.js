@@ -58,7 +58,7 @@ const routes = [
   // /Procurement/listing-flow/new, /Procurement/listing-flow/NL-0001, /Procurement/listing-flow/NL-0001/payment.
   // Opens with the Owner Leads View tick. The old overview address goes to the same page.
   // Owner Leads > Defaults (16 Nov 2026): Directors only. A fixed address, so it wins over :id below.
-  page('/Procurement/listing-flow/defaults', () => import('./pages/Procurement/OwnerLeads/LeadDefaults.vue'), 'Owner Leads', D),
+  page('/Procurement/listing-flow/defaults', () => import('./pages/Procurement/OwnerLeads/LeadDefaults.vue'), 'Owner Leads', D, { topOnly: true }),
   ticked('/Procurement/listing-flow/:id?/:stage(agreement|services|renovation|furniture|payment|setup|marketing|live)?', () => import('./pages/Procurement/OwnerLeads/ListingFlow.vue'), 'Owner Leads', 'newOwnerListings'),
   { path: '/Procurement/owner-leads', redirect: '/Procurement/listing-flow' },
   // Old addresses (notifications and bookmarks): ?id=NL-0001 opens that listing, ?new the new-listing form, else the list.
@@ -94,11 +94,11 @@ const routes = [
   // Staff accounts and Audit log: Director and HR (Khairul 21 Oct). Never tickable.
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),
   page('/Settings/staff-hr', () => import('./pages/Settings/StaffHR.vue'), 'Staff Accounts', DH, { title: 'HR details' }),
-  page('/Settings/roles', () => import('./pages/Settings/Roles.vue'), 'Roles', D),   // Director only, never tickable
+  page('/Settings/roles', () => import('./pages/Settings/Roles.vue'), 'Roles', D, { topOnly: true }),   // Director only, never tickable
   ticked('/Settings/branches', () => import('./pages/Settings/BranchManagement.vue'), 'Branch Management', 'driveFolders'),   // 23 Nov 2026: branches (same access tick)
   ticked('/Settings/states', () => import('./pages/Settings/DriveStates.vue'), 'Google Drive Folders', 'driveFolders'),   // 17 Nov 2026: each state's Drive folder; access tick
-  page('/Settings/brand-logos', () => import('./pages/Settings/BrandLogos.vue'), 'Brand Logos', D),
-  page('/Settings/audit-log', () => import('./pages/Settings/AuditLog.vue'), 'Audit Log', DH),
+  page('/Settings/brand-logos', () => import('./pages/Settings/BrandLogos.vue'), 'Brand Logos', D, { topOnly: true }),
+  page('/Settings/audit-log', () => import('./pages/Settings/AuditLog.vue'), 'Audit Log', DH, { topOnly: true }),
   page('/Settings/appearance', () => import('./pages/Settings/Appearance.vue'), 'Profile & Appearance', ALLOWED_ROLES),
 
   // HR > SOPs (6 Nov 2026): one page lists every SOP, each at /HR/sops/<key>. The four old SOP addresses redirect.
@@ -144,4 +144,4 @@ router.beforeEach(async to => {
   }
   return true;
 });
-router.afterEach(() => { document.title = SITE_TITLE; });   // tab shows only the site name (18 Nov 2026)
+router.afterEach(() => { document.title = SITE_TITLE; });   // tab shows only the site name (18 Nov 2026)

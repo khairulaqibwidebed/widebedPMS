@@ -18,12 +18,12 @@
         <thead><tr><th>Role</th><th>Description</th><th>People</th><th>Pages ticked</th><th>Status</th><th></th></tr></thead>
         <tbody>
           <tr v-for="r in rows" :key="r.id">
-            <td><span class="role-cell"><span class="dot" :style="{ background: colourOf(r) }"></span><span class="role-name"><button class="name-btn" @click="openEdit(r)" :disabled="r.id === 'director'">{{ r.name }}</button><span class="tag" v-if="r.builtin">Built-in</span></span></span></td>
+            <td><span class="role-cell"><span class="dot" :style="{ background: colourOf(r) }"></span><span class="role-name"><button class="name-btn" @click="openEdit(r)" :disabled="r.locked">{{ r.name }}</button><span class="tag" v-if="r.builtin">Built-in</span></span></span></td>
             <td>{{ r.description || '-' }}</td>
             <td>{{ people[r.id] || 0 }}</td>
-            <td>{{ r.id === 'director' ? 'All' : permCount(r) + (r.isAi ? ' (view only)' : '') }}</td>
+            <td>{{ r.id === 'director' ? 'All' : r.id === 'branchDirector' ? 'All (own branches)' : permCount(r) + (r.isAi ? ' (view only)' : '') }}</td>
             <td><span class="pill" :class="r.active ? 'green' : 'grey'">{{ r.active ? 'Active' : 'Turned off' }}</span></td>
-            <td class="row-acts"><template v-if="r.id !== 'director'"><button class="act-pill" @click="openEdit(r)">Edit</button> <button class="act-pill" :class="{ danger: canDelete(r) || r.active }" :disabled="r.builtin" :title="r.builtin ? 'Built-in roles cannot be removed or turned off' : canDelete(r) ? 'Nothing uses this role, so it can be deleted' : whyKept(r) || (r.active ? 'Turn this role off' : 'Turn this role back on')" @click="rowAction(r)">{{ rowLabel(r) }}</button></template><span class="muted" v-else>-</span></td>
+            <td class="row-acts"><template v-if="!r.locked"><button class="act-pill" @click="openEdit(r)">Edit</button> <button class="act-pill" :class="{ danger: canDelete(r) || r.active }" :disabled="r.builtin" :title="r.builtin ? 'Built-in roles cannot be removed or turned off' : canDelete(r) ? 'Nothing uses this role, so it can be deleted' : whyKept(r) || (r.active ? 'Turn this role off' : 'Turn this role back on')" @click="rowAction(r)">{{ rowLabel(r) }}</button></template><span class="muted" v-else>-</span></td>
           </tr>
         </tbody>
       </table>
@@ -121,7 +121,7 @@
 
 <script>
 import { collection, doc, getDocs, query, where, limit, serverTimestamp, writeBatch } from 'firebase/firestore';
-import { db, ROLE_LABEL, BUILTIN_ROLES, CUSTOM_ROLES, BUILTIN_TAG, DEFAULT_LABEL, loadRoleRegistry } from '@/lib/firebase.js';
+import { db, ROLE_LABEL, BUILTIN_ROLES, CUSTOM_ROLES, BUILTIN_TAG, DEFAULT_LABEL, loadRoleRegistry, LOCKED_ROLES } from '@/lib/firebase.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { useSession } from '@/stores/session.js';
@@ -130,7 +130,7 @@ import { ACCESS_ROWS, AI_ROWS, AI_GROUP_NOTES, cleanAiPerms, GROUP_NOTES, PRESET
 
 const me = useSession();
 const BUILTIN_TEXT = {
-  director: 'Everything, including Staff accounts and Roles.', finance: 'Upload eZee, expenses, month-end payout, exports.', it: 'View-only, except Issues.',
+  director: 'Everything, including Staff accounts and Roles.', branchDirector: 'Everything a Director has, for their own branches only. Not Roles or company-wide settings.', finance: 'Upload eZee, expenses, month-end payout, exports.', it: 'View-only, except Issues.',
   operations: 'Issues, offline inquiries, booking forms, Playbook and SOPs.', hr: 'SOP pages, complaints, Staff accounts, Audit log.',
   procurement: 'Owner leads and Portfolio details.', marketing: 'Owner leads and Portfolio details.',
   housekeeping: 'Housekeeping staff. Sign in with a username HR sets. Dashboard, Issues, Playbook, SOPs, COH and HR pages to start.',
@@ -155,7 +155,7 @@ export default {
   data() { return { ORIGINAL, COLOURS, GROUP_NOTES, LEVEL_LABEL, BUILTIN_TAG, DEFAULT_LABEL, loading: true, error: '', okMsg: '', rolesDocs: {}, people: {}, accounts: {}, ticketUse: {}, panel: {}, panelOpen: false }; },
   computed: {
     rows() {
-      const built = BUILTIN_ROLES.map(id => ({ id, name: ROLE_LABEL[id], builtin: true, active: true, description: this.rolesDocs[id]?.description || BUILTIN_TEXT[id], perms: id === 'director' ? [] : (PRESETS[id] || []) }));
+      const built = BUILTIN_ROLES.map(id => ({ id, name: ROLE_LABEL[id], builtin: true, active: true, description: this.rolesDocs[id]?.description || BUILTIN_TEXT[id], perms: LOCKED_ROLES.includes(id) ? [] : (PRESETS[id] || []), locked: LOCKED_ROLES.includes(id) }));
       const custom = Object.keys(CUSTOM_ROLES).map(id => ({ id, builtin: false, ...CUSTOM_ROLES[id], perms: PRESETS[id] || [] }));
       // AI Agent (17 Nov 2026): its pages are set here, Base (view) only
       const ai = { id: AI_ROLE, name: ROLE_LABEL[AI_ROLE], builtin: true, isAi: true, active: true, description: BUILTIN_TEXT[AI_ROLE], perms: cleanAiPerms(PRESETS[AI_ROLE] || []) };
@@ -193,7 +193,7 @@ export default {
     },
     openNew() { this.panel = { isNew: true, builtin: false, id: '', name: '', description: '', color: COLOURS[4], perms: [], active: true, reason: '', busy: false, error: '', tab: 'details' }; this.panelOpen = true; },
     openEdit(r) {
-      if (r.id === 'director') return;
+      if (r.locked) return;
       const clean = r.isAi ? cleanAiPerms : cleanPerms;
       this.panel = { isNew: false, builtin: r.builtin, isAi: !!r.isAi, id: r.id, name: r.name, description: r.builtin ? '' : r.description, color: r.color || COLOURS[4], perms: clean(r.perms), active: r.active, reason: '', busy: false, error: '', tab: 'details', before: clean(r.perms), wasActive: r.active };
       this.panelOpen = true;

@@ -88,10 +88,11 @@ export function spread(amount, bills) {
 
 // What a payment pays: { rental, utilities, bills: { billId: amount } }. A payment with no parts is all Rental.
 export function partsOf(p) {
-  if (!Array.isArray(p?.parts) || !p.parts.length) return { rental: r2(p?.amount), utilities: 0, bills: {}, forMonth: p?.forMonth || '' };
-  const r = p.parts.find(x => x.type === 'rental'), u = p.parts.find(x => x.type === 'utilities'), bills = {};
+  if (!Array.isArray(p?.parts) || !p.parts.length) return { rental: r2(p?.amount), utilities: 0, charges: 0, chargeNote: '', bills: {}, forMonth: p?.forMonth || '' };
+  const r = p.parts.find(x => x.type === 'rental'), u = p.parts.find(x => x.type === 'utilities'), c = p.parts.find(x => x.type === 'charges'), bills = {};
   (u?.bills || []).forEach(x => { bills[x.billId] = r3((bills[x.billId] || 0) + (Number(x.amount) || 0)); });
-  return { rental: r2(r?.amount), utilities: r2(u?.amount), bills, forMonth: r?.forMonth || '' };
+  // 24 Nov 2026 (Khairul): Charges part { type: 'charges', amount, note } (note = the Purpose typed); kept apart from the rent
+  return { rental: r2(r?.amount), utilities: r2(u?.amount), charges: r2(c?.amount), chargeNote: c?.note || '', bills, forMonth: r?.forMonth || '' };
 }
 
 // Change the bills a payment pays, in the caller's batch. was / now: { billId: amount } (before / after this save; {} for a

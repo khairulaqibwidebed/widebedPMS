@@ -70,6 +70,8 @@ export async function saveAgent(me, id, f, existing) {
     bankName: f.bankName || '', acctLast4: acct.slice(-4),
     cardFront: card(f.cardFront), cardBack: card(f.cardBack),
     active: f.active !== false,
+    // 24 Nov 2026: the branches the agent works with (Branch Directors see only their branches' agents)
+    branchIds: Array.isArray(f.branchIds) ? [...new Set(f.branchIds.filter(Boolean))].sort() : (existing?.branchIds || []),
     commDaily: pct(f.commDaily), commMonthly: pct(f.commMonthly),
     commRev: existing ? (existing.commRev || 0) : 0,
     createdAt: existing ? existing.createdAt : serverTimestamp(),

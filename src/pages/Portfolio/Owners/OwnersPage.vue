@@ -15,7 +15,7 @@
         <MonthPicker :ahead="1" v-model="asOf" @change="reload()" v-if="!acc.viewOnly" />
         <RefreshButton @refresh="go()" />
         <!-- 16 Nov 2026: one-off for Directors, so Owners Base can read names and contact (private/contact) -->
-        <button class="btn" v-if="acc.isDirector && splitTodo" @click="splitContacts()" :disabled="busy" title="Copies names and contact details (owners, tenants, booking guests) into the part Owners Base and the AI Agent can read. IC, passport, address and bank details stay where they are.">Set up contact details</button>
+        <button class="btn" v-if="acc.isTopDirector && splitTodo" @click="splitContacts()" :disabled="busy" title="Copies names and contact details (owners, tenants, booking guests) into the part Owners Base and the AI Agent can read. IC, passport, address and bank details stay where they are.">Set up contact details</button>
       </div>
     </div>
 
@@ -71,7 +71,7 @@ export default {
   async mounted() {
     await this.go();
     this.pickUpHandoff();
-    if (this.acc.isDirector) this.splitTodo = !(await contactSplitDone());
+    if (this.acc.isTopDirector) this.splitTodo = !(await contactSplitDone());
     // Live (6 Nov 2026): owners added or changed elsewhere show without a refresh (units and balances stay as loaded)
     let first = true;
     this.liveUse('owners', watchOwners(this.acc.viewOnly, this.acc.ownerNames, rows => {

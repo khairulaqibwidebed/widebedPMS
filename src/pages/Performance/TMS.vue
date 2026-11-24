@@ -216,7 +216,7 @@ import {
 
 const session = useSession();
 // Choosing and approving TMS tasks is Director-only (the task system itself also refuses anyone else), same as KPI.
-const canManage = computed(() => session.role === 'director');
+const canManage = computed(() => ['director', 'branchDirector'].includes(session.role));
 
 const loading = ref(true);
 const busy = ref(false);

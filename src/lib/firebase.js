@@ -1,7 +1,7 @@
 // One place that starts Firebase. Everything imports from here.
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, doc, getDoc, getDocs, collection } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, doc, getDoc, getDocs, collection, updateDoc } from 'firebase/firestore';
 import { firebaseConfig } from '../firebase-config.js';
 import { PRESETS } from './access.js';
 
@@ -19,15 +19,15 @@ export const db = initializeFirestore(app, {
 });
 
 // Roles that can sign in. Each sees only the pages in its sidebar (nav.js) and its route list (router.js).
-export const ALLOWED_ROLES = ['director', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing', 'housekeeping'];   // housekeeping: 17 Nov 2026 (username sign-in, lib/housekeeping.js)   // every role signs in (Khairul 21 Oct)
-export const ROLE_LABEL = { director: 'Director', finance: 'Accounting', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing', housekeeping: 'Housekeeping', ai: 'AI Agent' };   // ai: AI Agent login (16 Nov 2026), not in ALLOWED_ROLES: it can't open the PMS screens
+export const ALLOWED_ROLES = ['director', 'branchDirector', 'finance', 'it', 'hr', 'operations', 'procurement', 'marketing', 'housekeeping'];   // housekeeping: 17 Nov 2026 (username sign-in, lib/housekeeping.js)   // every role signs in (Khairul 21 Oct)
+export const ROLE_LABEL = { director: 'Director', branchDirector: 'Branch Director', finance: 'Accounting', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing', housekeeping: 'Housekeeping', ai: 'AI Agent' };   // ai: AI Agent login (16 Nov 2026), not in ALLOWED_ROLES: it can't open the PMS screens
 // Built-in role names have two layers (4 Nov 2026):
 //   BUILTIN_TAG = the fixed word SAVED for each built-in role (Issues tags, who raised a ticket). The security rules
 //                 (myIssueTag) and every older ticket use these, so they never change.
 //   ROLE_LABEL  = the name SHOWN. The Director can rename a built-in role on the Roles page (roles/{id}.name);
 //                 loadRoleRegistry copies it in. Default names below (Finance is shown as Accounting).
 // Sentences written in the pages keep their wording; only the role's name itself follows a rename.
-export const BUILTIN_TAG = { director: 'Director', finance: 'Finance', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing', housekeeping: 'Housekeeping' };
+export const BUILTIN_TAG = { director: 'Director', branchDirector: 'Branch Director', finance: 'Finance', it: 'IT', operations: 'Operations', hr: 'HR', procurement: 'Procurement', marketing: 'Marketing', housekeeping: 'Housekeeping' };
 export const DEFAULT_LABEL = { ...ROLE_LABEL };
 // The word to save on, or search, tickets for a role
 export const issueTagOf = role => BUILTIN_TAG[role] || ROLE_LABEL[role] || role;
@@ -37,7 +37,9 @@ export const tagLabel = t => { const id = Object.keys(BUILTIN_TAG).find(k => BUI
 // Roles made on the Roles page (Director only), kept in roles/{id}. Built-in roles can also have their usual pages changed there.
 // loadRoleRegistry() copies them into ROLE_LABEL, ALLOWED_ROLES and PRESETS (lib/access.js), so the rest of the app reads them as before.
 // Runs once after sign-in; the Roles page runs it again after a save. If the roles collection can't be read (rules not published yet), the built-in roles work as before.
-export const BUILTIN_ROLES = ['director', 'finance', 'it', 'operations', 'hr', 'procurement', 'marketing', 'housekeeping'];
+export const BUILTIN_ROLES = ['director', 'branchDirector', 'finance', 'it', 'operations', 'hr', 'procurement', 'marketing', 'housekeeping'];
+// Locked roles (no ticks, no rename on the Roles page): Director and Branch Director (24 Nov 2026)
+export const LOCKED_ROLES = ['director', 'branchDirector'];
 export const CUSTOM_ROLES = {};   // id -> { name, description, color, active }
 const ORIGINAL_PRESETS = JSON.parse(JSON.stringify(PRESETS));
 let registry = null;
@@ -46,7 +48,7 @@ export function loadRoleRegistry(force = false) {
   registry = (async () => {
     try {
       const snap = await getDocs(collection(db, 'roles'));
-      for (const id of BUILTIN_ROLES) { if (id !== 'director') PRESETS[id] = ORIGINAL_PRESETS[id]; ROLE_LABEL[id] = DEFAULT_LABEL[id]; }
+      for (const id of BUILTIN_ROLES) { if (!LOCKED_ROLES.includes(id)) PRESETS[id] = ORIGINAL_PRESETS[id]; ROLE_LABEL[id] = DEFAULT_LABEL[id]; }
       PRESETS.ai = ORIGINAL_PRESETS.ai;
       for (const id of Object.keys(CUSTOM_ROLES)) { delete CUSTOM_ROLES[id]; delete ROLE_LABEL[id]; delete PRESETS[id]; }
       for (let i = ALLOWED_ROLES.length - 1; i >= 0; i--) if (!BUILTIN_ROLES.includes(ALLOWED_ROLES[i])) ALLOWED_ROLES.splice(i, 1);
@@ -55,8 +57,8 @@ export function loadRoleRegistry(force = false) {
         // AI Agent (17 Nov 2026): only its pages (view levels) come from roles/ai; never a custom role
         if (id === 'ai') { if (Array.isArray(r.perms)) PRESETS.ai = r.perms; return; }
         if (BUILTIN_ROLES.includes(id)) {
-          if (id !== 'director' && Array.isArray(r.perms)) PRESETS[id] = r.perms;
-          if (id !== 'director' && typeof r.name === 'string' && r.name.trim()) ROLE_LABEL[id] = r.name.trim();   // renamed on the Roles page
+          if (!LOCKED_ROLES.includes(id) && Array.isArray(r.perms)) PRESETS[id] = r.perms;
+          if (!LOCKED_ROLES.includes(id) && typeof r.name === 'string' && r.name.trim()) ROLE_LABEL[id] = r.name.trim();   // renamed on the Roles page
           return;
         }
         CUSTOM_ROLES[id] = { name: r.name || id, description: r.description || '', color: r.color || '', active: r.active !== false };
@@ -85,11 +87,32 @@ export async function profileOf(user) {
       name: p.displayName || user.email,
       intern: p.intern === true,   // ticked on Staff accounts > HR details (5 Nov 2026): no Salary Advance page
       states: Array.isArray(p.states) ? p.states : [],   // the states they work in (12 Nov 2026); Directors see every state
-      properties: Array.isArray(p.properties) ? p.properties : [],   // the properties they may see (12 Nov 2026, lib/property-scope.js); Directors see all
+      properties: active && p.role === 'branchDirector' ? await branchProperties(user.uid, p) : Array.isArray(p.properties) ? p.properties : [],   // the properties they may see (12 Nov 2026, lib/property-scope.js); Directors see all
+      branches: Array.isArray(p.branches) ? p.branches.filter(Boolean) : [],   // 23 Nov 2026: Branch Management
       active
     };
   } catch (_) {
     return { role: null, perms: [], name: user.email };
+  }
+}
+
+// Branch Directors (24 Nov 2026): their properties follow their branches. Worked out at sign-in from branches/{id}.propertyIds;
+// when it differs from users/{uid}.properties the record is updated too (rules Draft 1.07 allow it: only ids from their own
+// branches, 3 branches at most), so the rules that read users/{uid}.properties (utility bills) see the same list.
+async function branchProperties(uid, p) {
+  const saved = Array.isArray(p.properties) ? p.properties.filter(Boolean) : [];
+  const mine = Array.isArray(p.branches) ? p.branches.filter(Boolean) : [];
+  if (!mine.length) return [];
+  try {
+    const snaps = await Promise.all(mine.map(id => getDoc(doc(db, 'branches', id))));
+    const ids = [...new Set(snaps.flatMap(s => (s.exists() && s.data().active !== false && Array.isArray(s.data().propertyIds) ? s.data().propertyIds : [])).filter(Boolean))].sort();
+    if (ids.join() !== [...saved].sort().join()) {
+      updateDoc(doc(db, 'users', uid), { properties: ids }).catch(e => console.warn('Could not update your property list (rules Draft 1.07 needed):', e.code || e.message));
+    }
+    return ids;
+  } catch (e) {
+    console.warn('Could not read your branches:', e.code || e.message);
+    return saved;
   }
 }
 

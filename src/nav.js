@@ -47,6 +47,9 @@ const HR_HR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaph
 // Every role's own account page, last in the sidebar.
 const MY_ACCOUNT = G('My Account', 'userCircle', [P('Profile & Appearance', '/Settings/appearance', 'palette')]);
 
+// Director-only pages (never for Branch Directors). KEEP IN STEP WITH meta.topOnly in router.js.
+export const TOP_ONLY = ['/Settings/roles', '/Settings/brand-logos', '/Settings/audit-log'];
+
 export const NAV = {
   finance: [TOP, PORTFOLIO, LEADS, ACCOUNTING, PERFORMANCE, PLAYBOOK, HR_STAFF, MY_ACCOUNT],
   director: [TOP, PORTFOLIO, LEADS_DIR, MARKETING, ACCOUNTING_DIR, PERFORMANCE_ADMIN, PLAYBOOK, HR_DIR,
@@ -72,6 +75,7 @@ const navOf = role => NAV[role] || NAV.custom;
 
 // Where a role lands after signing in: the Dashboard if they have one, otherwise the first page in their sidebar.
 export function homeFor(role) {
+  if (role === 'branchDirector') role = 'director';
   const pages = navOf(role).flatMap(g => g.items).filter(it => it.to);
   if (pages.some(it => it.to === '/Dashboard')) return '/Dashboard';
   if (pages.length) return pages[0].to;
@@ -85,6 +89,8 @@ export function navFor(me) {
   const role = (me && me.role) || '';
   if (role === 'director') return NAV.director;
   const allowed = it => { const perm = navPerm(it.to); return !perm || can(me, perm); };
+  // Branch Directors (24 Nov 2026): the Director's sidebar minus the company-wide pages (and ticks they don't get)
+  if (role === 'branchDirector') return NAV.director.map(g => ({ ...g, items: g.items.filter(it => !TOP_ONLY.includes(it.to) && allowed(it)) })).filter(g => g.items.length);
 
   // Interns (Staff accounts > HR details) have no Salary Advance page (5 Nov 2026)
   const out = navOf(role).map(g => ({ ...g, items: g.items.filter(it => allowed(it) && !(me.intern && it.to === '/HR/salary-advance')) })).filter(g => g.items.length);
@@ -102,4 +108,4 @@ export function navFor(me) {
     }
   }
   return out;
-}
+}

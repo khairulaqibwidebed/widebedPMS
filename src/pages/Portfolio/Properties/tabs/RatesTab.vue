@@ -219,7 +219,7 @@ export default {
   },
   async created() { await this.load(); },
   computed: {
-    canEdit() { return ['director', 'finance'].includes(me.role) || can(me, 'portfolio.edit'); },   // Accounting, Directors and anyone with Portfolio Edit (12 Nov) add, edit and delete arrangements
+    canEdit() { return ['director', 'branchDirector', 'finance'].includes(me.role) || can(me, 'portfolio.edit'); },   // Accounting, Directors and anyone with Portfolio Edit (12 Nov) add, edit and delete arrangements
     isShared() { return !this.propertyId; },
     sharedOn() { return !this.isShared && !!this.rates.sharedCur; },               // a property, with a shared set in force this month
     canEditHere() { return this.canEdit && this.loaded && (!this.isShared || !!this.rates.hasShared); },

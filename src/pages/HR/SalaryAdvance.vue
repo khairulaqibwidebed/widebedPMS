@@ -148,7 +148,7 @@ export default {
   components: { Advances, SignaturePad, ImageDrop },
   mixins: [liveMixin],
   data() {
-    const staffSide = ['hr', 'director'].includes(me.role), isDirector = me.role === 'director';
+    const staffSide = ['hr', 'director', 'branchDirector'].includes(me.role), isDirector = ['director', 'branchDirector'].includes(me.role);
     const q = this.$route.query.tab;
     const tab = staffSide && TABS.includes(q) && (q !== 'log' || isDirector) ? q : (staffSide && !this.$route.query.id ? 'requests' : 'mine');
     return { intern: !!me.intern, staffSide, isDirector, tab, STATUS, STEP, SIGN_METHOD, PAY_TYPES, limit: null, list: [], loading: true, loadErr: '',

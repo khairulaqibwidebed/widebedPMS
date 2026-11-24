@@ -456,7 +456,7 @@ export async function addChatMessage(assignmentId, message) {
     type: 'message',
     by: s.name,
     byUid: s.user.uid,
-    role: s.role === 'director' ? 'director' : 'employee',
+    role: ['director', 'branchDirector'].includes(s.role) ? 'director' : 'employee',
     at: Date.now(),
     message: message || '',
     deleted: false,
@@ -465,7 +465,7 @@ export async function addChatMessage(assignmentId, message) {
 
   // Neo's file, changed 6 Nov 2026 by Khairul: add the message with arrayUnion instead of writing back the whole list,
   // so two people sending at the same moment never lose one. Edit / delete below still rewrite the list.
-  const otherUid = s.role === 'director' ? conv.employeeId : conv.directorId;
+  const otherUid = ['director', 'branchDirector'].includes(s.role) ? conv.employeeId : conv.directorId;
   await updateDoc(doc(db, 'kpiConversations', assignmentId), {
     messages: arrayUnion(newMsg),
     ...(otherUid ? { unreadBy: arrayUnion(otherUid) } : {}),
@@ -519,7 +519,7 @@ export async function addSystemMessage(assignmentId, type, details) {
     type,
     by: s.name,
     byUid: s.user.uid,
-    role: s.role === 'director' ? 'director' : 'employee',
+    role: ['director', 'branchDirector'].includes(s.role) ? 'director' : 'employee',
     at: Date.now(),
     message: details.message || '',
     rating: details.rating || null,
@@ -528,7 +528,7 @@ export async function addSystemMessage(assignmentId, type, details) {
   };
 
   // Neo's file, changed 6 Nov 2026 by Khairul: arrayUnion so a message sent at the same moment is not lost
-  const otherUid = s.role === 'director' ? conv.employeeId : conv.directorId;
+  const otherUid = ['director', 'branchDirector'].includes(s.role) ? conv.employeeId : conv.directorId;
   const updateData = { messages: arrayUnion(systemMsg), ...(otherUid ? { unreadBy: arrayUnion(otherUid) } : {}), updatedAt: serverTimestamp() };
   if (type === 'rating_changed' || type === 'rating_approved') {
     updateData.currentRating = details.rating;
