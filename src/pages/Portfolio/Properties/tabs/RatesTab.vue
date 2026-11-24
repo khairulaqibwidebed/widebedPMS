@@ -376,8 +376,9 @@ export default {
 .how-chip small { font-size: 11px; font-weight: 400; color: var(--muted); }
 .how-chip.last { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .how-arrow { color: var(--muted); }
-@media (max-width: 560px) { .how-card { grid-template-columns: minmax(0, 1fr); gap: 6px; } .fees-intro { align-items: flex-start; } }
+@media (max-width: 560px) { .how-card { grid-template-columns: minmax(0, 1fr); gap: 6px; } }
 .fees-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 16px; }
+@media (max-width: 560px) { .fees-intro { align-items: flex-start; } }   /* after the rule above, or it never applies (24 Nov 2026) */
 .fees-intro .card-intro { margin: 0; }
 .fee-card + .fee-card { margin-top: 20px; }
 .fee-card .card-head { align-items: flex-start; }

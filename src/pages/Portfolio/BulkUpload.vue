@@ -1244,7 +1244,7 @@ export default {
 
 <style scoped>
     .bu-steps { margin: 0 0 16px; padding: 0; list-style: none; }
-    .bu-kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .bu-kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px; margin-bottom: 16px; }
     .bu-kind { display: flex; align-items: center; gap: 14px; text-align: left; padding: 16px; border: 1.5px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); cursor: pointer; }
     .bu-kind svg { width: 40px; height: 40px; padding: 9px; border-radius: 10px; background: var(--chip); fill: var(--text-2); flex: none; }
     .bu-kind b { display: block; font-size: 15px; }

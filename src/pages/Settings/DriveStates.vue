@@ -1,7 +1,9 @@
 <template>
-  <main class="content">
-    <div class="page-head">
+  <!-- 23 Nov 2026 (Khairul): also shown inside a branch (Branch Management > Drive folder tab) with embedded + only-state -->
+  <component :is="embedded ? 'div' : 'main'" :class="embedded ? 'ds-embed' : 'content'">
+    <div class="page-head" v-if="!embedded">
       <div class="head-text">
+        <router-link class="back-link" to="/Settings/branches">‹ Branch Management</router-link>
         <h1>Google Drive Folders</h1>
         <div class="sub">Each state's Google Drive folder (e.g. Owner Files). A property can only be added in a state set up here. Issue photos and videos go to the unit's Maintenance folder inside it.</div>
       </div>
@@ -79,7 +81,7 @@
             <div class="faq-a" v-show="guideOpen[4]">
             <ul>
               <li><b>＋ Add state</b> (top right): link a state that isn't listed yet. Paste the link of its main Drive folder. The PMS checks it can open and add to the folder before saving.</li>
-              <li><b>Edit state</b>: change the state's folder, or remove it. Removing never deletes anything in Drive; it only stops the PMS using that folder.</li>
+              <li><b>Change link</b>: change the state's folder, or remove it. Removing never deletes anything in Drive; it only stops the PMS using that folder.</li>
               <li><b>Create folders</b>: shows when some units have no folder. It first shows a preview of every folder it would make, grouped by property. Click a property to see the full path of each new folder, with the new name highlighted. Parts marked NEW (a missing property or Owner folder) are made too. Untick any property you want to leave out, then press Create.</li>
             </ul>
             </div>
@@ -143,13 +145,15 @@
       <!-- Fixed column widths, so nothing shifts while the lists load -->
       <table class="table fixed">
         <colgroup><col style="width:42%"><col style="width:24%"><col style="width:20%"><col style="width:14%"></colgroup>
-        <thead><tr><th>State</th><th>Drive folder</th><th>Set by</th><th></th></tr></thead>
+        <thead v-if="!embedded"><tr><th>State</th><th>Drive folder</th><th>Set by</th><th></th></tr></thead>
         <tbody>
-          <template v-for="st in shown" :key="st">
+          <!-- 23 Nov 2026 (Khairul): skeleton rows while the states load, and while a state's list is checked -->
+          <SkeletonRows v-if="loading" table :cols="4" :rows="embedded ? 1 : 2" />
+          <template v-for="st in (loading ? [] : shown)" :key="st">
             <!-- Click a set-up state to open its list. The list checks itself (on open, when properties change, every 2 minutes). -->
             <tr :class="{ clickable: map[st] }" @click="map[st] && toggle(st)">
               <td><span class="chev" v-if="map[st]">{{ open[st] ? '▾' : '▸' }}</span><b>{{ st }}</b>
-                <div class="help" v-if="map[st]">{{ results[st] ? summary(st) : 'Checking…' }}</div></td>
+                <div class="help" v-if="map[st] && results[st]">{{ summary(st) }}</div><span class="sk ds-sk" v-else-if="map[st]" aria-label="Checking"></span></td>
               <td>
                 <template v-if="map[st]"><a class="ext" :href="map[st].link" target="_blank" rel="noopener" title="Open in Google Drive" @click.stop>{{ map[st].folderName }}<svg class="ext-ico" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a></template>
                 <span class="help" v-else>Not set up</span>
@@ -157,8 +161,11 @@
               <td class="help">{{ map[st] ? `${map[st].byName || '—'} · ${(map[st].at || '').slice(0, 10)}` : '' }}</td>
               <td class="acts">
                 <button class="btn btn-sm" v-if="canEdit && missingIn(st)" @click.stop="openPlan(st)" :title="`Preview the ${missingIn(st)} missing unit folders, then make them`">Create folders</button>
-                <button class="btn btn-sm" v-if="canEdit" @click.stop="openForm(st)">Edit state</button>
+                <button class="btn btn-sm" v-if="canEdit" @click.stop="openForm(st)">{{ map[st] ? 'Change link' : 'Set link' }}</button>
               </td>
+            </tr>
+            <tr class="inner-row" v-if="map[st] && open[st] && !results[st]">
+              <td colspan="4" class="inner-cell"><table class="table inner fixed"><tbody><SkeletonRows table :cols="4" :rows="6" /></tbody></table></td>
             </tr>
             <tr class="inner-row" v-if="map[st] && open[st] && results[st]">
               <td colspan="4" class="inner-cell">
@@ -235,18 +242,24 @@
     <!-- Add state / Edit state popup: the state and its Google Drive folder -->
     <div class="modal-back" v-show="form" @click.self="closeForm()" v-esc="() => closeForm()">
       <template v-if="form">
-        <form class="modal" role="dialog" :aria-label="form.isNew ? 'Add state' : 'Edit state'" @submit.prevent="save()" style="max-width:520px">
-          <h2>{{ form.isNew ? 'Add state' : `Edit state · ${form.state}` }}</h2>
+        <!-- 23 Nov 2026 (Khairul): this popup only sets the link, so it says so -->
+        <form class="modal ds-link-modal" role="dialog" :aria-label="form.isNew ? 'Add state' : 'Google Drive folder link'" @submit.prevent="save()">
+          <h2>{{ form.isNew ? 'Add state' : 'Google Drive folder link' }}</h2>
+          <p class="help ds-for" v-if="!form.isNew">{{ `The folder the PMS uses for ${form.state}. Uploads and unit folders go inside it.` }}</p>
           <div class="notice error" v-show="form.error">{{ form.error }}</div>
           <div class="field" v-if="form.isNew"><label for="dsState" class="req">State</label>
             <select class="input" id="dsState" v-model="form.state"><option value="">Choose a state</option>
               <template v-for="s in others" :key="s"><option :value="s">{{ s }}</option></template></select></div>
-          <div class="field"><label for="dsLink" class="req">Google Drive folder link</label>
-            <input class="input" id="dsLink" v-model="form.paste" placeholder="https://drive.google.com/drive/folders/...">
-            <span class="help" v-if="map[form.state]">{{ `Now: ${map[form.state].folderName}` }}</span>
-            <span class="help" v-else>e.g. the state's Owner Files folder. Share it with support@widebed.com as Editor first.</span></div>
+          <a v-if="map[form.state]" class="ds-now" :href="map[form.state].link" target="_blank" rel="noopener" title="Open in Google Drive">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+            <span><span class="ds-now-k">Current folder</span><b>{{ map[form.state].folderName }}</b></span>
+            <span class="ds-now-open">Open ↗</span>
+          </a>
+          <div class="field"><label for="dsLink" class="req">{{ map[form.state] ? 'New link' : 'Link' }}</label>
+            <input class="input" id="dsLink" v-model="form.paste" placeholder="https://drive.google.com/drive/folders/..." @focus="$event.target.select()">
+            <span class="help">Paste the folder's link from Google Drive. Share the folder with support@widebed.com as Editor first. Nothing in Drive is moved.</span></div>
           <div class="modal-foot">
-            <button type="button" class="btn" v-if="!form.isNew && map[form.state]" :disabled="busy" @click="remove(form.state)">Remove folder</button>
+            <button type="button" class="link rm ds-unlink" v-if="!form.isNew && map[form.state]" :disabled="busy" @click="remove(form.state)">Remove link</button>
             <span style="flex:1"></span>
             <button type="button" class="btn" @click="closeForm()">Cancel</button>
             <button class="btn btn-primary" :disabled="busy">{{ busy ? 'Checking…' : 'Check and save' }}</button>
@@ -254,7 +267,7 @@
         </form>
       </template>
     </div>
-  </main>
+  </component>
 </template>
 
 <script>
@@ -275,11 +288,12 @@ const BASE = ['W.P. Kuala Lumpur', 'Johor'];
 
 export default {
   mixins: [liveMixin],
+  props: { embedded: { type: Boolean, default: false }, onlyState: { type: String, default: '' } },
   data() { return { map: {}, seen: {}, props: [], open: {}, unitsOpen: {}, form: null, plan: null, infoOpen: false, guideOpen: [true, false, false, false, false, false, false, false, false], loading: true, busy: false, error: '', results: {} }; },
   computed: {
     canEdit() { return canSetUpStates(me); },
     // Kuala Lumpur and Johor always; any other state once Add state has saved its folder
-    shown() { return STATES.filter(s => BASE.includes(s) || this.map[s]); },
+    shown() { return this.onlyState ? [this.onlyState] : STATES.filter(s => BASE.includes(s) || this.map[s]); },
     others() { return STATES.filter(s => !this.shown.includes(s)); },
     // Folders the open preview would make (ticked properties only)
     planCount() { return this.plan ? this.plan.rows.filter(r => r.on).reduce((n, r) => n + r.create.length, 0) : 0; }
@@ -288,11 +302,13 @@ export default {
     this.map = { ...(await loadDriveStates(true)) };
     this.seen = await loadDriveSeen();
     this.loading = false;
+    if (this.onlyState) this.open = { [this.onlyState]: true };   // inside a branch: its state's list starts open
     // Live: the properties as they change (added, renamed, moved state) re-check the lists; every 2 minutes (only while
     // the tab is open and showing) the states, units and Drive folders are read again too.
     this.liveUse('props', watchProperties(rows => { this.props = rows; this.checkAll(); }, e => { this.error = e.friendly || friendlyError(e, 'load the properties'); }));
     this.livePoll('drive', async () => { this.map = { ...(await loadDriveStates(true)) }; await this.checkAll(true); }, 120000, { immediate: false });
   },
+  watch: { onlyState(st) { if (st) { this.open = { [st]: true }; this.checkAll(); } } },
   methods: {
     // The popup: '' = Add state (choose one not listed yet), else Edit state for that state
     openForm(st) { this.form = { isNew: !st, state: st, paste: this.map[st]?.link || '', error: '' }; },
@@ -401,6 +417,20 @@ export default {
 </script>
 
 <style scoped>
+.ds-sk { display: block; width: 260px; max-width: 90%; height: 10px; margin-top: 8px; }
+.ds-link-modal { max-width: 520px; }
+.ds-link-modal h2 { margin-bottom: 4px; }
+.ds-for { margin: 0 0 14px; }
+.ds-now { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--accent-soft); color: var(--accent); text-decoration: none; }
+.ds-now > span:nth-child(2) { display: grid; flex: 1; min-width: 0; color: var(--text); }
+.ds-now b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-now-k { font-size: 12px; color: var(--muted); }
+.ds-now-open { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.ds-unlink { color: var(--danger); background: none; border: 0; font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
+.ds-embed { display: grid; gap: 10px; }
+.ds-more { margin: 0; }
+.back-link { display: inline-block; font-size: 13px; color: var(--text-2); text-decoration: none; margin-bottom: 4px; }
+.back-link:hover { color: var(--accent, #C2452B); }
 .head-text { flex: 1 1 320px; min-width: 0; }
 .head-acts { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 .info-btn { display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; color: var(--accent); }

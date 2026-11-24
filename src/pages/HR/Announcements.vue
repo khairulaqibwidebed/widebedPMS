@@ -451,7 +451,7 @@ export default {
 .an-group-title span { font-size: 11px; font-weight: 700; letter-spacing: 0; padding: 0 7px; border-radius: 999px; background: var(--chip); color: var(--text-2); line-height: 18px; }
 .an-group-title::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .g-pinned .an-group-title { color: var(--accent); }
-.an-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
+.an-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 14px; }
 @media (max-width: 600px) { .an-grid { grid-template-columns: 1fr; } }
 /* Pinned: same card, full width, themed strip with a pin */
 .g-pinned .an-grid { grid-template-columns: 1fr; }

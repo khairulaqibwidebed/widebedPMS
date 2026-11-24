@@ -271,8 +271,11 @@ export default {
 
 <style scoped>
 .oo-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
-@media (max-width: 1000px) { .oo-grid { grid-template-columns: minmax(0, 1fr); } .oo-staff { position: static; max-height: 360px; } }
+@media (max-width: 1000px) { .oo-grid { grid-template-columns: minmax(0, 1fr); } }
 .oo-staff { position: sticky; top: 16px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; padding: 14px 0 0; overflow: hidden; }
+/* One column (24 Nov 2026): the people list sits above the form and scrolls away with the page. This rule must come after the
+   one above: it was inside the 1000px rule before it, so the list stayed pinned (sticky) and the form slid underneath it. */
+@media (max-width: 1000px) { .oo-staff { position: static; max-height: 360px; } }
 .oo-staff > .input { margin: 0 14px; width: auto; height: 46px; font-size: 15px; padding: 0 14px; border-width: 1.5px; }
 .oo-count { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); padding: 8px 16px 6px; }
 .oo-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; border-top: 1px solid var(--line); }

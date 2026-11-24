@@ -1,4 +1,8 @@
 rules_version = '2';
+// Draft 1.06, 23 Nov 2026 (Khairul): one Maintenance Sheet per branch: maintenanceSheet/b_{branchId} (Directors write, Accounting
+//   and Directors read, as maintenanceSheet/settings, which stays for the Apps Script's access check).
+// Draft 1.05, 23 Nov 2026 (Khairul): branches/{id} (Settings > Branch Management). All staff read; driveFolders.edit writes.
+//   users/{uid}.branches is saved with the rest of Staff accounts (no rule change there).
 // Draft 1.04, 23 Nov 2026 (Khairul): owner form tabs get their own ticks. owners/{id}/private/main (IC, date of birth,
 //   address, bank) is read only with the 'ownerCreds.view' tick (Owners · Credentials) plus Owners Base or Full, and written
 //   only with Owners Full plus that tick. private/contact stays Owners Full (read and write) as before. A tick list without
@@ -660,6 +664,14 @@ service cloud.firestore {
       allow write: if docId == 'settings' && isDirector()
         && request.resource.data.scriptUrl is string && request.resource.data.scriptUrl.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec')
         && request.resource.data.get('sheetUrl', '') is string && request.resource.data.get('sheetUrl', '').size() <= 300;
+      // Draft 1.06: one Sheet per branch, maintenanceSheet/b_{branchId} (Branch Management > Links). An empty URL turns it off.
+      allow write: if docId.matches('b_[A-Za-z0-9]+') && isDirector()
+        && request.resource.data.keys().hasOnly(['branchId', 'scriptUrl', 'sheetUrl', 'updatedBy', 'updatedByName', 'updatedAt'])
+        && request.resource.data.branchId is string && docId == 'b_' + request.resource.data.branchId
+        && request.resource.data.scriptUrl is string
+        && (request.resource.data.scriptUrl == '' || request.resource.data.scriptUrl.matches('https://script[.]google[.]com/macros/s/[A-Za-z0-9_-]+/exec'))
+        && request.resource.data.get('sheetUrl', '') is string && request.resource.data.get('sheetUrl', '').size() <= 300
+        && request.resource.data.updatedBy == request.auth.uid;
     }
 
     match /config/{docId} {
@@ -681,6 +693,19 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['states', 'updatedBy', 'updatedByName', 'updatedAt'])
         && request.resource.data.states is map && request.resource.data.states.size() <= 20
         && request.resource.data.updatedBy == request.auth.uid;
+    }
+    // Draft 1.05 (23 Nov 2026): Settings > Branch Management. Every staff member reads; the Branch Management tick
+    //   (driveFolders.edit, as the Drive folders) adds and edits. Never deleted (switch Active off instead).
+    match /branches/{id} {
+      allow read: if anyStaff();
+      allow create, update: if can('driveFolders.edit')
+        && request.resource.data.keys().hasOnly(['name', 'state', 'active', 'propertyIds', 'driveLink', 'sheetLink', 'links',
+             'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'updatedBy', 'updatedByName'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.propertyIds is list && request.resource.data.propertyIds.size() <= 500
+        && request.resource.data.get('links', []) is list && request.resource.data.get('links', []).size() <= 12
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
     }
     // Draft 0.79: a property's own units folder (Property > Overview)
     match /config/driveUnits {

@@ -26,7 +26,7 @@
     <div class="notice error" v-show="error">{{ error }}</div>
     <Paged :items="shown()" v-slot="{ pageRows }">
       <div class="table-wrap soft-wrap">
-        <table class="table hover-rows">
+        <table class="table hover-rows cards-tablet">
           <thead><tr><th>Name</th><th>Role</th><th>IC number</th><th>Join date</th><th class="num">Monthly salary</th><th>Last changed</th><th></th></tr></thead>
           <tbody>
             <tr v-for="u in pageRows" :key="u.id">

@@ -95,6 +95,7 @@ const routes = [
   page('/Settings/staff', () => import('./pages/Settings/Staff.vue'), 'Staff Accounts', DH),
   page('/Settings/staff-hr', () => import('./pages/Settings/StaffHR.vue'), 'Staff Accounts', DH, { title: 'HR details' }),
   page('/Settings/roles', () => import('./pages/Settings/Roles.vue'), 'Roles', D),   // Director only, never tickable
+  ticked('/Settings/branches', () => import('./pages/Settings/BranchManagement.vue'), 'Branch Management', 'driveFolders'),   // 23 Nov 2026: branches (same access tick)
   ticked('/Settings/states', () => import('./pages/Settings/DriveStates.vue'), 'Google Drive Folders', 'driveFolders'),   // 17 Nov 2026: each state's Drive folder; access tick
   page('/Settings/brand-logos', () => import('./pages/Settings/BrandLogos.vue'), 'Brand Logos', D),
   page('/Settings/audit-log', () => import('./pages/Settings/AuditLog.vue'), 'Audit Log', DH),
@@ -143,4 +144,4 @@ router.beforeEach(async to => {
   }
   return true;
 });
-router.afterEach(() => { document.title = SITE_TITLE; });   // tab shows only the site name (18 Nov 2026)
+router.afterEach(() => { document.title = SITE_TITLE; });   // tab shows only the site name (18 Nov 2026)
