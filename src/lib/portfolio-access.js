@@ -15,11 +15,14 @@ export const ALL_PTABS = [{ key: 'overview', label: 'Overview' }, { key: 'units'
 // Finance: full access to owners, properties, units and bookings, fees and bank details included. The rules already
 // allow it (portfolioEditor() = can('portfolio.edit')). Directors stay Directors.
 export function portfolioAccess(role, me = null) {
+  const top = role === 'director';
+  if (role === 'branchDirector') role = 'director';   // 24 Nov 2026: Branch Directors work as Directors (their own branches only)
   if (role !== 'director' && VIEWERS.includes(role) && me && can(me, 'portfolio.edit')) role = 'finance';
   const viewOnly = VIEWERS.includes(role);
   return {
     viewOnly,
     isDirector: role === 'director',
+    isTopDirector: top,                                              // the Director only (company-wide one-off tools)
     canAdd: ADDERS.includes(role),                                   // + Add property / unit / owner
     // Marketing also open and edit properties, units and owners (Khairul 27 Oct): details and contact only, no money,
     // owner link, status or bank details.
@@ -57,6 +60,6 @@ export function levelAccess(me) {
     bkView: !!me && can(me, 'bookings.view'),
     bkEdit: bkFull,
     // Guest names, phone and IC (tenant records): Full only
-    guestNames: !!me && (bkFull || ['director', 'finance'].includes(me.role) || can(me, 'offlineInquiries.edit'))
+    guestNames: !!me && (bkFull || ['director', 'branchDirector', 'finance'].includes(me.role) || can(me, 'offlineInquiries.edit'))
   };
 }

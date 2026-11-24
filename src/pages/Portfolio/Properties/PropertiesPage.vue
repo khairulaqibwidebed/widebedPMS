@@ -13,7 +13,7 @@
       <div class="head-tools">
         <MonthPicker :ahead="1" v-model="asOf" @change="reload()" v-if="!acc.viewOnly" />
         <RefreshButton @refresh="go()" />
-        <button class="btn" type="button" v-if="isDirector" @click="stampOpen = true">Link owners and tenants</button>
+        <button class="btn" type="button" v-if="isTop" @click="stampOpen = true">Link owners and tenants</button>
       </div>
     </div>
 
@@ -197,7 +197,7 @@ export default {
       propSearch: '', propAttn: false,
       loading: true, busy: false, error: '', okMsg: '',
       adding: null,   // { prefill } while the add property drawer is open
-      STATES, isDirector: me.role === 'director',
+      STATES, isDirector: ['director', 'branchDirector'].includes(me.role), isTop: me.role === 'director',
       // Set property states popup: the list is fixed when it opens, so saved rows stay on screen as "Saved"
       statesOpen: false, statesList: [], statePick: {}, stateSaved: {}, stateBusy: '', statesErr: '',
       stampOpen: false,

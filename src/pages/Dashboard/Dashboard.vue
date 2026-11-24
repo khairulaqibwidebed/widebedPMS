@@ -4,7 +4,7 @@
 
     <div class="page-head dash-head">
       <div>
-        <h1>{{ view === 'director' ? 'Director dashboard' : 'Accounting dashboard' }}</h1>
+        <h1>{{ view === 'director' ? (isBD ? 'Branch Director dashboard' : 'Director dashboard') : 'Accounting dashboard' }}</h1>
         <div class="sub">{{ subtitle() }}</div>
       </div>
       <div class="head-tools">
@@ -216,7 +216,7 @@ export default {
   data() {
     return {
       role: me.role,
-      view: me.role === 'director' && this.$route.query.as === 'finance' ? 'finance' : me.role,   // Director can "View as" Finance (or another role)
+      view: me.role === 'director' && this.$route.query.as === 'finance' ? 'finance' : me.role === 'branchDirector' ? 'director' : me.role, isBD: me.role === 'branchDirector',   // Director can "View as" Finance (or another role)
       month: monthOffset(-1),             // month-end work is for last month
       months: Array.from({ length: 12 }, (_, i) => monthOffset(-i)),
       propertyId: lastProperty(true) || 'all',

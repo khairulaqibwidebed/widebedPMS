@@ -272,6 +272,7 @@ import { friendlyError, download } from '@/lib/finance-data.js';
 import { rm, dmy } from '@/lib/format.js';
 import { toast } from '@/lib/toast.js';
 import { useSession } from '@/stores/session.js';
+import { myStaffUids } from '@/lib/property-scope.js';
 import OptionPicker from '@/components/OptionPicker.vue';
 import Avatar from '@/components/Avatar.vue';
 import ImageDrop from '@/components/ImageDrop.vue';
@@ -300,7 +301,7 @@ export default {
   props: { tab: { type: String, default: 'requests' } },
   data() {
     return {
-      STATUS, STEP, PAY_TYPES, SIGN_METHOD, myUid: me.user.uid, isHR: me.role === 'hr', isDirector: me.role === 'director',
+      STATUS, STEP, PAY_TYPES, SIGN_METHOD, myUid: me.user.uid, isHR: me.role === 'hr', isDirector: ['director', 'branchDirector'].includes(me.role),
       list: [], loading: true, error: '', q: '', filter: 'all', sel: null, hr: null, dept: '', notes: [], fuLoading: false,
       busy: false, actErr: '', rjOpen: false, histOpen: false, noteText: '', apAmount: '', apNote: DEDUCT_START, apTold: false, rjReason: '', paidDate: '', payType: '',
       signed: null, copy: null, payment: null, outImg: null, payImg: null, copyImg: null, copyOpen: false,
@@ -411,13 +412,14 @@ export default {
     // Resolves when the list first arrives; calling it again while it runs does nothing.
     load() {
       if (this.liveStops.list) return Promise.resolve();
-      return new Promise(resolve => {
+      // Branch Directors (24 Nov 2026): only requests from staff in their branches
+      return myStaffUids().catch(() => null).then(ok => new Promise(resolve => {
         this.liveUse('list', watchAdvances(rows => {
           const old = new Map(this.list.map(a => [a.id, a]));
-          this.list = rows.map(r => { const o = old.get(r.id); return o ? Object.assign(o, r) : r; });
+          this.list = rows.filter(r => !ok || ok.has(r.uid)).map(r => { const o = old.get(r.id); return o ? Object.assign(o, r) : r; });
           this.loading = false; resolve();
         }, e => { this.error = e.friendly || friendlyError(e, 'load the requests'); this.loading = false; resolve(); }));
-      });
+      }));
     },
     shown() {
       const q = this.q.trim().toLowerCase();

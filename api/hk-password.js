@@ -48,7 +48,7 @@ async function caller(req) {
   return u.localId;
 }
 
-const val = v => v == null ? null : 'stringValue' in v ? v.stringValue : 'booleanValue' in v ? v.booleanValue : 'nullValue' in v ? null : undefined;
+const val = v => v == null ? null : 'stringValue' in v ? v.stringValue : 'booleanValue' in v ? v.booleanValue : 'nullValue' in v ? null : 'arrayValue' in v ? (v.arrayValue.values || []).map(val) : undefined;   // arrays: 24 Nov 2026 (branches)
 async function userDoc(key, tok, uid) {
   const r = await fetch(`https://firestore.googleapis.com/v1/projects/${key.project_id}/databases/(default)/documents/users/${encodeURIComponent(uid)}`,
     { headers: { Authorization: `Bearer ${tok}` } });
@@ -71,13 +71,16 @@ export default async function handler(req, res) {
     const key = serviceKey(), tok = await googleToken(key);
     const mine = await userDoc(key, tok, me);
     const myRole = mine && mine.active !== false ? mine.role : null;
-    if (myRole !== 'director' && myRole !== 'hr') throw new HttpError(403, 'Only HR or a Director can set a password.');
+    if (myRole !== 'director' && myRole !== 'hr' && myRole !== 'branchDirector') throw new HttpError(403, 'Only HR or a Director can set a password.');
     if (myRole === 'hr' && uid === me) throw new HttpError(403, "You can't set your own password here.");
 
     const target = await userDoc(key, tok, uid);
     if (!target) throw new HttpError(404, 'No staff record for that account.');
     if (!String(target.email || '').toLowerCase().endsWith('@' + HK_DOMAIN)) throw new HttpError(400, 'Only housekeeping (username) accounts get a password set here. Others use the reset email.');
-    if (target.role === 'director') throw new HttpError(403, "A Director's password can't be set here.");
+    if (target.role === 'director' || target.role === 'branchDirector') throw new HttpError(403, "A Director's password can't be set here.");
+    // 24 Nov 2026: a Branch Director only for staff in their own branches
+    if (myRole === 'branchDirector' && !(Array.isArray(target.branches) && target.branches.length && target.branches.every(b => (mine.branches || []).includes(b))))
+      throw new HttpError(403, 'Only staff in your own branches.');
 
     const r = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${key.project_id}/accounts:update`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` }, body: JSON.stringify({ localId: uid, password }) });

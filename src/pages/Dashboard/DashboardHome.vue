@@ -19,7 +19,7 @@ export default {
   components: { Dashboard, RoleDashboard, CustomDashboard, AnnouncementBanner },
   data() {
     const role = useSession().role, as = this.$route.query.as;
-    const view = role === 'director' && VIEW_AS.includes(as) ? as : role;
+    const view = role === 'director' && VIEW_AS.includes(as) ? as : role === 'branchDirector' ? 'director' : role;   // Branch Directors: the Director dashboard, their branches only
     return { view, builtIn: BUILTIN_ROLES.includes(view) && view !== 'housekeeping' };   // housekeeping (17 Nov 2026): the general dashboard, like a custom role
   }
 };

@@ -168,7 +168,7 @@ export default {
   emits: ['charged'],
   data() { return { me: useSession(), FILTERS, PILL, EMPTY, MAINT_STATUS, filter: 'pending', detail: null, search: '', tickets: [], rows: {}, locked: {}, loading: true, busy: false, error: '', okMsg: '', moreOpen: false, purge: null, sheetFailed: false, sheetChecked: false,
     sheets: [], sheetBusy: '', sheetNote: '', sheetTimer: null, sheetLinks: {} }; },
-  computed: { year() { return this.month.slice(0, 4); }, allProps() { return this.propertyId === 'all'; }, isDirector() { return this.me.role === 'director'; }, nextYear() { return String(new Date().getFullYear() + 1); }, sheetLinked() { return this.sheets.length > 0 && !this.sheetFailed; } },   // 'all': the page's All properties
+  computed: { year() { return this.month.slice(0, 4); }, allProps() { return this.propertyId === 'all'; }, isDirector() { return ['director', 'branchDirector'].includes(this.me.role); }, nextYear() { return String(new Date().getFullYear() + 1); }, sheetLinked() { return this.sheets.length > 0 && !this.sheetFailed; } },   // 'all': the page's All properties
   watch: { propertyId() { this.load(); }, month() { this.load(); } },
   async mounted() {
     this.sheets = await loadSheetConfigs(); this.sheetChecked = true;   // no red dot flash before the settings are read
@@ -328,7 +328,7 @@ export default {
 .mt-dots:hover, .mt-dots[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .mt-more-back { position: fixed; inset: 0; z-index: 20; }
 .mt-more-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 21; min-width: 170px; display: grid; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
-.mt-more-menu button, .mt-more-menu a { display: block; text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); text-decoration: none; cursor: pointer; }
+.mt-more-menu button, .mt-more-menu a { display: block; text-align: left; background: none; border: 0; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 14px; color: var(--text); text-decoration: none; cursor: pointer; white-space: nowrap; }   /* one line each (24 Nov 2026) */
 .mt-more-menu button:hover:not(:disabled), .mt-more-menu a:hover { background: var(--accent-soft); color: var(--accent); }
 .mt-more-menu button:disabled { opacity: .55; cursor: default; }
 .mt-sheet { margin: -4px 0 10px; font-size: 12.5px; }

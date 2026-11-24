@@ -88,7 +88,7 @@ export default {
     if (!this.np.id && this.np.info.state && !this.driveStates[this.np.info.state]?.folderId) this.np.info.state = '';
   },
   computed: {
-    isDirector() { return me.role === 'director'; },
+    isDirector() { return ['director', 'branchDirector'].includes(me.role); },
     // Editing: only a Director sets or changes the state. Adding: anyone, from their own states.
     stateLocked() { return !!this.np.id && !this.isDirector; },
     stateOptions() {

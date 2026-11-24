@@ -8,6 +8,8 @@
       <div class="card-head"><h2>New complaint</h2></div>
       <form @submit.prevent="send()">
         <div class="field"><label>To</label><div><span class="tag">All Directors</span></div></div>
+        <!-- 24 Nov 2026: the complaint goes to that branch's Branch Directors (and every Director). One branch: picked for you. -->
+        <div class="field" v-if="branchOpts.length > 1"><label>Branch</label><OptionPicker v-model="branchPick" :options="branchOpts" label="Branch" /></div>
         <div class="field"><label for="dSubj">Subject</label><input class="input" id="dSubj" v-model="subject" placeholder="e.g. Repeated late salary for part-timers"></div>
         <div class="field"><label for="dDet">Details</label><textarea class="input" id="dDet" style="height:140px" v-model="details" placeholder="What happened and what you need from the Directors"></textarea></div>
         <div class="field"><label>Photos</label><PhotoPicker v-model="photos" /><span class="help">Up to 5 photos or screenshots.</span></div>
@@ -134,6 +136,7 @@ import ComplaintDocs from '@/components/ComplaintDocs.vue';
 import ComplaintChat from '@/components/ComplaintChat.vue';
 import Avatar from '@/components/Avatar.vue';
 import { friendlyError } from '@/lib/finance-data.js';
+import { loadBranches } from '@/lib/branches.js';
 import { useSession } from '@/stores/session.js';
 import { liveMixin } from '@/lib/use-live.js';
 
@@ -161,10 +164,15 @@ export default {
   data() {
     return {
       list: [], filter: 'all', q: '', showSent: false, loading: true, loadErr: '', busy: false, subject: '', details: '', photos: [], err: '', okMsg: '', sel: null, selPhotos: [],
-      notes: [], notesLoading: false, noteText: '', closing: false, closeNote: '', actErr: ''
+      notes: [], notesLoading: false, noteText: '', closing: false, closeNote: '', actErr: '', branchOpts: [], branchPick: ''
     };
   },
   mounted() {
+    // HR: their branches (24 Nov 2026). One = used as it is; several = they pick; none = Directors only.
+    if (this.isHr && (me.branches || []).length) loadBranches().then(all => {
+      this.branchOpts = all.filter(b => me.branches.includes(b.id)).map(b => ({ value: b.id, label: b.name }));
+      if (this.branchOpts.length === 1) this.branchPick = this.branchOpts[0].value;
+    }).catch(() => {});
     let first = true;
     this.load(() => {
       if (!first) return;
@@ -178,7 +186,9 @@ export default {
     // HR sees only the Director complaints they sent themselves (5 Nov 2026); the Directors see all
     load(after) {
       this.loadErr = '';
-      this.liveUse('list', watchComplaintList(this.isHr ? { kind: 'director', fromId: me.user.uid } : { kind: 'director' }, rows => {
+      // Branch Directors (24 Nov 2026): only complaints from their own branches
+      const who = this.isHr ? { kind: 'director', fromId: me.user.uid } : me.role === 'branchDirector' ? { kind: 'director', branchIds: me.branches || [] } : { kind: 'director' };
+      this.liveUse('list', watchComplaintList(who, rows => {
         this.list = mergeRows(this.list, rows); this.loading = false; after?.();
       }, e => { this.loadErr = friendlyError(e, 'load the complaints'); this.loading = false; }));
     },
@@ -188,7 +198,7 @@ export default {
     // Opening a complaint marks it as read for the Directors and loads their notes
     async open(c) {
       this.sel = c; this.selPhotos = []; this.notes = []; this.noteText = ''; this.closing = false; this.closeNote = ''; this.actErr = '';
-      if (me.role !== 'director') return;
+      if (!['director', 'branchDirector'].includes(me.role)) return;
       this.notesLoading = true;
       loadNotes(c.id).then(n => { if (this.sel === c) this.notes = n; })
         .catch(e => { this.actErr = friendlyError(e, 'load the notes'); }).finally(() => { this.notesLoading = false; });
@@ -219,9 +229,10 @@ export default {
       this.err = ''; this.okMsg = '';
       if (!this.subject.trim()) return this.err = 'Add a subject.';
       if (!this.details.trim()) return this.err = 'Add the details.';
+      if (this.branchOpts.length > 1 && !this.branchPick) return this.err = 'Choose the branch.';
       this.busy = true;
       try {
-        const ref = await createComplaint(me, 'director', { subject: this.subject.trim(), details: this.details.trim(), files: [], images: this.photos });
+        const ref = await createComplaint(me, 'director', { subject: this.subject.trim(), details: this.details.trim(), files: [], images: this.photos, branchId: this.branchPick });
         this.okMsg = `Sent to the Directors as ${ref}.`; this.clear();   // the live list adds it
       } catch (e) {
         if (e.sentRef) { this.okMsg = `Sent to the Directors as ${e.sentRef}.`; this.err = e.message; this.clear(); }

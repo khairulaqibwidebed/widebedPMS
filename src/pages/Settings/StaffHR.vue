@@ -82,6 +82,7 @@ import { friendlyError } from '@/lib/finance-data.js';
 import { rm } from '@/lib/format.js';
 import { toast } from '@/lib/toast.js';
 import { useSession } from '@/stores/session.js';
+import { seesStaff } from '@/lib/property-scope.js';
 import { loadStaffHR, saveStaffHR, copyOldJoinDates, isDateKey } from '@/pages/HR/advances.js';
 
 const me = useSession();
@@ -94,7 +95,7 @@ export default {
   async mounted() {
     try {
       const [snap, hr] = await Promise.all([getDocs(collection(db, 'users')), loadStaffHR()]);
-      this.users = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.active !== false)
+      this.users = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.active !== false && seesStaff(u))   // seesStaff: Branch Directors, their branches only (24 Nov 2026)
         .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
       this.hr = hr;
     } catch (e) { this.error = friendlyError(e, 'load the HR details'); }

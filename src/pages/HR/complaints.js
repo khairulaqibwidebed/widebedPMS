@@ -48,7 +48,9 @@ export async function loadMyDirectorComplaints(uid) {
 const LIST_MAX = 300;
 export function watchComplaintList(who, onRows, onError) {
   const privs = {};
-  const conds = [where('kind', '==', who.kind), ...(who.fromId ? [where('fromId', '==', who.fromId)] : [])];
+  // who.branchIds (24 Nov 2026): a Branch Director's branches (Director complaints with one of those branches only)
+  const conds = [where('kind', '==', who.kind), ...(who.fromId ? [where('fromId', '==', who.fromId)] : []),
+    ...(who.branchIds ? [where('branchId', 'in', who.branchIds.length ? who.branchIds.slice(0, 30) : ['no-branch'])] : [])];
   let turn = 0;
   return listen(query(collection(db, 'complaints'), ...conds, limit(LIST_MAX)), async parents => {
     const mine = ++turn;
@@ -104,7 +106,8 @@ export async function loadMyComplaints(uid) {
 // me = useSession(). One transaction takes the next number from counters/{name} (so two people never get
 // the same ref) and writes the complaint, its private part and the audit entry. Returns the new ref.
 // A new STAFF complaint also puts one notification on the HR bell (role notification, HR only).
-export async function createComplaint(me, kind, { subject, details, files, anonymous = false, images = [], docs = [] }) {
+// branchId (24 Nov 2026, Director complaints): the sending HR's branch; Branch Directors see only their branches' complaints.
+export async function createComplaint(me, kind, { subject, details, files, anonymous = false, images = [], docs = [], branchId = '' }) {
   const k = KIND[kind];
   const named = kind === 'director' || !anonymous;
   const c = doc(collection(db, 'complaints'));
@@ -117,7 +120,7 @@ export async function createComplaint(me, kind, { subject, details, files, anony
     tx.set(c, { ref, kind, date: today(), createdAt: serverTimestamp(),
       ...(kind === 'staff' ? { status: 'new', anonymous: !named } : { read: false }),
       // fromId: the named staff sender, or (5 Nov 2026) the HR person who sent a Director complaint (only they and the Directors read it)
-      ...(named ? { fromId: me.user.uid } : {}) });
+      ...(named ? { fromId: me.user.uid } : {}), ...(kind === 'director' && branchId ? { branchId } : {}) });
     // Director complaints also keep the sender's uid (4 Nov 2026) so their profile picture shows. Staff complaints already have fromId.
     tx.set(doc(db, 'complaints', c.id, 'private', 'main'), { subject, details, files, ...(named ? { fromName: me.name } : {}), ...(kind === 'director' ? { fromUid: me.user.uid } : {}) });
     if (named) audit(tx, me, { action: 'complaint.create', entity: `complaints/${c.id}`, changes: [{ field: 'ref', old: null, new: ref }] });

@@ -184,7 +184,7 @@ export default {
   data() {
     return {
       TYPE, FILTERS, HEAD, rm, amt, monthName, shortName, PAY, PAY_FILTERS, payFilter: 'all', paying: null, ok: '', menu: null,
-      isDirector: me.role === 'director', canPay: me.role === 'director' || me.role === 'finance' || (me.perms || []).includes('invoices.edit'),
+      isDirector: ['director', 'branchDirector'].includes(me.role), canPay: ['director', 'branchDirector'].includes(me.role) || me.role === 'finance' || (me.perms || []).includes('invoices.edit'),
       properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
       docs: [], picked: [], search: '', filter: 'all',

@@ -5,8 +5,8 @@ import { db } from '@/lib/firebase.js';
 
 export const STATUS = { new: ['New', 'blue'], interested: ['Interested (Pending payment)', 'green'], considering: ['Considering', 'amber'], uninterested: ['Uninterested', 'grey'],
   booked: ['Paid · Booked', 'accent'] };
-export const CONTACT_ALL = ['director', 'finance'];
-export const DIRECT_BOOKERS = ['director', 'finance', 'operations'];
+export const CONTACT_ALL = ['director', 'branchDirector', 'finance'];
+export const DIRECT_BOOKERS = ['director', 'branchDirector', 'finance', 'operations'];
 export const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const localIso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
 export const nowIso = () => localIso(new Date());

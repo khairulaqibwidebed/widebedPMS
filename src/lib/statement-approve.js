@@ -36,7 +36,7 @@ export async function completeStatement({ r, propertyId, month, me, unitIds, don
   const prev = stSnap.exists() ? stSnap.data() : null;
   const again = prev?.status === 'reopened';
   if (r.status === 'completed' || prev?.status === 'completed') throw new Error(`${r.unitCode} is already completed.`);
-  if (me.role !== 'director') throw new Error('Only a Director approves a statement.');
+  if (!['director', 'branchDirector'].includes(me.role)) throw new Error('Only a Director approves a statement.');
   // The reopen already carries the Director's reason; that is the reason for the new revision.
   const reason = (overrideReason || prev?.reopenReason || '').trim();
   if (again && !reason) throw new Error('This reopened statement has no reopen reason.');

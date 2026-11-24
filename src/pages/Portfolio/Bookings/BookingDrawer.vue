@@ -319,7 +319,7 @@ export default {
     // 20 Nov 2026 (Khairul): early termination. The Early termination tick (Directors always); undo is Directors only.
     et() { const e = this.bk.earlyTermination; return e && e.date ? e : null; },
     canTerminate() { return can(me, 'earlyTermination.edit'); },
-    isDirector() { return me.role === 'director'; },
+    isDirector() { return ['director', 'branchDirector'].includes(me.role); },
     // A stay that has started and not ended (not cancelled, not awaiting payment, not already terminated)
     termAllowed() {
       const b = this.bk, today = todayIso();
@@ -427,7 +427,7 @@ export default {
     totalPaid() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + rentalOf(x), 0); },
     totalChecked() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + (Number(x.amount) || 0), 0); },
     // 23 Nov 2026: utility bills. Edit as today: Accounting (finance edit ticks), Directors and the Booking forms tick (rules Draft 1.03)
-    canEditBill() { return me.role === 'director' || ['bookingForms.view', 'ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit'].some(p => can(me, p)); },
+    canEditBill() { return ['director', 'branchDirector'].includes(me.role) || ['bookingForms.view', 'ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit'].some(p => can(me, p)); },
     canRecordPay() { return can(me, 'offlinePayments.edit') || (can(me, 'offlinePayments.view') && (can(me, 'bookingForms.view') || can(me, 'offlineInquiries.view'))); },
     billSum() {
       // 23 Nov 2026 (Khairul): Paid = Checked payments only; Pending check = paid by Pending / Unknown payments; Owing = nothing paid yet
