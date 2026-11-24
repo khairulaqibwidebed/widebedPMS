@@ -147,5 +147,5 @@ export default {
 .lp-count { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: var(--chip); color: var(--text-2); font-size: 12px; font-weight: 600; display: inline-grid; place-items: center; box-sizing: border-box; }
 .lp-count.amber { background: var(--amber); color: #fff; }
 /* No inbox (Marketing, Operations): the listings as a grid of cards */
-.home .lp-cols.solo .lp-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.home .lp-cols.solo .lp-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
 </style>

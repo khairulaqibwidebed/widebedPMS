@@ -342,7 +342,7 @@ async function exportAs(kind) {
 </script>
 
 <style scoped>
-.ag-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.ag-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 16px; }
 .ag-card { cursor: pointer; display: grid; gap: 14px; transition: border-color var(--fast, .15s), box-shadow var(--fast, .15s), transform var(--fast, .15s); }
 .ag-card:hover, .ag-card:focus-visible { border-color: var(--accent); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 14%, transparent); transform: translateY(-1px); }
 .ag-card-top { display: flex; align-items: center; gap: 12px; }

@@ -13,7 +13,7 @@
 
     <div class="table-wrap soft-wrap">
       <!-- Fixed column widths: a long role name or description wraps onto the next line instead of pushing the columns (4 Nov 2026) -->
-      <table class="table hover-rows roles-table">
+      <table class="table hover-rows roles-table cards-tablet">
         <colgroup><col class="c-role"><col class="c-desc"><col class="c-people"><col class="c-pages"><col class="c-status"><col class="c-acts"></colgroup>
         <thead><tr><th>Role</th><th>Description</th><th>People</th><th>Pages ticked</th><th>Status</th><th></th></tr></thead>
         <tbody>

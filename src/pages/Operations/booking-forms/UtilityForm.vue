@@ -316,7 +316,7 @@ export default {
 .util-body { margin-top: 14px; }
 .util-body h3 { font-size: 15px; margin: 0 0 12px; }
 .util-body h4 { font-size: 14px; margin: 0; }
-.bills { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.bills { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; margin-bottom: 8px; }
 .bill { border: 1px solid var(--border); border-radius: 10px; padding: 12px 12px 0; min-width: 0; }
 .bill :deep(input[type=number]), .pay-grid :deep(input[type=number]) { -moz-appearance: textfield; appearance: textfield; }
 .bill :deep(input[type=number]::-webkit-outer-spin-button), .bill :deep(input[type=number]::-webkit-inner-spin-button) { -webkit-appearance: none; margin: 0; }

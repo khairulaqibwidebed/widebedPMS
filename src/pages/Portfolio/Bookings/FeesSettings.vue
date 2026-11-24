@@ -39,7 +39,7 @@
             <button type="button" :class="{ on: f.kind === 'oneOff' }" :aria-pressed="String(f.kind === 'oneOff')" @click="f.kind = 'oneOff'">One-off</button>
             <button type="button" :class="{ on: f.kind === 'monthly' }" :aria-pressed="String(f.kind === 'monthly')" @click="f.kind = 'monthly'">Monthly</button>
           </div>
-          <div class="fs-c"><input type="checkbox" class="fs-tick" :checked="f.deposit" @change="setDeposit(f, $event)" :aria-label="`${f.label} is a deposit`"></div>
+          <label class="fs-c"><input type="checkbox" class="fs-tick" :checked="f.deposit" @change="setDeposit(f, $event)" :aria-label="`${f.label} is a deposit`"><span class="fs-cl" aria-hidden="true">Deposit</span></label>
           <input class="input fs-amt" type="number" min="0" step="0.01" placeholder="None" :value="defaultFor(f, rentTab) ?? ''" @input="setDefaultFor(f, rentTab, $event.target.value)" :aria-label="`${f.label} default amount`">
           <div class="fs-mode" :class="'m-' + f.mode[rentTab]">
             <OptionPicker class="fs-pick" :model-value="f.mode[rentTab]" :options="MODES" :label="`${f.label}: on the invoice`" @update:model-value="v => setMode(f, rentTab, v)" />
@@ -197,13 +197,24 @@ export default {
 .fs-tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .fs-tabs button:not(.on):hover { color: var(--text); }
 .fs-tabnote { margin: 0 0 8px; }
-.fs-list { display: grid; }
+.fs-list { display: grid; container-type: inline-size; }   /* rows follow the list's own width, not the window's (24 Nov 2026) */
 .fs-row { display: grid; grid-template-columns: auto minmax(160px, 1fr) auto 64px 120px 170px 64px; gap: 14px; align-items: start; padding: 12px 4px; border-bottom: 1px solid var(--line); border-top: 2px solid transparent; }
 .fs-headrow { padding: 4px 4px 8px; font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; align-items: end; }
 .fs-row.over { border-top-color: var(--accent); }
 .fs-row.off .fs-name input, .fs-row.off .fs-amt { color: var(--muted); }
 .fs-pick { display: block; width: 100%; }
-@media (max-width: 900px) { .fs-row { grid-template-columns: auto minmax(0, 1fr) auto; } .fs-headrow { display: none; } }
+/* Shown only when rows stack (below) */
+.fs-cl { display: none; font-size: 12px; color: var(--text-2); }
+/* Narrower than one full row (about 920px): stack each fee. Was @media 900px, which let rows spill past the card on desktop. */
+@container (max-width: 940px) { .fs-row { grid-template-columns: auto minmax(0, 1fr) auto; } .fs-headrow { display: none; }
+  .fs-c { display: flex; align-items: center; gap: 6px; } .fs-c .fs-tick { margin-top: 0; } .fs-cl { display: inline; } }
+/* Phone width (24 Nov 2026): the name gets its own full line, so it isn't squeezed to a few letters by the One-off / Monthly switch */
+@container (max-width: 520px) {
+  .fs-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "move act" "name name" "seg c" "amt mode"; gap: 10px 12px; }
+  .fs-move { grid-area: move; padding-top: 0; } .fs-act { grid-area: act; justify-self: end; padding-top: 2px; }
+  .fs-name { grid-area: name; } .mini-seg { grid-area: seg; justify-self: start; } .fs-c { grid-area: c; justify-self: end; }
+  .fs-amt { grid-area: amt; } .fs-mode { grid-area: mode; }
+}
 .fs-move { white-space: nowrap; padding-top: 8px; }
 .fs-c { text-align: center; }
 .grip { cursor: grab; color: var(--muted); font-size: 14px; letter-spacing: -2px; padding: 0 6px 0 2px; user-select: none; }

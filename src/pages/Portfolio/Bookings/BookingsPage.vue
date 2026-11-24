@@ -137,7 +137,7 @@ import { lastProperty, rememberProperty } from '@/lib/last-property.js';
 import { portfolioAccess } from '@/lib/portfolio-access.js';
 import { can } from '@/lib/access.js';
 import { MONTH_PAY, shortName, loadOfflineBookings, watchOfflineBookings, loadGuestName } from '@/lib/portfolio-data.js';
-import { termLastDue, allMonthCharges } from '@/lib/booking-invoice.js';
+import { termLastDue, allMonthCharges, leaseMonths, leaseSlot, leaseSpan } from '@/lib/booking-invoice.js';
 import { withCarry } from '@/lib/booking-pay.js';
 import { liveMixin } from '@/lib/use-live.js';
 import LiveStatus from '@/components/LiveStatus.vue';
@@ -317,7 +317,7 @@ export default {
     // Short stay: the whole rental against everything paid. null = not in that month, or no access to payments.
     monthStatus(b, m) {
       if (!this.pays || !this.stays(b, m)) return null;
-      if (b.longTerm) return this.carried(b).find(x => x.m === m)?.status || 'unpaid';   // 23 Nov 2026: carry forward
+      if (b.longTerm) { const c = this.leaseRow(b, m); if (c) return c.status; }   // 23 Nov 2026: carry forward; 24 Nov 2026: by lease month
       const paid = this.paidIn(b, m), due = this.dueIn(b, m);
       if (due > 0) return paid >= due - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid';
       return paid > 0 ? 'paid' : 'unpaid';
@@ -331,7 +331,19 @@ export default {
     },
     // 23 Nov 2026 (Khairul): a lease's months from check-in to check-out with carry forward (lib/booking-pay.js withCarry):
     // paid over a month's total goes to the next month. Same as the booking's Payments tab.
+    // 24 Nov 2026 (Khairul): leases count months from the check-in, the same as the invoice and the Payments tab
+    // (lib/booking-invoice.js leaseMonths; a Monthly Lease in whole months). A payment's For month and a month charge count in
+    // the lease month they fall in; a calendar month shown on the list shows the lease month it falls in.
+    leaseRows(b) {
+      const ms = leaseMonths(b, Number(b.monthlyRent) || 0); if (!ms.length) return null;
+      const rows = ms.map(x => ({ m: x.m, from: x.from, to: x.to, label: x.label, paid: 0, due: x.rent }));
+      (this.pays?.[b.id] || []).forEach(x => { rows[leaseSlot(ms, x.month)].paid += x.amount; });
+      Object.entries(allMonthCharges(b)).forEach(([m, list]) => { rows[leaseSlot(ms, m)].due += (list || []).reduce((s, x) => s + (Number(x.amount) || 0), 0); });
+      return withCarry(rows.map(r => ({ ...r, paid: Math.round(r.paid * 1000) / 1000, due: Math.round(r.due * 1000) / 1000 })));
+    },
+    leaseRow(b, m) { const rows = this.leaseRows(b); return rows ? rows[leaseSlot(rows, m)] : null; },
     carried(b) {
+      const lease = this.leaseRows(b); if (lease) return lease;
       const out = []; let [y, mo] = String(b.arrival || '').slice(0, 7).split('-').map(Number); const last = String(b.departure || '').slice(0, 7);
       if (!y || !last) return out;
       for (let i = 0; i < 240; i++, mo++) {
@@ -345,6 +357,8 @@ export default {
     // paid as one amount, so it gets one pill (its first month shown)
     pillMonths(b) { const ms = this.payMonths.filter(m => this.monthStatus(b, m)); return b.longTerm ? ms : ms.slice(0, 1); },
     monthPayTip(b, m) {
+      const r = b.longTerm ? this.leaseRow(b, m) : null;
+      if (r) return `${r.label} (${leaseSpan(r)}): paid RM ${amt(r.paid)}${r.carryIn > 0 ? ` + RM ${amt(r.carryIn)} carried in` : ''}${r.due > 0 ? ` of RM ${amt(r.due)}` : ''} (Checked payments for this month)`;
       const due = this.dueIn(b, m);
       const c = b.longTerm ? this.carried(b).find(x => x.m === m) : null;
       return `${monthName(m)}: paid RM ${amt(this.paidIn(b, m))}${c?.carryIn > 0 ? ` + RM ${amt(c.carryIn)} carried in` : ''}${due > 0 ? ` of RM ${amt(due)}` : ''}${b.longTerm ? ' (Checked payments for this month)' : ''}`;

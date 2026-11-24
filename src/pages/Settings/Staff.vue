@@ -45,7 +45,7 @@
     <div :key="filter">
     <Paged :items="shown()" v-slot="{ pageRows }">
     <div class="table-wrap soft-wrap staff-wrap">
-      <table class="table staff-table hover-rows">
+      <table class="table staff-table hover-rows cards-tablet">
         <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Properties</th><th>Last sign-in</th><th>Active</th><th>Joined</th><th></th></tr></thead>
         <tbody>
           <template v-for="row in pageRows" :key="row.id">
@@ -743,4 +743,4 @@ export default {
 .fit-picker :deep(.op-val) { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub-row { padding-left: 34px !important; color: var(--text-2); }
 .sub-arrow { color: var(--muted); margin-right: 8px; }
-</style>
+</style>

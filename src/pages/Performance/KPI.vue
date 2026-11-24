@@ -694,13 +694,13 @@ async function reopenForDiscussion() {
 .kpi-card-empty { color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; text-align: center; }
 
 .kpi-task-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-.kpi-task-card.with-chat { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); padding: 0; overflow: hidden; }
+.kpi-task-card.with-chat { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(min(300px, 100%), 1fr); padding: 0; overflow: hidden; }
 .kpi-task-card.with-chat .kpi-task-main { padding: 20px 24px; }
 .kpi-task-chat { border-left: 1px solid var(--border); padding: 16px 20px; background: var(--bg, var(--chip)); }
 .kpi-review-modal { max-width: 720px; max-height: 90vh; overflow-y: auto; }
 .kpi-review-modal.with-chat {
   width: min(1080px, 100%); max-width: 1080px; height: min(640px, 90vh); padding: 0; overflow: hidden;
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); grid-template-rows: minmax(0, 1fr);
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(min(340px, 100%), 1fr); grid-template-rows: minmax(0, 1fr);
 }
 .kpi-review-modal.with-chat .kpi-review-main { padding: 24px; overflow-y: auto; display: flex; flex-direction: column; }
 .kpi-review-modal.with-chat .kpi-review-form { margin-top: auto; }

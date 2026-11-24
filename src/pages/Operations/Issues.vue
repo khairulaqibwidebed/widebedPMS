@@ -1380,6 +1380,6 @@ export default {
     .kv .wrap { white-space: pre-wrap; overflow-wrap: anywhere; text-align: right; }
     .side-note { color: var(--muted); font-size: 11px; margin-top: 10px; }
     .modal .field { margin-bottom: 12px; }
-    @media (max-width: 860px) { .kpis.k3 { grid-template-columns: minmax(0,1fr); } }
+    /* 24 Nov 2026: the three summary cards stay side by side on half screen; phones show them two per row (app.css) */
 .kv .late { color: var(--danger, #c0392b); font-weight: 600; }
 </style>

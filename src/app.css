@@ -78,7 +78,7 @@ button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparen
 .brand-sub { color: var(--muted); font-size: 12px; }
 .login-card h1 { font-size: 20px; margin: 28px 0 4px; }
 .login-card .lead { color: var(--muted); margin: 0 0 24px; }
-.field { display: grid; gap: 6px; margin-bottom: 16px; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 16px; }   /* minmax(0, …): a long placeholder or value can't push the field wider than its box (24 Nov 2026) */
 .field label { font-weight: 500; font-size: 13px; color: var(--text-2); }
 .input { height: 40px; border: 1px solid var(--border); border-radius: 8px; padding: 0 12px;
   font: inherit; color: var(--text); background: var(--surface); width: 100%;
@@ -268,7 +268,7 @@ button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparen
 .toast-x:hover { background: var(--chip, var(--border)); color: var(--text); }
 @keyframes toast-slide { from { opacity: 0; transform: translateX(24px); } }
 @keyframes toast-leave { to { opacity: 0; transform: translateX(24px); } }
-@media (max-width: 600px) { .toasts { top: auto; bottom: 16px; right: 16px; left: 16px; } }
+@media (max-width: 600px) { .toasts { top: auto; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); right: 16px; left: 16px; } }   /* above the phone tab bar (AppShell) */
 @media (prefers-reduced-motion: reduce) { .toast, .toast.out { animation: none; } }
 .palette-back { position: fixed; inset: 0; background: rgba(26,29,35,.35); z-index: 40; display: flex; justify-content: center; padding: 12vh 16px 0;
   animation: fade var(--fast) ease-out; }
@@ -286,7 +286,10 @@ button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparen
   .kpis { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .grid-2 { grid-template-columns: minmax(0,1fr); }
 }
-@media (max-width: 860px) {
+/* Half screen and smaller (24 Nov 2026: was 860px): the sidebar becomes a slide-in drawer opened from the menu button,
+   so a desktop window snapped to half the screen, or a tablet, gives the whole width to the page.
+   Keep 1024 equal to DESKTOP_QUERY in components/AppShell.vue (it uses 1025). */
+@media (max-width: 1024px) {
   .app { grid-template-columns: 1fr; }
   /* Slides in and out; hidden when closed so Tab can't land on links you can't see */
   .sidebar { position: fixed; left: 0; top: 0; width: var(--sidebar-w); z-index: 30; transform: translateX(-100%);
@@ -294,6 +297,10 @@ button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparen
   .sidebar.open { transform: none; visibility: visible; box-shadow: 0 0 40px rgba(0,0,0,.2);
     transition: transform var(--med) var(--ease), visibility 0s; }
   .menu-btn { display: inline-flex; }
+  .topbar { padding: 0 24px; }
+  .content { padding: 28px 24px 44px; }
+}
+@media (max-width: 860px) {
   .topbar { padding: 0 16px; }
   .search-btn { width: auto; }
   .search-btn span, .user-name { display: none; }
@@ -480,7 +487,7 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 .um-item:hover { background: var(--accent-soft); color: var(--accent); }
 .um-item.danger { color: var(--danger); margin-top: 2px; }
 .um-item.danger:hover { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
-@media (max-width: 1000px) { .side-grid { grid-template-columns: minmax(0,1fr); } .k3 { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 1000px) { .side-grid { grid-template-columns: minmax(0,1fr); } }   /* .k3 keeps 3 across down to phones (24 Nov 2026: was 1 per row, a lot of empty space on half screen) */
 
 /* ---------- Appearance: colour theme per account (Settings > Appearance) ---------- */
 :root[data-brand="blue"] { --brand: #4C7FE0; --accent: #2F5FBF; --accent-soft: #E6EEFB; }
@@ -710,6 +717,46 @@ label.req::after { content: ' *'; color: #D93025; font-weight: 700; }
     border-top: 1px solid var(--line) !important; }
   table.table td.ct-badge::before, table.table td.ct-title::before, table.table td.ct-sub::before, table.table td.ct-actions::before { content: none; }
 }
+/* Half screen and tablets (24 Nov 2026): the same cards for tables marked cards-tablet, up to 1024px (where the sidebar
+   becomes a drawer). For wide tables that must fit without sideways scrolling, e.g. Roles and Staff accounts. lib/card-tables.js
+   adds the labels. Same rules as the phone block above, only for those tables. */
+@media (min-width: 601px) and (max-width: 1024px) {
+  .table-wrap:has(> table.cards-tablet) { overflow: visible; background: none; border: 0; border-radius: 0; }
+  table.table.cards-tablet, table.perm-table.cards-tablet { display: block; width: 100%; min-width: 0 !important; border: 0; }
+  table.table.cards-tablet > thead, table.perm-table.cards-tablet > thead { display: none; }
+  table.table.cards-tablet > tbody, table.table.cards-tablet > tfoot, table.perm-table.cards-tablet > tbody { display: grid; gap: 10px; }
+  table.table.cards-tablet > tbody + tfoot { margin-top: 10px; }
+  table.table.cards-tablet tr, table.perm-table.cards-tablet tr { display: flex; flex-wrap: wrap; align-items: center; position: relative;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; }
+  table.table.cards-tablet td, table.perm-table.cards-tablet td { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100% !important; max-width: none;
+    padding: 5px 0; border: 0 !important; text-align: right; white-space: normal; overflow-wrap: anywhere; background: none; min-width: 0; }
+  table.table.cards-tablet td::before, table.perm-table.cards-tablet td::before { content: attr(data-label); flex: 0 0 auto; max-width: 45%; text-align: left;
+    color: var(--muted); font-size: 12px; font-weight: 500; white-space: normal; }
+  table.table.cards-tablet td:not([data-label])::before, table.table.cards-tablet td[data-label=""]::before, table.table.cards-tablet td.ct-full::before,
+  table.perm-table.cards-tablet td:not([data-label])::before, table.perm-table.cards-tablet td[data-label=""]::before { content: none; }
+  table.table.cards-tablet td:not([data-label]), table.table.cards-tablet td[data-label=""], table.table.cards-tablet td.ct-full { justify-content: flex-start; text-align: left; }
+  table.table.cards-tablet td:empty { display: none; }
+  table.table.cards-tablet td > .input, table.table.cards-tablet td > .select, table.table.cards-tablet td > select { max-width: 62%; }
+  table.table.cards-tablet tfoot tr { background: var(--hover); }
+  table.table.cards-tablet tr.clickable:active { background: var(--accent-soft); }
+  table.table.cards-tablet tr.picked { background: var(--navy-soft); }
+  /* Polish classes */
+  table.table.cards-tablet td.ct-hide { display: none; }
+  table.table.cards-tablet td.ct-badge { order: -3; position: absolute; top: 12px; right: 14px; width: auto !important; padding: 0; }
+  table.table.cards-tablet td.ct-title { order: -2; font-size: 15px; font-weight: 600; text-align: left; justify-content: flex-start; padding-top: 2px; }
+  table.table.cards-tablet tr:has(> td.ct-badge) > td.ct-title { padding-right: 104px; }
+  table.table.cards-tablet td.ct-sub { order: -1; justify-content: flex-start; text-align: left; color: var(--muted); font-size: 12px; padding-top: 0; }
+  table.table.cards-tablet td.ct-actions { order: 99; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 6px; padding-top: 10px;
+    border-top: 1px solid var(--line) !important; }
+  table.table.cards-tablet td.ct-badge::before, table.table.cards-tablet td.ct-title::before, table.table.cards-tablet td.ct-sub::before, table.table.cards-tablet td.ct-actions::before { content: none; }
+}
+@media (min-width: 601px) and (max-width: 1024px) {
+  /* Two cards per row when there is room */
+  table.table.cards-tablet > tbody { grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
+  table.table.cards-tablet > tbody > tr > td.ct-full { grid-column: 1 / -1; }
+  table.table.cards-tablet > tbody > tr:has(> td.ct-full) { grid-column: 1 / -1; }
+}
+
 
 /* Phones: summary cards (.kpis) two per row, a bit tighter. Overrides page rules that stack them one per row. */
 @media (max-width: 600px) {
