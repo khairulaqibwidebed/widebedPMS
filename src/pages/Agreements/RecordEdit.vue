@@ -32,6 +32,7 @@
           </div>
         </div>
         <div class="head-tools">
+          <template v-if="canEdit">
           <button class="btn" :disabled="busy" @click="saveNow">Save</button>
           <button class="btn" :disabled="busy" @click="links = true">Send to fill in & sign</button>
           <!-- Less used: in a menu, so the main steps stand out (13 Nov 2026) -->
@@ -46,6 +47,7 @@
           </span>
           <button class="btn" v-if="status !== 'completed' && status !== 'archived'" :disabled="busy" @click="changeStatus('completed')">{{ status === 'submitted' ? 'Checked: mark completed' : 'Mark completed' }}</button>
           <button class="btn btn-primary" :disabled="busy" @click="openGenerate">Generate agreement</button>
+          </template>
           <AgreementGuide page="record" :admin="isAdmin" />
         </div>
       </div>
@@ -68,7 +70,7 @@
       <div class="rec-layout">
         <div class="card">
           <form class="ag-form" @submit.prevent novalidate>
-            <FieldInput v-for="f in shownFields" :key="f.id" :field="f" :disabled="busy"
+            <FieldInput v-for="f in shownFields" :key="f.id" :field="f" :disabled="busy || !canEdit"
               :model-value="f.type === 'formula' ? computed_[f.id] : values[f.id]" :error="errors[f.id] || ''"
               @update:model-value="v => setValue(f, v)" />
           </form>
@@ -82,7 +84,7 @@
             <div class="kv"><span>Status</span><span><span class="pill" :class="tState.pill">{{ tState.label }}</span></span></div>
             <div class="field rec-ic">
               <span class="rec-ic-lbl">In charge</span>
-              <PeoplePicker :model-value="inChargeOf(record)" :staff="staff" :disabled="busy" label="Add a person in charge" @update:model-value="setInCharge" />
+              <PeoplePicker :model-value="inChargeOf(record)" :staff="staff" :disabled="busy || !canRenew" label="Add a person in charge" @update:model-value="setInCharge" />
               <span class="help">They get the renewal reminders, with the person who made it{{ remindAlso ? ' and ' + remindAlso : '' }}.</span>
             </div>
             <RouterLink class="btn btn-sm" to="/Agreements/renewals">Open Renewals</RouterLink>
@@ -136,6 +138,10 @@ import './agreements.css';
 const route = useRoute(), router = useRouter(), session = useSession();
 const isAdmin = computed(() => can(session, 'agreementSetup.view'));
 const isNew = computed(() => route.params.id === 'new');
+const canEdit = computed(() => can(session, 'agreements.edit'));   // 25 Nov 2026: Agreements Full (Base only sees the records)
+const canRenew = computed(() => can(session, 'renewals.edit'));   // who is in charge: Renewals Full
+// Agreements Base can't fill in a new record: back to the list
+watch(() => isNew.value && !canEdit.value, no => { if (no) router.replace('/Agreements'); }, { immediate: true });
 
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
 const moreOpen = ref(false);

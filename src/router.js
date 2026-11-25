@@ -68,10 +68,10 @@ const routes = [
   // Marketing > Agent Database (20 Nov 2026): property agents, travel agents, MM2H and others. Agent Database tick.
   ticked('/Marketing/agents', () => import('./pages/Marketing/AgentDatabase.vue'), 'Agent Database', 'agents'),
 
-  // Agreements: every role fills in forms and sees records. Setup (forms, formulas, templates, designer) needs its tick.
-  page('/Agreements', () => import('./pages/Agreements/Records.vue'), 'Agreements', ALL),
-  page('/Agreements/renewals', () => import('./pages/Agreements/Renewals.vue'), 'Renewals', ALL, { title: 'Agreement renewals' }),
-  page('/Agreements/record/:id', () => import('./pages/Agreements/RecordEdit.vue'), 'Agreements', ALL, { title: 'Agreement' }),
+  // Agreements: records and Renewals follow their own ticks (25 Nov 2026; were every role). Setup (forms, formulas, templates, designer) needs its tick.
+  ticked('/Agreements', () => import('./pages/Agreements/Records.vue'), 'Agreements', 'agreements'),
+  ticked('/Agreements/renewals', () => import('./pages/Agreements/Renewals.vue'), 'Renewals', 'renewals', { title: 'Agreement renewals' }),
+  ticked('/Agreements/record/:id', () => import('./pages/Agreements/RecordEdit.vue'), 'Agreements', 'agreements', { title: 'Agreement' }),
   ticked('/Agreements/setup', () => import('./pages/Agreements/Setup.vue'), 'Agreement Setup', 'agreementSetup'),
   ticked('/Agreements/setup/form/:id', () => import('./pages/Agreements/FormBuilder.vue'), 'Agreement Setup', 'agreementSetup', { title: 'Form builder' }),
   ticked('/Agreements/setup/template/:id', () => import('./pages/Agreements/Designer.vue'), 'Agreement Setup', 'agreementSetup', { title: 'Place fields' }),

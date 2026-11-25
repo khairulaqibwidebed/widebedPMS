@@ -73,11 +73,14 @@
                   <span class="rn-sub" v-if="r.renewal?.note" :title="r.renewal.note">{{ r.renewal.note }}</span>
                 </td>
                 <td class="rn-ic">
-                  <PeoplePicker compact :model-value="inChargeOf(r)" :staff="staff" :disabled="r.busy" :label="'Add a person in charge of ' + r.title"
+                  <PeoplePicker compact :model-value="inChargeOf(r)" :staff="staff" :disabled="r.busy || !canEdit" :label="'Add a person in charge of ' + r.title"
                     @update:model-value="list => setInCharge(r, list)" />
                 </td>
                 <td class="ct-actions"><div class="rn-acts">
-                  <template v-if="['soon', 'ended', 'active', 'noDate'].includes(r.state.key)">
+                  <template v-if="!canEdit">
+                    <RouterLink v-if="r.state.key === 'renewed' && r.renewal?.renewedTo" class="act-pill" :to="'/Agreements/record/' + r.renewal.renewedTo">Open new term</RouterLink>
+                  </template>
+                  <template v-else-if="['soon', 'ended', 'active', 'noDate'].includes(r.state.key)">
                     <button class="act-pill" :disabled="r.busy" @click="setState(r, 'renewing')">Start renewal</button>
                     <button class="act-pill good" :disabled="r.busy" @click="renew(r)">Renew</button>
                     <button class="act-pill danger" :disabled="r.busy" @click="askNot(r)">Not renewing</button>
@@ -123,6 +126,7 @@ import './agreements.css';
 
 const router = useRouter(), session = useSession();
 const isAdmin = computed(() => can(session, 'agreementSetup.view'));
+const canEdit = computed(() => can(session, 'renewals.edit'));   // 25 Nov 2026: Renewals Full (Base only sees the list)
 const loading = ref(true), error = ref(''), okMsg = ref('');
 const forms = ref([]), records = ref([]), staff = ref([]);
 const tab = ref('action'), search = ref(''), formFilter = ref(''), unitFilter = ref(''), onlyMine = ref(false), notFor = ref(null);

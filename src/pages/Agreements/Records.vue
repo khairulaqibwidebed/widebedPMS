@@ -9,7 +9,7 @@
       </div>
       <div class="head-tools">
         <button v-if="form && isAdmin" class="btn" @click="links = form">Fill-in links</button>
-        <button v-if="form" class="btn btn-primary" @click="newRecord(form.id)">+ New {{ form.name }}</button>
+        <button v-if="form && canEdit" class="btn btn-primary" @click="newRecord(form.id)">+ New {{ form.name }}</button>
         <AgreementGuide :key="form ? 'records' : 'home'" :page="form ? 'records' : 'home'" :admin="isAdmin" :first-visit="!form" />
       </div>
     </div>
@@ -36,7 +36,7 @@
         </div>
         <div class="ag-card-acts" @click.stop>
           <button class="btn btn-sm" @click="openForm(f.id)">Open records</button>
-          <button class="btn btn-sm btn-primary" @click="newRecord(f.id)">+ Fill in</button>
+          <button v-if="canEdit" class="btn btn-sm btn-primary" @click="newRecord(f.id)">+ Fill in</button>
           <button v-if="isAdmin" class="btn btn-sm" @click="links = f">Fill-in links</button>
         </div>
       </article>
@@ -61,6 +61,7 @@
         </div>
 
         <div class="ag-bar rec-bar">
+          <template v-if="canEdit">
           <span class="note" v-if="selected.length">{{ selected.length }} selected</span>
           <span class="note" v-else>Tick a row to use these:</span>
           <button class="btn btn-sm btn-primary" :disabled="selected.length !== 1" @click="openGenerate" title="Pick one record">Generate agreement</button>
@@ -69,6 +70,8 @@
           <button class="btn btn-sm" v-else :disabled="!selected.length || busy" @click="setStatus('draft')">Restore</button>
           <span class="grow"></span>
           <label class="btn btn-sm" :class="{ disabled: busy }">Import CSV / Excel<input type="file" hidden accept=".csv,.xlsx,.xls" @change="importFile"></label>
+          </template>
+          <span class="grow" v-else></span>
           <button class="btn btn-sm" @click="exportAs('csv')">Export CSV</button>
           <button class="btn btn-sm" @click="exportAs('xlsx')">Export Excel</button>
         </div>
@@ -133,6 +136,7 @@ import './agreements.css';
 
 const route = useRoute(), router = useRouter(), session = useSession();
 const isAdmin = computed(() => can(session, 'agreementSetup.view'));
+const canEdit = computed(() => can(session, 'agreements.edit'));   // 25 Nov 2026: Agreements Full (Base only sees the records)
 const STATUS_TABS = [{ key: 'active', label: 'All open' }, { key: 'submitted', label: 'To check' }, { key: 'draft', label: 'Draft' }, { key: 'completed', label: 'Completed' }, { key: 'archived', label: 'Archived' }];
 const COLUMN_TYPES = FIELD_TYPES.filter(t => ['text', 'textarea', 'number', 'currency', 'date', 'dropdown', 'checkbox', 'email', 'phone'].includes(t.type));
 const blankView = () => ({ order: [], hidden: [], widths: {}, sort: null, filters: [], search: '' });

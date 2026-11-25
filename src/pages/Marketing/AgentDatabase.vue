@@ -25,7 +25,7 @@
       <Paged :items="shown" v-slot="{ pageRows }">
         <div class="table-wrap">
           <!-- 24 Nov 2026 (Khairul): fixed column widths, everything after Agent centred -->
-          <table class="table ag-list">
+          <table class="table agt-list">
             <colgroup><col style="width:22%"><col style="width:14%"><col style="width:13%"><col style="width:13%"><col style="width:11%"><col v-if="lines" style="width:12%"><col style="width:10%"><col style="width:5%"></colgroup>
             <thead><tr><th>Agent</th><th>Agency</th><th>Mobile</th><th>Email</th><th>Commission</th><th v-if="lines">Unpaid commission</th><th>Bank</th><th></th></tr></thead>
             <tbody>
@@ -652,10 +652,12 @@ export default {
 .ag-hist-btn { margin: 8px 0 4px; width: 100%; justify-content: center; }
 .ag-fixed { height: min(800px, 90vh); height: min(800px, 90dvh); }   /* 24 Nov 2026 (Khairul): same height on every tab */
 .ag-tabs { margin: 10px 0 18px; }
-.ag-list { table-layout: fixed; width: 100%; }
-.ag-list th, .ag-list td { text-align: center; vertical-align: middle; }
-.ag-list th:first-child, .ag-list td:first-child { text-align: left; }
-.ag-list .ag-cut > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 25 Nov 2026 (Khairul): was .ag-list, which clashed with .ag-list { display: grid } in Agreements/agreements.css (loaded once
+   Agreements is opened) and pulled the header away from the rows */
+.agt-list { table-layout: fixed; width: 100%; }
+.agt-list th, .agt-list td { text-align: center; vertical-align: middle; }
+.agt-list th:first-child, .agt-list td:first-child { text-align: left; }
+.agt-list .ag-cut > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 24 Nov 2026 (Khairul): eye instead of View, as on Offline Payments (grey, magenta on row hover) */
 .ag-eye { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; padding: 0; }
 .ag-eye svg { width: 20px; height: 20px; fill: var(--muted); transition: fill var(--fast); }

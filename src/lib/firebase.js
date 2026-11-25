@@ -3,7 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, doc, getDoc, getDocs, collection, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { firebaseConfig } from '../firebase-config.js';
-import { PRESETS } from './access.js';
+import { PRESETS, agreementsUpgrade } from './access.js';
 
 export const configMissing = firebaseConfig.apiKey.startsWith('PASTE');
 
@@ -57,13 +57,13 @@ export function loadRoleRegistry(force = false) {
         // AI Agent (17 Nov 2026): only its pages (view levels) come from roles/ai; never a custom role
         if (id === 'ai') { if (Array.isArray(r.perms)) PRESETS.ai = r.perms; return; }
         if (BUILTIN_ROLES.includes(id)) {
-          if (!LOCKED_ROLES.includes(id) && Array.isArray(r.perms)) PRESETS[id] = r.perms;
+          if (!LOCKED_ROLES.includes(id) && Array.isArray(r.perms)) PRESETS[id] = agreementsUpgrade(r.perms, id);   // 25 Nov 2026: older saved lists
           if (!LOCKED_ROLES.includes(id) && typeof r.name === 'string' && r.name.trim()) ROLE_LABEL[id] = r.name.trim();   // renamed on the Roles page
           return;
         }
         CUSTOM_ROLES[id] = { name: r.name || id, description: r.description || '', color: r.color || '', active: r.active !== false };
         ROLE_LABEL[id] = r.name || id;
-        PRESETS[id] = Array.isArray(r.perms) ? r.perms : [];
+        PRESETS[id] = agreementsUpgrade(Array.isArray(r.perms) ? r.perms : [], id);
         if (r.active !== false) ALLOWED_ROLES.push(id);
       });
     } catch (e) { console.warn('Could not read the roles (publish the latest security rules):', e.code || e.message); }
