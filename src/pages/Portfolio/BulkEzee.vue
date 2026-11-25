@@ -14,20 +14,16 @@
        24 Nov 2026 (later): the form opens by itself on the first row once the file is checked. Its last button is Save to
        pending confirm: nothing is written, the row shows Pending confirm to add, and the next row opens. Continue to confirm
        then writes it all: the eZee bookings, and each pending row as a booking (the same form's own save, run in turn). -->
+  <!-- 25 Nov 2026: the explanation card is on the Bulk Upload page (same as the other uploads); Excel, CSV and PDF for both -->
   <div class="bz">
-    <p class="muted bz-hint">{{ isMonth
-      ? 'Once a month: drop the whole month\'s eZee Reservation report (.csv or .xlsx). The PMS compares it with what was uploaded day by day and lists what is missing, changed, clashing, or still booked in the PMS but cancelled in eZee. You decide each one before anything is saved.'
-      : isNew
-      ? 'Drop the eZee Reservation report as .csv or .xlsx (the same export as Upload eZee report). Every property and month in the file is found by itself. Rooms must already be units in Portfolio.'
-      : 'Drop eZee\'s Cancelled Reservation report, printed to PDF. The PMS reads the printed pages (up to a minute), finds each booking\'s property by itself and only cancels a booking whose details match.' }}</p>
 
     <label class="dropzone" :class="{ over: dragging }" v-show="!checked && !busy && !doneMsg"
       @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="dragging = false; pick($event.dataTransfer.files)">
       <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l6 6h-4v6h-4V9H6zM4 19h16v2H4z"/></svg>
-      <b>{{ isMonth ? 'Drag the month\'s eZee Reservation report here, or' : isNew ? 'Drag the eZee Reservation report here, or' : 'Drag the printed Cancelled Reservation PDF here, or' }}</b>
+      <b>{{ isNew ? 'Drag the eZee Reservation report here, or' : 'Drag the Cancelled Reservation report here, or' }}</b>
       <span class="btn">Choose file</span>
-      <small>{{ isNew ? '.csv or .xlsx · any number of properties in one file' : '.pdf · any number of properties in one report' }}</small>
-      <input type="file" class="sr-only" :accept="isNew ? '.csv,.xlsx,.xls' : '.pdf'" @change="pick($event.target.files); $event.target.value = ''">
+      <small>.xlsx, .csv or .pdf · any number of properties in one file</small>
+      <input type="file" hidden accept=".csv,.xlsx,.xls,.pdf" @change="pick($event.target.files); $event.target.value = ''">
     </label>
 
     <section class="card" v-show="busy"><p class="muted" style="margin:0">{{ busyNote }}</p><div class="bz-bar" v-show="percent"><span :style="{ width: percent + '%' }"></span></div></section>
@@ -328,6 +324,7 @@ import { markDirty } from '@/lib/summary-data.js';
 import { loadUnits, completedUnitIds, audit, friendlyError, loadXlsxLib } from '@/lib/finance-data.js';
 import { readPdfText } from '@/lib/drive.js';
 import { loadPdfJs } from '@/lib/agreements/pdf.js';
+import { pdfLines, readEzeePdf, readCancelSheet } from '@/lib/ezee-files.js';
 import { monthName, amt, dmy } from '@/lib/format.js';
 import { ezeeCandidates, statesFor } from '@/lib/states.js';
 import { useSession } from '@/stores/session.js';
@@ -355,7 +352,7 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 export default {
   components: { ReservationForm: defineAsyncComponent(() => import('../Operations/booking-forms/ReservationForm.vue')) },
   props: { mode: { type: String, required: true }, properties: { type: Array, default: () => [] } },
-  emits: ['busy'],
+  emits: ['busy', 'stage'],
   data() {
     return { dragging: false, busy: false, busyNote: '', percent: 0, error: '', doneMsg: '', fileName: '', note: '', checked: false,
       parts: [], tab: '', m: { stated: null, read: 0 }, limit: 30, confirming: false, ticked: false, typed: '', rows: markRaw([]), cmp: null, flash: '', doneLinks: [],
@@ -366,6 +363,7 @@ export default {
     // New bookings and Monthly check share the same screen; isMonth adds the bookings eZee no longer has
     isNew() { return this.mode === 'ezeeNew' || this.mode === 'ezeeMonth'; },
     isMonth() { return this.mode === 'ezeeMonth'; },
+    stage() { return this.checked || this.doneMsg ? 3 : this.busy || this.fileName ? 2 : 1; },
     mg() { return (this.isMonth && this.cur?.mg) || EMPTY_MONTH; },
     monthGroups() {
       return [
@@ -508,7 +506,11 @@ export default {
       return this.isNew ? `Saves ${this.count} across ${where} (every tab, fill-ins included). Nothing is saved until you confirm.` : `Cancels ${this.count} across ${where} (every tab). Nothing is changed until you confirm.`;
     }
   },
-  watch: { busy(v) { this.$emit('busy', v); } },
+  watch: {
+    busy(v) { this.$emit('busy', v); },
+    // 25 Nov 2026: the Bulk Upload steps: 1 choose, 2 reading the file, 3 check and save
+    stage: { handler(v) { this.$emit('stage', v); }, immediate: true }
+  },
   methods: {
     amt, dmy, monthName,
     show(v) { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? dmy(v) : (v ?? '—'); },
@@ -731,10 +733,10 @@ export default {
     // ---------- New bookings ----------
     async readNew(file) {
       this.busyNote = 'Reading the file…';
-      let rows;
-      if (/\.csv$/i.test(file.name)) rows = parseCSV(await file.text());
-      else { const X = await loadXlsxLib(); const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true }); rows = sheetText(X, wb.Sheets[wb.SheetNames[0]]); }
-      const { records } = readEzee(rows);
+      let records;
+      // 25 Nov 2026: the report printed or saved as PDF (lib/ezee-files.js)
+      if (/\.pdf$/i.test(file.name)) records = readEzeePdf(await pdfLines(await loadPdfJs(), new Uint8Array(await file.arrayBuffer()))).records;
+      else records = readEzee(await this.sheetRows(file)).records;
       if (!records.length) throw new Error('No reservations in this file.');
       records.forEach((r, i) => { r.rowKey = i; });   // a row's own key (edits are kept by it)
       this.rows = markRaw(records);
@@ -918,11 +920,17 @@ export default {
       return readPdfText(file.name, toBase64(buf));
     },
 
+    // 25 Nov 2026: an Excel / CSV file as rows of text cells (first sheet)
+    async sheetRows(file) {
+      if (/\.csv$/i.test(file.name)) return parseCSV(await file.text());
+      const X = await loadXlsxLib(); const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      return sheetText(X, wb.Sheets[wb.SheetNames[0]]);
+    },
     async readCancel(file) {
-      if (!/\.pdf$/i.test(file.name)) throw new Error('Choose the Cancelled Reservation report as a PDF.');
       this.busyNote = 'Reading the report…';
-      const rep = parseCancelReport(await this.readCancelText(file));
-      if (!rep.rows.length) throw new Error('No reservation numbers could be read from this PDF. Is it eZee\'s Cancelled Reservation report? Print it again at full size and try once more.');
+      // 25 Nov 2026: Excel / CSV export too (lib/ezee-files.js); PDF as before
+      const rep = /\.pdf$/i.test(file.name) ? parseCancelReport(await this.readCancelText(file)) : readCancelSheet(await this.sheetRows(file));
+      if (!rep.rows.length) throw new Error('No reservation numbers could be read from this file. Is it eZee\'s Cancelled Reservation report? Export it again (Excel or CSV is easiest) and try once more.');
       this.rows = markRaw(rep.rows);
       this.m = { stated: rep.stated, read: rep.rows.length };
       this.parts = this.split(rep.rows, r => codeOfRes(r.resNo));

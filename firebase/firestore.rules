@@ -1,4 +1,14 @@
 rules_version = '2';
+// Draft 1.12, 25 Nov 2026 (Crane): Bulk Upload > New bookings (eZee) and Cancel bookings (eZee) for everyone with the Bulk
+//   Upload Full tick (bulkEzee()), like the other Bulk Upload functions (was Accounting and Directors only). They may:
+//   - bookings/{id} (eZee bookings, Accounting's Month-End copy) and its private/main: read, add and change; importBatches:
+//     read and add; statements and approvals: read (a completed month is never written); unitMonths: only the "needs
+//     working out again" mark (dirtyRev, stale, state) that every eZee save leaves.
+//   - The booking made from each eZee row (the Reservation Lodgment Form): offline bookings (read, add a direct booking, fill
+//     in its details, cancel it), its private parts, tenants and their private parts, the tenants / offlineBookings /
+//     lodgment counters, its payment (Pending, or Checked only with Offline Payments Edit as before) and the agent's
+//     commission line (unpaid / cancelled, never a payment).
+//   Draft 1.09's eZee bookings tab was removed from the app; its read rules stay (harmless). No other change.
 // Draft 1.11, 24 Nov 2026 (Khairul): several payment types in one offline payment. parts may hold up to 8 lines (several
 //   Rental lines, one per month; one Utilities; several Charges), each checked by partOk; the payment's amount = the lines
 //   added up. No other change.
@@ -535,6 +545,8 @@ service cloud.firestore {
     // Guest and tenant personal data: Bookings Full or Tenant Leads Full (Accounting edit through the catch-all).
     function guestFull()       { return canAny(['bookings.edit', 'offlineInquiries.edit']); }
     function portfolioEditor() { return canAny(['ezeeUpload.edit', 'expenses.edit', 'monthEnd.edit', 'invoices.edit', 'offlinePayments.edit', 'portfolio.edit', 'bulkUpload.edit']); }
+    // Draft 1.12: Bulk Upload Full: New bookings (eZee) and Cancel bookings (eZee)
+    function bulkEzee() { return !isAI() && can('bulkUpload.edit'); }
     // Operations, Marketing and (Draft 0.66) Procurement with Portfolio View may also add properties, units and owners
     // (no terms or bank details).
     function portfolioAdder()  { return role() in ['operations', 'marketing', 'procurement'] && portfolioViewer(); }
@@ -645,7 +657,7 @@ service cloud.firestore {
         && parent[0] != 'agents';   // Draft 0.94: agents' bank details have their own rule (Accounting read only)
       // Returning tenant search: collectionGroup('private') where kind == 'tenant'. kind is written only on
       // tenants/{id}/private/main; Operations can't add it to an inquiry's private doc.
-      allow read: if (guestFull() || finOrDir()) && resource.data.get('kind', '') == 'tenant';   // Draft 0.73: Full only
+      allow read: if (guestFull() || finOrDir() || bulkEzee()) && resource.data.get('kind', '') == 'tenant';   // Draft 0.73: Full only. 1.12: Bulk Upload (returning tenant)
     }
 
     // Draft 1.07: a staff record a Branch Director may write: never a Director, at least one branch, and only branches of their
@@ -827,20 +839,20 @@ service cloud.firestore {
     // Numbered IDs (LD-, TEN-, IS-, BK-, CP-, DC-, NL-): taken one at a time inside a transaction.
     match /counters/{name} {
       allow read: if (name == 'offlineInquiries' && finOrDir())
-        || (name == 'tenants' && (finOrDir() || isOps()))
+        || (name == 'tenants' && (finOrDir() || isOps() || bulkEzee()))
         || (name == 'issues' && anyStaff());
       allow create: if request.resource.data.next == 2 && (
            (name == 'offlineInquiries' && isDirector())
-        || (name == 'tenants' && (finOrDir() || isOps()))
+        || (name == 'tenants' && (finOrDir() || isOps() || bulkEzee()))
         || (name == 'issues' && anyStaff()));
       allow update: if request.resource.data.next == resource.data.next + 1 && (
            (name == 'offlineInquiries' && isDirector())
-        || (name == 'tenants' && (finOrDir() || isOps()))
+        || (name == 'tenants' && (finOrDir() || isOps() || bulkEzee()))
         || (name == 'issues' && anyStaff()));
       // Direct bookings.
-      allow read: if name == 'offlineBookings' && (finOrDir() || isOps());
-      allow create: if name == 'offlineBookings' && (finOrDir() || isOps()) && request.resource.data.next == 2;
-      allow update: if name == 'offlineBookings' && (finOrDir() || isOps()) && request.resource.data.next == resource.data.next + 1;
+      allow read: if name == 'offlineBookings' && (finOrDir() || isOps() || bulkEzee());
+      allow create: if name == 'offlineBookings' && (finOrDir() || isOps() || bulkEzee()) && request.resource.data.next == 2;
+      allow update: if name == 'offlineBookings' && (finOrDir() || isOps() || bulkEzee()) && request.resource.data.next == resource.data.next + 1;
       // Complaints.
       allow read: if name == 'staffComplaints' && anyStaff();
       allow read: if name == 'directorComplaints' && hrOrDir();
@@ -1062,8 +1074,8 @@ service cloud.firestore {
 
     // eZee uploads. Operations read the latest for "Last eZee upload" on their dashboard.
     match /importBatches/{id} {
-      allow read: if staff() || isOps() || opsRole();
-      allow create: if finOrDir();
+      allow read: if staff() || isOps() || opsRole() || bulkEzee();
+      allow create: if finOrDir() || bulkEzee();   // Draft 1.12
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
       allow delete: if false;
@@ -1074,6 +1086,8 @@ service cloud.firestore {
     // ===== Role dashboards (dash): Operations read today's check-ins/outs (parent docs only, no write).
     match /bookings/{reservationNo} {
       allow read: if staff() || isOps() || opsRole();
+      // Draft 1.12: Bulk Upload > New bookings / Cancel bookings (eZee)
+      allow read, create, update: if bulkEzee();
       // Draft 1.09: Portfolio > Bookings > eZee bookings (Bookings Base or Full; never the AI Agent)
       allow read: if !isAI() && canAny(['bookings.view', 'bookings.edit']);
       allow create, update: if finOrDir();
@@ -1084,6 +1098,7 @@ service cloud.firestore {
       // Draft 1.09: the guest's name on the eZee bookings tab (Accounting and Directors already read it through the catch-all)
       match /private/{docId} {
         allow read: if docId == 'main' && !isAI() && guestFull();
+        allow read, write: if docId == 'main' && bulkEzee();   // Draft 1.12: the guest's name, saved with the eZee booking
       }
     }
 
@@ -1129,6 +1144,10 @@ service cloud.firestore {
     // ===== Month summaries (scale): unitMonths/{unitId}_{month}, worked out once by lib/summaries.js. Never deleted.
     match /unitMonths/{id} {
       allow read: if staff();
+      // Draft 1.12: an eZee save marks the unit's month to be worked out again (summary-data.js markDirty); nothing else
+      allow create: if bulkEzee() && request.resource.data.keys().hasOnly(['propertyId', 'month', 'unitId', 'dirtyRev', 'stale', 'state'])
+        && request.resource.data.unitId is string && request.resource.data.month is string && id == request.resource.data.unitId + '_' + request.resource.data.month;
+      allow update: if bulkEzee() && changed().hasOnly(['dirtyRev', 'stale', 'state']);
       allow create, update: if finOrDir()
         && request.resource.data.keys().hasOnly(unitMonthKeys())
         && request.resource.data.propertyId is string && request.resource.data.month is string && request.resource.data.unitId is string
@@ -1162,7 +1181,7 @@ service cloud.firestore {
     }
 
     match /statements/{id} {
-      allow read: if staff();
+      allow read: if staff() || bulkEzee();   // Draft 1.12: a completed month is left alone by the eZee upload
       // Approve & complete, one unit at a time. Only a Director completes (Finance sends to the Director: approvals below).
       allow create: if isDirector() && request.resource.data.revision == 1 && request.resource.data.status == 'completed';
       // Director reopens one unit: same revision, status 'reopened', and the revision is saved first.
@@ -1198,7 +1217,7 @@ service cloud.firestore {
     // withdrawn (Finance pulls it back, reason). Returned / withdrawn can be sent again. After a Director reopen, an approved
     // one can be sent again too.
     match /approvals/{id} {
-      allow read: if staff();
+      allow read: if staff() || bulkEzee();   // Draft 1.12
       allow create: if finOrDir() && request.resource.data.status == 'submitted'
         && id == request.resource.data.unitId + '_' + request.resource.data.month
         && request.resource.data.submittedBy == request.auth.uid
@@ -1266,11 +1285,11 @@ service cloud.firestore {
       // to the tenant's `propertyIds` (only that changes). First in the block, cheapest check first.
       allow update: if changed().hasOnly(['propertyIds']) && request.resource.data.propertyIds is list
         && request.resource.data.propertyIds.size() <= 200 && isOps();
-      allow read: if finOrDir() || isOps();
+      allow read: if finOrDir() || isOps() || bulkEzee();   // Draft 1.12
       allow create, update: if finOrDir();
       allow create, update: if opsBooking(request.resource.data.get('lastInquiryId', null), tenantId)
         && (resource == null || changed().hasOnly(['status', 'states', 'lastInquiryId', 'updatedAt', 'updatedBy']));
-      allow create, update: if isOps() && directBookingMadeNow(request.resource.data.get('lastBookingId', null), tenantId)
+      allow create, update: if (isOps() || bulkEzee()) && directBookingMadeNow(request.resource.data.get('lastBookingId', null), tenantId)
         && (resource == null || changed().hasOnly(['status', 'states', 'lastBookingId', 'updatedAt', 'updatedBy']));
       // Draft 0.57: Stamp states (a Director copies the property's state onto the record; nothing else changes)
       allow update: if stampOnly();
@@ -1282,8 +1301,10 @@ service cloud.firestore {
           && request.resource.data.propertyIds is list && request.resource.data.propertyIds.size() <= 200 && (isOps() || finOrDir());
         allow read: if isAI() && docId == 'contact' && can('bookings.view');   // Draft 0.74: name, phone, email only
         allow create, update: if opsBooking(getAfter(docPath('tenants', tenantId)).data.get('lastInquiryId', null), tenantId);
-        allow create, update: if isOps()
+        allow create, update: if (isOps() || bulkEzee())
           && directBookingMadeNow(getAfter(docPath('tenants', tenantId)).data.get('lastBookingId', null), tenantId);
+        // Draft 1.12: Fill in blank details on a booking from an eZee row (the tenant's name, phone, IC, contact)
+        allow read, update: if bulkEzee() && docId in ['main', 'contact'];
         allow delete: if false;
       }
     }
@@ -1318,7 +1339,7 @@ service cloud.firestore {
         && request.resource.data.billIds is list && request.resource.data.billIds.size() >= 1
         && getAfter(docPath('utilityBills', request.resource.data.billIds[0])).data.get('lastPaymentId', '') == id;
       // The Booking Form saves the booking's payment here (Pending), in the same write as the booking itself.
-      allow create: if (isOps() || finOrDir()) && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'Pending'
+      allow create: if (isOps() || finOrDir() || bulkEzee()) && request.resource.data.createdBy == request.auth.uid && request.resource.data.status == 'Pending'
         && request.resource.data.bookingId is string
         && ((!exists(docPath('offlineBookings', request.resource.data.bookingId)) && existsAfter(docPath('offlineBookings', request.resource.data.bookingId)))
             || bookingPaidNow(request.resource.data.bookingId));   // Draft 0.71: paid later, when an Awaiting payment booking is finished
@@ -1415,7 +1436,11 @@ service cloud.firestore {
       // invoiceTerms changes. Checked first and cheaply (the field checks before the staff record), so it stays under
       // Firestore's 1000-step limit.
       allow update: if changed().hasOnly(['invoiceTerms']) && invoiceTermsOk(request.resource.data.invoiceTerms) && invoiceWriter();
-      allow read: if finOrDir() || isOps() || portfolioViewer() || can('bookings.view');
+      allow read: if finOrDir() || isOps() || portfolioViewer() || can('bookings.view') || bulkEzee();   // 1.12: bulkEzee
+      // Draft 1.12: Bulk Upload eZee: fill in a booking's details from an eZee row (who made it, its no., tenant and property stay),
+      // or cancel it with its eZee reservation
+      allow update: if bulkEzee() && !changed().hasAny(['createdBy', 'createdAt', 'source', 'inquiryId', 'bookingNo', 'tenantId', 'propertyId', 'earlyTermination', 'invoiceTerms'])
+        && customFeesKept();
       allow create: if finOrDir() && bookingId == 'offline_' + request.resource.data.inquiryId && customFeesOk();
       allow update: if finOrDir() && request.resource.data.inquiryId == resource.data.inquiryId && customFeesKept();
       // Operations: Create booking on their own inquiry (the inquiry must point back and be booked in the same write).
@@ -1441,7 +1466,7 @@ service cloud.firestore {
         && request.resource.data.earlyTermination is map && request.resource.data.departure is string
         && (!changed().hasAny(['departure']) || request.resource.data.departure < resource.data.departure);
       // Direct booking (Portfolio > Bookings > + New booking).
-      allow create: if (finOrDir() || isOps()) && bookingId.matches('offline_BK-[0-9]+') && customFeesOk()
+      allow create: if (finOrDir() || isOps() || bulkEzee()) && bookingId.matches('offline_BK-[0-9]+') && customFeesOk()
         && request.resource.data.source == 'direct' && request.resource.data.inquiryId == null
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.tenantId is string
@@ -1455,10 +1480,10 @@ service cloud.firestore {
       allow update: if stampOnly();
       // Door passcodes for the booking (Booking Form), and the guest on imported bookings. Draft 0.73: read with Full only.
       match /private/{doc} {
-        allow read: if finOrDir() || (isOps() && guestFull());
+        allow read: if finOrDir() || (isOps() && guestFull()) || bulkEzee();   // 1.12: bulkEzee
         allow read: if isAI() && doc == 'contact' && can('bookings.view');   // Draft 0.74: guest name, phone, email
-        allow create: if (finOrDir() || isOps()) && existsAfter(docPath('offlineBookings', bookingId));
-        allow update: if finOrDir() || isOps();
+        allow create: if (finOrDir() || isOps() || bulkEzee()) && existsAfter(docPath('offlineBookings', bookingId));
+        allow update: if finOrDir() || isOps() || bulkEzee();   // 1.12: bulkEzee
         allow delete: if (finOrDir() || isOps()) && get(docPath('offlineBookings', bookingId)).data.get('status', '') == 'cancelled';
       }
     }
@@ -1929,7 +1954,7 @@ service cloud.firestore {
         return (d.get('commDaily', null) == oldD && d.get('commMonthly', null) == oldM && d.get('commYearly', null) == oldY && d.get('commRev', 0) == oldRev)
           || (d.get('commRev', 0) == oldRev + 1 && existsAfter(histPath(oldRev + 1)));
       }
-      allow read: if !isAI() && (canAny(['agents.view', 'agents.edit']) || finOrDir() || isOps() || can('bookingForms.view'));   // 0.97
+      allow read: if !isAI() && (canAny(['agents.view', 'agents.edit', 'bulkUpload.edit']) || finOrDir() || isOps() || can('bookingForms.view'));   // 0.97; 1.12: Bulk Upload (agent on an eZee row)
       allow create: if can('agents.edit') && newKeysOnly(agentKeys()) && agentOk()
         && request.resource.data.createdBy == request.auth.uid
         && commOk(null, null, null, 0);
@@ -1940,7 +1965,7 @@ service cloud.firestore {
       allow delete: if isDirector();
       // Draft 0.95: commission change history, one line per change (id = the agent's commRev after the change). Add-only.
       match /commission/{rev} {
-        allow read: if !isAI() && (canAny(['agents.view', 'agents.edit', 'bookings.edit']) || finOrDir() || isOps() || can('bookingForms.view'));   // 1.10
+        allow read: if !isAI() && (canAny(['agents.view', 'agents.edit', 'bookings.edit', 'bulkUpload.edit']) || finOrDir() || isOps() || can('bookingForms.view'));   // 1.10; 1.12
         allow create: if can('agents.edit')
           && request.resource.data.keys().hasOnly(['rev', 'daily', 'monthly', 'yearly', 'prevDaily', 'prevMonthly', 'prevYearly', 'effectiveFrom', 'note', 'at', 'by', 'byName'])
           && request.resource.data.get('yearly', null) == getAfter(/databases/$(database)/documents/agents/$(agentId)).data.get('commYearly', null)   // 1.10
@@ -1988,8 +2013,8 @@ service cloud.firestore {
           && d.get('cancelReason', '') is string && d.get('cancelReason', '').size() <= 300
           && d.updatedBy == request.auth.uid;
       }
-      function bookingWriter() { return finOrDir() || isOps() || can('bookings.edit'); }
-      allow read: if !isAI() && (canAny(['agents.view', 'agents.edit', 'bookings.view', 'bookings.edit']) || finOrDir() || isOps() || can('bookingForms.view'));
+      function bookingWriter() { return finOrDir() || isOps() || can('bookings.edit') || bulkEzee(); }   // 1.12: bulkEzee
+      allow read: if !isAI() && (canAny(['agents.view', 'agents.edit', 'bookings.view', 'bookings.edit', 'bulkUpload.edit']) || finOrDir() || isOps() || can('bookingForms.view'));
       // The booking form (new line) and booking edits (worked out again, cancelled, restored)
       allow create: if lineOk() && request.resource.data.status == 'unpaid' && request.resource.data.createdBy == request.auth.uid && bookingWriter();
       allow update: if resource.data.status != 'paid' && lineOk() && bookingWriter();
@@ -2333,7 +2358,7 @@ service cloud.firestore {
 
     // ================= Booking numbers (Booking Form, Create booking and the Willow Booking Details bulk upload) =================
     // One counter per property prefix gives the next booking no. (DM-014). The Reservation Lodgment form is gone; offline bookings are the one booking record.
-    function lodgeStaff() { return finOrDir() || isOps() || can('bookingForms.view'); }
+    function lodgeStaff() { return finOrDir() || isOps() || can('bookingForms.view') || bulkEzee(); }   // 1.12: bulkEzee
     match /lodgmentCounters/{prefix} {
       allow read: if lodgeStaff();
       allow create, update: if lodgeStaff() && request.resource.data.next is int;

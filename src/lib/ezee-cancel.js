@@ -6,7 +6,7 @@
 // Whether a row may cancel a booking is decided by matchCancellations(): the reservation number must be in the PMS AND
 // at least one other detail (folio no., stay dates or guest name) must agree; otherwise the row is only listed to check.
 
-const SOURCES = ['Booking.com', 'Agoda', 'Expedia', 'Traveloka', 'Ctrip', 'Trip.com', 'Tiket.com', 'Airbnb', 'Walk-in', 'Offline', 'Direct'];
+export const SOURCES = ['Booking.com', 'Agoda', 'Expedia', 'Traveloka', 'Ctrip', 'Trip.com', 'Tiket.com', 'Airbnb', 'Walk-in', 'Offline', 'Direct'];
 const key = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 // OCR mixes letters and digits that look alike; only used inside a number's digit part
 const digits = s => s.replace(/[Oo]/g, '0').replace(/[Il|]/g, '1').replace(/S/g, '5').replace(/B/g, '8');

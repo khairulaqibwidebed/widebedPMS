@@ -367,7 +367,8 @@ import { r2, money, loadBills, blankUtil, utilAlloc, utilMax, utilPool, addLines
 import { withState } from '@/lib/states.js';
 import LiveStatus from '@/components/LiveStatus.vue';
 
-const MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); MODES.unshift({ value: '', label: 'Choose method' });
+// 25 Nov 2026: OTA (paid through the booking site), as on the booking form
+const MODES = ['OTA', 'Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x })); MODES.unshift({ value: '', label: 'Choose method' });
 const STATUSES = ['Checked', 'Pending', 'Unknown', 'Edited'];   // Edited is set by saving an Unknown payment, never picked
 const STATUS_OPTS = [{ value: '', label: 'All' }, ...STATUSES.map(s => ({ value: s, label: s }))];
 const today = () => new Date().toISOString().slice(0, 10);
