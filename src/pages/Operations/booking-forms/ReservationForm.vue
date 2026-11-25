@@ -325,7 +325,8 @@ import { askConfirm } from '@/lib/confirm.js';
 import InvoiceDialog from '@/components/InvoiceDialog.vue';
 import { invoiceOf, propertyAddressOf, allMonthCharges } from '@/lib/booking-invoice.js';
 import { sourcesForForms, feesForForms, sourceOptions, isAgentSource, normSources, normFees, feeColOf, defaultFor, feeShort } from '@/lib/booking-settings.js';
-import { loadAgents, agencyLabel } from '@/pages/Marketing/agents.js';
+import { loadAgents } from '@/pages/Marketing/agents.js';
+import { lineRef, newLine, loadHistory, writeChange } from '@/lib/agent-commission.js';
 import { listStaff } from '@/lib/agreements/data.js';
 import MonthPicker from '@/components/MonthPicker.vue';
 // 20 Nov 2026 (Khairul): the Sales person list. Base setting = Operations only (['operations']); opened to all staff for now (null)
@@ -438,13 +439,13 @@ export default {
     // Other fees on the Rent & deposit step (not the rental or security deposit); 3 decimals in the sum, 2 on screen
     // 16 Nov 2026: the total on Rent & deposit = rental + security deposit + other fees (same amounts the booking saves)
     // 20 Nov 2026: the deposit and fees as first-month charges { 'YYYY-MM': [...] } (lib/booking-invoice.js)
-    // Active agents (and the one already on the booking), "Name · Company · Property agent"
+    // Active agents (and the one already on the booking). 24 Nov 2026 (Khairul): the name only (was "Name · Company · Property agent")
     salesOptions() {
       return this.staff.filter(s => !SALES_ROLES || SALES_ROLES.includes(s.role) || s.uid === this.bk.salesPersonUid).map(s => ({ value: s.uid, label: s.name }));
     },
     agentOptions() {
       return (this.agents || []).filter(a => a.active !== false || a.id === this.bk.agentId)
-        .map(a => ({ value: a.id, label: [a.name, a.company, agencyLabel(a)].filter(x => x && x !== '—').join(' · ') }));
+        .map(a => ({ value: a.id, label: String(a.name || '').trim() || '(no name)' }));
     },
     // 23 Nov 2026: the deposit, then every fee with an amount (built-in and custom) in the Other fees order, on the first month.
     // Khairul: fees go on the first month only; other months get theirs with + on the booking's Payments tab.
@@ -659,6 +660,13 @@ export default {
     },
     openInvoice() { this.invoice = this.formInvoice(); },
     agentOf(id) { return (this.agents || []).find(a => a.id === id) || null; },
+    // 24 Nov 2026: the picked agent and their commission history (the % on today's date goes on the commission line).
+    // History not readable: the agent's % now.
+    async commSource() {
+      const agent = this.isAgent ? this.agentOf(this.bk.agentId) : null;
+      if (!agent) return null;
+      return { agent, history: await loadHistory(agent.id).catch(() => []) };
+    },
     // 20 Nov 2026: the agents list (Marketing > Agent Database), loaded once when Agent is picked as the booking source
     async loadAgentList() {
       if (this.agents) return;
@@ -714,11 +722,18 @@ export default {
         const unitCode = r.unitCode || this.units.find(u => u.id === b.unitId)?.unitCode || await this.unitCodeOf(b.unitId);
         const bRef = doc(db, 'offlineBookings', r.id);
         const { coTenantIds, ...ex } = this.extra(r.coTenantIds || []);
+        const comm = await this.commSource();
         await runTransaction(db, async tx => {
           const cur = await tx.get(bRef);
           if (!cur.exists() || cur.data().status !== 'pending') throw stop(`${r.bookingNo || r.id} is not awaiting payment any more. Someone may have finished it already.`);
+          const ls = r.agentId || comm ? await tx.get(lineRef(r.id)) : null, line = ls?.exists() ? { id: ls.id, ...ls.data() } : null;
           tx.update(bRef, { ...ex, monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0, monthCharges: this.chargesFor(cur.data()),   // its charges as saved now
             ezeeReservationNo: b.ezeeNo.trim(), status: 'active', paidAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+          // 24 Nov 2026: the agent's commission line. None yet (or another agent / type of rent, not paid): a new one with today's %.
+          // Otherwise worked out again with its saved % (cancelled when the source is no longer Agent).
+          const after = { ...cur.data(), ...ex, id: r.id, monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0 };
+          if (comm && (!line || (line.status !== 'paid' && (line.agentId !== comm.agent.id || line.rentType !== after.rentType)))) tx.set(lineRef(r.id), newLine(me, after, comm.agent, comm.history));
+          else if (line) writeChange(tx, me, line, after, { agentNow: !!comm, reason: 'Awaiting payment booking finished' });
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
           if (+b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), { ...this.payRecord(prop, unitCode, r.id, r.bookingNo), ...tag });
           if (ld && ld.bookingId === r.id) {
@@ -951,6 +966,7 @@ export default {
         const bookingId = `offline_${ld.id}`, unitCode = unit?.unitCode || await this.unitCodeOf(b.unitId);
         const lRef = doc(db, 'offlineInquiries', ld.id), bRef = doc(db, 'offlineBookings', bookingId), cRef = doc(db, 'counters', 'tenants');
 
+        const comm = await this.commSource();   // 24 Nov 2026: the agent and their % history, for the commission line
         const res = await runTransaction(db, async tx => {
           if ((await tx.get(bRef)).exists()) throw stop(`${ld.id} already has a booking.`);
           // Booking no. in the Reservation Lodgment style (DM-014); the counter is shared with the lodgment form
@@ -972,12 +988,14 @@ export default {
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
           tx.set(doc(tRef, 'private', 'contact'), guestContact(details), { merge: true });   // name, phone, email only (17 Nov 2026)
           tx.set(lcRef, { next: ln + 1 });
-          tx.set(bRef, { source: 'offline', inquiryId: ld.id, bookingNo, tenantId,
+          const bData = { source: 'offline', inquiryId: ld.id, bookingNo, tenantId,
             propertyId: b.propertyId, ...tag, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
             monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0,
             ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: pending ? 'pending' : 'active',
-            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name };
+          tx.set(bRef, bData);
+          if (comm) tx.set(lineRef(bookingId), newLine(me, { ...bData, id: bookingId }, comm.agent, comm.history));   // 24 Nov 2026: the agent's commission line
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
           if (!pending && +b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), { ...this.payRecord(prop, unitCode, bookingId, bookingNo), ...tag });
           const h = this.entry(`${pending ? `Saved as ${bookingNo}, awaiting payment` : 'Paid and booked'}: ${unitCode || 'unit'}, ${this.full(b.arrival)} to ${this.full(b.departure)}. `
@@ -1042,6 +1060,7 @@ export default {
         const st = await stateFor(b.propertyId), tag = st ? { state: st } : {}, tStates = st ? { states: arrayUnion(st) } : {};
         const known = await findTenant(b.phone), unitCode = unit?.unitCode || await this.unitCodeOf(b.unitId);
         const bcRef = doc(db, 'counters', 'offlineBookings'), tcRef = doc(db, 'counters', 'tenants');
+        const comm = await this.commSource();   // 24 Nov 2026: the agent and their % history, for the commission line
         const res = await runTransaction(db, async tx => {
           const bc = await tx.get(bcRef), bn = bc.exists() ? bc.data().next || 1 : 1, bookingId = `offline_${num('BK', bn)}`;
           const bRef = doc(db, 'offlineBookings', bookingId);
@@ -1063,12 +1082,14 @@ export default {
           tx.set(doc(tRef, 'private', 'main'), details, { merge: true });
           tx.set(doc(tRef, 'private', 'contact'), guestContact(details), { merge: true });   // name, phone, email only (17 Nov 2026)
           tx.set(lcRef, { next: ln + 1 });
-          tx.set(bRef, { source: 'direct', inquiryId: null, bookingNo, tenantId,
+          const bData = { source: 'direct', inquiryId: null, bookingNo, tenantId,
             propertyId: b.propertyId, ...tag, propertyName: prop?.name || '', unitId: b.unitId, unitCode,
             arrival: b.arrival, departure: b.departure, nights: this.nights, longTerm: this.longTerm,
             monthlyRent: this.longTerm ? toCents(b.monthlyRent) : 0,
             ezeeReservationNo: b.ezeeNo.trim(), ...this.extra(coIds), status: pending ? 'pending' : 'active',
-            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name });
+            createdAt: serverTimestamp(), createdBy: me.user.uid, createdByName: me.name };
+          tx.set(bRef, bData);
+          if (comm) tx.set(lineRef(bookingId), newLine(me, { ...bData, id: bookingId }, comm.agent, comm.history));   // 24 Nov 2026: the agent's commission line
           tx.set(doc(bRef, 'private', 'main'), this.passcodes());
           if (!pending && +b.amount > 0) tx.set(doc(db, 'offlinePayments', b.payId), { ...this.payRecord(prop, unitCode, bookingId, bookingNo), ...tag });
           audit(tx, me, { action: 'offlineBooking.create', entity: `offlineBookings/${bookingId}`, propertyId: b.propertyId,

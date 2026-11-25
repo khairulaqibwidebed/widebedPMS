@@ -1,7 +1,7 @@
 // Portfolio (Owners, Properties, Bookings): every Firestore read and write the Portfolio pages make, plus the
 // constants and small helpers they share. The pages and drawers keep only screen logic and form checks.
 // Moved out of the old single pages/Portfolio/Portfolio.vue on 4 Nov 2026; the reads and writes are unchanged.
-import { payCounts, payMonth, rentalOf } from '@/lib/booking-pay.js';
+import { payCounts, rentalOf, rentalParts } from '@/lib/booking-pay.js';
 import { loadBills } from '@/lib/utility-bills.js';
 import { markRaw } from 'vue';
 import { setDoc, collection, doc, getDoc, getDocs, query, where, orderBy, limit, startAfter, writeBatch, updateDoc, arrayUnion, arrayRemove, serverTimestamp, deleteField } from 'firebase/firestore';
@@ -21,6 +21,7 @@ import { can } from '@/lib/access.js';
 import { guestContact } from '@/lib/offline.js';
 import { ownersFull } from '@/lib/portfolio-access.js';
 import { loadSharedVersions, forgetShared, mergeVersions, sharedList } from '@/lib/shared-rates.js';
+import { loadLine, writeChange, agentSource } from '@/lib/agent-commission.js';
 
 // ---------- constants ----------
 export const MONTH_PAY = { paid: { label: 'Paid', cls: 'green' }, part: { label: 'Part paid', cls: 'amber' }, unpaid: { label: 'Unpaid', cls: 'red' } };
@@ -318,7 +319,8 @@ function addPay(paid, pays, x) {
   if (!x.bookingId) return;
   const amt = payCounts(x) ? rentalOf(x) : 0;   // 23 Nov 2026: only the Rental part of a Rental + Utilities payment
   paid[x.bookingId] = (paid[x.bookingId] || 0) + amt;
-  if (amt) (pays[x.bookingId] ||= []).push({ date: x.date || '', month: payMonth(x), amount: amt });
+  // 24 Nov 2026: a payment with several Rental lines counts each in its own month
+  if (amt) rentalParts(x).filter(p => p.amount).forEach(p => (pays[x.bookingId] ||= []).push({ date: x.date || '', month: p.m, amount: p.amount }));
 }
 export async function loadOfflineBookings(propertyId) {
   const col = collection(db, 'offlineBookings');
@@ -384,6 +386,13 @@ export async function loadBookingDetails(r) {
 // The audit log names the fields changed, never the personal values.
 export async function saveOfflineBooking(me, b, main, changes, privData, guestData) {
   const batch = writeBatch(db), ref = doc(db, 'offlineBookings', b.id);
+  // 24 Nov 2026: the agent's commission line follows the booking (worked out again with its saved %, or cancelled when the
+  // source is no longer Agent; a paid line is only marked "booking changed")
+  const line = b.agentId ? await loadLine(b.id) : null;
+  if (line) {
+    const after = { ...b, ...main };
+    writeChange(batch, me, line, after, { agentNow: await agentSource(after.bookingSource), cancelled: b.status === 'cancelled', reason: (b.reason || '').trim() });
+  }
   // Moved to another property: its state follows
   const st = main.propertyId && main.propertyId !== b.propertyId ? await stateFor(main.propertyId) : '';
   batch.update(ref, { ...main, ...(st ? { state: st } : {}), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
@@ -405,6 +414,9 @@ export async function setBookingCancelled(me, b, cancel, reason) {
   batch.update(doc(db, 'offlineBookings', b.id), cancel
     ? { status: 'cancelled', cancelledReason: reason, cancelledAt: serverTimestamp(), cancelledBy: me.user.uid, updatedAt: serverTimestamp(), updatedBy: me.user.uid }
     : { status: deleteField(), cancelledReason: deleteField(), cancelledAt: deleteField(), cancelledBy: deleteField(), updatedAt: serverTimestamp(), updatedBy: me.user.uid });
+  // 24 Nov 2026: the agent's commission line is cancelled with the booking, and comes back as Unpaid when it is restored
+  const line = b.agentId ? await loadLine(b.id) : null;
+  if (line) writeChange(batch, me, line, b, { agentNow: cancel ? true : await agentSource(b.bookingSource), cancelled: cancel, reason: cancel ? `Booking cancelled: ${reason}` : 'Booking restored' });
   audit(batch, me, { action: cancel ? 'offlineBooking.cancel' : 'offlineBooking.restore', entity: `offlineBookings/${b.id}`, propertyId: b.propertyId || null,
     changes: [{ field: 'status', old: cancel ? 'active' : 'cancelled', new: cancel ? 'cancelled' : 'active' }], reason });
   await batch.commit();
@@ -457,6 +469,9 @@ export async function deleteOfflineBooking(me, b, reason) {
   const bills = await loadBills(b);
   if (bills === null) throw new Error("This booking's utility bills can't be read, so it can't be deleted here.");
   if (bills.some(x => x.paymentIds.length)) throw new Error('A utility bill on this booking has payments linked, so the booking can\'t be deleted.');
+  // 24 Nov 2026: the agent's commission line stays (Cancelled, "Booking deleted"), so the Agents page keeps the record
+  const line = b.agentId ? await loadLine(b.id) : null;
+  if (line) writeChange(batch, me, line, b, { cancelled: true, deleted: true, reason: `Booking ${b.bookingNo || b.id} deleted` });
   batch.delete(doc(ref, 'private', 'main'));
   batch.delete(doc(ref, 'private', 'contact'));
   bills.forEach(x => batch.delete(doc(db, 'utilityBills', x.id)));

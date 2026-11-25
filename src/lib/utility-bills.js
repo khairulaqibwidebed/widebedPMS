@@ -89,10 +89,12 @@ export function spread(amount, bills) {
 // What a payment pays: { rental, utilities, bills: { billId: amount } }. A payment with no parts is all Rental.
 export function partsOf(p) {
   if (!Array.isArray(p?.parts) || !p.parts.length) return { rental: r2(p?.amount), utilities: 0, charges: 0, chargeNote: '', bills: {}, forMonth: p?.forMonth || '' };
-  const r = p.parts.find(x => x.type === 'rental'), u = p.parts.find(x => x.type === 'utilities'), c = p.parts.find(x => x.type === 'charges'), bills = {};
-  (u?.bills || []).forEach(x => { bills[x.billId] = r3((bills[x.billId] || 0) + (Number(x.amount) || 0)); });
-  // 24 Nov 2026 (Khairul): Charges part { type: 'charges', amount, note } (note = the Purpose typed); kept apart from the rent
-  return { rental: r2(r?.amount), utilities: r2(u?.amount), charges: r2(c?.amount), chargeNote: c?.note || '', bills, forMonth: r?.forMonth || '' };
+  // 24 Nov 2026 (Khairul): several lines in one payment: Rental lines (one per month), one Utilities line, Charges lines
+  // { type: 'charges', amount, note } (kept apart from the rent). The amounts here are the totals per type.
+  const of = t => p.parts.filter(x => x.type === t), sum = list => r2(list.reduce((a, x) => a + (Number(x.amount) || 0), 0)), bills = {};
+  of('utilities').forEach(u => (u.bills || []).forEach(x => { bills[x.billId] = r3((bills[x.billId] || 0) + (Number(x.amount) || 0)); }));
+  return { rental: sum(of('rental')), utilities: sum(of('utilities')), charges: sum(of('charges')), chargeNote: of('charges').map(x => x.note).filter(Boolean).join('; '),
+    bills, forMonth: of('rental')[0]?.forMonth || '' };
 }
 
 // Change the bills a payment pays, in the caller's batch. was / now: { billId: amount } (before / after this save; {} for a
@@ -127,17 +129,19 @@ export async function linkBills(batch, paymentId, was, now, fresh = {}) {
 //   1. Electricity 23/11/2026 - 13/12/2026 · RM 41.00
 //   2. Water 23/11/2026 - 23/12/2026 · RM 41.00
 //   Total RM 1,094.00
-export function purposeText({ rental, forMonth, bills, utilities }) {
-  const out = [];
+// 24 Nov 2026: rentals [{ amount, forMonth }] and charges [{ amount, note }] for a payment with several lines (rental / forMonth still work)
+export function purposeText({ rental, forMonth, bills, utilities, rentals, charges }) {
+  const out = [], rs = (rentals || [{ amount: rental, forMonth }]).filter(x => r2(x.amount) > 0), cs = (charges || []).filter(x => r2(x.amount) > 0);
   const mon = m => { const [y, n] = m.split('-'); return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+n - 1] || ''} ${y}`; };
   const dmy = d => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '?');
-  if (r2(rental) > 0) out.push(`Rental${/^\d{4}-\d{2}$/.test(forMonth || '') ? ' ' + mon(forMonth) : ''} · ${money(rental)}`);
+  rs.forEach(x => out.push(`Rental${/^\d{4}-\d{2}$/.test(x.forMonth || '') ? ' ' + mon(x.forMonth) : ''} · ${money(x.amount)}`));
   if (r2(utilities) > 0) {
     out.push(`Utilities ${money(utilities)}:`);
     const lines = (bills || []).flatMap(b => (b.lines || []).filter(l => r2(l.amount) > 0));
     lines.forEach((l, i) => out.push(`${i + 1}. ${kindLabel(l.kind)} ${dmy(l.from)} - ${dmy(l.to)} · ${money(l.amount)}`));
   }
-  if (r2(rental) > 0 && r2(utilities) > 0) out.push(`Total ${money(r2(rental) + r2(utilities))}`);
+  cs.forEach(x => out.push(`Charges${x.note ? ' · ' + x.note : ''} · ${money(x.amount)}`));
+  if (rs.length + cs.length + (r2(utilities) > 0 ? 1 : 0) > 1) out.push(`Total ${money(r2([...rs, ...cs].reduce((a, x) => a + r2(x.amount), 0) + r2(utilities)))}`);
   return out.join('\n').slice(0, 1000);
 }
 
@@ -148,6 +152,8 @@ export function billMailLink(bill, place, tenant) {
     + `\nTotal: ${money(bill.total)}\n` + (bill.driveFolder ? `\nBill: ${bill.driveFolder}\n` : '') + '\nThank you.\nWidebed';
   return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(tenant.email)}&su=${encodeURIComponent(`Utility bill - ${place.unitCode || ''}`.trim())}&body=${encodeURIComponent(body)}`;
 }
+// 24 Nov 2026: one line of an offline payment (OfflinePayments.vue, components/PaymentLines.vue)
+export const newPayLine = (type = 'rental', x = {}) => ({ id: Math.random().toString(36).slice(2, 9), type, amount: Number(x.amount) > 0 ? r2(x.amount).toFixed(2) : '', forMonth: x.forMonth || '', note: x.note || '' });
 export const PILL = { unpaid: 'red', partly: 'amber', paid: 'green' };
 export const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'];
 

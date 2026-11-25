@@ -571,6 +571,9 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 .tk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
 .tk-dot.amber { background: var(--amber); }
 .tk-dot.blue { background: var(--blue); }
+.tk-dot.green { background: var(--green); }
+.tk-dot.grey { background: var(--muted); }
+.tk-dot.red { background: var(--red); }
 .tk-sub { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 6px 0 6px; }
 .tk-roles { display: grid; gap: 2px; margin-bottom: 14px; }
 .tk-role { display: grid; grid-template-columns: 96px 1fr 28px; align-items: center; gap: 10px; padding: 6px 8px; margin: 0 -8px;
@@ -592,6 +595,30 @@ button.user-id:hover, button.user-id.open { background: var(--accent-soft); bord
 .grid-2.fill { align-items: stretch; }
 .grid-2.fill .stack { display: flex; flex-direction: column; }
 .grid-2.fill .stack > .card:last-child { flex: 1; }
+.dir-row { margin-bottom: 24px; }   /* Director dashboard rows (24 Nov 2026) */
+.dir-row-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 24px; align-items: stretch; }
+.duty-summary { margin-bottom: 4px; position: relative; }   /* the missing popup is placed against this line, so it never runs off the card */
+.duty-missing { cursor: default; color: var(--red); outline: none; }
+.duty-missing[tabindex="0"] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+.duty-pop { display: none; position: absolute; top: 100%; left: 0; z-index: 20; width: min(720px, 100%); max-height: 70vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 8px 12px; color: var(--text); }
+.duty-missing:hover .duty-pop, .duty-missing:focus .duty-pop, .duty-missing:focus-within .duty-pop { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); column-gap: 24px; padding: 12px 16px; }   /* fewer columns on a narrow window */
+.duty-pop-head { grid-column: 1 / -1; }   /* bigger popup, 3 columns (24 Nov 2026) */
+.duty-pop-head { display: block; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 2px 0 6px; }
+.duty-pop-row { display: flex; flex-direction: column; gap: 1px; padding: 8px 0; min-width: 0; border-top: 1px solid var(--border); font-size: 13px; }
+.duty-pop-row b { font-weight: 600; font-size: 14px; }   /* name, role underneath: long names are not cut */
+.duty-pop-row small { white-space: nowrap; }
+.duty-pop-row small { color: var(--muted); font-size: 12px; }
+.duty-group { padding: 12px 0 4px; border-top: 1px solid var(--border); margin-top: 8px; }
+.duty-place { margin: 0 0 6px; }
+.duty-grid { columns: 3; column-gap: 32px; column-rule: 1px solid var(--border); }   /* lines between the columns */
+.duty-person { break-inside: avoid; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.duty-who, .duty-time { display: flex; flex-direction: column; min-width: 0; }
+.duty-who b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.duty-who small, .duty-time small { color: var(--muted); font-size: 12px; }
+.duty-time { align-items: flex-end; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.duty-time small.on { color: var(--green); }
+@media (max-width: 1100px) { .dir-row-3 { grid-template-columns: minmax(0,1fr); } .duty-grid { columns: 1; } }
 .qa-wide { margin-top: 24px; }
 .dq-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 4px; }
 .dq-tile { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius, 10px);

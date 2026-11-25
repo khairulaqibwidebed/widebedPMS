@@ -8,10 +8,10 @@
     <Teleport to="body">
       <div class="fi-pop" ref="pop" v-if="open" role="tooltip" :style="pos">
         <template v-for="t in list" :key="t.id">
-          <div class="fi-title">{{ `${t.label}: how it is worked out` }}</div>
+          <div class="fi-title">{{ t.heading || `${t.label}: how it is worked out` }}</div>
           <ol class="fi-steps"><template v-for="(f, i) in t.formula" :key="i"><li>{{ f }}</li></template></ol>
         </template>
-        <div class="fi-note">Total % = Service % + Utility %. A unit's own rate on the Units tab wins over the arrangement.</div>
+        <div class="fi-note" v-if="steps.length ? note : true">{{ steps.length ? note : 'Total % = Service % + Utility %. A unit\'s own rate on the Units tab wins over the arrangement.' }}</div>
       </div>
     </Teleport>
   </span>
@@ -25,10 +25,14 @@
 import { FEE_TYPES, typesFor } from '@/lib/fee-types.js';
 
 export default {
-  props: { type: { type: String, default: '' }, section: { type: String, default: '' } },
+  // 24 Nov 2026: or any steps of your own: <FormulaInfo :steps="['...', '...']" heading="Commission: how it is worked out" note="..." />
+  props: { type: { type: String, default: '' }, section: { type: String, default: '' }, steps: { type: Array, default: () => [] }, heading: { type: String, default: '' }, note: { type: String, default: '' } },
   data() { return { open: false, pos: {} }; },
   computed: {
-    list() { return (this.section ? typesFor(this.section) : [FEE_TYPES[this.type]]).filter(t => t && t.formula); },
+    list() {
+      if (this.steps.length) return [{ id: 'own', label: this.heading || 'This figure', heading: this.heading, formula: this.steps }];
+      return (this.section ? typesFor(this.section) : [FEE_TYPES[this.type]]).filter(t => t && t.formula);
+    },
     title() { return this.list.map(t => t.label).join(', '); }
   },
   mounted() { document.addEventListener('mousedown', this.away); window.addEventListener('scroll', this.hide, true); },

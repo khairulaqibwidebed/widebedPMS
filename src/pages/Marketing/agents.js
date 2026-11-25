@@ -4,14 +4,14 @@
 // agents/{id}/private/bank: holder and full account number, read only with Agent Database Full (and Accounting).
 // Firestore rules Draft 0.94. Every save and delete writes an audit log line.
 import { collection, doc, getDoc, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
-// Commission (20 Nov 2026): commDaily / commMonthly (% of a daily or monthly rental, null = not set) and commRev on the agent;
+// Commission (20 Nov 2026): commDaily / commMonthly / commYearly (24 Nov) (% of a daily, monthly or yearly rental, null = not set) and commRev on the agent;
 // every change is also saved as agents/{id}/commission/{commRev} (add-only, rules Draft 0.95), the history table.
 import { db } from '@/lib/firebase.js';
 import { audit } from '@/lib/finance-data.js';
 
 export const AGENCIES = [
-  { id: 'property', label: 'Property agent', color: 'blue' },
-  { id: 'travel', label: 'Travel agent', color: 'amber' },
+  { id: 'property', label: 'Property Agent', color: 'blue' },
+  { id: 'travel', label: 'Travel Agent', color: 'amber' },
   { id: 'mm2h', label: 'MM2H', color: 'green' },
   { id: 'other', label: 'Others', color: 'grey' }
 ];
@@ -67,12 +67,12 @@ export async function saveAgent(me, id, f, existing) {
     name: f.name.trim(), company: (f.company || '').trim(), agency: f.agency,
     agencyOther: f.agency === 'other' ? (f.agencyOther || '').trim() : '',
     mobile: f.mobile.trim(), email: (f.email || '').trim(), licenseNo: (f.licenseNo || '').trim(), address: (f.address || '').trim(), remarks: (f.remarks || '').trim(),
-    bankName: f.bankName || '', acctLast4: acct.slice(-4),
+    bankName: (f.bankName || '').trim(), acctLast4: acct.slice(-4),
     cardFront: card(f.cardFront), cardBack: card(f.cardBack),
     active: f.active !== false,
     // 24 Nov 2026: the branches the agent works with (Branch Directors see only their branches' agents)
     branchIds: Array.isArray(f.branchIds) ? [...new Set(f.branchIds.filter(Boolean))].sort() : (existing?.branchIds || []),
-    commDaily: pct(f.commDaily), commMonthly: pct(f.commMonthly),
+    commDaily: pct(f.commDaily), commMonthly: pct(f.commMonthly), commYearly: pct(f.commYearly),   // commYearly: 24 Nov 2026
     commRev: existing ? (existing.commRev || 0) : 0,
     createdAt: existing ? existing.createdAt : serverTimestamp(),
     createdBy: existing ? existing.createdBy : me.user.uid,
@@ -81,12 +81,12 @@ export async function saveAgent(me, id, f, existing) {
   };
   const b = writeBatch(db);
   // Commission changed (or set on a new agent): a new history line in the same save, numbered by commRev
-  const oldD = existing ? existing.commDaily ?? null : null, oldM = existing ? existing.commMonthly ?? null : null;
-  const commChanged = data.commDaily !== oldD || data.commMonthly !== oldM;
+  const oldD = existing ? existing.commDaily ?? null : null, oldM = existing ? existing.commMonthly ?? null : null, oldY = existing ? existing.commYearly ?? null : null;
+  const commChanged = data.commDaily !== oldD || data.commMonthly !== oldM || data.commYearly !== oldY;
   if (commChanged) {
     data.commRev += 1;
     b.set(doc(db, 'agents', id, 'commission', String(data.commRev)), {
-      rev: data.commRev, daily: data.commDaily, monthly: data.commMonthly, prevDaily: oldD, prevMonthly: oldM,
+      rev: data.commRev, daily: data.commDaily, monthly: data.commMonthly, yearly: data.commYearly, prevDaily: oldD, prevMonthly: oldM, prevYearly: oldY,
       effectiveFrom: f.commFrom || '', note: (f.commNote || '').trim().slice(0, 200),
       at: serverTimestamp(), by: me.user.uid, byName: me.name
     });
@@ -96,7 +96,7 @@ export async function saveAgent(me, id, f, existing) {
   const changes = existing ? ['name', 'company', 'agency', 'agencyOther', 'mobile', 'email', 'licenseNo', 'address', 'remarks', 'bankName', 'acctLast4']
     .filter(k => (existing[k] || '') !== (data[k] || '')).map(k => ({ field: k, from: k === 'acctLast4' ? '' : existing[k] || '', to: k === 'acctLast4' ? 'changed' : data[k] || '' })) : [];
   if (existing && (existing.cardFront?.fileId || '') !== (data.cardFront?.fileId || '')) changes.push({ field: 'cardFront', from: '', to: 'changed' });
-  if (existing && commChanged) changes.push({ field: 'commission', from: `daily ${pctText(oldD)}, monthly ${pctText(oldM)}`, to: `daily ${pctText(data.commDaily)}, monthly ${pctText(data.commMonthly)}` });
+  if (existing && commChanged) changes.push({ field: 'commission', from: `daily ${pctText(oldD)}, monthly ${pctText(oldM)}, yearly ${pctText(oldY)}`, to: `daily ${pctText(data.commDaily)}, monthly ${pctText(data.commMonthly)}, yearly ${pctText(data.commYearly)}` });
   if (existing && (existing.cardBack?.fileId || '') !== (data.cardBack?.fileId || '')) changes.push({ field: 'cardBack', from: '', to: 'changed' });
   audit(b, me, { action: existing ? 'agent.update' : 'agent.create', entity: `agents/${id}`, changes, reason: data.name });
   await b.commit();

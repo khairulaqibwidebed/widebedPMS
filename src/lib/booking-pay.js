@@ -20,6 +20,12 @@ export function withCarry(months) {
 }
 // Rental / Utilities (23 Nov 2026, Khairul): a payment may pay rent and utility bills in one transfer (parts, lib/utility-bills.js).
 // Only its Rental part counts towards the rent; a payment with no parts is all Rental (older payments, no data change).
+// Several payment types in one payment (24 Nov 2026, Khairul): a payment may hold several Rental lines, each for its own month.
+// The Rental part(s) as [{ m, amount }]; a Rental line with no month, or a payment with no parts, counts in payMonth.
+export function rentalParts(p) {
+  if (!Array.isArray(p?.parts) || !p.parts.length) return [{ m: payMonth(p), amount: Number(p?.amount) || 0 }];
+  return p.parts.filter(x => x.type === 'rental').map(x => ({ m: /^\d{4}-\d{2}$/.test(x.forMonth || '') ? x.forMonth : payMonth(p), amount: Number(x.amount) || 0 }));
+}
 export const rentalOf = p => (Array.isArray(p?.parts) && p.parts.length
   ? Math.round(p.parts.filter(x => x.type === 'rental').reduce((a, x) => a + (Number(x.amount) || 0), 0) * 1000) / 1000
   : Number(p?.amount) || 0);
