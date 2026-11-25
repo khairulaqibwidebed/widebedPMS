@@ -15,28 +15,27 @@
     </div>
 
 
-    <div class="card" v-if="!loading">
+    <!-- 25 Nov 2026 (Khairul): no outer card (the table has its own frame); readable quarter and dates; status as a tinted pill;
+         actions: neutral Details button + trash icon (Option B, Khairul); "23 people" theme link opens Participants -->
+    <div v-if="!loading">
       <div class="table-wrap">
         <table class="table hover-rows">
-          <thead><tr><th>Quarter</th><th>Dates</th><th>Participants</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Quarter</th><th>Dates</th><th>Participants</th><th>Status</th><th class="q-acts-th">Actions</th></tr></thead>
           <tbody>
             <tr v-for="q in quarters" :key="q.id" @dblclick="openDetails(q)" style="cursor: pointer;">
-              <td><b>{{ q.name }}</b></td>
-              <td>{{ q.startDate }} – {{ q.endDate }}</td>
-              <td>{{ countFor(q.id) }}</td>
+              <td class="nw"><b>{{ quarterLabel(q) }}</b></td>
+              <td class="nw">{{ dateRange(q.startDate, q.endDate) }}</td>
+              <td @click.stop><button type="button" class="q-people" :title="`Participants in ${quarterLabel(q)}`" @click="openParticipants(q)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>{{ peopleText(q.id) }}</span></button></td>
               <td @click.stop>
-                <select v-if="canEdit" class="select" :value="normalizeStatus(q.status)" :title="STATUS_HELP[normalizeStatus(q.status)]" @change="changeStatus(q, $event.target.value)">
+                <select v-if="canEdit" class="select q-status" :class="pillClass(q.status)" :value="normalizeStatus(q.status)" :title="STATUS_HELP[normalizeStatus(q.status)]" :aria-label="`Status of ${quarterLabel(q)}`" @change="changeStatus(q, $event.target.value)">
                   <option v-for="s in STATUSES" :key="s" :value="s" :title="STATUS_HELP[s]">{{ statusLabel(s) }}</option>
                 </select>
                 <span v-else class="pill" :class="pillClass(q.status)">{{ statusLabel(q.status) }}</span>
               </td>
-              <td>
-                <div style="display:flex; gap:6px; flex-wrap:wrap;" @click.stop>
-                  <button class="act-pill" @click="openDetails(q)">Details</button>
-                  <button class="act-pill" @click="openParticipants(q)">Participants</button>
-                  <button class="act-pill danger" v-if="canEdit" @click="deleting = q">Delete</button>
-                </div>
-              </td>
+              <td class="q-acts-td"><div class="q-acts" @click.stop>
+                <button type="button" class="q-btn" @click="openDetails(q)">Details</button>
+                <button type="button" class="q-del" v-if="canEdit" :title="`Delete ${quarterLabel(q)}`" :aria-label="`Delete ${quarterLabel(q)}`" @click="deleting = q"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>
+              </div></td>
             </tr>
             <tr v-if="!quarters.length"><td colspan="5" class="muted">No quarters yet.</td></tr>
           </tbody>
@@ -71,24 +70,33 @@
       </div>
     </div>
 
-    <!-- Participants -->
+    <!-- Participants. 25 Nov 2026 (Khairul): title like the table, × close, live search, Select all docked in the list header,
+         whole row clickable, theme-coloured ticks, department as a grey pill on the right -->
     <div class="modal-back" v-if="partsFor" @click.self="partsFor = null">
-      <div class="modal" style="max-width: 520px;">
-        <h2>Participants — {{ partsFor.name }}</h2>
+      <div class="modal" role="dialog" :aria-label="`Participants — ${quarterLabel(partsFor)}`" style="max-width: 560px;" v-esc="() => partsFor = null">
+        <div class="pt-head">
+          <h2>{{ `Participants — ${quarterLabel(partsFor)}` }}</h2>
+          <button type="button" class="pt-x" aria-label="Close" title="Close" @click="partsFor = null">×</button>
+        </div>
         <p class="note">Only ticked employees are included in this quarter's evaluation. Everyone else sees
           "You are not included in this quarter's performance evaluation."</p>
-        <div class="parts-toolbar">
-          <label class="parts-all">
-            <input type="checkbox" :checked="allSelected" :indeterminate.prop="someSelected" @change="toggleAll($event.target.checked)">
-            Select all
-          </label>
-          <span class="muted">{{ selectedUids.length }} of {{ staff.length }} selected</span>
-        </div>
-        <div style="max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 8px;">
-          <label v-for="e in staff" :key="e.uid" style="display:flex; align-items:center; gap:8px; padding:6px 4px;">
-            <input type="checkbox" :value="e.uid" v-model="selectedUids">
-            {{ e.name }} <small class="muted">({{ e.role }})</small>
-          </label>
+        <input class="input pt-search" type="search" v-model="partsSearch" placeholder="Search by name or department..." aria-label="Search by name or department">
+        <div class="pt-box">
+          <div class="pt-bar">
+            <label class="pt-all">
+              <input type="checkbox" :checked="allSelected" :indeterminate.prop="someSelected" @change="toggleAll($event.target.checked)">
+              {{ partsSearch.trim() ? 'Select all shown' : 'Select all' }}
+            </label>
+            <span class="muted">{{ `${selectedUids.length} of ${staff.length} selected` }}</span>
+          </div>
+          <div class="pt-list">
+            <label v-for="e in shownStaff" :key="e.uid" class="pt-row">
+              <input type="checkbox" :value="e.uid" v-model="selectedUids">
+              <span class="pt-name">{{ e.name }}</span>
+              <span class="pt-dept" v-if="e.role">{{ deptLabel(e.role) }}</span>
+            </label>
+            <p class="muted pt-none" v-if="!shownStaff.length">No one matches this search.</p>
+          </div>
         </div>
         <div class="modal-foot">
           <button class="btn" @click="partsFor = null">Cancel</button>
@@ -129,6 +137,7 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import FormField from '@/components/FormField.vue';
 import { useSession } from '@/stores/session.js';
+import { ROLE_LABEL } from '@/lib/firebase.js';
 import { can } from '@/lib/access.js';
 import { listStaff } from '@/lib/agreements/data.js';
 import {
@@ -153,9 +162,19 @@ const viewOnly = ref(false);
 const partsFor = ref(null);
 const selectedUids = ref([]);
 // "Select all" ticks every staff member shown in the Participants list; unticking it clears them all.
-const allSelected = computed(() => staff.value.length > 0 && staff.value.every(e => selectedUids.value.includes(e.uid)));
-const someSelected = computed(() => selectedUids.value.length > 0 && !allSelected.value);
-function toggleAll(on) { selectedUids.value = on ? staff.value.map(e => e.uid) : []; }
+// 25 Nov 2026 (Khairul): live search by name or department; Select all acts on the rows shown (all of them when the search is empty)
+const partsSearch = ref('');
+const deptLabel = r => ROLE_LABEL[r] || String(r || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+const shownStaff = computed(() => {
+  const k = partsSearch.value.trim().toLowerCase();
+  return !k ? staff.value : staff.value.filter(e => `${e.name || ''} ${deptLabel(e.role)} ${e.role || ''}`.toLowerCase().includes(k));
+});
+const allSelected = computed(() => shownStaff.value.length > 0 && shownStaff.value.every(e => selectedUids.value.includes(e.uid)));
+const someSelected = computed(() => shownStaff.value.some(e => selectedUids.value.includes(e.uid)) && !allSelected.value);
+function toggleAll(on) {
+  const ids = new Set(shownStaff.value.map(e => e.uid));
+  selectedUids.value = on ? [...new Set([...selectedUids.value, ...ids])] : selectedUids.value.filter(id => !ids.has(id));
+}
 // A quarter can be edited at any status (business rule) — view mode (opened by double-clicking a row, or the
 // Details button) just starts read-only, with an "Edit" button to unlock the fields regardless of status.
 const fieldsDisabled = computed(() => viewOnly.value);
@@ -163,10 +182,25 @@ const weightTotal = computed(() => !form.value ? 0 : Number(form.value.weights.c
 
 // Old quarters saved with a previous status (upcoming, evaluation, pendingApproval, archived) show as the nearest of the three.
 const statusLabel = s => STATUS_LABELS[normalizeStatus(s)];
-const pillClass = s => ({ draft: 'grey', active: 'amber', finalized: 'green' }[normalizeStatus(s)]);
+// 25 Nov 2026 (Khairul): green Active, grey Draft, blue Finalized
+const pillClass = s => ({ draft: 'grey', active: 'green', finalized: 'blue' }[normalizeStatus(s)]);
+// 25 Nov 2026 (Khairul): "Q 3" shows as "Q3 2026" (year from the start date when the name has none); dates as "1 Jul – 30 Sep 2026"
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function quarterLabel(q) {
+  const name = String(q.name || '').trim().replace(/^Q\s+(\d)/i, 'Q$1');
+  const yr = /^\d{4}/.test(q.startDate || '') ? q.startDate.slice(0, 4) : '';
+  return yr && !/\b\d{4}\b/.test(name) ? `${name} ${yr}` : name || '—';
+}
+const parts = d => /^(\d{4})-(\d{2})-(\d{2})/.exec(d || '');
+function dateRange(a, b) {
+  const x = parts(a), y = parts(b);
+  if (!x || !y) return [a, b].filter(Boolean).join(' – ') || '—';
+  const d = m => `${Number(m[3])} ${MON[Number(m[2]) - 1]}`;
+  return x[1] === y[1] ? `${d(x)} – ${d(y)} ${y[1]}` : `${d(x)} ${x[1]} – ${d(y)} ${y[1]}`;
+}
+const peopleText = id => { const n = participantCounts[id]; return n == null ? '—' : `${n} ${n === 1 ? 'person' : 'people'}`; };
 const showStatusHelp = ref(false);
 const deleting = ref(null);
-const countFor = id => participantCounts[id] ?? '—';
 
 async function load() {
   loading.value = true;
@@ -216,6 +250,7 @@ async function remove(q) {
 }
 
 async function openParticipants(q) {
+  partsSearch.value = '';
   partsFor.value = q;
   const existing = await listParticipants(q.id);
   selectedUids.value = existing.filter(p => p.participationStatus === 'active').map(p => p.employeeId);
@@ -230,11 +265,49 @@ async function saveParticipants() {
 </script>
 
 <style scoped>
+/* 25 Nov 2026 (Khairul): row actions, status pill, people link */
+.nw { white-space: nowrap; }
+.q-acts-td { width: 1%; }
+.q-acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; white-space: nowrap; }
+.q-btn { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 8px; background: #fff; border: 1px solid #e2e8f0;
+  color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.q-btn:hover { background: color-mix(in srgb, var(--accent) 6%, #fff); border-color: color-mix(in srgb, var(--accent) 45%, #e2e8f0); color: var(--accent); }
+.q-acts-th { text-align: right; }
+/* 25 Nov 2026 (Khairul): trash as a line icon (the emoji came out white and vanished): grey at rest, red with a soft red tint on hover */
+.q-del { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+.q-del svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.q-del:hover, .q-del:focus-visible { background: #fef2f2; color: #ef4444; }
+.q-people { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; }
+.q-people svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.q-people span { text-decoration: underline; text-underline-offset: 3px; }
+.q-people:hover span { text-decoration-thickness: 2px; }
+/* Status: a compact tinted pill with a small caret, coloured like the pills (green Active, grey Draft, blue Finalized) */
+.select.q-status { height: 26px; padding: 0 24px 0 10px; border: 0; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 13px) 11px, calc(100% - 9px) 11px; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+.select.q-status.green { background-color: var(--green-soft); color: var(--green); }
+.select.q-status.grey { background-color: var(--chip); color: var(--text-2); }
+.select.q-status.blue { background-color: var(--blue-soft); color: var(--blue); }
+.select.q-status:hover:not(:disabled) { filter: brightness(.96); }
 .info-btn { display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--accent); cursor: pointer; transition: background .15s, border-color .15s; }
 .info-btn:hover { background: var(--accent-soft); border-color: var(--accent); }
 .info-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.parts-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
-.parts-all { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.pt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pt-head h2 { margin: 0 0 6px; }
+.pt-x { flex: none; width: 32px; height: 32px; margin: -4px -8px 0 0; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
+.pt-x:hover { background: #f1f5f9; color: var(--text); }
+.pt-search { width: 100%; height: 36px; margin: 4px 0 10px; font-size: 13px; }
+.pt-box { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.pt-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid var(--border); font-size: 13px; }
+.pt-all { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
+.pt-list { max-height: 340px; overflow-y: auto; }
+.pt-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; font-size: 14px; cursor: pointer; transition: background .12s; }
+.pt-row + .pt-row { border-top: 1px solid #f1f5f9; }
+.pt-row:hover { background: #f8fafc; }
+.pt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-dept { flex: none; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 12px; font-weight: 500; }
+.pt-none { margin: 0; padding: 16px 14px; text-align: center; }
+.pt-box input[type="checkbox"] { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--theme-color, var(--brand)); cursor: pointer; }
 .status-help-list { display: grid; gap: 8px; margin: 14px 0 6px; max-height: 60vh; overflow: auto; }
 .status-help-list > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; align-items: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .status-help-list b { font-size: 13px; color: var(--accent); }

@@ -1,8 +1,8 @@
 <template>
   <div>
     <div class="drawer-back" @click="$emit('close')"></div>
-    <aside class="drawer wide" role="dialog" aria-label="Booking" v-esc="() => $emit('close')">
-      <div class="drawer-head"><h2>{{ `Booking ${bk.bookingNo || bk.id}` }}<span class="help bk-where">{{ ` · ${bk.propertyName || ''} · ${bk.unitCode || bk.unitId || ''} · ${bk.source === 'import' ? 'Imported from Willow' : bk.source === 'direct' ? 'Direct booking' : 'From Tenant leads'}` }}</span></h2><button class="icon-btn" @click="$emit('close')" aria-label="Close">×</button></div>
+    <aside class="drawer wide bk-fixed" role="dialog" aria-label="Booking" v-esc="() => $emit('close')">
+      <div class="drawer-head"><h2>{{ `Booking ${bk.bookingNo || bk.id}` }}<span class="help bk-where">{{ ` · ${bk.propertyName || ''} · ${bk.unitCode || bk.unitId || ''} · ${bk.source === 'import' ? 'Imported from Willow' : bk.source === 'direct' ? 'Direct booking' : 'From Tenant leads'}` }}</span><span class="help bk-created-h" v-if="createdLine">{{ createdLine }}</span></h2><button class="icon-btn" @click="$emit('close')" aria-label="Close">×</button></div>
       <form class="drawer-body" id="bkForm" @submit.prevent="save()">
         <!-- 16 Nov 2026: saved as Awaiting payment on New booking; finish it there once paid -->
         <div class="notice await-note" v-if="pending">
@@ -53,9 +53,15 @@
         <div class="field"><label>Check in</label><input class="input" id="bkIn" type="date" v-model="bk.f.arrival" :disabled="!editable"></div>
         <div class="field"><label>Check out</label><input class="input" id="bkOut" type="date" v-model="bk.f.departure" :disabled="!editable"></div>
         <div class="field" v-if="isLong"><label>Monthly rent (RM)</label><input class="input" type="number" step="0.01" min="0" v-model="bk.f.rent" :disabled="!editable"></div>
+        <!-- 25 Nov 2026 (Khairul): one night past a whole month or year (a 31-day month) goes into the last month at the same rent -->
+        <label class="xn-tgl" v-if="isLong"><span class="tgl"><input type="checkbox" role="switch" v-model="bk.f.extraNight" :disabled="!editable" aria-label="Last night is part of the month"><span class="tgl-track"></span></span>
+          <span><b>Last night is part of the month</b><small>For a 31-night month or a 365-night year at the same rent. The 1 extra night goes into the last month instead of its own.</small></span></label>
         <!-- 20 Nov 2026 (Khairul): the deposit is a charge on the Payments tab now (Security deposit on a month) -->
         <!-- 23 Nov 2026 (Khairul): a drop-down of Booking settings > Booking sources; a saved source not in the list stays shown -->
         <div class="field"><label>Booking source</label><OptionPicker class="fld-pick" v-model="bk.f.bookingSource" :options="sourceOpts" label="Booking source" placeholder="Choose source…" :disabled="!editable" /></div>
+        <!-- 25 Nov 2026 (Khairul): a booking made for several units at once (Reservation form): the other units' bookings, read-only -->
+        <div class="field" v-if="booking.groupId"><label>Booked together with</label>
+          <input class="input" :value="groupText" disabled :title="groupText"></div>
         <div class="field" v-if="bk.salesPersonName"><label>Sales person</label><input class="input" :value="bk.salesPersonName" disabled></div>
         <!-- 20 Nov 2026: the agent picked on the booking form (booking source Agent), for their commission -->
         <div class="field" v-if="bk.agentName"><label>Agent</label><input class="input" :value="[bk.agentName, bk.agentCompany].filter(Boolean).join(' · ')" disabled></div>
@@ -91,7 +97,10 @@
           <div class="form-sec">Rent summary</div>
           <div class="cal-row" v-if="isLong"><span>Monthly rent</span><b>{{ `RM ${amt(Number(bk.f.rent) || Number(bk.monthlyRent) || 0)}` }}</b></div>
           <div class="cal-row"><span>{{ isLong ? `Total rental (${cal.length} ${cal.length === 1 ? 'month' : 'months'}) · owner receives` : 'Total rental' }}</span><b>{{ `RM ${amt(totalDue)}` }}</b></div>
-          <div class="cal-row cal-sub" :class="{ 'cal-zero': !c.v }" v-for="c in chargeSums" :key="c.label"><span>{{ c.label }}</span><b>{{ `RM ${amt(c.v)}` }}</b></div>
+          <!-- 25 Nov 2026 (Khairul): the deposit and fees fold away under one Charges line (closed at first) -->
+          <button type="button" class="cal-row cal-fold" v-if="chargeSums.length" :aria-expanded="String(chargesOpen)" @click="chargesOpen = !chargesOpen">
+            <span><span class="tp-caret" aria-hidden="true">{{ chargesOpen ? '▾' : '▸' }}</span>{{ `Deposit and fees (${chargeSums.filter(c => c.v).length} charged)` }}</span><b>{{ `RM ${amt(extraTotal)}` }}</b></button>
+          <template v-if="chargesOpen"><div class="cal-row cal-sub" :class="{ 'cal-zero': !c.v }" v-for="c in chargeSums" :key="c.label"><span>{{ c.label }}</span><b>{{ `RM ${amt(c.v)}` }}</b></div></template>
           <div class="cal-row"><span>Total to pay</span><b>{{ `RM ${amt(totalDue + extraTotal)}` }}</b></div>
           <div class="cal-row"><span><b>Total paid</b></span><b>{{ `RM ${amt(totalPaid)}` }}</b></div>
           <div class="form-sec">Total Payments</div>
@@ -282,7 +291,7 @@ import { useSession } from '@/stores/session.js';
 import { toast } from '@/lib/toast.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking, setBookingCancelled, deleteOfflineBooking, terminateBooking, updateTermination, undoTermination } from '@/lib/portfolio-data.js';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, getDocs, query, where, collection } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { can } from '@/lib/access.js';
 import { invoiceOf, propertyAddressOf, FEE_LABELS, chargeLabel, legacyCharges, allMonthCharges, addInto, depositOf, leaseMonths, leaseSlot, leaseSpan } from '@/lib/booking-invoice.js';
@@ -322,19 +331,34 @@ export default {
   data() {
     const r = this.booking, rm = c => (c ? Number(c).toFixed(2) : '');
     const f = { name: '', phone: '', email: '', icPassport: '', mainDoorPasscode: '', currentExpiryDate: '', nextDoorPasscode: '', nextExpiryDate: '',
-      arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : ''),
+      arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : ''), extraNight: !!r.extraNight,
       bookingSource: r.bookingSource || '', rentalStatus: r.rentalStatus || '', ezeeReservationNo: r.ezeeReservationNo || '', remark: r.remark || '',
       monthCharges: cleanCharges(allMonthCharges(r)) };
-    return { comm: null, PILL, billOpen: '', billEd: null, billBusy: false, billErr: '', MONTH_PAY, FEE_LABELS, sources: normSources(null), feeSet: normFees(null), tab: 'details', mpFilter: 'all', yearsShut: {}, add: { m: '', key: '', amount: '', note: '' }, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '',
+    return { comm: null, group: null, PILL, billOpen: '', billEd: null, billBusy: false, billErr: '', MONTH_PAY, FEE_LABELS, sources: normSources(null), feeSet: normFees(null), tab: 'details', chargesOpen: false, mpFilter: 'all', yearsShut: {}, add: { m: '', key: '', amount: '', note: '' }, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '',
       terminating: false, term: { date: '', type: '', noticeDate: '', reason: '', files: [], upBusy: false, progress: 0 }, refund: { open: false, charges: '', note: '' }, bk: { ...r, f, hasPrivate: false, bills: null, reason: '', error: '', busy: false, loaded: false } };
   },
   computed: {
+    // 25 Nov 2026 (Khairul): when the booking was made, and by whom, under the title
+    createdLine() {
+      const t = this.booking?.createdAt, ms = !t ? 0 : typeof t.toMillis === 'function' ? t.toMillis() : typeof t.seconds === 'number' ? t.seconds * 1000 : Number(new Date(t)) || 0;
+      if (!ms) return '';
+      const who = this.booking.createdByName || this.booking.submittedByName || '';
+      return `Created ${new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}${who ? ` by ${who}` : ''}`;
+    },
     // 24 Nov 2026: "RM 100.00 · 5% of one month's rent · Unpaid"
     commText() {
       const l = this.comm; if (!l) return '';
       const money = `RM ${(Number(l.amount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       const how = l.rate == null ? 'no % set' : `${l.rate}% of ${l.rentType === 'Daily' ? 'the total rental' : 'one month\'s rent'}`;
       return `${money} · ${how} · ${STATUS_LABEL[l.status] || l.status}${l.status === 'paid' && l.paid?.date ? ` on ${l.paid.date}` : ''}`;
+    },
+    // 25 Nov 2026: the other bookings of the same group (several units booked together), e.g. "DM-015 · B-12-03"
+    groupText() {
+      const g = this.group;
+      if (!g) return 'Loading…';
+      const others = g.filter(x => x.id !== this.booking.id), gno = `Group ${String(this.booking.groupId).replace(/^offline_/, '')}`;   // the group id searched in Offline Payments
+      return others.length ? `${gno}: ` + others.map(x => [x.bookingNo || x.id, x.unitCode, x.status === 'cancelled' ? 'cancelled' : ''].filter(Boolean).join(' · ')).join(', ')
+        : `${gno}: ${this.booking.groupSize || 'Several'} units were booked together; the others can't be seen.`;
     },
     commSteps() { return this.comm ? stepsOf(this.comm) : []; },
     // Guest details on a tenant record can only be changed by Accounting and Directors; on an imported booking Operations can too
@@ -407,7 +431,7 @@ export default {
       // a Monthly Lease in whole months (30 Nov - 31 Dec is one month), not one row per calendar month the stay touches.
       // A payment's For month and a month charge count in the lease month they fall in (leaseSlot).
       if (long) {
-        const ms = leaseMonths({ arrival: f.arrival, departure: f.departure, earlyTermination: this.et }, rent);
+        const ms = leaseMonths({ arrival: f.arrival, departure: f.departure, earlyTermination: this.et, extraNight: !!f.extraNight }, rent);
         if (!ms.length) return [];
         const rows = ms.map(x => ({ m: x.m, from: x.from, to: x.to, label: x.label, paid: 0, due: x.rent, extra: 0, charges: [] }));
         b.payments.filter(payCounts).forEach(x => rentalParts(x).forEach(p => { rows[leaseSlot(ms, p.m)].paid += p.amount; }));   // Checked only, Rental part only; 24 Nov 2026: each Rental line in its own month
@@ -470,6 +494,9 @@ export default {
   },
   async created() {
     if (this.booking.agentId) loadLine(this.booking.id).then(l => { this.comm = l; });   // 24 Nov 2026: null when none or not readable
+    if (this.booking.groupId) getDocs(query(collection(db, 'offlineBookings'), where('groupId', '==', this.booking.groupId)))
+      .then(s => { this.group = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.bookingNo || '').localeCompare(String(b.bookingNo || ''))); })
+      .catch(() => { this.group = []; });   // 25 Nov 2026: booked together
     Promise.all([sourcesForForms(), feesForForms()]).then(([s, f]) => { this.sources = s; this.feeSet = f; });   // 23 Nov 2026
     try {
       const d = await loadBookingDetails(this.booking);
@@ -594,7 +621,7 @@ export default {
       try { const p = b.propertyId ? await getDoc(doc(db, 'properties', b.propertyId)) : null; propertyAddress = p?.exists() ? propertyAddressOf(p.data()) : ''; } catch { /* left out */ }
       // 23 Nov 2026: the invoice follows Booking settings > Other fees (the copy read this visit, up to 10 minutes; saving the settings clears it on that browser)
       const fees = await feesForForms();
-      this.invoice = invoiceOf({ ...b, arrival: f.arrival, departure: f.departure, monthlyRent: f.rent || b.monthlyRent, feesInPayments: true, monthCharges: cleanCharges(f.monthCharges) },
+      this.invoice = invoiceOf({ ...b, arrival: f.arrival, departure: f.departure, extraNight: !!f.extraNight, monthlyRent: f.rent || b.monthlyRent, feesInPayments: true, monthCharges: cleanCharges(f.monthCharges) },
         { name: f.name, email: f.email, phone: f.phone }, { propertyName: b.propertyName, unitCode: b.unitCode || b.unitId, unitType, propertyAddress, fees });
       this.invBusy = false;
     },
@@ -709,13 +736,13 @@ export default {
       if (!b.reason.trim()) return bad('Add a reason for the change.', 'bkReason');
       const nights = Math.max(1, Math.round((new Date(f.departure) - new Date(f.arrival)) / 86400000)), longTerm = nights >= 30;
       const c = x => Math.round((Number(x) || 0) * 100) / 100;
-      const main = { arrival: f.arrival, departure: f.departure, nights, longTerm, monthlyRent: longTerm ? c(f.rent) : 0,
+      const main = { arrival: f.arrival, departure: f.departure, nights, longTerm, extraNight: longTerm && !!f.extraNight, monthlyRent: longTerm ? c(f.rent) : 0,
         bookingSource: String(f.bookingSource || '').trim(), rentalStatus: f.rentalStatus.trim(), ezeeReservationNo: f.ezeeReservationNo.trim(), remark: f.remark.trim(),
         monthCharges: cleanCharges(f.monthCharges) };
       // monthCharges is compared as text; the audit log keeps a short summary ("2026-03: Cleaning fees 80.00")
       const sum = mc => Object.entries(mc || {}).map(([m, l]) => `${m}: ${l.map(x => `${chargeLabel(x)} ${(+x.amount).toFixed(2)}`).join(', ')}`).join('; ');
       // An older booking's deposit and fee fields count as month charges (allMonthCharges), so moving them is not a change on its own
-      const same = k => (k === 'monthCharges' ? JSON.stringify(cleanCharges(allMonthCharges(b))) === JSON.stringify(main[k]) : (b[k] ?? '') === main[k]);
+      const same = k => (k === 'extraNight' ? !!b[k] === main[k] : k === 'monthCharges' ? JSON.stringify(cleanCharges(allMonthCharges(b))) === JSON.stringify(main[k]) : (b[k] ?? '') === main[k]);
       const changes = Object.keys(main).filter(k => !same(k)).map(k => (k === 'monthCharges' ? { field: k, old: sum(cleanCharges(allMonthCharges(b))), new: sum(main[k]) } : { field: k, old: b[k] ?? '', new: main[k] }));
       const pchanged = b.hasPrivate ? PRIV.filter(k => (o[k] ?? '') !== (f[k] ?? '') && (b.tenantId ? !GUEST.includes(k) : true)) : [];
       const gchanged = b.tenantId && b.guestOk ? GUEST.filter(k => (o[k] ?? '') !== (f[k] ?? '')) : [];
@@ -737,6 +764,19 @@ export default {
 </script>
 
 <style scoped>
+/* 25 Nov 2026 (Khairul): the booking popup keeps one height on every tab (the body scrolls) so it doesn't jump about */
+@media (min-width: 861px) { .drawer.bk-fixed { height: 90vh; height: 90dvh; } }
+.xn-tgl { grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius, 8px); background: var(--head); cursor: pointer; }
+.xn-tgl b { display: block; font-size: 14px; color: var(--text); }
+.xn-tgl small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.tgl { position: relative; flex: none; width: 42px; height: 24px; margin-top: 1px; }
+.tgl input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+.tgl-track { position: absolute; inset: 0; border-radius: 999px; background: var(--border); transition: background .2s ease; }
+.tgl-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); transition: transform .2s ease; }
+.tgl input:checked + .tgl-track { background: var(--accent); }
+.tgl input:checked + .tgl-track::after { transform: translateX(18px); }
+.tgl input:focus-visible + .tgl-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bk-created-h { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; }
 .tp-carry span:first-child, .tp-carry b { color: var(--muted); font-style: italic; font-weight: 500; }
 .fld-pick { display: block; width: 100%; }
 .fld-pick :deep(.op-btn) { width: 100%; min-height: 40px; }
@@ -807,6 +847,8 @@ export default {
 .tp-row.open { background: var(--accent-soft); }
 .tp-m { font-weight: 500; }
 .tp-m small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }   /* 24 Nov 2026: the lease month's dates */
+.cal-fold { width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.cal-fold:hover { background: var(--accent-soft); }
 .cal-row.cal-zero { color: var(--muted); }   /* 24 Nov 2026: a fee type not charged on this booking (RM 0.00) */
 .cal-row.cal-zero b { font-weight: 400; color: var(--muted); }
 .tp-amt { text-align: right; white-space: nowrap; }

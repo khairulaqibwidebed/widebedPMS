@@ -13,7 +13,7 @@
         <MonthPicker :ahead="1" v-model="asOf" @change="reload()" v-if="!acc.viewOnly" />
         <RefreshButton @refresh="go()" />
         <button class="btn btn-primary" v-show="ptab === 'units'" @click="openUnit(null)" v-if="acc.canAdd">+ Add unit</button>
-        <button class="btn" v-show="ptab === 'overview'" @click="openPropertyEdit()" v-if="!acc.viewOnly || acc.canEdit">Edit property</button>
+        <button class="btn btn-primary" v-show="ptab === 'overview'" @click="openPropertyEdit()" v-if="!acc.viewOnly || acc.canEdit">Edit property</button>
       </div>
     </div>
 

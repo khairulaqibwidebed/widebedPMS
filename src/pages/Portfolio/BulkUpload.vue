@@ -33,7 +33,7 @@
       </button>
       <button type="button" class="bu-kind" :class="{ on: kind === 'bookings' }" :disabled="saving" @click="setKind('bookings')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2zm-2 8h14v10H5z"/></svg>
-        <span><b>Booking details</b><small>Willow "Booking Details" sheet · saved as Offline bookings</small></span>
+        <span><b>Booking details</b><small>Willow "Booking Details" sheet · saved to Portfolio &gt; Bookings</small></span>
       </button>
       <!-- 24 Nov 2026: eZee new and cancelled reservations, checked against the PMS before anything is saved.
            25 Nov 2026: for everyone who can open Bulk Upload, like the other uploads (rules Draft 1.12); Monthly check removed. -->
@@ -1082,7 +1082,7 @@ export default {
             for (const r of bills.slice(i, i + 200)) this.writeBill(ub, r);
             await ub.commit();
           }
-          this.done = `Saved ${ready.length} ${ready.length === 1 ? 'booking' : 'bookings'} from ${this.fileName} as Offline bookings (see Portfolio > Bookings)` + (bills.length ? `, with ${bills.length} utility ${bills.length === 1 ? 'bill' : 'bills'}.` : '.')
+          this.done = `Saved ${ready.length} ${ready.length === 1 ? 'booking' : 'bookings'} from ${this.fileName} to Portfolio > Bookings` + (bills.length ? `, with ${bills.length} utility ${bills.length === 1 ? 'bill' : 'bills'}.` : '.')
             + ` Tenants: ${this.tenantsMade} new, ${this.tenantsLinked} already in the PMS.`;
         } else if (this.kind === 'properties') this.done = `Saved ${ready.length} ${ready.length === 1 ? 'property' : 'properties'} from ${this.fileName}. Add their units on Portfolio, or upload their eZee report.`;
         else if (this.allMode) {

@@ -38,7 +38,7 @@
       <div class="grid-2 fill" v-if="view === 'operations'">
         <div class="stack">
           <section class="card" ref="today">
-            <div class="card-head"><h2>Today's arrivals and departures</h2><RouterLink class="link" to="/Portfolio/bookings">Offline bookings ›</RouterLink></div>
+            <div class="card-head"><h2>Today's arrivals and departures</h2><RouterLink class="link" to="/Portfolio/bookings">Bookings ›</RouterLink></div>
             <div class="rows hold">
               <Capped :items="d.moves" :size="4" :fixed="true" v-slot="{ capRows }">
               <template v-for="m in capRows" :key="m.key">
@@ -369,7 +369,7 @@ export default {
         { label: 'Check-ins today', value: d.checkIns, hint: 'eZee and offline bookings', panel: 'today' },
         { label: 'Check-outs today', value: d.checkOuts, hint: 'eZee and offline bookings', panel: 'today' },
         ticketKpi('Operations'),
-        { label: 'Offline bookings not in eZee', value: d.notInEzee, alert: d.notInEzee > 0, to: '/Portfolio/bookings', hint: 'No eZee reservation no. linked yet' }
+        { label: 'Bookings not in eZee', value: d.notInEzee, alert: d.notInEzee > 0, to: '/Portfolio/bookings', hint: 'No eZee reservation no. linked yet' }
       ];
       if (this.view === 'it') {
         const last = d.uploads[0];

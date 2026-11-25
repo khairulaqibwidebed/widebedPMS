@@ -2,7 +2,11 @@
   <div class="drawer-back" @click="emit('close')"></div>
   <aside class="drawer wide lk" role="dialog" aria-label="Fill-in links" @keydown.esc="emit('close')">
     <div class="drawer-head">
-      <h2>{{ record ? 'Send to fill in & sign' : 'Fill-in links' }} <small>· {{ record ? record.title : form.name }}</small></h2>
+      <!-- 25 Nov 2026 (Khairul): while making or editing a link, its heading is the popup's heading, with a way back to the list -->
+      <div class="lk-headtxt">
+        <button v-if="edit" type="button" class="link lk-back" @click="edit = null; slugMsg = ''">← All links</button>
+        <h2>{{ edit ? editHeading : record ? 'Send to fill in & sign' : 'Fill-in links' }} <small>· {{ record ? record.title : form.name }}</small></h2>
+      </div>
       <button class="icon-btn" aria-label="Close" @click="emit('close')">×</button>
     </div>
 
@@ -46,18 +50,17 @@
       </div>
 
       <!-- New / edit -->
-      <form v-if="edit" class="card lk-form" @submit.prevent="save">
-        <h3>{{ edit.isNew ? (edit.kind === 'personal' ? 'New personal link' : 'New link for anyone') : 'Edit ' + edit.slug }}</h3>
+      <form v-if="edit" class="lk-form" @submit.prevent="save">
         <p class="help" v-if="edit.isNew && edit.kind === 'open'">Everyone who opens this link (and knows the password) fills in a new, blank form.</p>
         <p class="help" v-if="edit.isNew && edit.kind === 'personal'">Only for this record: the person checks what you filled in, completes the rest and signs.</p>
         <div class="field">
           <label for="lkSlug">Link name</label>
-          <div class="lk-slug"><span>{{ origin }}/f/</span><input id="lkSlug" class="input" v-model="edit.slug" :disabled="!edit.isNew" @input="edit.slug = slugify(edit.slug); slugMsg = ''" @blur="checkSlug" required maxlength="60"></div>
+          <div class="lk-slug"><span :title="`${origin}/f/`">/f/</span><input id="lkSlug" class="input" v-model="edit.slug" :disabled="!edit.isNew" @input="edit.slug = slugify(edit.slug); slugMsg = ''" @blur="checkSlug" required maxlength="60"></div>
           <span class="ag-error" v-if="slugMsg">{{ slugMsg }}</span>
           <span class="help" v-else-if="edit.isNew">Small letters, numbers and dashes, e.g. <code>widebed-tenancy</code>. It can't be changed later.</span>
         </div>
         <div class="field"><label for="lkTitle">Title on the form</label><input id="lkTitle" class="input" v-model="edit.title" maxlength="120" required></div>
-        <div class="field"><label for="lkIntro">Message at the top</label><textarea id="lkIntro" class="input" rows="3" v-model="edit.intro" maxlength="1000" placeholder="e.g. Please fill in your details and sign. It takes about 5 minutes."></textarea></div>
+        <div class="field"><label for="lkIntro">Message at the top</label><textarea id="lkIntro" class="input" rows="2" v-model="edit.intro" maxlength="1000" placeholder="e.g. Please fill in your details and sign. It takes about 5 minutes."></textarea></div>
         <div class="field">
           <label for="lkTpl">PDF they can download</label>
           <select id="lkTpl" class="input select" v-model="edit.templateId">
@@ -67,8 +70,9 @@
         </div>
         <div class="ag-row2">
           <div class="field">
-            <label for="lkPass">{{ edit.isNew ? 'Password' : 'New password (leave empty to keep)' }}</label>
-            <div class="ag-inline"><input id="lkPass" class="input" v-model="edit.password" :required="edit.isNew" minlength="4" autocomplete="new-password"><button type="button" class="btn btn-sm" @click="edit.password = makePassword()">Make one</button></div>
+            <!-- 25 Nov 2026 (Khairul): Make one sits by the label, so Password and Closes after are the same width -->
+            <div class="lk-lbl"><label for="lkPass">{{ edit.isNew ? 'Password' : 'New password (leave empty to keep)' }}</label><button type="button" class="link lk-gen" @click="edit.password = makePassword()">Make one</button></div>
+            <input id="lkPass" class="input" v-model="edit.password" :required="edit.isNew" minlength="4" autocomplete="new-password">
           </div>
           <div class="field"><label for="lkExp">Closes after</label><input id="lkExp" class="input" type="date" v-model="edit.expiresAt"></div>
         </div>
@@ -76,14 +80,15 @@
         <label class="ag-check-row"><input type="checkbox" v-model="edit.allowDownload"> They can download their copy after submitting</label>
         <div class="modal-foot">
           <button type="button" class="btn" @click="edit = null">Cancel</button>
-          <button type="submit" class="btn btn-primary" :disabled="busy">{{ busy ? 'Saving…' : edit.isNew ? 'Create link' : 'Save' }}</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy || (edit.isNew && (!edit.slug || !!slugMsg || checking))">{{ busy ? 'Saving…' : edit.isNew ? 'Create link' : 'Save' }}</button>
         </div>
       </form>
 
       <div class="ag-bar lk-new" v-if="!edit">
-        <button v-if="record" class="btn btn-primary" @click="startNew('personal')">+ New link for this record</button>
-        <button v-else-if="isAdmin" class="btn btn-primary" @click="startNew('open')">+ New link for anyone</button>
+        <!-- 25 Nov 2026 (Khairul): the note on the left, the + New link button on the right -->
         <span class="note" v-if="!record">Personal links for one record are made from the record (Send to fill in & sign).</span>
+        <button v-if="record" class="btn btn-primary lk-new-btn" @click="startNew('personal')">+ New link for this record</button>
+        <button v-else-if="isAdmin" class="btn btn-primary lk-new-btn" @click="startNew('open')">+ New link for anyone</button>
       </div>
 
       <form class="lk-wa" v-if="wa && wa.c !== created" @submit.prevent="sendWa">
@@ -108,7 +113,8 @@
           </div>
         </form>
 
-      <div class="table-wrap" v-if="shown.length">
+      <!-- 25 Nov 2026 (Khairul): the list hides while a link is being made or edited, and comes back on Cancel or Save -->
+      <div class="table-wrap" v-if="shown.length && !edit">
         <table class="table">
           <thead><tr><th>Link</th><th>Type</th><th>Status</th><th class="num">Sent in</th><th>Closes</th><th></th></tr></thead>
           <tbody>
@@ -121,19 +127,20 @@
               <td class="lk-acts">
                 <button class="act-pill" @click="copy(linkUrl(l.slug), 'Link copied')">Copy link</button>
                 <button class="act-pill wa" @click="startWa(l)">WhatsApp</button>
-                <button class="act-pill" @click="startEdit(l)">Edit</button>
+                <!-- 25 Nov 2026 (Khairul): Edit and Delete as quiet icons; Copy link and WhatsApp stay as labelled buttons -->
+                <button class="lk-icon" type="button" title="Edit link" :aria-label="`Edit ${l.title || l.slug}`" @click="startEdit(l)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
                 <button class="act-pill good" v-if="l.active === false" @click="toggle(l)">Turn on</button>
                 <template v-if="deleting === l.slug">
                   <button class="act-pill danger" :disabled="busy" @click="remove(l)">{{ busy ? 'Deleting…' : 'Yes, delete' }}</button>
                   <button class="act-pill" @click="deleting = ''">Cancel</button>
                 </template>
-                <button class="act-pill danger" v-else-if="canDelete(l)" @click="deleting = l.slug">Delete</button>
+                <button class="lk-icon del" type="button" v-else-if="canDelete(l)" title="Delete link" :aria-label="`Delete ${l.title || l.slug}`" @click="deleting = l.slug"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p class="empty" v-else-if="!loading">No links yet.</p>
+      <p class="empty" v-else-if="!loading && !edit">No links yet.</p>
       <p class="notice ok lk-toast" v-if="toast">{{ toast }}</p>
     </div>
   </aside>
@@ -163,11 +170,29 @@ onMounted(async () => {
   if (props.record && !shown.value.length) startNew('personal');
 });
 
-function startNew(kind) {
-  created.value = null;
-  const base = slugify(kind === 'personal' ? `${props.record.title}-${props.form.name}` : props.form.name);
-  edit.value = { isNew: true, kind, slug: base.length >= 3 ? base : base + '-form', title: props.form.name, intro: '', templateId: props.templates[0]?.id || '',
+const checking = ref(false);
+const editHeading = computed(() => (edit.value?.isNew ? (edit.value.kind === 'personal' ? 'New personal link' : 'New link for anyone') : 'Edit ' + (edit.value?.slug || '')));
+// 25 Nov 2026 (Khairul): the form opens on a link name nobody uses yet (name, name-2, name-3 ...), so it never starts on an error
+async function freeSlug(base) {
+  const taken = new Set(links.value.map(l => l.slug));
+  for (let n = 1; n <= 30; n++) {
+    const s = n === 1 ? base : `${base.slice(0, 56)}-${n}`;
+    if (taken.has(s)) continue;
+    try { if (await getLink(s)) continue; } catch (_) { /* can't check: let save check again */ }
+    return s;
+  }
+  return `${base.slice(0, 52)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+async function startNew(kind) {
+  created.value = null; slugMsg.value = '';
+  let base = slugify(kind === 'personal' ? `${props.record.title}-${props.form.name}` : props.form.name);
+  if (base.length < 3) base += '-form';
+  edit.value = { isNew: true, kind, slug: base, title: props.form.name, intro: '', templateId: props.templates[0]?.id || '',
     password: makePassword(), expiresAt: '', lockFilled: true, allowDownload: true };
+  checking.value = true;
+  const free = await freeSlug(base);
+  if (edit.value?.isNew && edit.value.slug === base) edit.value.slug = free;
+  checking.value = false;
 }
 function startEdit(l) {
   created.value = null;
@@ -260,9 +285,13 @@ async function copy(text, msg) {
 .lk-share { display: grid; gap: 4px; font-size: 13px; }
 .lk-share code { background: var(--surface); padding: 4px 8px; border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; }
 .lk-form { margin-bottom: 16px; }
+.lk-headtxt { display: grid; gap: 2px; min-width: 0; }
+.lk-back { justify-self: start; font-size: 12px; }
 .lk-form h3 { margin: 0 0 4px; font-size: 15px; }
 .lk-slug { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
-.lk-slug span { padding: 0 8px 0 12px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.lk-slug span { align-self: stretch; display: flex; align-items: center; padding: 0 12px; margin-right: 10px; color: var(--muted); font-size: 13px; white-space: nowrap; background: var(--hover); border-right: 1px solid var(--border); }
+.lk-lbl { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lk-gen { font-size: 12px; }
 .lk-slug .input { border: 0; border-radius: 0; padding-left: 0; }
 .lk-new { margin-bottom: 12px; }
 .lk-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
@@ -274,4 +303,11 @@ code { font-size: 12px; }
 .btn-wa { background: #25D366; border-color: #25D366; color: #fff; }
 .btn-wa:hover { background: #1EBE5A; border-color: #1EBE5A; color: #fff; }
 .act-pill.wa { color: #128C7E; border-color: color-mix(in srgb, #25D366 45%, transparent); background: color-mix(in srgb, #25D366 10%, transparent); }
+.lk-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; cursor: pointer; padding: 0; vertical-align: middle; }
+.lk-icon svg { width: 17px; height: 17px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: stroke var(--fast, .15s); }
+.lk-icon:hover, .lk-icon:focus-visible { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.lk-icon:hover svg, .lk-icon:focus-visible svg { stroke: var(--accent); }
+.lk-icon.del:hover, .lk-icon.del:focus-visible { background: #fef2f2; }
+.lk-icon.del:hover svg, .lk-icon.del:focus-visible svg { stroke: #ef4444; }
+.lk-new-btn { margin-left: auto; }
 </style>

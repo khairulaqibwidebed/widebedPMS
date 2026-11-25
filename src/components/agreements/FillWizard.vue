@@ -2,14 +2,19 @@
   <div class="wz">
     <div class="wz-head">
       <div class="wz-title">{{ title }}</div>
-      <div class="wz-sub">{{ onReview ? 'Last step · Check and submit' : `Step ${index + 1} of ${steps.length + 1} · ${current?.title || ''}` }}</div>
+      <!-- 25 Nov 2026 (Khairul): the steps are a jump-to-step list on the "Step x of y" line, not rows of pills above the form -->
+      <div class="wz-jump" v-click-outside="() => (jumpOpen = false)" v-esc="() => (jumpOpen = false)">
+        <button type="button" class="wz-sub" :aria-expanded="String(jumpOpen)" aria-haspopup="listbox" @click="jumpOpen = !jumpOpen">
+          <span>{{ onReview ? `Step ${steps.length + 1} of ${steps.length + 1} · Review` : `Step ${index + 1} of ${steps.length + 1} · ${current?.title || ''}` }}</span><span class="wz-caret" aria-hidden="true">▾</span>
+        </button>
+        <ol class="wz-steps" v-if="jumpOpen" role="listbox" aria-label="Jump to a step">
+          <li v-for="(s, i) in steps" :key="s.title + i" :class="{ on: i === index, done: i < index }">
+            <button type="button" role="option" :aria-selected="String(i === index)" :disabled="i > furthest" @click="jump(i)"><span class="wz-num">{{ i < index ? '✓' : i + 1 }}</span><span class="wz-name">{{ s.title }}</span></button>
+          </li>
+          <li :class="{ on: onReview }"><button type="button" role="option" :aria-selected="String(onReview)" :disabled="steps.length > furthest" @click="jump(steps.length)"><span class="wz-num">{{ steps.length + 1 }}</span><span class="wz-name">Review</span></button></li>
+        </ol>
+      </div>
       <div class="wz-bar" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: progress + '%' }"></span></div>
-      <ol class="wz-steps">
-        <li v-for="(s, i) in steps" :key="s.title + i" :class="{ on: i === index, done: i < index }">
-          <button type="button" :disabled="i > furthest" @click="go(i)"><span class="wz-num">{{ i < index ? '✓' : i + 1 }}</span><span class="wz-name">{{ s.title }}</span></button>
-        </li>
-        <li :class="{ on: onReview }"><button type="button" :disabled="steps.length > furthest" @click="go(steps.length)"><span class="wz-num">{{ steps.length + 1 }}</span><span class="wz-name">Review</span></button></li>
-      </ol>
     </div>
 
     <section class="wz-body card" ref="body">
@@ -83,7 +88,7 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:modelValue', 'submit', 'draft']);
 
-const index = ref(0), furthest = ref(0), errors = ref({}), agreed = ref(false), body = ref(null);
+const index = ref(0), furthest = ref(0), errors = ref({}), agreed = ref(false), body = ref(null), jumpOpen = ref(false);
 const computed_ = computed(() => computeValues(props.fields, props.modelValue));
 const steps = computed(() => {
   const out = []; let cur = { title: 'Details', fields: [] };
@@ -114,20 +119,27 @@ async function go(i) {
   await nextTick();
   body.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+function jump(i) { jumpOpen.value = false; go(i); }
+// 25 Nov 2026 (Khairul): take the person straight to the first field that needs fixing (centred), then put the cursor in it
+function toFirstError(ids) {
+  nextTick(() => {
+    const first = ids.map(id => document.getElementById('fld-' + id)).find(Boolean);
+    if (!first) return;
+    (first.closest('.field') || first).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    first.focus({ preventScroll: true });
+  });
+}
 function next() {
   const errs = validate(current.value.shown, props.modelValue);
   errors.value = { ...errors.value, ...errs };
-  if (Object.keys(errs).length) {
-    nextTick(() => document.getElementById('fld-' + Object.keys(errs)[0])?.focus());
-    return;
-  }
+  if (Object.keys(errs).length) { toFirstError(current.value.shown.map(f => f.id).filter(id => errs[id])); return; }
   go(index.value + 1);
 }
 function submit() {
   const errs = validate(props.fields, props.modelValue);
   errors.value = errs;
   const bad = steps.value.findIndex(s => s.shown.some(f => errs[f.id]));
-  if (bad >= 0) { go(bad); return; }
+  if (bad >= 0) { go(bad).then(() => toFirstError(steps.value[bad].shown.map(f => f.id).filter(id => errs[id]))); return; }
   emit('submit');
 }
 defineExpose({ go });
@@ -137,18 +149,26 @@ defineExpose({ go });
 .wz { max-width: 860px; margin: 0 auto; display: grid; gap: 16px; }
 .wz-head { display: grid; gap: 6px; }
 .wz-title { font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
-.wz-sub { color: var(--muted); font-size: 13px; }
+.wz-jump { position: relative; justify-self: start; max-width: 100%; }
+.wz-sub { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 0; background: none; padding: 2px 0; font: inherit; color: var(--muted); font-size: 13px; cursor: pointer; text-align: left; }
+.wz-sub span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wz-sub:hover, .wz-sub[aria-expanded="true"] { color: var(--accent); }
+.wz-caret { font-size: 11px; flex: none; }
 .wz-bar { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 4px; }
 .wz-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .35s cubic-bezier(.2,.7,.3,1); }
-.wz-steps { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; padding: 0; }
-.wz-steps button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
-  padding: 4px 10px 4px 4px; font: inherit; font-size: 12px; color: var(--text-2); cursor: pointer; }
-.wz-steps button:disabled { cursor: default; opacity: .55; }
+.wz-steps { list-style: none; position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: min(520px, calc(100vw - 32px)); max-height: min(420px, 60vh); overflow-y: auto;
+  margin: 0; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.14); display: grid; gap: 2px; }
+.wz-steps button { display: flex; width: 100%; align-items: center; gap: 10px; border: 0; background: none; border-radius: 8px; text-align: left;
+  padding: 7px 10px 7px 6px; font: inherit; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.wz-steps button:hover:not(:disabled) { background: var(--hover); }
+.wz-steps button:disabled { cursor: default; opacity: .5; }
+.wz-steps .on button { background: var(--accent-soft); }
+.wz-num { flex: none; }
 .wz-num { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--chip); font-size: 11px; font-weight: 700; }
 .wz-steps .done .wz-num { background: var(--green); color: #fff; }
-.wz-steps .on button { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.wz-steps .on button { color: var(--accent); font-weight: 600; }
 .wz-steps .on .wz-num { background: var(--accent); color: #fff; }
-@media (max-width: 640px) { .wz-name { display: none; } .wz-steps button { padding: 4px; } .wz-title { font-size: 22px; } }
+@media (max-width: 640px) { .wz-title { font-size: 22px; } }
 .wz-body { padding: 24px; scroll-margin-top: 80px; }
 .wz-body h2 { margin: 0 0 6px; font-size: 18px; }
 .wz-intro { color: var(--text-2); margin: 0 0 16px; white-space: pre-line; }
@@ -163,7 +183,9 @@ defineExpose({ go });
 @media (max-width: 520px) { .wz-review dl { grid-template-columns: minmax(0, 1fr); gap: 2px; } .wz-review dd { margin-bottom: 6px; } }
 .wz-agree { display: flex; gap: 10px; align-items: flex-start; margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: var(--accent-soft); cursor: pointer; font-size: 14px; }
 .wz-agree input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex: none; }
-.wz-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: sticky; bottom: 0; padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
+/* 25 Nov 2026 (Khairul): a solid bar with a line on top, so the buttons don't float over the agreement text */
+.wz-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: sticky; bottom: 0; z-index: 5; padding: 12px 16px; background: var(--surface);
+  border-top: 1px solid var(--border); border-radius: 12px 12px 0 0; box-shadow: 0 -6px 16px rgba(0,0,0,.05); }
 .wz-foot .grow { flex: 1; }
 .wz-foot .btn { height: 44px; padding: 0 20px; }
 .wz-submit { min-width: 160px; }

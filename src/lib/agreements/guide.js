@@ -38,7 +38,9 @@ export const PAGES = {
     'The buttons along the top filter by status: All open, To check, Draft, Completed, Archived.',
     'Click a row to open it. Tick one row to "Generate agreement"; tick several to Duplicate or Archive them.',
     '"Save as view" keeps your columns, filters and sorting for next time.',
-    'Import and Export move records to and from Excel or CSV.'] },
+    'Import and Export move records to and from Excel or CSV.',
+    'Click Open on a row to see the whole agreement. Double-click a cell to edit it (formula columns work themselves out).',
+    'Drag a column title to move it, drag its edge to resize. Changes save straight away.'] },
   record: { name: 'One agreement record', steps: ['fill', 'check', 'generate'], tips: [
     'Your changes save by themselves. The line under the title says when it was last saved.',
     'Fields marked * must be filled. A note at the top counts what still needs attention.',
@@ -46,7 +48,7 @@ export const PAGES = {
     '"Generate agreement" makes the PDF. Click "Mark completed" once it is final; "Back to draft" opens it again.'] },
   renewals: { name: 'Renewals', steps: ['renew'], tips: [
     'Only agreements whose form has renewal reminders turned on are listed.',
-    '"Renew" makes the next term as a new record, with the old answers filled in. Change the dates, then send it to sign.',
+    '"Renew" makes the next term as a new record, with the old answers filled in (signatures and end date cleared) and opens it. Change the dates, then send it to sign. The old one is kept and marked Renewed.',
     '"Not renewing" stops the reminders for that agreement; "Undo" brings them back.'] },
   setup: { name: 'Agreement Setup', steps: ['master', 'form', 'template', 'reminders'], tips: [
     'Work from top to bottom: 1 Master files, 2 Forms, 3 Agreement templates.',

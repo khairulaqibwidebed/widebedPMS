@@ -38,7 +38,7 @@
                 <!-- 24 Nov 2026 (Khairul): what is still owed to the agent, from their booking commission lines -->
                 <td v-if="lines" class="nowrap"><template v-if="sumOf(a.id).nUnpaid"><div class="strong">{{ rm(sumOf(a.id).unpaid) }}</div><div class="muted small">{{ `${sumOf(a.id).nUnpaid} booking${sumOf(a.id).nUnpaid > 1 ? 's' : ''}` }}</div></template><span class="muted" v-else>—</span></td>
                 <td class="nowrap">{{ a.bankName || '—' }}<div class="muted small" v-if="a.acctLast4">{{ `···${a.acctLast4}` }}</div></td>
-                <td><button type="button" class="ag-eye" :title="`View ${a.name}`" :aria-label="`View ${a.name}`" @click.stop="openView(a)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-7.2a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z"/></svg></button></td>
+                <td class="chev-col"><ViewChevron :label="`Open ${a.name}`" @click.stop="openView(a)" /></td>
               </tr>
               <SkeletonRows v-if="loading && !agents.length" table :cols="lines ? 8 : 7" />
               <tr v-show="!loading && !shown.length"><td :colspan="lines ? 8 : 7" class="muted">{{ agents.length ? 'No agents match this search.' : canEdit ? 'No agents yet. Use + Add agent.' : 'No agents yet.' }}</td></tr>
@@ -658,10 +658,6 @@ export default {
 .agt-list th, .agt-list td { text-align: center; vertical-align: middle; }
 .agt-list th:first-child, .agt-list td:first-child { text-align: left; }
 .agt-list .ag-cut > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 24 Nov 2026 (Khairul): eye instead of View, as on Offline Payments (grey, magenta on row hover) */
-.ag-eye { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; padding: 0; }
-.ag-eye svg { width: 20px; height: 20px; fill: var(--muted); transition: fill var(--fast); }
-tr.clickable:hover .ag-eye svg, .ag-eye:focus-visible svg { fill: var(--accent); }
 .ag-comm-table { table-layout: fixed; width: 100%; }
 .ag-comm-table th, .ag-comm-table td { vertical-align: middle; }   /* 24 Nov 2026 (Khairul): centred height-wise too */
 .ag-comm-table .ag-cut > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -81,7 +81,7 @@
                 <td>{{ p.code || '—' }}</td>
                 <td class="num">{{ unitsOf(p.id).length }}</td>
                 <td>{{ [p.info?.city, stateOf(p)].filter(Boolean).join(' · ') || '—' }}</td>
-                <td class="num"><button class="navlink" @click.stop="openPropertyPage(p.id)">Open →</button></td>
+                <td class="chev-col"><ViewChevron :label="`Open ${p.name}`" @click.stop="openPropertyPage(p.id)" /></td>
               </tr>
               <tr class="clickable" @click="openPropertyPage(p.id)" v-else>
                 <td class="strong"><span class="dl-dot" :class="driveStatus[p.id]" v-if="driveStatus[p.id]" :title="dotTitle(p)"></span>{{ p.name }}<div class="p-state" :class="{ none: !stateOf(p) }">{{ stateOf(p) || 'No state' }}</div></td>
@@ -98,7 +98,7 @@
                 <td>{{ !unitsOf(p.id).length ? 'Not started' : `${isDone(p.id) ? unitsOf(p.id).length : (monthDocs[p.id]?.completedUnits || 0)} of ${unitsOf(p.id).length} completed` }}</td>
                 <td><span class="pill" :class="isDone(p.id) ? 'green' : 'grey'">{{ isDone(p.id) ? 'Completed' : 'Draft' }}</span></td>
                 <td :class="attentionText(p.id) === '—' ? 'muted' : 'att'">{{ attentionText(p.id) }}</td>
-                <td class="num"><button class="navlink" @click.stop="openPropertyPage(p.id)">Open →</button></td>
+                <td class="chev-col"><ViewChevron :label="`Open ${p.name}`" @click.stop="openPropertyPage(p.id)" /></td>
               </tr>
             </template>
             <SkeletonRows v-if="loading && !shownProperties.length" table :cols="acc.viewOnly ? 5 : 7" />

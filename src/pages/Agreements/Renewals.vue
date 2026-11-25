@@ -21,15 +21,16 @@
       <div class="kpis">
         <button v-for="k in KPIS" :key="k.key" class="card kpi kpi-link" :class="{ on: tab === k.key }" @click="tab = k.key">
           <div class="label">{{ k.label }}</div>
-          <div class="value" :class="{ alert: k.key === 'ended' && count(k.key) }">{{ count(k.key) }}</div>
+          <div class="value" :class="{ alert: k.key === 'ended' && count(k.key), zero: !count(k.key) }">{{ count(k.key) }}</div>
           <div class="hint">{{ k.hint }}</div>
         </button>
       </div>
 
       <div class="card">
         <div class="ag-bar rn-tabs">
-          <div class="pills" role="group" aria-label="Show">
-            <button v-for="t in TABS" :key="t.key" class="pill-btn" :class="{ on: tab === t.key }" @click="tab = t.key">{{ t.label }} ({{ count(t.key) }})</button>
+          <!-- 25 Nov 2026 (Khairul): same pills as the agreement records: soft active pill, muted counts, a line before All -->
+          <div class="pills rn-pills" role="group" aria-label="Show">
+            <button v-for="t in TABS" :key="t.key" class="pill-btn" :class="{ on: tab === t.key, zero: !count(t.key), split: t.key === 'all' }" @click="tab = t.key">{{ t.label }} <span class="rn-n">{{ count(t.key) }}</span></button>
           </div>
         </div>
         <div class="rn-filters">
@@ -81,27 +82,26 @@
                     <RouterLink v-if="r.state.key === 'renewed' && r.renewal?.renewedTo" class="act-pill" :to="'/Agreements/record/' + r.renewal.renewedTo">Open new term</RouterLink>
                   </template>
                   <template v-else-if="['soon', 'ended', 'active', 'noDate'].includes(r.state.key)">
-                    <button class="act-pill" :disabled="r.busy" @click="setState(r, 'renewing')">Start renewal</button>
-                    <button class="act-pill good" :disabled="r.busy" @click="renew(r)">Renew</button>
-                    <button class="act-pill danger" :disabled="r.busy" @click="askNot(r)">Not renewing</button>
+                    <!-- 25 Nov 2026 (Khairul): Renew in the theme colour; the others grey (Not renewing turns red on hover) -->
+                    <button class="act-pill rn-plain" :disabled="r.busy" @click="setState(r, 'renewing')">Start renewal</button>
+                    <button class="act-pill rn-main" :disabled="r.busy" @click="renew(r)" title="Makes a new record for the next term with the same answers (signatures and end date cleared) and opens it. The old one is kept and marked Renewed.">Renew</button>
+                    <button class="act-pill rn-plain rn-no" :disabled="r.busy" @click="askNot(r)">Not renewing</button>
                   </template>
                   <template v-else-if="r.state.key === 'renewing'">
-                    <button class="act-pill good" :disabled="r.busy" @click="renew(r)">Renew now</button>
-                    <button class="act-pill danger" :disabled="r.busy" @click="askNot(r)">Not renewing</button>
-                    <button class="act-pill" :disabled="r.busy" @click="setState(r, '')">Undo</button>
+                    <button class="act-pill rn-main" :disabled="r.busy" @click="renew(r)" title="Makes a new record for the next term with the same answers (signatures and end date cleared) and opens it. The old one is kept and marked Renewed.">Renew now</button>
+                    <button class="act-pill rn-plain rn-no" :disabled="r.busy" @click="askNot(r)">Not renewing</button>
+                    <button class="act-pill rn-plain" :disabled="r.busy" @click="setState(r, '')">Undo</button>
                   </template>
                   <template v-else-if="r.state.key === 'renewed'">
                     <RouterLink v-if="r.renewal?.renewedTo" class="act-pill" :to="'/Agreements/record/' + r.renewal.renewedTo">Open new term</RouterLink>
                   </template>
-                  <button v-else class="act-pill" :disabled="r.busy" @click="setState(r, '')">Undo</button>
+                  <button v-else class="act-pill rn-plain" :disabled="r.busy" @click="setState(r, '')">Undo</button>
                 </div></td>
               </tr>
               <tr v-if="!shown.length"><td colspan="6" class="rn-empty">Nothing here.</td></tr>
             </tbody>
           </table>
         </div>
-        <p class="note rn-note">Renew makes a new record for the next term with the same answers (signatures and end date cleared) and opens it, so you can set the new dates.
-          The old one is kept and marked Renewed.</p>
       </div>
     </template>
 
@@ -286,4 +286,18 @@ async function renew(r) {
   .rn-acts { flex-wrap: wrap; }
   .rn-ic :deep(.pp) { justify-content: flex-end; }
 }
+.kpi .value.zero { color: var(--muted); opacity: .6; }
+.rn-pills .pill-btn.on { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-color: var(--accent); color: var(--accent); }
+.rn-n { margin-left: 2px; color: var(--muted); font-weight: 500; }
+.rn-pills .pill-btn.on .rn-n { color: inherit; opacity: .65; }
+.rn-pills .pill-btn.zero:not(.on) { opacity: .55; }
+.rn-pills .pill-btn.split { position: relative; margin-left: 13px; }
+.rn-pills .pill-btn.split::before { content: ""; position: absolute; left: -10px; top: 7px; bottom: 7px; width: 1px; background: var(--border); }
+.act-pill.rn-plain { background: var(--surface); color: var(--text); border-color: var(--border); }
+.act-pill.rn-plain:hover:not(:disabled) { background: var(--hover); border-color: color-mix(in srgb, var(--text) 25%, var(--border)); color: var(--text); }
+/* 25 Nov 2026 (Khairul): Renew has a soft theme fill; Not renewing has no border at rest, a soft red pill on hover */
+.act-pill.rn-main { background: var(--accent); border-color: var(--accent); color: #fff; }   /* solid, so it holds up on the pink row hover */
+.act-pill.rn-main:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, #000); border-color: color-mix(in srgb, var(--accent) 85%, #000); color: #fff; }
+.act-pill.rn-no { border-color: transparent; background: none; color: var(--muted); }
+.act-pill.rn-no:hover:not(:disabled) { background: #ef4444; border-color: #ef4444; color: #fff; }   /* 25 Nov 2026: bright red on hover, clear on the pink row */
 </style>

@@ -17,7 +17,7 @@
 
     <section class="kpis">
       <!-- 19 Nov 2026: each card filters the list below by its status (the Status filter follows); Total shows them all -->
-      <button type="button" class="card kpi kpi-link" :class="{ on: !status }" :aria-pressed="!status" @click="status = ''"><div class="label">Total submissions</div><div class="value">{{ rows.length }}</div></button>
+      <button type="button" class="card kpi kpi-link" :class="{ on: !status }" :aria-pressed="!status" @click="status = ''"><div class="label">Total submissions</div><div class="value">{{ listRows.length }}</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: status === 'Checked' }" :aria-pressed="status === 'Checked'" @click="pickStatus('Checked')"><div class="label">Checked</div><div class="value">{{ count('Checked') }}</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: status === 'Pending' }" :aria-pressed="status === 'Pending'" @click="pickStatus('Pending')"><div class="label">Pending</div><div class="value">{{ count('Pending') }}</div></button>
       <button type="button" class="card kpi kpi-link" :class="{ on: status === 'Unknown' }" :aria-pressed="status === 'Unknown'" @click="pickStatus('Unknown')"><div class="label">Unknown</div><div class="value" :class="{ alert: count('Unknown') }">{{ count('Unknown') }}</div></button>
@@ -58,11 +58,11 @@
               <div class="pc-purpose pc-one" :title="r.remarks" v-if="r.remarks"><span class="pc-k">Payment Code</span>{{ r.remarks }}</div>
             </div>
             <div class="pc-side">
-              <b class="pc-amt">{{ `RM ${Number(r.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }}</b>
-              <small class="who" v-if="partsShort(r)">{{ partsShort(r) }}</small>
-              <span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span>
+              <!-- 25 Nov 2026 (Khairul): status beside the amount so the card stays thin -->
+              <div class="pc-top"><span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span><b class="pc-amt">{{ `RM ${Number(r.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }}</b></div>
+              <small class="who pc-parts" v-if="partsShort(r)">{{ partsShort(r) }}</small>
             </div>
-            <button type="button" class="pc-eye" title="View payment" aria-label="View payment" @click.stop="openRow(r)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-7.2a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z"/></svg></button>
+            <ViewChevron label="Open payment" @click.stop="openRow(r)" />
           </div>
           <SkeletonRows v-if="loading && !pageRows.length" :cols="4" />
           <p class="muted empty" v-if="!loading && !pageRows.length">No offline payments found.</p>
@@ -80,7 +80,7 @@
               <td class="num amt">{{ Number(r.amount || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}<div class="who" v-if="partsShort(r)">{{ partsShort(r) }}</div></td>
               <td><span class="tag" :class="'st-' + (r.status || '').toLowerCase()">{{ r.status }}</span><div class="who" v-if="r.editedByName">{{ `by ${r.editedByName}` }}</div></td>
               <td>{{ r.submittedByName || '—' }}</td>
-              <td class="num eye-col"><button type="button" class="pc-eye" title="View payment" aria-label="View payment" @click.stop="openRow(r)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-7.2a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z"/></svg></button></td>
+              <td class="chev-col eye-col"><ViewChevron label="Open payment" @click.stop="openRow(r)" /></td>
             </tr>
             <SkeletonRows v-if="loading && !pageRows.length" table :cols="8" />
             <tr v-if="!loading && !pageRows.length"><td colspan="8" class="muted empty">No offline payments found.</td></tr>
@@ -136,7 +136,7 @@
             <FormField v-if="canEdit" label="Payment code" v-model="ed.remarks" placeholder="Add payment code" />
             <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box" rows="3" maxlength="1000" v-model="ed.purpose"></textarea></div>
           </div>
-          <DriveFiles class="v-files" kind="offline-payments" :record-id="view.id" :label="nameOf(view)" :readonly="!(canEdit || opsEdit(view))" :key="view.id" @folder="l => saveFolder(view, l)" />
+          <DriveFiles class="v-files" kind="offline-payments" :record-id="view.groupPayId || view.id" :label="nameOf(view)" :readonly="!(canEdit || opsEdit(view))" :key="view.id" @folder="l => saveFolder(view, l)" />
 <div class="hist" v-if="hist.length && showHist">
             <h4>Change history</h4>
             <ul>
@@ -263,14 +263,157 @@
       </div>
     </template>
 
+    <!-- 25 Nov 2026 (Khairul): a group booking's payment: one payment, the units inside it; a unit opens its own record -->
+    <template v-if="gView">
+      <div class="modal-back" @click.self="gKey = ''" v-esc="() => { gKey = '' }">
+        <div class="modal view-modal" role="dialog" aria-label="Group offline payment">
+          <div class="v-head">
+            <div><div class="v-title">Offline payment · group booking</div><div class="v-sub">{{ `${gView.date} · submitted by ${gView.submittedByName || '—'}` }}</div></div>
+            <div class="v-status" v-if="canEdit"><OptionPicker class="fld-pick" :model-value="gView.status" :options="statusOptions(gView.status === 'Mixed' ? '' : gView.status)" label="Status" @update:modelValue="v => setStatus(gView, v)" /></div>
+            <span class="tag" v-else :class="'st-' + (gView.status || '').toLowerCase()">{{ gView.status }}</span>
+          </div>
+          <p class="help" v-if="gView.status === 'Mixed'">The units have different statuses. Choosing a status sets it on every unit.</p>
+          <div class="v-amount"><span>{{ `Total for ${gView.members.length} units` }}</span><b>{{ money(gView.amount) }}</b></div>
+          <div class="g-units">
+            <button type="button" class="g-unit" v-for="m in gView.members" :key="m.id" @click="gKey = ''; openRow(m)">
+              <span class="g-u-main"><b>{{ m.unitCode || '—' }}</b><small>{{ [m.bookingNo, m.propertyName].filter(Boolean).join(' · ') }}</small>
+                <small v-if="viewParts(m).length">{{ viewParts(m).map(x => `${x.label.replace(' (kept apart from the rent)', '')} ${money(x.amount)}`).join(' · ') }}</small></span>
+              <span class="g-u-side"><b>{{ money(m.amount) }}</b><span class="tag" :class="'st-' + (m.status || '').toLowerCase()">{{ m.status }}</span></span>
+            </button>
+          </div>
+          <p class="help">Click a unit to see or edit its part of the payment.</p>
+          <div class="v-grid">
+            <div class="v-item"><span>Guest / tenant</span><b>{{ gView.guest || '—' }}</b></div>
+            <div class="v-item"><span>Payment method</span><b>{{ gView.mode || '—' }}</b></div>
+            <div class="v-item"><span>Bank reference</span><b>{{ gView.bankRef || '—' }}</b></div>
+            <div class="v-item"><span>Documents</span><b><a v-if="gView.docsLink" :href="gView.docsLink" target="_blank" rel="noopener">Open link</a><template v-else>None</template></b></div>
+            <div class="v-item v-purpose"><span>Purpose</span><b class="pre">{{ gView.purpose || '—' }}</b></div>
+            <div class="v-item v-purpose"><span>Payment code</span><b>{{ gView.remarks || '—' }}</b></div>
+          </div>
+          <!-- 25 Nov 2026 (Khairul): the payment slip, uploaded once for the whole group (filed under the first unit's record) -->
+          <DriveFiles class="v-files" kind="offline-payments" :record-id="slipId(gView)" :label="nameOf(gView)" :readonly="!canEdit" :key="gView.id" @folder="l => gView.members.forEach(m => saveFolder(m, l))" />
+          <div class="modal-foot"><button type="button" class="btn" @click="gKey = ''">Close</button></div>
+        </div>
+      </div>
+    </template>
+
     <template v-if="open">
       <div class="modal-back" @click.self="closeNew" v-esc="closeNew">
         <!-- 23 Nov 2026 (Khairul): back to the simple flat form; "Payment for" picks Rental or Utilities (one part per payment).
              Rental shows Amount (+ For month with a booking); Utilities shows the booking's bills to tick. Old combined payments still open. -->
-        <form class="modal new-pay" role="dialog" aria-label="New offline payment" @submit.prevent="submit" novalidate @wheel.capture="noWheel">
+        <form class="modal new-pay" role="dialog" aria-label="New offline payment" @submit.prevent="tab === 'group' ? submitGroup() : submit()" novalidate @wheel.capture="noWheel">
           <div class="card-head np-top"><h2 style="margin:0">New offline payment</h2><button type="button" class="icon-btn" aria-label="Close" @click="closeNew">×</button></div>
+          <!-- 25 Nov 2026 (Khairul): Group booking tab: one transfer for several units booked together (same groupId) -->
+          <div class="np-tabs" role="tablist" aria-label="Payment for" v-if="canEdit">
+            <button type="button" role="tab" :aria-selected="String(tab === 'single')" :class="{ on: tab === 'single' }" @click="tab = 'single'">Single booking</button>
+            <button type="button" role="tab" :aria-selected="String(tab === 'group')" :class="{ on: tab === 'group' }" @click="tab = 'group'; if (f.status === 'Unknown') f.status = 'Pending'">Group booking</button>
+          </div>
           <div class="notice error" ref="newErr" v-show="formError">{{ formError }}</div>
-          <div class="grid">
+          <div class="grid" v-if="tab === 'group'">
+            <div class="op-sep wide op-sep-first"><span>Payment</span></div>
+            <div class="field"><label class="req">Status</label>
+              <OptionPicker class="fld-pick" v-model="f.status" :options="newStatusOptions.filter(o => o.value !== 'Unknown')" label="Status" /></div>
+            <FormField label="Payment Date" req type="date" v-model="f.date" />
+            <div class="field"><label class="req">Payment method</label>
+              <OptionPicker class="fld-pick" v-model="f.mode" :options="MODES" label="Payment method" /></div>
+            <FormField v-if="f.mode !== 'Cash'" label="Bank reference" v-model="f.bankRef" placeholder="Reference no. on the bank slip" />
+
+            <div class="op-sep wide"><span>Group booking</span></div>
+            <div class="field wide"><div class="lbl-row"><label class="req" for="opGroup">Group</label>
+                <span class="link-line" v-if="f.groupId">{{ `Group ${groupNo(f.groupId)}` }} <button type="button" class="link-btn" @click="unlinkGroup">Change</button></span>
+                <span class="link-line muted" v-else-if="bkNote">{{ bkNote }}</span></div>
+              <ComboInput id="opGroup" v-model="f.groupSearch" :options="groupOptions" :max="80" placeholder="Search by group id, booking no., tenant or unit" empty-text="No group booking matches." @pick="pickGroup" /></div>
+            <template v-if="f.groupId">
+              <!-- 25 Nov 2026 (Khairul): Rental, Utilities and Charges, each with a "same for all units" switch -->
+              <section class="gp-sec wide">
+                <div class="gp-sec-head"><b>Rental</b><label class="gp-tgl"><span class="tgl"><input type="checkbox" role="switch" v-model="f.gSameRent" @change="groupPurpose()" aria-label="Same amount for all units"><span class="tgl-track"></span></span>Same amount for all units</label></div>
+                <div class="gp-2">
+                  <div class="field"><label :class="{ req: groupSum('rent') > 0 }">For month</label>
+                    <OptionPicker class="fld-pick" v-model="f.forMonth" :options="groupMonthOpts" label="For month" @change="groupPurpose()" /></div>
+                  <FormField v-if="f.gSameRent" label="Rental per unit (RM)" type="number" min="0" step="0.01" placeholder="0.00" v-model="f.gRent" @input="groupPurpose()" />
+                </div>
+                <div class="gp-list" v-if="!f.gSameRent">
+                  <div class="gp-line" v-for="r in f.groupRows" :key="'r' + r.id"><span><b>{{ r.unitCode }}</b><small>{{ [r.bookingNo, r.due > 0 ? `rent ${money(r.due)}` : ''].filter(Boolean).join(' · ') }}</small></span>
+                    <input class="input gp-amt" type="number" min="0" step="0.01" placeholder="0.00" v-model="r.amount" :aria-label="`Rental for ${r.unitCode}`" @input="groupPurpose()"></div>
+                </div>
+                <button type="button" class="link-btn gp-link" @click="fillGroupRent">{{ f.gSameRent ? "Use the first unit's rent" : "Fill each unit's rent" }}</button>
+              </section>
+
+              <section class="gp-sec wide">
+                <div class="gp-sec-head"><b>Utilities</b><label class="gp-tgl"><span class="tgl"><input type="checkbox" role="switch" v-model="f.gSameBills" @change="groupPurpose()" aria-label="Same bill dates for all units"><span class="tgl-track"></span></span>Same bill dates for all units</label></div>
+                <p class="help" v-if="f.groupRows.some(r => r.bills === undefined)">Loading the utility bills…</p>
+                <template v-else-if="f.gSameBills">
+                  <p class="help" v-if="!groupPeriods.length">No unpaid utility bills on these bookings.</p>
+                  <label class="gp-tick" v-for="pd in groupPeriods" :key="pd.key">
+                    <input type="checkbox" :checked="!!f.gPeriods[pd.key]" @change="f.gPeriods = { ...f.gPeriods, [pd.key]: $event.target.checked }; groupPurpose()">
+                    <span><b>{{ pd.key }}</b><small>{{ `${pd.units} of ${f.groupRows.length} units · ${money(pd.total)} unpaid` }}</small></span></label>
+                </template>
+                <div class="gp-list" v-else>
+                  <div class="gp-unit" v-for="r in f.groupRows" :key="'u' + r.id"><div class="gp-unit-head"><b>{{ r.unitCode }}</b><small>{{ r.bookingNo }}</small></div>
+                    <p class="help" v-if="r.bills === null">The bills can't be read.</p>
+                    <p class="help" v-else-if="!r.bills.length">No unpaid bills.</p>
+                    <label class="gp-tick" v-for="bl in r.bills || []" :key="bl.id">
+                      <input type="checkbox" :checked="!!r.ticks[bl.id]" @change="r.ticks = { ...r.ticks, [bl.id]: $event.target.checked }; groupPurpose()">
+                      <span><b>{{ datesText(bl) }}</b><small>{{ `${money(bl.left)} unpaid` }}</small></span></label>
+                  </div>
+                </div>
+                <!-- 25 Nov 2026 (Khairul): a bill not in the PMS yet: made here on each unit's booking and paid by this payment -->
+                <div class="gp-new" v-if="!f.groupRows.some(r => r.bills === undefined)">
+                  <label class="gp-tick"><input type="checkbox" v-model="f.gNew.on" @change="groupPurpose()">
+                    <span><b>Add a new bill and pay it</b><small>For a bill not in the PMS yet. It is saved on each unit's booking and paid by this payment.</small></span></label>
+                  <template v-if="f.gNew.on">
+                    <!-- 25 Nov 2026 (Khairul): same layout as the single payment's new bill: Electricity / Water / Sewerage, each with its own dates and amount, plus a bill photo -->
+                    <template v-for="r in f.groupRows" :key="'n' + r.id">
+                      <div class="up-add" v-if="r.nb.on">
+                        <div class="up-add-head"><b>{{ `New bill · ${r.unitCode}` }} <small class="muted">{{ r.bookingNo }}</small></b><button type="button" class="link-btn" @click="r.nb.on = false; groupPurpose()">Remove</button></div>
+                        <p class="help" v-if="nbFollows(r)" style="margin:0 0 6px">{{ `Dates follow ${nbLead.unitCode} (Same bill dates for all units is on).` }}</p>
+                        <div class="up-line" v-for="k in KINDS" :key="k.key">
+                          <span class="up-kind">{{ k.label }}</span>
+                          <input class="input" type="date" :value="nbDate(r, k.key + 'From')" @input="r.nb[k.key + 'From'] = $event.target.value; groupPurpose()" :disabled="nbFollows(r)" :aria-label="`${k.label} from, ${r.unitCode}`">
+                          <input class="input" type="date" :value="nbDate(r, k.key + 'To')" @input="r.nb[k.key + 'To'] = $event.target.value; groupPurpose()" :disabled="nbFollows(r)" :aria-label="`${k.label} to, ${r.unitCode}`">
+                          <input class="input up-amt" type="number" min="0" step="0.01" placeholder="0.00" v-model="r.nb[k.key]" :aria-label="`${k.label} amount (RM), ${r.unitCode}`" @input="groupPurpose()">
+                        </div>
+                        <div class="field"><label>Bill photo <span class="muted">(optional, goes to the bill's Drive folder, not the payment receipts)</span></label>
+                          <DriveFiles :key="r.nb.id" kind="utility-bills" :record-id="r.nb.id" :list-on-load="false" :label="[r.bookingNo, r.unitCode].filter(Boolean).join(' ')" @folder="l => r.nb.driveFolder = l" /></div>
+                      </div>
+                      <button type="button" class="link-btn up-addbtn" v-else @click="r.nb.on = true; groupPurpose()">{{ `+ Add bill for ${r.unitCode}` }}</button>
+                    </template>
+                    <p class="help" style="margin:0">Leave a unit's amounts empty, or press Remove, if it has no new bill.</p>
+                  </template>
+                </div>
+              </section>
+
+              <section class="gp-sec wide">
+                <div class="gp-sec-head"><b>Charges</b><span class="muted gp-sub">kept apart from the rent</span><label class="gp-tgl"><span class="tgl"><input type="checkbox" role="switch" v-model="f.gSameCharge" @change="groupPurpose()" aria-label="Same charge for all units"><span class="tgl-track"></span></span>Same charge for all units</label></div>
+                <div class="gp-2" v-if="f.gSameCharge">
+                  <FormField label="Charge per unit (RM)" type="number" min="0" step="0.01" placeholder="0.00" v-model="f.gCharge" @input="groupPurpose()" />
+                  <FormField label="What for" :req="+f.gCharge > 0" v-model="f.groupChargeNote" placeholder="e.g. Cleaning fee, key replacement" @input="groupPurpose()" />
+                </div>
+                <div class="gp-list" v-else>
+                  <div class="gp-line gp-line3" v-for="r in f.groupRows" :key="'c' + r.id"><span><b>{{ r.unitCode }}</b><small>{{ r.bookingNo }}</small></span>
+                    <input class="input gp-amt" type="number" min="0" step="0.01" placeholder="0.00" v-model="r.charges" :aria-label="`Charge for ${r.unitCode}`" @input="groupPurpose()">
+                    <input class="input" v-model="r.chargeNote" maxlength="1000" placeholder="What for" :aria-label="`What the charge for ${r.unitCode} is for`" @input="groupPurpose()"></div>
+                </div>
+              </section>
+
+              <!-- the summary: what each unit's payment line will hold -->
+              <div class="wide gp-table">
+                <div class="gp-row gp-head"><span>Unit</span><span class="r">Rental</span><span class="r">Utilities</span><span class="r">Charges</span><span class="r">Total</span></div>
+                <div class="gp-row" v-for="r in f.groupRows" :key="r.id">
+                  <span><b>{{ r.unitCode }}</b><small>{{ [r.bookingNo, r.stay === 'Awaiting payment' ? 'Awaiting payment' : ''].filter(Boolean).join(' · ') }}</small></span>
+                  <span class="r">{{ money(rentOf(r)) }}</span><span class="r">{{ money(utilOf(r)) }}</span><span class="r">{{ money(chargeOf(r)) }}</span><span class="r"><b>{{ money(rowTotal(r)) }}</b></span>
+                </div>
+                <div class="gp-row gp-foot"><span>{{ `Total for ${f.groupRows.length} units` }}</span><span class="r">{{ money(groupSum('rent')) }}</span><span class="r">{{ money(groupSum('util')) }}</span><span class="r">{{ money(groupSum('charge')) }}</span><span class="r gp-all">{{ money(groupTotal) }}</span></div>
+              </div>
+              <p class="help wide" style="margin:0">Each unit's booking gets its own payment line (units with nothing are skipped). Ticked bills are paid in full. The receipt, method, date and reference are shared.</p>
+            </template>
+
+            <div class="op-sep wide"><span>Details</span></div>
+            <div class="field wide"><label class="req">Purpose</label><textarea class="input purpose-box purpose-new gp-purpose" rows="4" maxlength="1000" v-model="f.purpose" placeholder="e.g. Rental for November, 3 units"></textarea></div>
+            <div class="field wide"><label class="req">Receipts / documents</label><DriveFiles kind="offline-payments" :record-id="newId" :label="[f.date, groupNo(f.groupId), f.guest].filter(Boolean).join(' ')" :list-on-load="false" @folder="l => f.docsLink = l" /></div>
+            <div class="field wide" v-if="f.status === 'Checked'"><label class="req">Payment code</label><input class="input" v-model="f.remarks"></div>
+          </div>
+          <div class="grid" v-else>
             <!-- 23 Nov 2026 (Khairul): light separators: Payment, Booking, Amount, Details -->
             <div class="op-sep wide op-sep-first"><span>Payment</span></div>
             <div class="field"><label class="req">Status <span class="muted">(Unknown = no receipt)</span></label>
@@ -363,6 +506,7 @@ import { scoped } from '@/lib/property-scope.js';
 import { liveMixin } from '@/lib/use-live.js';
 import UtilityPart from '@/components/UtilityPart.vue';
 import { loadAllBookings, guestNames, forgetBookings } from '@/lib/booking-search.js';
+import { spread, KINDS, linesText } from '@/lib/utility-bills.js';
 import { r2, money, loadBills, blankUtil, utilAlloc, utilMax, utilPool, addLines, addTotal, linesProblem, newBill, linkBills, partsOf, purposeText, datesText, billOf, refillUtil, oldestFirst, newPayLine } from '@/lib/utility-bills.js';
 import { withState } from '@/lib/states.js';
 import LiveStatus from '@/components/LiveStatus.vue';
@@ -384,19 +528,42 @@ const monthsBetween = (a, b) => {
   return out;
 };
 // 23 Nov 2026: rental (Rental tab), u (Utilities tab, lib/utility-bills.js blankUtil); amount is only typed for Unknown payments
-const blank = () => ({ date: today(), amount: '', lines: [newPayLine()], u: blankUtil(), lastAuto: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '', bookingId: '', bookingNo: '', forMonth: '', bookingMonths: [], monthNotes: {}, monthLabels: {} });
+const blank = () => ({ gNew: { on: false }, gSameRent: true, gRent: '', gSameBills: true, gPeriods: {}, gSameCharge: true, gCharge: '', groupChargeNote: '', groupId: '', groupSearch: '', groupRows: [], groupMonths: [], groupLabels: {}, groupAuto: '', date: today(), amount: '', lines: [newPayLine()], u: blankUtil(), lastAuto: '', propertyId: '', unitCode: '', guest: '', purpose: '', mode: '', bankRef: '', docsLink: '', status: 'Pending', remarks: '', bookingId: '', bookingNo: '', forMonth: '', bookingMonths: [], monthNotes: {}, monthLabels: {} });
 
 export default {
   popups: { ok: 'done' },   // 16 Nov 2026: its messages show as corner popups (lib/page-popups.js)
   mixins: [liveMixin],
   components: { PropertyPicker, FormField, OptionPicker, Paged, DriveFiles, MonthPicker, LiveStatus, ComboInput, UtilityPart, PaymentLines },
-  data() { return { MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, imp: null, pendingLink: '', status: '', open: false, newId: '', view: null, chk: null, editing: false, ed: {}, f: blank(), activeBookings: [], names: guestNames, viewBills: {}, fSnap: '', bkNote: '', layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
+  data() { return { KINDS, MODES, STATUSES, STATUS_OPTS, rows: [], hist: [], showHist: false, loading: true, q: '', from: '', to: '', month: '', rep: null, imp: null, pendingLink: '', status: '', open: false, tab: 'single', newId: '', view: null, gKey: '', chk: null, editing: false, ed: {}, f: blank(), activeBookings: [], names: guestNames, viewBills: {}, fSnap: '', bkNote: '', layout: savedLayout(), properties: [], units: [], busy: false, error: '', formError: '', done: '' }; },
   watch: {
     view(r) { this.loadHistory(r); this.loadViewBills(r); },
     // 23 Nov 2026: the purpose fills itself from the Rental and Utilities tabs until it is typed over
     autoPurpose(v) { const f = this.f; if (!f.bookingId) return; if (!f.purpose.trim() || f.purpose === f.lastAuto) f.purpose = v; f.lastAuto = v; }
   },
   computed: {
+    // 25 Nov 2026 (Khairul): group bookings (several units booked together, offlineBookings.groupId), one row per group
+    groupOptions() {
+      const by = {};
+      this.activeBookings.filter(b => b.groupId).forEach(b => { (by[b.groupId] ||= []).push(b); });
+      return Object.entries(by).map(([gid, list]) => {
+        const l = [...list].sort((a, b) => String(a.bookingNo || '').localeCompare(String(b.bookingNo || ''))), b0 = l[0], live = l.filter(x => x.stay !== 'Cancelled');
+        return { key: gid, value: this.names[b0.id] || b0.bookingNo || gid, dim: !live.length,
+          hint: [`Group ${this.groupNo(gid)}`, l.map(x => x.bookingNo || x.id).join(', '), l.map(x => x.unitCode || x.unitId).join(', '), b0.propertyName, `${b0.arrival} to ${b0.departure}`, `${live.length} unit${live.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ') };
+      });
+    },
+    nbLead() { return (this.f.groupRows || []).find(r => r.nb && r.nb.on) || null; },
+    groupTotal() { return r2(this.groupSum('rent') + this.groupSum('util') + this.groupSum('charge')); },
+    // Same bill dates for all units: the unpaid bills grouped by their dates ("29/09–29/10"), ticked once for every unit
+    groupPeriods() {
+      const by = {};
+      (this.f.groupRows || []).forEach(r => (r.bills || []).forEach(b => { const k = datesText(b), p = by[k] ||= { key: k, units: new Set(), total: 0, from: '' };
+        p.units.add(r.id); p.total = r2(p.total + b.left); const fr = (b.lines || []).map(l => l.from).filter(Boolean).sort()[0] || ''; if (!p.from || fr < p.from) p.from = fr; }));
+      return Object.values(by).map(p => ({ ...p, units: p.units.size })).sort((a, b) => a.from.localeCompare(b.from));
+    },
+    groupMonthOpts() {
+      const f = this.f, list = f.groupMonths || [];
+      return [{ value: '', label: 'Choose month' }, ...list.map(m => ({ value: m, label: f.groupLabels[m] || monthName(m) }))];
+    },
     // The Guest / tenant suggestions: every booking this person may see (23 Nov 2026), with its stay status
     bookingOptions() {
       return this.activeBookings.map(b => ({ key: b.id, value: this.names[b.id] || b.bookingNo || b.id, dim: b.stay === 'Cancelled',
@@ -440,9 +607,32 @@ export default {
     // View and Edit are separate ticks on Staff accounts: View reads the page, Edit also creates and changes payments
     canEdit() { return can(useSession(), 'offlinePayments.edit'); },
     yearOptions() { const y = new Date().getFullYear(); return Array.from({ length: 5 }, (_, i) => ({ value: String(y - i), label: String(y - i) })); },
+    // 25 Nov 2026 (Khairul): a group booking's payment shows as ONE payment in the list. It is still saved as one record per
+    // unit (each unit's booking reads its own), joined by groupPayId (older ones: same group, date and receipt folder).
+    listRows() {
+      const by = new Map(), out = [];
+      this.rows.forEach(r => {
+        const k = r.groupPayId || (r.groupId && r.docsLink ? `${r.groupId}|${r.date}|${r.docsLink}` : '');
+        if (!k) { out.push(r); return; }
+        if (!by.has(k)) { const g = { id: 'grp_' + k, isGroup: true, members: [] }; by.set(k, g); out.push(g); }
+        by.get(k).members.push(r);
+      });
+      return out.map(g => {
+        if (!g.isGroup) return g;
+        const m = [...g.members].sort((a, b) => String(a.unitCode || '').localeCompare(String(b.unitCode || ''))), r0 = m[0];
+        if (m.length === 1) return r0;
+        const st = new Set(m.map(x => x.status)), props = [...new Set(m.map(x => x.propertyName).filter(Boolean))];
+        return { ...r0, id: g.id, isGroup: true, members: m, amount: r2(m.reduce((t, x) => t + (Number(x.amount) || 0), 0)),
+          parts: m.flatMap(x => (Array.isArray(x.parts) && x.parts.length ? x.parts : [{ type: 'rental', amount: Number(x.amount) || 0 }])),
+          propertyName: props.join(', '), unitCode: `${m.length} units: ${m.map(x => x.unitCode).filter(Boolean).join(', ')}`,
+          bookingNo: m.map(x => x.bookingNo).filter(Boolean).join(', '), status: st.size === 1 ? r0.status : 'Mixed',
+          remarks: [...new Set(m.map(x => x.remarks).filter(Boolean))].join(', ') };
+      });
+    },
+    gView() { return this.gKey ? this.listRows.find(r => r.id === this.gKey) || null : null; },
     shown() {
       const q = this.q.trim().toLowerCase();
-      return this.rows.filter(r => (!this.status || r.status === this.status) && (!this.from || r.date >= this.from) && (!this.to || r.date <= this.to)
+      return this.listRows.filter(r => (!this.status || r.status === this.status) && (!this.from || r.date >= this.from) && (!this.to || r.date <= this.to)
         && (!q || [r.guest, r.propertyName, r.unitCode, r.bankRef, r.submittedByName, r.purpose, r.bookingNo].some(v => String(v || '').toLowerCase().includes(q))));
     }
   },
@@ -462,7 +652,7 @@ export default {
   methods: {
     // What the new payment form holds, to tell if anything was typed since it opened
     snapOf(f) {
-      return JSON.stringify([f.date, f.amount, f.status, f.mode, f.bankRef, f.guest, f.propertyId, f.unitCode, f.purpose, f.docsLink, f.remarks, f.bookingId,
+      return JSON.stringify([f.groupId, f.gNew, (f.groupRows || []).map(r => [r.amount, r.ticks, r.charges, r.chargeNote, r.nb]), f.gRent, f.gCharge, f.gPeriods, f.gSameRent, f.gSameBills, f.gSameCharge, f.groupChargeNote, f.date, f.amount, f.status, f.mode, f.bankRef, f.guest, f.propertyId, f.unitCode, f.purpose, f.docsLink, f.remarks, f.bookingId,
         (f.lines || []).map(x => [x.type, x.amount, x.forMonth, x.note]), r2(f.u?.amount), Object.keys(f.u?.ticks || {}).filter(k => f.u.ticks[k]).sort(), !!f.u?.add?.on]);
     },
     newDirty() { return this.open && !!this.fSnap && this.snapOf(this.f) !== this.fSnap; },
@@ -476,9 +666,11 @@ export default {
     niceDate(d) { if (!d) return ''; const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']; return `${+d.slice(8, 10)} ${M[+d.slice(5, 7) - 1] || ''} ${d.slice(0, 4)}`; },
     // A status card: show only that status; clicking the card that is already on shows them all again
     pickStatus(s) { this.status = this.status === s ? '' : s; },
-    openRow(r) { this.view = r; this.editing = false; this.pendingLink = ''; },
+    // The record a group's slip is filed under: the form's id (groupPayId); older ones, the first unit the form saved
+    slipId(g) { const m = g.members || []; return g.groupPayId || [...m].sort((a, b) => String(a.bookingNo || '').localeCompare(String(b.bookingNo || ''), undefined, { numeric: true }))[0]?.id || m[0]?.id; },
+    openRow(r) { if (r.isGroup) { this.gKey = r.id; return; } this.view = r; this.editing = false; this.pendingLink = ''; },
     setLayout(v) { this.layout = v; try { localStorage.setItem(LAYOUT_KEY, v); } catch { /* not remembered */ } },
-    count(s) { return this.rows.filter(r => r.status === s).length; },
+    count(s) { return this.listRows.filter(r => r.status === s).length; },
     // Pickers offer the three statuses people choose; Edited only shows when the payment already has it
     statusOptions(cur) { return [...STATUSES.slice(0, 3), ...(cur === 'Edited' ? ['Edited'] : [])].map(s => ({ value: s, label: s })); },
     // Operations can fill in a payment with no receipt (status Unknown)
@@ -532,7 +724,7 @@ export default {
     },
     // opts (23 Nov 2026): { bookingId, billId } from a bill's "Record payment" on the booking: opens on Utilities with that bill ticked
     async openForm(opts = {}) {
-      this.f = blank(); if (!this.canEdit) this.f.lines = [newPayLine('utilities')]; this.newId = doc(collection(db, 'offlinePayments')).id; this.units = []; this.formError = ''; this.open = true;
+      this.tab = 'single'; this.f = blank(); if (!this.canEdit) this.f.lines = [newPayLine('utilities')]; this.newId = doc(collection(db, 'offlinePayments')).id; this.units = []; this.formError = ''; this.open = true;
       this.fSnap = this.snapOf(this.f);
       const list = this.loadActiveBookings();
       if (!this.properties.length) { try { this.properties = await loadProperties(); } catch { this.formError = 'Could not load the property list.'; } }
@@ -551,7 +743,7 @@ export default {
       try { this.activeBookings = await loadAllBookings(); this.bkNote = this.activeBookings.length ? '' : 'No bookings found. Type the name.'; }
       catch { this.bkNote = 'Bookings could not be loaded. Type the name.'; }
     },
-    r2, money,
+    r2, money, datesText,
     unpaidCount(u) { return (u.bills || []).filter(b => b.status !== 'paid').length; },
     utilTabText(f) {
       if (r2(f.u.amount) > 0 && f.bookingId) return money(f.u.amount);
@@ -653,6 +845,140 @@ export default {
         if (document.activeElement && el.closest('form, .modal')?.contains(document.activeElement)) document.activeElement.blur();   // a focused box would hold the scroll
         for (let p = el.parentElement; p; p = p.parentElement) if (p.scrollHeight > p.clientHeight + 1) p.scrollTop = 0;   // the popup and its backdrop, to the top
       });
+    },
+    // ---------- Group booking tab (25 Nov 2026, Khairul) ----------
+    groupNo(gid) { return String(gid || '').replace(/^offline_/, ''); },
+    unlinkGroup() { Object.assign(this.f, { groupId: '', groupSearch: '', groupRows: [], groupMonths: [], groupLabels: {}, forMonth: '' }); },
+    // A group picked: its bookings (cancelled ones left out) with their rent; the months come from the first booking (same dates)
+    pickGroup(o) {
+      const f = this.f, list = this.activeBookings.filter(b => b.groupId === o.key && b.stay !== 'Cancelled')
+        .sort((a, b) => String(a.bookingNo || '').localeCompare(String(b.bookingNo || '')));
+      if (!list.length) { this.formError = 'Every booking in this group is cancelled.'; this.showError('newErr'); return; }
+      const b0 = list[0], lease = b0.longTerm ? leaseMonths(b0, Number(b0.monthlyRent) || 0) : [];
+      f.groupId = o.key; f.guest = this.names[b0.id] || o.value || '';
+      f.groupMonths = lease.length ? lease.map(x => x.m) : monthsBetween(b0.arrival, b0.departure);
+      f.groupLabels = Object.fromEntries(lease.map(x => [x.m, `${x.label} · ${leaseSpan(x)}`]));
+      f.forMonth = f.groupMonths[0] || '';
+      f.groupRows = list.map(b => ({ id: b.id, bookingNo: b.bookingNo || b.id, unitCode: b.unitCode || b.unitId || '', propertyId: b.propertyId || '', propertyName: b.propertyName || '',
+        stay: b.stay, due: Number(b.longTerm ? b.monthlyRent : b.rental) || 0, amount: '', ticks: {}, charges: '', chargeNote: '', bills: undefined, owing: 0,
+        nb: { id: doc(collection(db, 'utilityBills')).id, on: true, driveFolder: '', ...Object.fromEntries(KINDS.flatMap(k => [[k.key, ''], [k.key + 'From', ''], [k.key + 'To', '']])) } }));
+      f.gPeriods = {}; f.gRent = '';
+      f.groupRows.forEach(r => this.loadGroupBills(r));
+      this.formError = '';
+      this.groupPurpose();
+    },
+    fillGroupRent() {
+      const f = this.f;
+      if (f.gSameRent) { const d = f.groupRows.find(r => r.due > 0)?.due; if (d) f.gRent = String(r2(d)); }
+      else f.groupRows.forEach(r => { if (r.due > 0) r.amount = String(r2(r.due)); });
+      this.groupPurpose();
+    },
+    // What each unit pays (the switches pick the shared box or the unit's own)
+    rentOf(r) { return r2(this.f.gSameRent ? this.f.gRent : r.amount); },
+    groupBillsOf(r) { const f = this.f; return (r.bills || []).filter(b => (f.gSameBills ? f.gPeriods[datesText(b)] : r.ticks[b.id])); },
+    utilOf(r) { return r2(this.groupBillsOf(r).reduce((t, b) => t + b.left, 0) + this.newBillOf(r)); },
+    // The new bill typed for a unit (Add a new bill and pay it): its lines and total
+    // With Same bill dates on, every unit's new bill takes its dates from the first unit that has a new bill.
+    nbFollows(r) { const lead = this.nbLead; return !!(this.f.gSameBills && lead && lead !== r); },
+    nbDate(r, key) { return (this.nbFollows(r) ? this.nbLead.nb : r.nb)?.[key] || ''; },
+    newLinesOf(r) { return KINDS.map(k => ({ kind: k.key, from: this.nbDate(r, k.key + 'From'), to: this.nbDate(r, k.key + 'To'), amount: r.nb?.[k.key] })); },
+    newBillOf(r) { return this.f.gNew?.on && r.nb?.on ? r2(KINDS.reduce((t, k) => t + (Number(r.nb?.[k.key]) || 0), 0)) : 0; },
+    chargeOf(r) { return r2(this.f.gSameCharge ? this.f.gCharge : r.charges); },
+    chargeNoteOf(r) { return String(this.f.gSameCharge ? this.f.groupChargeNote : r.chargeNote || '').trim(); },
+    groupSum(k) { const fn = { rent: this.rentOf, util: this.utilOf, charge: this.chargeOf }[k]; return r2((this.f.groupRows || []).reduce((t, r) => t + fn(r), 0)); },
+    rowTotal(r) { return r2(this.rentOf(r) + this.utilOf(r) + this.chargeOf(r)); },
+    // A unit's unpaid utility bills (undefined = loading, null = can't be read)
+    async loadGroupBills(r) {
+      const list = await loadBills({ id: r.id, propertyId: r.propertyId });
+      const row = this.f.groupRows.find(x => x.id === r.id); if (!row) return;   // another group picked meanwhile
+      row.bills = list ? list.filter(b => b.left > 0.004).sort(oldestFirst) : null;
+      row.owing = row.bills ? r2(row.bills.reduce((t, b) => t + b.left, 0)) : 0;
+    },
+    // The purpose fills itself until it is typed over, one line each: Rental Nov 2026 RM 666.00 / Utilities RM 90.00 / Charges RM 50.00 (Cleaning) / 3 units (T-017, T-018, T-019)
+    // 25 Nov 2026 (Khairul): Utilities in detail, a line per unit: each bill's kinds, dates and amounts
+    utilDetail() {
+      const one = ls => ls.filter(l => Number(l.amount) > 0).map(l => `   ${linesText({ lines: [l] })}`);
+      const old = b => (b.left < b.total - 0.004 ? [`   Bill ${datesText(b)} balance ${money(b.left)}`] : one(b.lines || []));
+      return this.f.groupRows.filter(r => this.utilOf(r) > 0).flatMap(r => [`- ${r.unitCode} (${r.bookingNo}): ${money(this.utilOf(r))}`,
+        ...this.groupBillsOf(r).flatMap(old), ...(this.newBillOf(r) > 0 ? one(this.newLinesOf(r)) : [])]);
+    },
+    // 25 Nov 2026 (Khairul): a line per unit under Rental and Charges too
+    unitLines(amt, noteOf) {
+      return this.f.groupRows.filter(r => amt(r) > 0).map(r => { const n = noteOf ? noteOf(r) : ''; return `- ${r.unitCode} (${r.bookingNo}): ${money(amt(r))}${n ? ` (${n})` : ''}`; });
+    },
+    groupPurpose() {
+      const f = this.f, paid = f.groupRows.filter(r => this.rowTotal(r) > 0), list = paid.length ? paid : f.groupRows;
+      const rent = this.groupSum('rent'), util = this.groupSum('util'), ch = this.groupSum('charge'), note = [...new Set(f.groupRows.filter(r => this.chargeOf(r) > 0).map(r => this.chargeNoteOf(r)).filter(Boolean))].join(', ');
+      // 25 Nov 2026 (Khairul): in this order, a line each: name and units, Rental, Utilities, Charges
+      const bits = [`${f.guest.trim() || 'Group'} · ${list.length} unit${list.length === 1 ? '' : 's'}: ${list.map(r => `${r.unitCode} (${r.bookingNo})`).join(', ')}`,
+        rent > 0 || !(util > 0 || ch > 0) ? [`Rental${f.forMonth ? ` ${monthName(f.forMonth)}` : ''}: ${money(rent)}`, ...this.unitLines(r => this.rentOf(r))].join('\n') : '',
+        util > 0 ? [`Utilities: ${money(util)}`, ...this.utilDetail()].join('\n') : '', ch > 0 ? [`Charges: ${money(ch)}${note && f.gSameCharge ? ` (${note})` : ''}`, ...this.unitLines(r => this.chargeOf(r), r => (f.gSameCharge ? '' : this.chargeNoteOf(r)))].join('\n') : ''].filter(Boolean);
+      const text = bits.join('\n');
+      if (!f.purpose.trim() || f.purpose === f.groupAuto) f.purpose = text;
+      f.groupAuto = text;
+    },
+    // One offline payment per unit with an amount: the same date, method, reference, receipt and status; each linked to its
+    // booking. Rental only = a plain payment as before; with Utilities or Charges = parts (rules Draft 1.11), the bills paid
+    // oldest first in the same batch.
+    async submitGroup() {
+      if (this.f.mode === 'Cash') this.f.bankRef = '';
+      const f = this.f, me = useSession(), rows = f.groupRows.filter(r => this.rowTotal(r) > 0);
+      const neg = f.groupRows.find(r => this.rentOf(r) < 0 || this.chargeOf(r) < 0);
+      const noNote = rows.find(r => this.chargeOf(r) > 0 && !this.chargeNoteOf(r));
+      const nbRows = f.gNew.on ? f.groupRows.filter(r => this.newBillOf(r) > 0) : [];
+      const nbBad = nbRows.map(r => [r, linesProblem(this.newLinesOf(r))]).find(([, m]) => m);
+      this.formError = !f.date ? 'Choose the payment date.' : !f.groupId ? 'Choose the group booking.'
+        : neg ? "An amount can't be below 0."
+        : !rows.length ? 'Enter an amount for at least one unit.'
+        : this.groupSum('rent') > 0 && !f.forMonth ? 'Choose the month the rental is for.'
+        : f.groupRows.some(r => r.bills === undefined) && this.groupSum('util') === 0 && (Object.values(f.gPeriods).some(Boolean)) ? 'The utility bills are still loading. Try again in a moment.'
+        : f.gNew.on && !nbRows.length ? 'Type the new bill amounts, or untick Add a new bill.'
+        : f.gNew.on && f.groupRows.some(r => r.nb.on && KINDS.some(k => Number(r.nb[k.key]) < 0)) ? "Bill amounts can't be below 0."
+        : nbBad ? `New bill for ${nbBad[0].unitCode}: ${nbBad[1]}`
+        : noNote ? (f.gSameCharge ? 'Write what the charge is for.' : `Write what the charge for ${noNote.unitCode} is for.`)
+        : !f.mode ? 'Choose the payment method.'
+        : (f.status === 'Checked' && !String(f.remarks || '').trim()) ? 'Enter the payment code (needed for a Checked payment).'
+        : !f.purpose.trim() ? 'Enter the purpose.'
+        : !f.docsLink.trim() ? 'Upload the receipt.' : '';
+      if (this.formError) return this.showError('newErr');
+      this.busy = true;
+      try {
+        const batch = writeBatch(db), states = {};
+        for (const [i, r] of rows.entries()) {
+          if (!(r.propertyId in states)) states[r.propertyId] = await stateFor(r.propertyId);
+          const st = states[r.propertyId], rent = this.rentOf(r), util = this.utilOf(r), ch = this.chargeOf(r), amount = this.rowTotal(r), note = this.chargeNoteOf(r);
+          const ref = i === 0 ? doc(db, 'offlinePayments', this.newId) : doc(collection(db, 'offlinePayments'));
+          const nbAmt = this.newBillOf(r), fresh = {};
+          let nb = null;
+          if (nbAmt > 0) {   // the new bill on this unit's booking, paid in full by this payment
+            const bk = this.activeBookings.find(x => x.id === r.id) || { id: r.id, bookingNo: r.bookingNo, propertyId: r.propertyId, propertyName: r.propertyName, unitCode: r.unitCode };
+            nb = await withState(r.propertyId, newBill(bk, this.newLinesOf(r), 'payment', me, { driveFolder: r.nb.driveFolder || '' }));
+            fresh[r.nb.id] = { total: nb.total, data: nb };
+          }
+          const old = this.groupBillsOf(r), alloc = [...(old.length ? spread(r2(util - (nb ? nb.total : 0)), old) : []), ...(nb ? [{ billId: r.nb.id, amount: nb.total }] : [])];   // ticked bills and the new one, each paid in full
+          const parts = util > 0 || ch > 0 ? [...(rent > 0 ? [{ type: 'rental', amount: rent, forMonth: f.forMonth }] : []), ...(util > 0 ? [{ type: 'utilities', amount: util, bills: alloc }] : []),
+            ...(ch > 0 ? [{ type: 'charges', amount: ch, note: note.slice(0, 1000) }] : [])] : null;
+          if (alloc.length) await linkBills(batch, ref.id, {}, Object.fromEntries(alloc.map(x => [x.billId, x.amount])), fresh);
+          if (nb) {
+            batch.set(doc(db, 'utilityBills', r.nb.id), nb);
+            audit(batch, me, { action: 'utilityBill.create', entity: `utilityBills/${r.nb.id}`, propertyId: r.propertyId || null, changes: [{ field: 'total', old: null, new: nb.total }, { field: 'dates', old: null, new: datesText(nb) }, { field: 'lodgedFrom', old: null, new: 'payment' }] });
+          }
+          const prop = this.properties.find(p => p.id === r.propertyId);
+          batch.set(ref, { ...(st ? { state: st } : {}), date: f.date, amount, propertyId: r.propertyId, propertyName: prop?.name || r.propertyName || '', unitCode: r.unitCode,
+            guest: f.guest.trim(), purpose: f.purpose.trim(), mode: f.mode, bankRef: f.bankRef.trim(), docsLink: f.docsLink.trim(), remarks: f.status === 'Checked' ? f.remarks.trim() : '',
+            status: f.status, verifiedByName: f.status === 'Pending' ? '' : me.name, verifiedDate: f.status === 'Pending' ? '' : today(), createdAt: serverTimestamp(), createdBy: me.user.uid, submittedByName: me.name,
+            bookingId: r.id, bookingNo: r.bookingNo, ...(rent > 0 && f.forMonth ? { forMonth: f.forMonth } : {}), groupId: f.groupId, groupPayId: this.newId,
+            ...(parts ? { parts, billIds: alloc.map(x => x.billId), billsAt: serverTimestamp() } : {}) });
+          audit(batch, me, { action: 'offlinePayment.create', entity: `offlinePayments/${ref.id}`, propertyId: r.propertyId, changes: [['amount', amount], ['date', f.date], ['unitCode', r.unitCode], ['guest', f.guest.trim()],
+            ['purpose', f.purpose.trim()], ['bankRef', f.bankRef.trim()], ['status', f.status], ['bookingNo', r.bookingNo], ['forMonth', rent > 0 ? f.forMonth : ''], ['groupId', f.groupId],
+            ...(parts ? [['parts', this.partsText({ parts })], ['utilities', alloc.map(x => `${x.billId} ${x.amount.toFixed(2)}`).join(', ')]] : [])].filter(([, v]) => v !== '').map(([field, v]) => ({ field, old: null, new: v })) });
+        }
+        await batch.commit();
+        this.open = false; toast('Changes saved');
+        this.done = `${rows.length} offline payment${rows.length === 1 ? '' : 's'} submitted as ${f.status} for group ${this.groupNo(f.groupId)} (${money(this.groupTotal)}).`;
+        await this.load();
+      } catch (e) { this.formError = e.code === 'permission-denied' ? 'Firestore refused this. Utilities or Charges need the latest security rules (Draft 1.11 or later) published, and the Offline Payments Edit tick.' : friendlyError(e, 'save the payments'); this.showError('newErr'); }
+      this.busy = false;
     },
     unlinkBooking() { Object.assign(this.f, { bookingId: '', bookingNo: '', bookingMonths: [], monthNotes: {}, monthLabels: {}, u: this.keepUtil(this.f.u) }); },
     // The Utilities tab without the old booking's bills: the amount typed (or filled) and a new bill being typed stay
@@ -885,6 +1211,7 @@ export default {
     },
     // Saves a status change (plus any extra fields, e.g. the payment code) and sends the usual notifications. true when saved.
     async applyStatus(r, v, extra = {}, more = []) {
+      if (r.isGroup) { let ok = true; for (const x of r.members) if (x.status !== v || extra.remarks) ok = (await this.applyStatus(x, v, extra, more)) && ok; return ok; }
       const me = useSession();
       await this.patch(r, { ...extra, status: v, verifiedByName: v === 'Pending' ? '' : me.name, verifiedDate: v === 'Pending' ? '' : today() }, 'status', r.status, more);
       if (r.status !== v) return false;   // not saved (the error is shown)
@@ -1060,7 +1387,65 @@ export default {
 .op-sep { display: block; margin: 14px 0 0; padding-bottom: 6px; border-bottom: 2px solid var(--border); font-size: 16px; font-weight: 700; color: var(--text); }
 .op-sep-first { margin-top: 2px; }
 .np-top { display: flex; justify-content: space-between; align-items: center; }
+/* 25 Nov 2026: Single booking / Group booking tabs and the group's unit table */
+.np-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 8px 0 12px; }
+.np-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 14px; font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.np-tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+.np-tabs button:hover:not(.on) { color: var(--text); }
+.gp-sec { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 10px; }
+.gp-sec-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.gp-sub { font-size: 12px; }
+.gp-tgl { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2, var(--text)); cursor: pointer; }
+.gp-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.gp-2 > * { margin: 0; }
+.gp-list { display: grid; gap: 6px; }
+.gp-line { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line, var(--border)); font-size: 13px; }
+.gp-line3 { grid-template-columns: minmax(0, 1fr) 130px minmax(0, 1.2fr); }
+.gp-line small, .gp-tick small, .gp-unit-head small { display: block; font-size: 11px; color: var(--muted); }
+.gp-unit { border-top: 1px solid var(--line, var(--border)); padding-top: 8px; }
+.gp-unit-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; margin-bottom: 4px; }
+.gp-unit-head small { display: inline; }
+.gp-tick { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; cursor: pointer; margin-bottom: 6px; }
+.gp-tick:hover { border-color: var(--accent); }
+.gp-tick input { width: 16px; height: 16px; accent-color: var(--accent); }
+.gp-link { justify-self: start; font-size: 13px; }
+.gp-all { color: var(--accent); font-weight: 700; }
+.tgl { position: relative; flex: none; width: 38px; height: 22px; }
+.tgl input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+.tgl-track { position: absolute; inset: 0; border-radius: 999px; background: var(--border); transition: background .2s ease; }
+.tgl-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); transition: transform .2s ease; }
+.tgl input:checked + .tgl-track { background: var(--accent); }
+.tgl input:checked + .tgl-track::after { transform: translateX(16px); }
+.tgl input:focus-visible + .tgl-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) { .gp-2, .gp-line, .gp-line3 { grid-template-columns: minmax(0, 1fr); } .gp-tgl { margin-left: 0; } }
+.gp-purpose { min-height: 96px; }
+.gp-new { display: grid; gap: 10px; border-top: 1px dashed var(--border); padding-top: 10px; }
+.up-add { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; }
+.up-add-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; }
+.up-add-head small { font-weight: 400; margin-left: 4px; }
+.up-line { display: grid; grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr) 120px; gap: 8px; align-items: center; margin-bottom: 6px; }
+.up-kind { font-size: 13px; color: var(--text-2); }
+.up-amt { -moz-appearance: textfield; appearance: textfield; }
+.up-add .field { margin-top: 8px; }
+.up-addbtn { justify-self: start; }
+@media (max-width: 640px) { .up-line { grid-template-columns: 1fr 1fr; } }
+.gp-fill { display: flex; align-items: flex-end; justify-content: flex-end; }
+.gp-table { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.gp-row { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr)); gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line, var(--border)); font-size: 13px; }
+.gp-row:first-child { border-top: 0; }
+.gp-row small { display: block; font-size: 11px; color: var(--muted); }
+.gp-row .r { text-align: right; }
+.gp-head { background: var(--head); font-size: 12px; font-weight: 600; color: var(--muted); }
+.gp-foot { background: var(--head); font-weight: 600; }
+.gp-amt { height: 34px; text-align: right; width: 100%; }
+.gp-row .r small { margin-top: 2px; }
+.gp-fill { gap: 8px; flex-wrap: wrap; }
+.gp-grand { display: flex; justify-content: space-between; padding: 10px 12px; border-top: 1px solid var(--border); font-size: 14px; font-weight: 700; }
+.gp-grand b { color: var(--accent); }
 /* 23 Nov 2026 (Khairul): no ▲▼ spinners on money boxes in the new payment form */
+/* 25 Nov 2026 (Khairul): popups with tabs keep one height on every tab (the body scrolls) */
+/* (it sits 8vh from the top and grows down, so a minimum height stops it jumping between Single and Group booking) */
+@media (min-width: 861px) { .modal.new-pay { min-height: 84vh; } }
 .new-pay :deep(input[type=number]) { -moz-appearance: textfield; appearance: textfield; }
 .new-pay :deep(input[type=number]::-webkit-outer-spin-button), .new-pay :deep(input[type=number]::-webkit-inner-spin-button) { -webkit-appearance: none; margin: 0; }
 .op-util :deep(.up-amount) { margin-top: 12px; }
@@ -1125,13 +1510,20 @@ export default {
 /* 20 Nov 2026 (Khairul): payment code readable: normal-size dark text on a light chip, one line, full text on hover */
 .op-code { display: block; width: fit-content; max-width: 100%; margin-top: 4px; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .op-code .pc-k { font-family: inherit; font-size: 10px; margin-right: 6px; }
-.op-table tr.clickable:hover .pc-eye svg { fill: var(--accent); }
 .op-table .empty { text-align: center; padding: 28px 16px; }
 .op-table td :deep(.op-btn) { min-width: 110px; }
 .tag { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: 500; background: var(--head); color: var(--muted); }
 .tag.st-checked { background: #E3F4EA; color: #1E7A45; }
 .tag.st-pending { background: #FDEFD9; color: #B26A00; }
 .tag.st-unknown { background: #ECEEF2; color: #555B66; }
+.tag.st-mixed { background: #ECEEF2; color: #333A45; }
+.g-units { display: grid; gap: 6px; margin-bottom: 6px; }
+.g-unit { display: flex; justify-content: space-between; gap: 12px; align-items: center; text-align: left; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface, #fff); font: inherit; cursor: pointer; }
+.g-unit:hover { border-color: var(--accent); }
+.g-u-main { display: grid; gap: 2px; min-width: 0; }
+.g-u-main small { color: var(--muted); font-size: 12px; }
+.g-u-side { display: grid; gap: 4px; justify-items: end; }
+.pre { white-space: pre-line; }
 .v-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .v-title { font-size: 18px; font-weight: 600; }
 .v-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
@@ -1165,7 +1557,7 @@ export default {
 .pay-list { display: flex; flex-direction: column; gap: 10px; }
 /* 20 Nov 2026 (Khairul): same layout as Offline bookings cards: who | what for (fixed, centred) | amount | eye */
 /* 23 Nov 2026 (Khairul): fixed amount and eye columns so the middle (Purpose) starts on the same line on every card */
-.pay-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 200px 32px; align-items: center; gap: 20px;
+.pay-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 230px 32px; align-items: center; gap: 20px;
   border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; cursor: pointer; background: var(--surface); transition: border-color var(--fast), box-shadow var(--fast); }
 .pay-card:hover, .pay-card:focus-visible { border-color: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: 0 4px 14px rgba(0, 0, 0, .07); outline: none; }
 /* Level 1: guest and amount. Level 2: booking and place. Level 3: purpose. Level 4: date, method, who. */
@@ -1178,17 +1570,19 @@ export default {
 .pc-mid { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .pc-k { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 6px; }
 .pc-meta { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pc-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pc-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.pc-top { display: flex; align-items: center; gap: 8px; }
+.pc-parts { text-align: right; line-height: 1.35; }
 .pc-amt { font-size: 18px; font-weight: 700; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.pc-eye { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; padding: 0; }
-.pc-eye svg { width: 20px; height: 20px; fill: var(--muted); transition: fill var(--fast); }
-.pay-card:hover .pc-eye svg, .pay-card:focus-visible .pc-eye svg { fill: var(--accent); }
+/* 25 Nov 2026 (Khairul): chevron instead of the eye; theme colour + 2px nudge when the card is hovered or focused */
+.pay-card .view-chev { justify-self: end; }
+.pay-card:hover .view-chev, .pay-card:focus-visible .view-chev { color: var(--theme-color, var(--brand)); transform: translateX(2px); }
 .pay-list .empty { text-align: center; padding: 28px 16px; }
 @media (max-width: 640px) {
   .pay-card { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
   .pc-main, .pc-mid { grid-column: 1; }
   .pc-side { grid-column: 2; grid-row: 1 / span 2; }
-  .pc-eye { grid-column: 1 / -1; justify-self: start; }
+  .pay-card .view-chev { grid-column: 1 / -1; justify-self: start; }
 }
 .modal { max-width: 920px; width: min(920px, 100%); }
 .modal { padding: 18px 24px 0; }

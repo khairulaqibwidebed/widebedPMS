@@ -11,8 +11,12 @@
             <div class="sub">{{ canAssign ? 'Log offline inquiries and assign each one to an Operations member to follow up.' : 'Log offline inquiries. A Director assigns each one to an Operations member to follow up.' }}</div>
           </div>
         </div>
+        <!-- 25 Nov 2026 (Khairul): search box, status filter to its right, + Log inquiry on the far right -->
         <div class="pills-row" style="margin-bottom:16px">
+        <div class="lead-tools">
+        <input class="input lead-search" type="search" v-model="search" placeholder="Search inquiry, name, looking for, source or assigned to" aria-label="Search tenant leads">
         <OptionPicker v-model="filter" :options="FILTERS.map(f => ({ value: f.key, label: `${f.label} · ${count(f.key)}` }))" label="Status" />
+        </div>
         <button class="btn btn-primary" v-if="canLog" @click="openNew()">+ Log inquiry</button>
         </div>
         <section class="card">
@@ -22,7 +26,8 @@
               <thead><tr><th>Inquiry</th><th>Name</th><th>Looking for</th><th>Source</th><th>Assigned to</th><th>Status</th><th>Updated</th><th></th></tr></thead>
               <tbody>
                 <template v-for="ld in pageRows" :key="ld.id">
-                  <tr>
+                  <!-- 25 Nov 2026 (Khairul): the whole row opens the inquiry; chevron instead of View / Assign (assigning stays in the drop-down) -->
+                  <tr class="clickable" @click="go('lead', ld.id)">
                     <td>{{ ld.id }}</td>
                     <td>
                       <span v-if="canSeeContact(ld)">{{ ld.contactName || '—' }}</span>
@@ -33,7 +38,7 @@
                     <td>{{ ld.source }}</td>
                     <td>
                       <template v-if="!ld.assignedTo && canAssign">
-                        <select class="select assign-sel" aria-label="Assign to" @change="assign(ld, $event.target.value)" :disabled="busy">
+                        <select class="select assign-sel" aria-label="Assign to" @click.stop @change="assign(ld, $event.target.value)" :disabled="busy">
                           <option value="">{{ staff.length ? 'Choose staff' : 'No Operations staff yet' }}</option>
                           <template v-for="s in staff" :key="s.uid"><option :value="s.uid">{{ s.name }}</option></template>
                         </select>
@@ -41,13 +46,13 @@
                       <span v-show="ld.assignedTo">{{ ld.assignedTo }}</span>
                       <span class="muted" v-show="!ld.assignedTo && !canAssign">Waiting for a Director</span>
                     </td>
-                    <td><span class="pill" :class="STATUS[ld.status][1]">{{ STATUS[ld.status][0] }}</span></td>
+                    <td><span class="pill lead-pill" :class="STATUS[ld.status][1]">{{ STATUS[ld.status][0] }}</span></td>
                     <td>{{ short(ld.updated) }}</td>
-                    <td class="num"><button class="editlink" @click="go('lead', ld.id)">{{ ld.assignedTo || !canAssign ? 'View' : 'Assign' }}</button></td>
+                    <td class="chev-col"><ViewChevron :label="`Open inquiry ${ld.id}`" @click.stop="go('lead', ld.id)" /></td>
                   </tr>
                 </template>
                 <SkeletonRows v-if="loading && !shown().length" table :cols="8" />
-                <tr v-show="!loading && !shown().length"><td colspan="8" class="muted">No inquiries here.</td></tr>
+                <tr v-show="!loading && !shown().length"><td colspan="8" class="muted">{{ search.trim() ? 'No inquiries match this search.' : 'No inquiries here.' }}</td></tr>
               </tbody>
             </table>
           </div>
@@ -301,7 +306,7 @@ export default {
     return {
       nextOpen: false, histOpen: false, STATUS, FILTERS, SOURCES, PICKABLE,
       leads: [], staff: [], properties: [], tenant: null, booking: null, tenantStays: 0, known: null,
-      view: 'list', lead: null, newOpen: false, newStart: '', filter: 'all', okMsg: '', formError: '', error: '', loading: true, busy: false,
+      view: 'list', lead: null, newOpen: false, newStart: '', filter: 'all', search: '', okMsg: '', formError: '', error: '', loading: true, busy: false,
       form: {}, upd: {}, ezeeAdd: '', editing: false, edit: {}
     };
   },
@@ -447,7 +452,12 @@ export default {
       this.lead = ld;
     },
     count(k) { return this.leads.filter(x => k === 'all' || x.status === k).length; },
-    shown() { return this.leads.filter(x => this.filter === 'all' || x.status === this.filter).sort((a, b) => b.id.localeCompare(a.id)); },
+    // 25 Nov 2026 (Khairul): the search matches inquiry no., name (only where you may see it), looking for, source and assigned to
+    shown() {
+      const q = this.search.trim().toLowerCase();
+      const hit = x => !q || [x.id, this.canSeeContact(x) ? x.contactName : '', x.lookingFor, x.source, x.assignedTo].some(v => String(v || '').toLowerCase().includes(q));
+      return this.leads.filter(x => (this.filter === 'all' || x.status === this.filter) && hit(x)).sort((a, b) => b.id.localeCompare(a.id));
+    },
     short(iso) { if (!iso) return ''; const [, m, dd] = iso.slice(0, 10).split('-'); return `${+dd} ${MON[+m - 1]}`; },
     full(iso) { return iso ? `${this.short(iso)} ${iso.slice(0, 4)}` : ''; },
     stamp(iso) { return iso ? `${this.short(iso)}, ${iso.slice(11, 16)}` : ''; },
@@ -661,6 +671,10 @@ export default {
 </script>
 
 <style scoped>
+.lead-tools { display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+.lead-search { flex: 1 1 320px; max-width: 460px; height: 40px; }
+/* 25 Nov 2026 (Khairul): status pills stay on one line, e.g. Interested (Pending payment) */
+.lead-pill { white-space: nowrap; }
 /* Log inquiry popup (16 Nov 2026): sections split by a line instead of cards */
 .form-card.in-pop { gap: 0; background: none; }
 .form-card.in-pop > section { padding: 16px 0; border-top: 1px solid var(--border); }

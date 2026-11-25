@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="drawer-back" @click="$emit('close')"></div>
-    <aside class="drawer" role="dialog" aria-label="Edit unit" v-esc="() => $emit('close')">
+    <aside class="drawer tab-fixed" role="dialog" aria-label="Edit unit" v-esc="() => $emit('close')">
       <div class="drawer-head"><h2>{{ u.isNew ? 'Add unit' : `Edit unit · ${u.unitCode}` }}</h2><button class="icon-btn" @click="$emit('close')" aria-label="Close">×</button></div>
       <form class="drawer-body" id="unitForm" @submit.prevent="save()">
         <div class="notice error" v-show="u.error">{{ u.error }}</div>
@@ -329,6 +329,8 @@ export default {
 </script>
 
 <style scoped>
+/* 25 Nov 2026 (Khairul): popups with tabs keep one height on every tab (the body scrolls) */
+@media (min-width: 861px) { .drawer.tab-fixed { height: 90vh; height: 90dvh; } }
 .drive-plan { overflow-wrap: anywhere; }
 .ud-tabs { margin: -6px 0 18px; overflow: visible; }
 .ud-tabs button { padding: 10px 14px; }
