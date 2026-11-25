@@ -1,13 +1,21 @@
 rules_version = '2';
-<<<<<<< HEAD
+// Draft 1.11, 24 Nov 2026 (Khairul): several payment types in one offline payment. parts may hold up to 8 lines (several
+//   Rental lines, one per month; one Utilities; several Charges), each checked by partOk; the payment's amount = the lines
+//   added up. No other change.
+// Draft 1.10, 24 Nov 2026 (Khairul): agent commission per booking. agents/{id} may hold commYearly (% of a Yearly rental) and
+//   its history line holds yearly / prevYearly. New collection agentCommissions/{bookingId}: one line per agent booking, with
+//   the % and amount saved when the booking is made (status unpaid / paid / cancelled). Read: Agent Database, Accounting,
+//   Directors, Operations, Booking Forms and Bookings. The booking form and booking editors (Accounting, Directors,
+//   Operations, Bookings Full) write unpaid or cancelled lines, never payments; on a paid line only the "booking changed" flag.
+//   Accounting and Directors mark a line paid (date, amount, bank ref and pay slip required). Directors undo a payment with a
+//   reason. Nobody deletes. The commission history (agents/{id}/commission) is also read by the booking form and booking
+//   editors, so a new line takes the % that applies on the booking day.
 // Draft 1.09, 24 Nov 2026 (Crane): eZee bookings on Portfolio > Bookings (eZee bookings tab) and Bulk Upload > Monthly check.
 //   - bookings/{id} (eZee bookings): also read by Bookings Base or Full (not the AI Agent), so the booking team sees
 //     what was uploaded from eZee, not only Accounting. Writing is unchanged (Accounting / Directors).
 //   - bookings/{id}/private/main (guest name): also read by Bookings Full / Tenant Leads Full (guestFull), as offline bookings.
 //   - The Monthly check writes only what Accounting already could (new, changed and cancelled eZee bookings) and may save
 //     uploadedVia ('daily' | 'month' | 'report') on a booking; importBatches kind 'ezeeMonth'. No other change.
-=======
->>>>>>> 1643985ac9ff74f6975ddf47adc8bc1786ebe0eb
 // Draft 1.08, 24 Nov 2026 (Khairul): offline payment Charges part { type: 'charges', amount, note } (note = the Purpose, <= 1000
 //   characters). Money for a booking kept apart from the rent. Only Offline Payments Edit creates one (the Operations bill path still
 //   needs a bill). No other change.
@@ -1284,17 +1292,19 @@ service cloud.firestore {
     // View and Edit are separate ticks: Offline Payments View reads; Offline Payments Edit creates and changes.
     match /offlinePayments/{id} {
       // Draft 1.03: Rental / Utilities parts. At most 2 parts of the two shapes; the payment's amount is the parts added up.
+      // Draft 1.11: kept short (8 lines are checked in one request): a Charges note is a string (the app keeps it to 1000)
       function partOk(x) {
-        return x is map && x.keys().hasOnly(['type', 'amount', 'forMonth', 'bills', 'note']) && x.amount is number && x.amount >= 0
-          && (x.type == 'rental' || (x.type == 'utilities' && x.bills is list && x.bills.size() <= 30)
-            || (x.type == 'charges' && x.get('note', '') is string && x.get('note', '').size() <= 1000));   // Draft 1.08
+        return x.keys().hasOnly(['type', 'amount', 'forMonth', 'bills', 'note']) && x.amount is number && x.amount >= 0
+          && (x.type == 'rental' || (x.type == 'charges' && x.get('note', '') is string) || (x.type == 'utilities' && x.bills is list && x.bills.size() <= 30));
       }
+      // Draft 1.11: up to 8 lines (rules can't loop, so each place is written out)
+      function pOk(d, i)  { return d.parts.size() <= i || partOk(d.parts[i]); }
+      function pAmt(d, i) { return d.parts.size() > i ? d.parts[i].amount : 0; }
       function partsOk(d) {
-        return !('parts' in d) || (d.parts is list && d.parts.size() <= 2 && d.get('billIds', []) is list && d.get('billIds', []).size() <= 30
+        return !('parts' in d) || (d.parts is list && d.parts.size() <= 8 && d.get('billIds', []) is list && d.get('billIds', []).size() <= 30
+          && pOk(d, 0) && pOk(d, 1) && pOk(d, 2) && pOk(d, 3) && pOk(d, 4) && pOk(d, 5) && pOk(d, 6) && pOk(d, 7)
           && (d.parts.size() == 0
-            || (d.parts.size() == 1 && partOk(d.parts[0]) && math.abs(d.amount - d.parts[0].amount) < 0.011)
-            || (d.parts.size() == 2 && partOk(d.parts[0]) && partOk(d.parts[1]) && d.parts[0].type != d.parts[1].type
-              && math.abs(d.amount - (d.parts[0].amount + d.parts[1].amount)) < 0.011)));
+            || math.abs(d.amount - (pAmt(d, 0) + pAmt(d, 1) + pAmt(d, 2) + pAmt(d, 3) + pAmt(d, 4) + pAmt(d, 5) + pAmt(d, 6) + pAmt(d, 7))) < 0.011));
       }
       allow read: if can('offlinePayments.view') || can('offlinePayments.edit') || (can('bookings.view') && !isAI());   // Draft 0.73: a booking's payments (not the AI, 0.74)
       allow create: if can('offlinePayments.edit') && request.resource.data.createdBy == request.auth.uid && request.resource.data.status in ['Pending', 'Checked', 'Unknown']
@@ -1881,6 +1891,7 @@ service cloud.firestore {
       function agentKeys() {
         return ['name', 'company', 'agency', 'agencyOther', 'mobile', 'email', 'licenseNo', 'address', 'remarks', 'bankName', 'acctLast4',   // licenseNo: Draft 0.98
           'cardFront', 'cardBack', 'active', 'commDaily', 'commMonthly', 'commRev',   // comm*: Draft 0.95
+          'commYearly',   // Draft 1.10
           'branchIds',   // Draft 1.07: the agent's branches
           'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'updatedBy', 'updatedByName'];
       }
@@ -1906,32 +1917,33 @@ service cloud.firestore {
           && d.get('acctLast4', '') is string && d.get('acctLast4', '').matches('^[0-9]{0,4}$')
           && d.get('active', true) is bool
           && cardOk('cardFront') && cardOk('cardBack')
-          && pctOk(d.get('commDaily', null)) && pctOk(d.get('commMonthly', null)) && d.get('commRev', 0) is int
+          && pctOk(d.get('commDaily', null)) && pctOk(d.get('commMonthly', null)) && pctOk(d.get('commYearly', null)) && d.get('commRev', 0) is int
           && d.updatedBy == request.auth.uid;
       }
       // Draft 0.95: a commission rate is empty (null) or 0 to 100 %
       function pctOk(v) { return v == null || (v is number && v >= 0 && v <= 100); }
       function histPath(rev) { return /databases/$(database)/documents/agents/$(agentId)/commission/$(string(rev)); }
       // Draft 0.95: rates unchanged -> commRev unchanged; changed -> commRev + 1 and its history line written in the same save
-      function commOk(oldD, oldM, oldRev) {
+      function commOk(oldD, oldM, oldY, oldRev) {
         let d = request.resource.data;
-        return (d.get('commDaily', null) == oldD && d.get('commMonthly', null) == oldM && d.get('commRev', 0) == oldRev)
+        return (d.get('commDaily', null) == oldD && d.get('commMonthly', null) == oldM && d.get('commYearly', null) == oldY && d.get('commRev', 0) == oldRev)
           || (d.get('commRev', 0) == oldRev + 1 && existsAfter(histPath(oldRev + 1)));
       }
       allow read: if !isAI() && (canAny(['agents.view', 'agents.edit']) || finOrDir() || isOps() || can('bookingForms.view'));   // 0.97
       allow create: if can('agents.edit') && newKeysOnly(agentKeys()) && agentOk()
         && request.resource.data.createdBy == request.auth.uid
-        && commOk(null, null, 0);
+        && commOk(null, null, null, 0);
       allow update: if can('agents.edit') && request.resource.data.keys().hasOnly(agentKeys()) && agentOk()
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
-        && commOk(resource.data.get('commDaily', null), resource.data.get('commMonthly', null), resource.data.get('commRev', 0));
+        && commOk(resource.data.get('commDaily', null), resource.data.get('commMonthly', null), resource.data.get('commYearly', null), resource.data.get('commRev', 0));
       allow delete: if isDirector();
       // Draft 0.95: commission change history, one line per change (id = the agent's commRev after the change). Add-only.
       match /commission/{rev} {
-        allow read: if !isAI() && canAny(['agents.view', 'agents.edit']);
+        allow read: if !isAI() && (canAny(['agents.view', 'agents.edit', 'bookings.edit']) || finOrDir() || isOps() || can('bookingForms.view'));   // 1.10
         allow create: if can('agents.edit')
-          && request.resource.data.keys().hasOnly(['rev', 'daily', 'monthly', 'prevDaily', 'prevMonthly', 'effectiveFrom', 'note', 'at', 'by', 'byName'])
+          && request.resource.data.keys().hasOnly(['rev', 'daily', 'monthly', 'yearly', 'prevDaily', 'prevMonthly', 'prevYearly', 'effectiveFrom', 'note', 'at', 'by', 'byName'])
+          && request.resource.data.get('yearly', null) == getAfter(/databases/$(database)/documents/agents/$(agentId)).data.get('commYearly', null)   // 1.10
           && rev == string(getAfter(/databases/$(database)/documents/agents/$(agentId)).data.get('commRev', 0))
           && request.resource.data.rev == getAfter(/databases/$(database)/documents/agents/$(agentId)).data.get('commRev', 0)
           && request.resource.data.daily == getAfter(/databases/$(database)/documents/agents/$(agentId)).data.get('commDaily', null)
@@ -1952,6 +1964,58 @@ service cloud.firestore {
           && request.resource.data.updatedBy == request.auth.uid;
         allow delete: if isDirector();
       }
+    }
+
+    // ================= Agent commission per booking (Draft 1.10) =================
+    // agentCommissions/{bookingId}: one line per agent booking (lib/agent-commission.js). The % and amount are saved when the
+    // booking is made; a later change of the agent's % never touches them.
+    match /agentCommissions/{bookingId} {
+      function lineKeys() {
+        return ['bookingId', 'bookingNo', 'propertyId', 'propertyName', 'unitId', 'unitCode', 'arrival', 'departure', 'rentType',
+          'agentId', 'agentName', 'agentCompany', 'rate', 'rateRev', 'rateFrom', 'rateDate', 'base', 'amount', 'status', 'cancelReason',
+          'bookingChanged', 'bookingChangedAt', 'bookingChangeNote', 'paid', 'lastUndo',
+          'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'updatedBy'];
+      }
+      // An unpaid or cancelled line as the booking side writes it (never a payment)
+      function lineOk() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(lineKeys()) && !('paid' in d)
+          && d.status in ['unpaid', 'cancelled'] && d.bookingId == bookingId
+          && d.agentId is string && d.agentId.size() > 0
+          && d.rentType in ['Daily', 'Monthly', 'Yearly']
+          && (d.rate == null || (d.rate is number && d.rate >= 0 && d.rate <= 100))
+          && d.base is number && d.amount is number && d.amount >= 0
+          && d.get('cancelReason', '') is string && d.get('cancelReason', '').size() <= 300
+          && d.updatedBy == request.auth.uid;
+      }
+      function bookingWriter() { return finOrDir() || isOps() || can('bookings.edit'); }
+      allow read: if !isAI() && (canAny(['agents.view', 'agents.edit', 'bookings.view', 'bookings.edit']) || finOrDir() || isOps() || can('bookingForms.view'));
+      // The booking form (new line) and booking edits (worked out again, cancelled, restored)
+      allow create: if lineOk() && request.resource.data.status == 'unpaid' && request.resource.data.createdBy == request.auth.uid && bookingWriter();
+      allow update: if resource.data.status != 'paid' && lineOk() && bookingWriter();
+      // A paid line: the booking side only marks that the booking changed after payment
+      allow update: if resource.data.status == 'paid' && changed().hasOnly(['bookingChanged', 'bookingChangedAt', 'bookingChangeNote', 'updatedAt', 'updatedBy'])
+        && request.resource.data.bookingChanged == true && request.resource.data.get('bookingChangeNote', '') is string
+        && request.resource.data.get('bookingChangeNote', '').size() <= 300 && request.resource.data.updatedBy == request.auth.uid && bookingWriter();
+      // Accounting and Directors: mark paid. Date, amount, bank ref and the pay slip (Google Drive file) are required.
+      allow update: if resource.data.status == 'unpaid' && request.resource.data.status == 'paid'
+        && changed().hasOnly(['status', 'paid', 'updatedAt', 'updatedBy']) && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.paid is map
+        && request.resource.data.paid.keys().hasOnly(['date', 'amount', 'bankRef', 'note', 'slip', 'at', 'by', 'byName'])
+        && request.resource.data.paid.date is string && request.resource.data.paid.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.paid.amount is number && request.resource.data.paid.amount > 0
+        && request.resource.data.paid.bankRef is string && request.resource.data.paid.bankRef.size() > 0 && request.resource.data.paid.bankRef.size() <= 100
+        && request.resource.data.paid.slip is map && request.resource.data.paid.slip.fileId is string
+        && request.resource.data.paid.slip.fileId.matches('^[A-Za-z0-9_-]{10,64}$')
+        && request.resource.data.paid.by == request.auth.uid
+        && finOrDir();
+      // Directors: undo a payment (back to unpaid) with a reason, kept as lastUndo
+      allow update: if resource.data.status == 'paid' && request.resource.data.status == 'unpaid'
+        && changed().hasOnly(['status', 'paid', 'lastUndo', 'updatedAt', 'updatedBy']) && !('paid' in request.resource.data)
+        && request.resource.data.lastUndo is map && request.resource.data.lastUndo.reason is string && request.resource.data.lastUndo.reason.size() > 0
+        && request.resource.data.updatedBy == request.auth.uid
+        && isDirector();
+      allow delete: if false;
     }
 
     // ================= Performance management (Stage 1+2 security/revision fixes, 3 Nov 2026) =================

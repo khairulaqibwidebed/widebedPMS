@@ -59,6 +59,9 @@
         <div class="field" v-if="bk.salesPersonName"><label>Sales person</label><input class="input" :value="bk.salesPersonName" disabled></div>
         <!-- 20 Nov 2026: the agent picked on the booking form (booking source Agent), for their commission -->
         <div class="field" v-if="bk.agentName"><label>Agent</label><input class="input" :value="[bk.agentName, bk.agentCompany].filter(Boolean).join(' · ')" disabled></div>
+        <!-- 24 Nov 2026 (Khairul): the agent's commission for this booking (agentCommissions/{id}), read-only; paid on the Agents page -->
+        <div class="field" v-if="comm"><label>Agent commission<FormulaInfo :steps="commSteps" heading="Commission: how it is worked out" /></label>
+          <input class="input" :value="commText" disabled></div>
         <div class="field"><label>Rental status</label><input class="input" v-model="bk.f.rentalStatus" :disabled="!editable"></div>
         <div class="field"><label>eZee reservation no.</label><input class="input" v-model="bk.f.ezeeReservationNo" :disabled="!editable"></div>
         <div class="field"><label>Remark</label><textarea class="input" rows="2" v-model="bk.f.remark" :disabled="!editable"></textarea></div>
@@ -77,7 +80,7 @@
         <template v-if="bk.payments">
           <p class="help" v-if="!bk.payments.length">{{ bk.amount ? `No payment records. Older booking: RM ${amt(bk.amount)} paid.` : 'No payment recorded yet.' }}</p>
           <template v-for="x in bk.payments" :key="x.id">
-            <div class="pay-row"><span>{{ `${dmy(x.date)}${x.forMonth ? ' · for ' + monthName(x.forMonth) : ''}${x.mode ? ' · ' + x.mode : ''}${x.bankRef ? ' · ' + x.bankRef : ''}` }}</span><b>{{ `RM ${amt(x.amount)}` }}</b><span class="tag">{{ x.status }}</span></div>
+            <div class="pay-row"><span>{{ `${dmy(x.date)}${x.forMonth && !(x.parts || []).length ? ' · for ' + monthName(x.forMonth) : ''}${x.mode ? ' · ' + x.mode : ''}${x.bankRef ? ' · ' + x.bankRef : ''}` }}</span><b>{{ `RM ${amt(x.amount)}` }}</b><span class="tag">{{ x.status }}</span></div>
             <!-- 23 Nov 2026: a Rental + Utilities payment shows its parts and the bills it paid -->
             <div class="pay-part" v-if="payParts(x)">{{ payParts(x) }}</div>
           </template>
@@ -266,7 +269,7 @@
 
 <script>
 import { leaseLabel } from '@/lib/lease-term.js';
-import { payCounts, payMonth, withCarry, rentalOf } from '@/lib/booking-pay.js';
+import { payCounts, withCarry, rentalOf, rentalParts } from '@/lib/booking-pay.js';
 import { PILL, datesText, statusPill, kindLabel, KINDS, partsOf, billMailLink, saveBillEdit, deleteBill, noteEmailed, linesProblem } from '@/lib/utility-bills.js';
 import DriveFiles from '@/components/DriveFiles.vue';
 // Booking drawer (Portfolio › Bookings): an offline booking's details, rent summary and payments; Accounting,
@@ -285,6 +288,8 @@ import InvoiceDialog from '@/components/InvoiceDialog.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { sourcesForForms, feesForForms, sourceOptions, normSources, normFees } from '@/lib/booking-settings.js';
 import FileViewer from '@/components/FileViewer.vue';
+import FormulaInfo from '@/components/FormulaInfo.vue';
+import { loadLine, stepsOf, STATUS_LABEL } from '@/lib/agent-commission.js';
 import { uploadForLink } from '@/lib/drive.js';
 
 const me = useSession();
@@ -310,7 +315,7 @@ export default {
     booking: { type: Object, required: true },   // the row from the bookings list
     acc: { type: Object, required: true }
   },
-  components: { InvoiceDialog, FileViewer, OptionPicker, DriveFiles },
+  components: { InvoiceDialog, FileViewer, OptionPicker, DriveFiles, FormulaInfo },
   emits: ['close', 'saved', 'deleted', 'patched'],
   data() {
     const r = this.booking, rm = c => (c ? Number(c).toFixed(2) : '');
@@ -318,10 +323,18 @@ export default {
       arrival: r.arrival || '', departure: r.departure || '', rent: rm(r.longTerm ? r.monthlyRent : ''),
       bookingSource: r.bookingSource || '', rentalStatus: r.rentalStatus || '', ezeeReservationNo: r.ezeeReservationNo || '', remark: r.remark || '',
       monthCharges: cleanCharges(allMonthCharges(r)) };
-    return { PILL, billOpen: '', billEd: null, billBusy: false, billErr: '', MONTH_PAY, FEE_LABELS, sources: normSources(null), feeSet: normFees(null), tab: 'details', mpFilter: 'all', yearsShut: {}, add: { m: '', key: '', amount: '', note: '' }, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '',
+    return { comm: null, PILL, billOpen: '', billEd: null, billBusy: false, billErr: '', MONTH_PAY, FEE_LABELS, sources: normSources(null), feeSet: normFees(null), tab: 'details', mpFilter: 'all', yearsShut: {}, add: { m: '', key: '', amount: '', note: '' }, canForms: can(me, 'bookingForms.view'), invoice: null, invBusy: false, cancelling: false, cancelReason: '',
       terminating: false, term: { date: '', type: '', noticeDate: '', reason: '', files: [], upBusy: false, progress: 0 }, refund: { open: false, charges: '', note: '' }, bk: { ...r, f, hasPrivate: false, bills: null, reason: '', error: '', busy: false, loaded: false } };
   },
   computed: {
+    // 24 Nov 2026: "RM 100.00 · 5% of one month's rent · Unpaid"
+    commText() {
+      const l = this.comm; if (!l) return '';
+      const money = `RM ${(Number(l.amount) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const how = l.rate == null ? 'no % set' : `${l.rate}% of ${l.rentType === 'Daily' ? 'the total rental' : 'one month\'s rent'}`;
+      return `${money} · ${how} · ${STATUS_LABEL[l.status] || l.status}${l.status === 'paid' && l.paid?.date ? ` on ${l.paid.date}` : ''}`;
+    },
+    commSteps() { return this.comm ? stepsOf(this.comm) : []; },
     // Guest details on a tenant record can only be changed by Accounting and Directors; on an imported booking Operations can too
     cancelled() { return this.bk.status === 'cancelled'; },
     // 23 Nov 2026: Booking settings. Sources: active ones in order plus this booking's own. Charges (+ on a month): the security
@@ -395,7 +408,7 @@ export default {
         const ms = leaseMonths({ arrival: f.arrival, departure: f.departure, earlyTermination: this.et }, rent);
         if (!ms.length) return [];
         const rows = ms.map(x => ({ m: x.m, from: x.from, to: x.to, label: x.label, paid: 0, due: x.rent, extra: 0, charges: [] }));
-        b.payments.filter(payCounts).forEach(x => { rows[leaseSlot(ms, payMonth(x))].paid += rentalOf(x); });   // Checked only, Rental part only
+        b.payments.filter(payCounts).forEach(x => rentalParts(x).forEach(p => { rows[leaseSlot(ms, p.m)].paid += p.amount; }));   // Checked only, Rental part only; 24 Nov 2026: each Rental line in its own month
         Object.entries(f.monthCharges || {}).sort(([p], [q]) => p.localeCompare(q)).forEach(([m, list]) => (list || []).forEach((x, j) => {
           const r = rows[leaseSlot(ms, m)]; r.extra += Number(x.amount) || 0; r.charges.push({ m, j, x });
         }));
@@ -406,7 +419,7 @@ export default {
       for (let i = 0; i < 48; i++, mo++) {
         if (mo > 12) { mo = 1; y++; }
         const m = `${y}-${String(mo).padStart(2, '0')}`; if (m > last) break;
-        const paid = b.payments.filter(x => payCounts(x) && (long ? payMonth(x) === m : i === 0)).reduce((s, x) => s + rentalOf(x), 0);   // Checked only (19 Nov 2026); Rental part only (23 Nov 2026)
+        const paid = b.payments.filter(x => payCounts(x) && (long || i === 0)).reduce((s, x) => s + (long ? rentalParts(x).filter(p => p.m === m).reduce((a, p) => a + p.amount, 0) : rentalOf(x)), 0);   // 24 Nov 2026: per Rental line   // Checked only (19 Nov 2026); Rental part only (23 Nov 2026)
         let due = long ? rent : (i === 0 ? rental : 0);
         // 20 Nov 2026: terminated early with notice: the last part month is rent / 30 x days (sudden: in full)
         if (long && m === last && this.et?.type === 'notice') { const d = partDays(f.arrival, f.departure); if (d > 0) due = Math.round(rent / 30 * d * 100) / 100; }
@@ -439,7 +452,8 @@ export default {
     chargesChanged() { return JSON.stringify(cleanCharges(this.bk.f.monthCharges)) !== JSON.stringify(cleanCharges(allMonthCharges(this.bk))); },
     totalPaid() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + rentalOf(x), 0); },
     // 24 Nov 2026 (Khairul): Charges payments, shown on their own (lib/utility-bills.js partsOf); Checked ones are paid
-    chargePays() { return (this.bk.payments || []).map(p => ({ ...p, pp: partsOf(p) })).filter(p => p.pp.charges > 0).map(p => ({ id: p.id, date: p.date, status: p.status, amount: p.pp.charges, note: p.pp.chargeNote || p.purpose || '' })).sort((a, b) => String(a.date).localeCompare(String(b.date))); },
+    // 24 Nov 2026: one row per Charges line (a payment may have several)
+    chargePays() { return (this.bk.payments || []).flatMap(p => (Array.isArray(p.parts) ? p.parts : []).map((x, j) => ({ x, j })).filter(({ x }) => x.type === 'charges' && Number(x.amount) > 0).map(({ x, j }) => ({ id: `${p.id}-${j}`, date: p.date, status: p.status, amount: Number(x.amount) || 0, note: x.note || p.purpose || '' }))).sort((a, b) => String(a.date).localeCompare(String(b.date))); },
     chargesPaid() { return this.chargePays.filter(payCounts).reduce((a, x) => a + x.amount, 0); },
     totalChecked() { return (this.bk.payments || []).filter(payCounts).reduce((a, x) => a + (Number(x.amount) || 0), 0); },
     // 23 Nov 2026: utility bills. Edit as today: Accounting (finance edit ticks), Directors and the Booking forms tick (rules Draft 1.03)
@@ -453,6 +467,7 @@ export default {
     }
   },
   async created() {
+    if (this.booking.agentId) loadLine(this.booking.id).then(l => { this.comm = l; });   // 24 Nov 2026: null when none or not readable
     Promise.all([sourcesForForms(), feesForForms()]).then(([s, f]) => { this.sources = s; this.feeSet = f; });   // 23 Nov 2026
     try {
       const d = await loadBookingDetails(this.booking);
@@ -527,7 +542,10 @@ export default {
     payParts(p) {
       if (!Array.isArray(p.parts) || !p.parts.length) return '';
       const pp = partsOf(p), names = Object.entries(pp.bills).map(([id, a]) => { const b = (this.bk.bills || []).find(y => y.id === id); return `${b ? datesText(b) : 'bill'} RM ${amt(a)}`; });
-      return [pp.charges > 0 ? `Charges RM ${amt(pp.charges)} (not rent)` : '', pp.rental > 0 ? `Rental RM ${amt(pp.rental)}` : '', pp.utilities > 0 ? `Utilities RM ${amt(pp.utilities)}${names.length ? ' (' + names.join(', ') + ')' : ''}` : ''].filter(Boolean).join(' · ');
+      // 24 Nov 2026: every line (Rental per month, Charges with what for)
+      const rentals = p.parts.filter(x => x.type === 'rental' && Number(x.amount) > 0).map(x => `Rental${x.forMonth ? ' ' + monthName(x.forMonth) : ''} RM ${amt(x.amount)}`);
+      const charges = p.parts.filter(x => x.type === 'charges' && Number(x.amount) > 0).map(x => `Charges RM ${amt(x.amount)}${x.note ? ' (' + x.note + ')' : ''} (not rent)`);
+      return [...rentals, pp.utilities > 0 ? `Utilities RM ${amt(pp.utilities)}${names.length ? ' (' + names.join(', ') + ')' : ''}` : '', ...charges].filter(Boolean).join(' · ');
     },
     openBill(x) { this.billOpen = this.billOpen === x.id ? '' : x.id; this.billEd = null; this.billErr = ''; },
     startBillEdit(x) {

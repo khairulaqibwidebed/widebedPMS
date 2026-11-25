@@ -23,7 +23,7 @@ import { createSign } from 'node:crypto';
 const KINDS = { 'offline-payments': 'Offline Payments', 'utility-bills': 'Utility Bills',
   expenses: 'Expenses', issues: 'Issues', listings: 'New Owner Listings', sops: 'HR SOPs', 'owner-payments': 'Owner Payments',
   announcements: 'HR Announcements', complaints: 'Staff Complaints', dcomplaints: 'Director Complaints',
-  agents: 'Agent Business Cards', terminations: 'Tenancy Notices' };   // agents: 20 Nov 2026 (Marketing > Agent Database); terminations: 20 Nov 2026 (the tenant's notice on an early termination)
+  agents: 'Agent Business Cards', terminations: 'Tenancy Notices', 'agent-commissions': 'Agent Commission Payments' };   // agent-commissions: 24 Nov 2026 (pay slips of agent commissions)   // agents: 20 Nov 2026 (Marketing > Agent Database); terminations: 20 Nov 2026 (the tenant's notice on an early termination)
 // Which Google account an area uses: 'hr' = HR's own Drive (DRIVE_HR_SCRIPT_*), everything else the company Drive.
 const ACCOUNT = { complaints: 'hr', dcomplaints: 'hr' };
 // 11 Nov 2026: which complaint kind each area holds, and its ref format

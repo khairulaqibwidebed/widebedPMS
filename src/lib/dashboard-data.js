@@ -8,7 +8,10 @@ import { collection, getDocs, query, where, orderBy, limit, getCountFromServer }
   from 'firebase/firestore';
 import { propertyMonth, canWriteSummaries } from './summary-data.js';
 import { combine } from './summaries.js';
-import { scoped, getScoped, countScoped, myProperties } from './property-scope.js';
+import { scoped, getScoped, countScoped, myProperties, myStaffUids } from './property-scope.js';
+import { dayOffset } from './format.js';
+import { leaseLabel, bookingNights } from './lease-term.js';
+import { groupDays, placeText, loadStaff, loadConfig, loadHolidays, holidayFor, weekday } from '@/pages/HR/attendance.js';
 
 export async function loadProperties() {
   const snap = await getScoped(scoped(collection(db, 'properties'), '__id'));   // only my properties (lib/property-scope.js)
@@ -120,4 +123,69 @@ export async function loadOpenIssues() {
     total, notStarted,
     recent: recentSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   };
+}
+
+// ---- Director dashboard "Today" tiles (24 Nov 2026, Khairul): Total No of Units, Today's Move-in / Move-out,
+// Today's Duty Staff. "Today" is Malaysia time (dayOffset). Loaded once when the dashboard opens; the property
+// picker then narrows units and moves on the page (duty staff are company-wide, a Branch Director's own staff only).
+
+// Active units per property, counted on the server (2 count reads per property, no unit documents downloaded).
+export async function loadUnitCounts(properties) {
+  const units = collection(db, 'units');
+  const count = q => getCountFromServer(q).then(s => s.data().count);
+  const out = {};
+  await Promise.all(properties.map(async p => {
+    const [all, off] = await Promise.all([count(query(units, where('propertyId', '==', p.id))), count(query(units, where('propertyId', '==', p.id), where('active', '==', false)))]);
+    out[p.id] = all - off;
+  }));
+  return out;
+}
+
+// Move-ins (arrival today) and move-outs (departure today), from the Bookings page (offlineBookings) only (Khairul,
+// 24 Nov 2026: not eZee). Cancelled are left out; Awaiting payment is kept and tagged. A lease ended early has its
+// departure moved to the end date, so it shows as a move-out that day.
+export async function loadMoves(properties) {
+  const today = dayOffset(0), names = Object.fromEntries(properties.map(p => [p.id, p.name || p.id]));
+  const off = collection(db, 'offlineBookings');
+  const [oa, od] = await Promise.all([
+    getScoped(scoped(query(off, where('arrival', '==', today)))),
+    getScoped(scoped(query(off, where('departure', '==', today))))
+  ]);
+  const moves = [];
+  for (const [snap, dir] of [[oa, 'in'], [od, 'out']]) {
+    for (const d of snap.docs) {
+      const b = { id: d.id, ...d.data() };
+      if (b.status === 'cancelled') continue;
+      moves.push({ key: b.id + dir, dir, id: b.id, bookingNo: b.bookingNo || b.id, unit: b.unitCode || b.unitId || '(no unit)', propertyId: b.propertyId || '',
+        propertyName: names[b.propertyId] || b.propertyName || '', lease: leaseLabel(bookingNights(b)), pending: b.status === 'pending', ended: !!b.earlyTermination?.date && dir === 'out' });
+    }
+  }
+  return moves.sort((a, b) => (a.dir === b.dir ? 0 : a.dir === 'in' ? -1 : 1) || a.propertyName.localeCompare(b.propertyName) || a.unit.localeCompare(b.unit));
+}
+
+// Duty staff = everyone who clocked in today on the Staff Attendance app (any session), whether or not they have
+// clocked out since. Rules: attendance is read by HR and Directors (hrOrDir).
+const myTime = t => {
+  const d = t?.toDate ? t.toDate() : t ? new Date(t) : null;
+  return d && !isNaN(d) ? d.toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+};
+export async function loadDutyStaff() {
+  const today = dayOffset(0);
+  const [snap, allowed] = await Promise.all([getDocs(query(collection(db, 'attendance'), where('date', '==', today))), myStaffUids()]);
+  const days = groupDays(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  return [...days.values()]
+    .filter(d => d.clockIn && (!allowed || allowed.has(d.uid)))
+    .map(d => ({ uid: d.uid, name: d.name || 'Unknown', role: d.role || '', inAt: myTime(d.clockIn), outAt: d.open ? '' : myTime(d.clockOut), open: d.open, place: placeText(d, 'In') }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Missing today (24 Nov 2026, Khairul): active staff (the same list as HR > Attendance, a Branch Director's own staff only;
+// the AI Agent login left out) with no clock-in today. Nobody is missing on a day off (office work days in the attendance
+// settings) or on their public holiday. dutyUids = the uids already on duty.
+export async function loadMissingStaff(dutyUids) {
+  const today = dayOffset(0);
+  const [staff, cfg, holidays] = await Promise.all([loadStaff(), loadConfig(), loadHolidays(today, today)]);
+  if (!(cfg.workDays || []).includes(weekday(today))) return { offDay: true, list: [] };
+  const on = new Set(dutyUids);
+  return { offDay: false, list: staff.filter(u => u.role !== 'ai' && !on.has(u.uid) && !holidayFor(holidays, today, u.uid)).map(u => ({ uid: u.uid, name: u.name, role: u.role })) };
 }
