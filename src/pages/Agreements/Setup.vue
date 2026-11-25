@@ -6,7 +6,7 @@
         <h1>Agreement Setup</h1>
         <div class="sub">Build the forms staff fill in, upload agreement templates (PDF) and place the fields on them.</div>
       </div>
-      <div class="head-tools"><RouterLink class="btn" to="/Agreements">Go to Agreements</RouterLink><AgreementGuide page="setup" admin /></div>
+      <div class="head-tools"><AgreementGuide page="setup" admin /></div>
     </div>
 
     <div class="notice warn" v-if="!driveReady()">Google Drive isn't connected yet, so templates and files can't be uploaded. Follow apps-script/SETUP.md, then add VITE_AGREEMENTS_DRIVE_URL.</div>

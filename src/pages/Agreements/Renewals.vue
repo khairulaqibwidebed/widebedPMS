@@ -7,8 +7,6 @@
         <div class="sub">Every agreement with an end date. Reminders go out {{ REMIND_DAYS.slice(0, -1).join(', ') }} days before it ends and on the day.</div>
       </div>
       <div class="head-tools">
-        <RouterLink class="btn" to="/Agreements">All agreements</RouterLink>
-        <RouterLink v-if="isAdmin" class="btn" to="/Agreements/setup">Reminder settings</RouterLink>
         <AgreementGuide page="renewals" :admin="isAdmin" />
       </div>
     </div>
