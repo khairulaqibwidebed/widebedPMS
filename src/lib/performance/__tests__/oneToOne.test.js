@@ -76,3 +76,31 @@ describe('the PDF', () => {
     }
   });
 });
+
+describe('Saved form and write-in boxes (25 Nov 2026)', () => {
+  it('fills Attended by with the staff name and keeps unknown keys out', () => {
+    const n = O.cleanNotes({ workingInd: 'On time', hack: 'x', actions: { extend: true, nope: true }, behaviour: { positive: { self: '4' } } }, 'Aina');
+    expect(n.attendedBy).toBe('Aina');
+    expect(n.recommendation).toBe('N/A');
+    expect(n.hack).toBeUndefined();
+    expect(n.actions).toEqual({ confirmation: false, extend: true, training: false, other: false });
+    expect(n.behaviour.positive).toEqual({ self: '4', superior: '', remark: '' });
+  });
+  it('keeps an Attended by typed by hand, even empty', () => {
+    expect(O.cleanNotes({ attendedBy: 'Someone else' }, 'Aina').attendedBy).toBe('Someone else');
+    expect(O.cleanNotes({ attendedBy: '' }, 'Aina').attendedBy).toBe('');
+  });
+  it('counts what has been filled in', () => {
+    expect(O.notesFilled(O.emptyNotes('Aina'))).toBe(0);
+    expect(O.notesFilled({ selfRating: '8', actions: { confirmation: true }, behaviour: { passionate: { remark: 'Good' } } })).toBe(3);
+  });
+  it('the saved record is tidy and the form gets the date for the leave title', () => {
+    const rec = O.formRecord({ quarterId: 'q', uid: 'u', date: '2026-11-25', venue: '  Office ', topic: 'T', edit: { staffName: 'Aina', leave: { mc: '2', bad: 1 }, notes: {} } });
+    expect(rec.venue).toBe('Office');
+    expect(rec.leave).toEqual({ mc: '2', unpaid: '', annual: '', other: '' });
+    expect(rec.notes.attendedBy).toBe('Aina');
+    const f = O.formData({ row: { name: 'Aina', position: '', evaluations: [], expected: 0 }, questions: [], date: '2026-11-25', venue: '', edits: {} });
+    expect(f.leaveUntil).toBe('25/11/2026');
+    expect(f.notes.attendedBy).toBe('Aina');
+  });
+});

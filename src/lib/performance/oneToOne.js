@@ -4,9 +4,12 @@
 // so this page is for them only.
 //
 // config/oneToOne   { venues: [string], lastVenue: string, updatedBy, updatedAt }   (rules Draft 0.62: HR and Directors)
+// oneToOneForms/{quarterId}_{uid}   one person's saved form (25 Nov 2026, rules Draft 1.13: HR and Directors):
+//   { quarterId, uid, date, venue, topic, staffName, position, ic, leave: { mc, unpaid, annual, other }, notes (see emptyNotes),
+//     updatedBy, updatedByName, updatedAt }
 // staffHR/{uid}.joinDate 'YYYY-MM-DD', from Staff accounts › HR details (18 Nov 2026; no longer typed on this page).
 // users/{uid}.joinDate (the old field typed here) is read only until HR copies it across (HR details › Copy join dates).
-import { collection, doc, getDoc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, serverTimestamp, query, where } from 'firebase/firestore';
 import { db, ROLE_LABEL } from '@/lib/firebase.js';
 import { useSession } from '@/stores/session.js';
 import { listParticipants } from './quarters.js';
@@ -86,12 +89,63 @@ export function formData({ row, questions, date, venue, edits = {} }) {
   const typed = (v, fallback) => (typeof v === 'string' && v.trim() ? v.trim().replace(/\s+/g, ' ').slice(0, 120) : fallback);
   return { company: COMPANY, topic: typed(edits.topic, TOPIC), date: shortDate(date), venue: String(venue || '').trim(), staffName: typed(edits.staffName, row.name),
     joinDate: longDate(row.joinDate), position: typed(edits.position, row.position), ic: typed(edits.ic, row.ic || ''),
-    leaveYear: /^\d{4}/.test(date || '') ? String(date).slice(0, 4) : '', leave: leaveSummary(edits.leave),
+    leaveYear: /^\d{4}/.test(date || '') ? String(date).slice(0, 4) : '', leaveUntil: longDate(date), leave: leaveSummary(edits.leave),
+    notes: cleanNotes(edits.notes, typed(edits.staffName, row.name)),
     questions: coh.lines.map(l => ({ title: l.title, mark: l.average == null ? '' : l.average.toFixed(1) })), average: coh.average == null ? '' : coh.average.toFixed(2),
     raters: coh.raters, expected: row.expected };
 }
 
+// ---------- The write-in boxes (25 Nov 2026) ----------
+// Everything left empty on HR's template, typed on the page and printed on the PDF.
+export const BEHAVIOURS = [{ key: 'positive', label: 'Positive' }, { key: 'passionate', label: 'Passionate' }, { key: 'accountability', label: 'Accountability' }];
+export const ACTIONS = [{ key: 'confirmation', label: 'Confirmation' }, { key: 'extend', label: 'Extend' }, { key: 'training', label: 'Need Training' }, { key: 'other', label: 'Other' }];
+const TEXT_KEYS = { selfRating: 4, superiorRating: 4, workingInd: 1500, notWorkingInd: 1500, workingCo: 1500, notWorkingCo: 1500, otherAction: 80,
+  recommendation: 120, ifYes: 200, quarterlyReview: 1500, attendedBy: 120, acknowledgedBy: 120 };
+export const emptyNotes = (staffName = '') => ({
+  selfRating: '', superiorRating: '', workingInd: '', notWorkingInd: '', workingCo: '', notWorkingCo: '',
+  behaviour: Object.fromEntries(BEHAVIOURS.map(b => [b.key, { self: '', superior: '', remark: '' }])),
+  actions: Object.fromEntries(ACTIONS.map(a => [a.key, false])), otherAction: '',
+  recommendation: 'N/A', ifYes: '', quarterlyReview: '', attendedBy: staffName, acknowledgedBy: ''
+});
+const str = (v, max) => String(v ?? '').replace(/\r\n?/g, '\n').slice(0, max);
+// Tidied to the shape above (unknown keys dropped, text cut to its length). `staffName` fills Attended by when it was never set.
+export function cleanNotes(n = {}, staffName = '') {
+  const out = emptyNotes(staffName);
+  for (const [k, max] of Object.entries(TEXT_KEYS)) if (n?.[k] != null) out[k] = str(n[k], max);
+  for (const b of BEHAVIOURS) {
+    const v = n?.behaviour?.[b.key] || {};
+    out.behaviour[b.key] = { self: str(v.self ?? '', 2), superior: str(v.superior ?? '', 2), remark: str(v.remark ?? '', 200) };
+  }
+  for (const a of ACTIONS) out.actions[a.key] = n?.actions?.[a.key] === true;
+  return out;
+}
+// How many of the write-in boxes have something in them (shown next to "Write-in boxes" while it is closed).
+export function notesFilled(n = {}) {
+  const c = cleanNotes(n);
+  let k = ['selfRating', 'superiorRating', 'workingInd', 'notWorkingInd', 'workingCo', 'notWorkingCo', 'ifYes', 'quarterlyReview', 'acknowledgedBy', 'otherAction'].filter(x => c[x].trim()).length;
+  for (const b of BEHAVIOURS) k += ['self', 'superior', 'remark'].filter(x => c.behaviour[b.key][x].trim()).length;
+  return k + ACTIONS.filter(a => c.actions[a.key]).length;
+}
+// What one person's form saves (oneToOneForms): the page's state, tidied.
+export function formRecord({ quarterId, uid, date, venue, topic, edit }) {
+  const leave = Object.fromEntries(LEAVE_TYPES.map(t => [t.key, str(edit?.leave?.[t.key] ?? '', 6)]));
+  return { quarterId, uid, date: /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : '', venue: str(venue, 80).trim(), topic: str(topic, 120),
+    staffName: str(edit?.staffName, 120), position: str(edit?.position, 120), ic: str(edit?.ic, 40), leave, notes: cleanNotes(edit?.notes, edit?.staffName || '') };
+}
+
 // ---------- Firestore ----------
+// Saved forms of a quarter, by person: { uid: record }. Throws when the rules (Draft 1.13) aren't deployed yet.
+export async function loadForms(quarterId) {
+  const snap = await getDocs(query(collection(db, 'oneToOneForms'), where('quarterId', '==', quarterId)));
+  return Object.fromEntries(snap.docs.map(d => [d.data().uid, d.data()]));
+}
+export async function saveForm(rec) {
+  const s = useSession();
+  const data = { ...formRecord(rec), updatedBy: s.user.uid, updatedByName: String(s.name || '').slice(0, 120), updatedAt: serverTimestamp() };
+  await setDoc(doc(db, 'oneToOneForms', `${data.quarterId}_${data.uid}`), data);
+  return { ...data, updatedAt: new Date() };
+}
+
 // Join date (18 Nov 2026): HR details first, then the old One To One field until it is copied across.
 const isKey = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
 export const joinOf = (u = {}, hr) => (isKey(hr?.joinDate) ? hr.joinDate : isKey(u.joinDate) ? u.joinDate : '');
