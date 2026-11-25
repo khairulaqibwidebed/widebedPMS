@@ -476,7 +476,7 @@ export default {
 .oo-filters { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .oo-chip { border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px; cursor: pointer; }
 .oo-chip:hover { border-color: var(--accent); color: var(--accent); }
-.oo-chip.on { background: var(--text); border-color: var(--text); color: #fff; }
+.oo-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }   /* 25 Nov 2026 (Khairul): theme colour, not black */
 .oo-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; border-top: 1px solid var(--line); }
 .oo-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
 .oo-row:hover { background: #F7F8FA; }
