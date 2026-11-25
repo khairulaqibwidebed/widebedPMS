@@ -4,7 +4,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { SITE_TITLE } from '@/lib/site-title.js';
 import { signOut } from 'firebase/auth';
-import { auth, ALLOWED_ROLES } from './lib/firebase.js';
+import { auth, ALLOWED_ROLES, markSeen } from './lib/firebase.js';
 import { canOpen } from './lib/access.js';
 import { homeFor } from './nav.js';
 import { useSession } from './stores/session.js';
@@ -144,4 +144,4 @@ router.beforeEach(async to => {
   }
   return true;
 });
-router.afterEach(() => { document.title = SITE_TITLE; });   // tab shows only the site name (18 Nov 2026)
+router.afterEach(() => { document.title = SITE_TITLE; markSeen(auth.currentUser?.uid); });   // tab shows only the site name (18 Nov 2026); Last sign-in, at most every 12 h (25 Nov 2026)
