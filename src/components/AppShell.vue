@@ -409,9 +409,10 @@ html.nav-locked, html.nav-locked body { overflow: hidden; }
   .app .main { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
   /* Out of the way while a pop-up, side panel or full-screen form is open, or while typing (the keyboard is up) */
   /* body:has, not .app:has: some pop-ups (file viewer, guides) are moved to the end of the page */
-  body:has(.modal-back, .drawer, .drawer-back, .palette-back, .form-frame.sheet) .tabbar,
+  /* 25 Nov 2026: a closed pop-up kept on the page with v-show (display: none, e.g. Issues) doesn't count */
+  body:has(.modal-back:not([style*="display: none"]), .drawer:not([style*="display: none"]), .drawer-back:not([style*="display: none"]), .palette-back:not([style*="display: none"]), .form-frame.sheet:not([style*="display: none"])) .tabbar,
   body:has(input:focus, textarea:focus, select:focus, [contenteditable="true"]:focus) .tabbar { display: none; }
-  body:has(.modal-back, .drawer, .drawer-back, .form-frame.sheet) .app .main,
+  body:has(.modal-back:not([style*="display: none"]), .drawer:not([style*="display: none"]), .drawer-back:not([style*="display: none"]), .form-frame.sheet:not([style*="display: none"])) .app .main,
   body:has(input:focus, textarea:focus, select:focus, [contenteditable="true"]:focus) .app .main { padding-bottom: 0; }
 }
 </style>
