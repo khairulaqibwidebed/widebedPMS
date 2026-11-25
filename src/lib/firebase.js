@@ -1,7 +1,7 @@
 // One place that starts Firebase. Everything imports from here.
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, doc, getDoc, getDocs, collection, updateDoc } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, doc, getDoc, getDocs, collection, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { firebaseConfig } from '../firebase-config.js';
 import { PRESETS } from './access.js';
 
@@ -116,13 +116,33 @@ async function branchProperties(uid, p) {
   }
 }
 
+// 25 Nov 2026 (Khairul): Last sign-in (Staff accounts) also counts opening the PMS while still signed in, not only
+// typing the password. Saved at most once every 12 hours per browser (time kept in localStorage), so it costs few writes.
+const SEEN_EVERY = 12 * 60 * 60 * 1000;
+export function markSeen(uid) {
+  if (!uid) return;
+  const key = `wb-seen-${uid}`;
+  let last = 0;
+  try { last = Number(localStorage.getItem(key)) || 0; } catch (e) { /* no browser storage */ }
+  if (Date.now() - last < SEEN_EVERY) return;
+  updateDoc(doc(db, 'users', uid), { lastLoginAt: serverTimestamp() })
+    .then(() => { try { localStorage.setItem(key, String(Date.now())); } catch (e) { /* no browser storage */ } })
+    .catch(e => console.warn('Could not save your last sign-in:', e.code || e.message));
+}
+// Also when coming back to a PMS tab that stayed open (the router checks on every page change too).
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') markSeen(auth.currentUser?.uid); });
+}
+
 // Resolves once with { user, role, perms, name } (user = null when signed out).
 export function whoAmI() {
   return new Promise(resolve => {
     const stop = onAuthStateChanged(auth, async user => {
       stop();
       if (!user) return resolve({ user: null, role: null, perms: [] });
-      resolve({ user, ...(await profileOf(user)) });
+      const profile = await profileOf(user);
+      if (profile.role) markSeen(user.uid);
+      resolve({ user, ...profile });
     });
   });
 }
