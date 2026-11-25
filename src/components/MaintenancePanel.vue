@@ -53,10 +53,8 @@
                 <small class="muted" v-if="isCharged(t) && t.billing.expenseMonth !== t.completion.month"><br>{{ 'on ' + monthName(t.billing.expenseMonth) }}</small></td>
               <td class="row-end">
                 <button class="btn btn-primary btn-sm" v-if="st(t) === 'pending'" @click="charge(t)" :disabled="busy">Save</button>
-                <!-- Eye: opens the ticket popup (same as clicking the row) -->
-                <button type="button" class="icon-btn mt-eye" :title="'View ' + t.id" :aria-label="'View ' + t.id" @click="detail = t">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
+                <!-- 25 Nov 2026 (Khairul): chevron instead of the eye; opens the ticket popup (same as clicking the row) -->
+                <ViewChevron class="mt-chev" :label="'Open ' + t.id" @click="detail = t" />
               </td>
             </tr>
           </template>
@@ -333,9 +331,7 @@ export default {
 .mt-more-menu button:disabled { opacity: .55; cursor: default; }
 .mt-sheet { margin: -4px 0 10px; font-size: 12.5px; }
 .mt-tid { font-weight: 600; color: var(--accent); }
-/* Eye: a plain icon, no box (Khairul 18 Nov); grey, turns brand red when the row is hovered */
-.mt-eye { display: inline-grid; place-items: center; vertical-align: middle; margin-left: 6px; width: 28px; height: 28px; background: none !important; color: var(--muted); }
-.mt tbody tr:hover .mt-eye, .mt-eye:focus-visible { color: var(--accent); }
+.mt-chev { margin-left: 6px; }
 .mt-pop-foot { flex-wrap: wrap; }
 .mt-pop-foot .mt-reason { flex: 1 1 100%; height: auto; min-height: 96px; padding: 10px 12px; resize: vertical; font: inherit; line-height: 1.45; }
 .mt-locked { align-self: center; font-size: 13px; }

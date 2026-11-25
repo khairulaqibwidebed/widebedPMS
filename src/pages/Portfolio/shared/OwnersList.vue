@@ -27,7 +27,7 @@
               <td><span v-if="!unitsOf(own.id).length" class="dash">—</span>{{ [...new Set(unitsOf(own.id).map(x => arrLabel(x.terms?.arrangement)))].join(', ') }}</td>
               <td><template v-if="own.bankLast4">{{ `Bank transfer ···${own.bankLast4}` }}</template><span v-else class="dash">—</span></td>
               <td class="num" :class="{ 'neg-amt': carriedOf(own.id) < 0 }">{{ amt(carriedOf(own.id)) }}</td>
-              <td class="num"><button class="navlink" @click.stop="$emit('open', own)">View</button></td>
+              <td class="chev-col"><ViewChevron label="Open owner" @click.stop="$emit('open', own)" /></td>
             </tr>
           </template>
           <SkeletonRows v-if="loading && !shownOwners.length" table :cols="acc.viewOnly ? (acc.ownerNames ? 3 : 2) : 6" />

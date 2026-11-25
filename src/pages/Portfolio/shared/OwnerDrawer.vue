@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="drawer-back" @click="$emit('close')"></div>
-    <aside class="drawer wide" role="dialog" aria-label="Owner" v-esc="() => $emit('close')">
+    <aside class="drawer wide tab-fixed" role="dialog" aria-label="Owner" v-esc="() => $emit('close')">
       <div class="drawer-head"><h2>{{ o.isNew ? 'Add owner' : (jointName(o.fullName, o.coOwners) || 'Owner') }}</h2><button class="icon-btn" @click="$emit('close')" aria-label="Close">×</button></div>
       <form class="drawer-body" id="ownerForm" @submit.prevent="save()">
         <div class="notice error" v-show="o.error">{{ o.error }}</div>
@@ -25,7 +25,12 @@
             </div>
             <div class="form-sec">Payout history</div>
             <div class="rows od-pay">
-              <template v-for="h in o.payouts.slice(0, 12)" :key="h.id"><div class="row"><span>{{ `${shortName(h.month)} · ${h.unitCode}` }}</span><span class="r" :class="{ neg: h.payout < 0 }">{{ `RM ${amt(h.payout)}` }}</span></div></template>
+              <!-- 25 Nov 2026 (Khairul): grouped by year, each year folds (the latest open) -->
+              <template v-for="g in payoutYears" :key="g.y">
+                <button type="button" class="row od-year" :aria-expanded="String(!yearShut(g.y))" @click="toggleYear(g.y)">
+                  <span><span class="od-caret" aria-hidden="true">{{ yearShut(g.y) ? '▸' : '▾' }}</span><b>{{ g.y }}</b>{{ ` · ${g.list.length} payout${g.list.length === 1 ? '' : 's'}` }}</span><span class="r" :class="{ neg: g.total < 0 }">{{ `RM ${amt(g.total)}` }}</span></button>
+                <template v-if="!yearShut(g.y)"><div class="row od-pline" v-for="h in g.list" :key="h.id"><span>{{ `${shortName(h.month)} · ${h.unitCode}` }}</span><span class="r" :class="{ neg: h.payout < 0 }">{{ `RM ${amt(h.payout)}` }}</span></div></template>
+              </template>
               <div class="empty" v-show="!o.payouts.length">No payouts yet.</div>
             </div>
           </div>
@@ -67,7 +72,10 @@
           <div class="grid-3">
             <div class="field"><label for="oBank">Bank name</label><input class="input" id="oBank" v-model="o.bankName" placeholder="e.g. Maybank"></div>
             <div class="field"><label for="oHolder">Account holder name</label><input class="input" id="oHolder" v-model="o.accountHolder" placeholder="Name as on the bank account"></div>
-            <div class="field"><label for="oAcc">Bank account</label><input class="input" id="oAcc" v-model="o.bankAccount" inputmode="numeric" placeholder="Account number"></div>
+            <!-- 25 Nov 2026 (Khairul): a saved number shows only its last 4 digits until View -->
+            <div class="field"><label for="oAcc" class="od-acc-lbl">Bank account<button type="button" class="link" v-if="bankStart" @click="showAcct = !showAcct">{{ showAcct ? 'Hide' : 'View' }}</button></label>
+              <input class="input" id="oAcc" v-if="showAcct || !bankStart" v-model="o.bankAccount" inputmode="numeric" placeholder="Account number">
+              <input class="input od-mask" id="oAcc" v-else readonly :value="masked" title="Press View to see or change the number"></div>
           </div>
         </template>
         </div>
@@ -124,7 +132,9 @@ export default {
     const own = this.owner, p = own?.private || {};
     return {
       busy: false,
-      odTab: 'contact',   // 20 Nov 2026: which tab of the form is showing
+      odTab: 'contact',
+      yearsShut: {},   // 25 Nov 2026: payout years folded or open (the latest year starts open)
+      showAcct: false, bankStart: String(p.bankAccount || ''),   // 25 Nov 2026: bank number hidden until View   // 20 Nov 2026: which tab of the form is showing
       o: { isNew: !own, id: own?.id || null, code: own?.code || own?.id || '', active: own ? own.active !== false : true,
         deactivatedReason: own?.deactivatedReason || '', original: own, payouts: [], reason: '', error: '', deactivating: false, deactivateReason: '',
         ...Object.fromEntries(PRIVATE.map(k => [k, p[k] ?? (k === 'fullName' ? (own?.name || '') : '')])), coOwners: (p.coOwners || []).map(blankCo), ...(this.prefill || {}) }
@@ -140,6 +150,12 @@ export default {
     // 23 Nov 2026: changing IC, address and bank needs Owners Full AND the Credentials tick
     credsEdit() { return this.full && this.acc.ownerCreds; },
     readOnly() { return !this.o.isNew && !this.full && !this.acc.canEdit; },
+    masked() { const n = String(this.o.bankAccount || '').replace(/\s/g, ''); return n ? `···· ${n.slice(-4)}` : ''; },
+    payoutYears() {
+      const by = {};
+      this.o.payouts.forEach(h => { const y = String(h.month || '').slice(0, 4) || '—'; (by[y] ||= []).push(h); });
+      return Object.keys(by).sort().reverse().map(y => ({ y, list: by[y], total: Math.round(by[y].reduce((t, h) => t + (Number(h.payout) || 0), 0) * 100) / 100 }));
+    },
     showSensitive() { return this.acc.ownerCreds || this.o.isNew; },   // Credentials tab (20 Nov 2026: own permission, = Owners Full for now)
     showPayouts() { return !this.o.isNew && this.acc.ownerPayouts && !this.acc.viewOnly; },   // Units & payouts tab
     coEditable() { return this.full || this.o.isNew; },
@@ -150,6 +166,8 @@ export default {
     if (this.owner && this.showPayouts) this.o.payouts = await loadPayouts(this.myUnits.map(x => x.id));
   },
   methods: {
+    yearShut(y) { return y in this.yearsShut ? this.yearsShut[y] : y !== this.payoutYears[0]?.y; },
+    toggleYear(y) { this.yearsShut = { ...this.yearsShut, [y]: !this.yearShut(y) }; },
     amt, shortName, arrLabel, jointName,
     addCoOwner() {
       this.o.coOwners.push(blankCo());
@@ -240,6 +258,15 @@ export default {
 </script>
 
 <style scoped>
+.od-year { width: 100%; background: var(--bg, #f6f7f9); border: 0; border-bottom: 1px solid var(--border); font: inherit; color: inherit; text-align: left; cursor: pointer; padding-left: 8px; padding-right: 8px; }
+.od-year:hover { background: var(--accent-soft); }
+.od-caret { display: inline-block; width: 14px; color: var(--muted); }
+.od-pline { padding-left: 22px; }
+.od-acc-lbl { display: flex; justify-content: space-between; align-items: baseline; }
+.od-acc-lbl .link { font-size: 12px; }
+.od-mask { letter-spacing: .05em; cursor: default; }
+/* 25 Nov 2026 (Khairul): popups with tabs keep one height on every tab (the body scrolls) */
+@media (min-width: 861px) { .drawer.tab-fixed { height: 90vh; height: 90dvh; } }
 .od-tabs { margin: -20px 0 18px; padding-top: 14px; overflow: visible; }
 /* 20 Nov 2026 (Khairul): the tab bar always shows; it stays at the top while the form scrolls */
 .od-tabs { position: sticky; top: -20px; z-index: 3; background: var(--surface); }

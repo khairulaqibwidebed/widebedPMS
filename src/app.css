@@ -803,3 +803,14 @@ label.req::after { content: ' *'; color: #D93025; font-weight: 700; }
 }
 /* Phones: no page scrolling behind a full-screen form (Booking Forms) */
 @media (max-width: 600px) { html:has(.form-frame.sheet), .main:has(.form-frame.sheet) { overflow: hidden; } }
+
+/* 25 Nov 2026 (Khairul): ViewChevron.vue, the one "open" sign on clickable rows and cards (replaces eye icons and View links).
+   Grey at rest; on row/card hover it turns the theme colour and nudges 2px right. */
+.view-chev { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0;
+  border-radius: 6px; background: none; cursor: pointer; color: #94a3b8; vertical-align: middle;
+  transition: color var(--fast), transform var(--fast); }
+.view-chev svg { display: block; width: 16px; height: 16px; }
+tr:hover .view-chev, .clickable:hover .view-chev, .view-chev-host:hover .view-chev, .view-chev-host:focus-visible .view-chev,
+.view-chev:hover, .view-chev:focus-visible { color: var(--theme-color, var(--brand)); transform: translateX(2px); }
+.view-chev:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+td.chev-col { width: 1%; padding-left: 0; text-align: right; white-space: nowrap; }

@@ -5,34 +5,31 @@
       <span class="chip grid-chip">{{ labelOf(f.key) }} {{ OPS[f.op] }} {{ ['empty', 'notEmpty'].includes(f.op) ? '' : '"' + f.value + '"' }}
         <button type="button" aria-label="Remove filter" @click="removeFilter(i)">×</button></span>
     </template>
-    <div class="grid-menu-wrap">
-      <button type="button" class="btn btn-sm" @click="colsOpen = !colsOpen" :aria-expanded="String(colsOpen)">Columns</button>
-      <div class="grid-pop" v-if="colsOpen" @keydown.esc="colsOpen = false">
-        <label v-for="c in ordered" :key="c.key" class="grid-pop-check"><input type="checkbox" :checked="!isHidden(c.key)" @change="toggleHidden(c.key)"> {{ c.label }}</label>
-        <div class="grid-pop-foot"><button type="button" class="link" @click="patch({ hidden: [] })">Show all</button><button type="button" class="link" @click="colsOpen = false">Done</button></div>
-      </div>
-    </div>
+    <!-- 25 Nov 2026 (Khairul): Columns uses the app's own drop-down (tick several, type to find one) -->
+    <OptionPicker class="grid-cols" multiple searchable :model-value="cols.map(c => c.key)" :options="ordered.map(c => ({ value: c.key, label: c.label }))"
+      :display="`Columns · ${cols.length} of ${ordered.length}`" label="Columns to show" @update:model-value="showOnly" />
     <span class="note">{{ shown.length }} of {{ rows.length }} rows</span>
   </div>
 
-  <div class="table-wrap grid-wrap">
-    <table class="table grid" :style="{ width: totalWidth + 'px' }">
+  <div class="table-wrap grid-wrap" :class="{ scrolled }" @scroll.passive="scrolled = $event.target.scrollLeft > 0">
+    <table class="table grid" ref="gridTable" :style="{ width: totalWidth + 'px' }">
       <colgroup><col style="width: 100px"><col v-for="c in cols" :key="c.key" :style="{ width: c.width + 'px' }"><col v-if="canEditColumns" style="width: 48px"></colgroup>
       <thead>
         <tr>
           <th class="grid-sel">
             <input type="checkbox" aria-label="Select all shown rows" :checked="allSelected" :indeterminate.prop="someSelected" @change="selectAll($event.target.checked)">
           </th>
-          <th v-for="c in cols" :key="c.key" :class="{ dragover: dragOver === c.key }" draggable="true"
+          <th v-for="(c, ci) in cols" :key="c.key" :data-col="c.key" :class="{ dragover: dragOver === c.key, 'grid-frz': ci < FROZEN, 'grid-frz-last': ci === FROZEN - 1 }" :style="frzStyle(ci)" draggable="true"
             @dragstart="dragKey = c.key" @dragend="dragKey = null; dragOver = null" @dragover.prevent="dragOver = c.key" @dragleave="dragOver = null" @drop.prevent="dropOn(c.key)">
             <div class="grid-th">
+              <span class="grid-grip" aria-hidden="true" title="Drag to move the column">⋮⋮</span>
               <button type="button" class="grid-th-label" :title="'Sort by ' + c.label" @click="cycleSort(c.key)">
                 {{ c.label }}<span class="grid-sort" v-if="view.sort?.key === c.key">{{ view.sort.dir === 'asc' ? '▲' : '▼' }}</span>
                 <span class="grid-fx" v-if="c.field?.type === 'formula'" title="Formula">ƒ</span>
               </button>
               <button type="button" class="grid-th-menu" :aria-label="'Column options: ' + c.label" @click="openMenu(c)">⋮</button>
             </div>
-            <span class="grid-resize" @pointerdown.stop.prevent="startResize($event, c)" @click.stop @dragstart.prevent></span>
+            <span class="grid-resize" :class="{ on: resizing === c.key }" title="Drag to resize, double-click to fit" @pointerdown.stop.prevent="startResize($event, c)" @dblclick.stop="autoFit(c)" @click.stop @dragstart.prevent></span>
           </th>
           <th v-if="canEditColumns" class="grid-add"><button type="button" class="btn btn-sm" title="Add a column" aria-label="Add a column" @click="emit('column', { action: 'add' })">+</button></th>
         </tr>
@@ -43,7 +40,7 @@
             <input type="checkbox" :aria-label="'Select ' + r.record.title" :checked="selected.includes(r.id)" @change="toggleRow(r.id, $event.target.checked)">
             <button type="button" class="link grid-open" @click="emit('open', r.id)">Open</button>
           </td>
-          <td v-for="c in cols" :key="c.key" :class="cellClass(r, c)" :tabindex="editable(c) ? 0 : -1"
+          <td v-for="(c, ci) in cols" :key="c.key" :data-col="c.key" :class="[cellClass(r, c), { 'grid-frz': ci < FROZEN, 'grid-frz-last': ci === FROZEN - 1 }]" :style="frzStyle(ci)" :tabindex="editable(c) ? 0 : -1"
             @dblclick="editable(c) ? begin(r, c) : emit('open', r.id)" @keydown.enter.prevent="editable(c) && begin(r, c)">
             <template v-if="isEditing(r, c)">
               <select v-if="c.key === '_status'" ref="editor" class="input grid-edit" :value="draft" @change="draft = $event.target.value; commit()" @blur="commit" @keydown.esc="cancel">
@@ -115,6 +112,7 @@
 // The spreadsheet of records: search, filters, sort, resize, drag to reorder, hide columns, edit cells in place.
 // Column layout lives in `view` (saved as a table view); rows are { id, record, values } with formulas worked out.
 import { ref, computed, nextTick } from 'vue';
+import OptionPicker from '@/components/OptionPicker.vue';
 import { formatValue, valueType, parseInput } from '@/lib/agreements/format.js';
 import { hasValue, hasOptions, isEditableInGrid, TYPE_LABEL, STATUS, STATUS_PILL } from '@/lib/agreements/fields.js';
 import { millis } from '@/lib/agreements/data.js';
@@ -145,6 +143,12 @@ const ordered = computed(() => {
 const isHidden = k => (props.view.hidden || []).includes(k);
 const defaultWidth = c => (c.key === '_updated' ? 170 : c.key === '_status' ? 120 : ['textarea', 'signature'].includes(c.field?.type) ? 220 : ['checkbox'].includes(c.field?.type) ? 90 : 160);
 const cols = computed(() => ordered.value.filter(c => !isHidden(c.key)).map(c => ({ ...c, width: props.view.widths?.[c.key] || defaultWidth(c) })));
+// 25 Nov 2026 (Khairul): the tick / Open column and the first two columns stay put when scrolling sideways (e.g. Status and the
+// tenant's name), so staff can see whose row they are on. Frozen cells have a solid background, so nothing shows through them.
+const FROZEN = 2;
+const gridTable = ref(null);
+const scrolled = ref(false);   // scrolled sideways: the frozen edge line gets stronger
+const frzStyle = ci => (ci < FROZEN ? { left: 100 + cols.value.slice(0, ci).reduce((s, c) => s + c.width, 0) + 'px' } : null);
 const totalWidth = computed(() => 100 + cols.value.reduce((s, c) => s + c.width, 0) + (props.canEditColumns ? 48 : 0));
 const labelOf = k => allCols.value.find(c => c.key === k)?.label || 'Deleted column';
 function toggleHidden(k) { const h = new Set(props.view.hidden || []); h.has(k) ? h.delete(k) : h.add(k); patch({ hidden: [...h] }); }
@@ -217,6 +221,8 @@ const setSort = (key, dir) => { patch({ sort: { key, dir } }); menu.value = null
 
 // ---- Column menu ----
 const menu = ref(null), colsOpen = ref(false);
+// Columns drop-down: the ticked keys are shown, every other column is hidden
+const showOnly = keys => patch({ hidden: ordered.value.map(c => c.key).filter(k => !keys.includes(k)) });
 const openMenu = c => { menu.value = { key: c.key, label: c.label, label2: c.label, field: c.field || null, op: 'contains', value: '' }; };
 function addFilter() {
   const m = menu.value;
@@ -233,13 +239,26 @@ function rename() {
 }
 
 // ---- Resize and reorder ----
+const resizing = ref('');
 function startResize(e, c) {
   const startX = e.clientX, startW = c.width;
   let w = startW;
+  resizing.value = c.key;
   const move = ev => { w = Math.max(70, Math.min(700, startW + ev.clientX - startX)); e.target.closest('table').querySelectorAll('col')[cols.value.indexOf(c) + 1].style.width = w + 'px'; };
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); patch({ widths: { ...(props.view.widths || {}), [c.key]: w } }); };
+  const up = () => {
+    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); resizing.value = '';
+    if (w !== startW) patch({ widths: { ...(props.view.widths || {}), [c.key]: w } });
+  };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+}
+// 25 Nov 2026 (Khairul): double-click a column's edge to fit it to its title and the longest value shown
+function autoFit(c) {
+  const table = gridTable.value; if (!table) return;
+  const head = table.querySelector(`th[data-col="${c.key}"] .grid-th-label`);
+  let w = head ? head.scrollWidth + 56 : 120;   // title + grip + menu button
+  table.querySelectorAll(`td[data-col="${c.key}"] > *`).forEach(el => { w = Math.max(w, el.getBoundingClientRect().width + 26); });
+  patch({ widths: { ...(props.view.widths || {}), [c.key]: Math.round(Math.max(70, Math.min(700, w))) } });
 }
 const dragKey = ref(null), dragOver = ref(null);
 function dropOn(target) {
@@ -308,16 +327,35 @@ defineExpose({ exportRows: () => ({ cols: cols.value, rows: shown.value }) });
 .grid-fx { margin-left: 6px; font-style: italic; color: var(--accent); font-weight: 700; }
 .grid-th-menu { flex: none; width: 24px; height: 28px; border: 0; background: none; color: var(--muted); border-radius: 6px; margin-right: 6px; }
 .grid-th-menu:hover { background: var(--accent-soft); color: var(--accent); }
-.grid-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 3; }
-.grid-resize:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+/* 25 Nov 2026 (Khairul): a faint divider on every column title shows it can be resized; an 8px grab zone turns into a theme bar */
+.grid-resize { position: absolute; top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize; z-index: 4; }
+.grid-resize::before { content: ""; position: absolute; left: 50%; top: 22.5%; height: 55%; width: 1px; transform: translateX(-50%); background: var(--border); border-radius: 2px;
+  transition: width var(--fast, .15s), background var(--fast, .15s), top var(--fast, .15s), height var(--fast, .15s); }
+.grid-resize:hover::before, .grid-resize.on::before { width: 3px; top: 0; height: 100%; background: var(--accent); }
+.grid-grip { flex: none; width: 0; overflow: hidden; margin-left: 6px; color: var(--muted); font-size: 11px; letter-spacing: -3px; opacity: 0; cursor: grab;
+  transition: opacity var(--fast, .15s), width var(--fast, .15s); }
+.grid th:hover .grid-grip { width: 12px; opacity: .7; }
+.grid th[draggable="true"]:hover { cursor: grab; }
+.grid th[draggable="true"]:active { cursor: grabbing; }
 .grid td { padding: 8px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 40px; }
 .grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.grid td.fx { background: color-mix(in srgb, var(--accent-soft) 35%, transparent); }
+.grid td.fx { background: color-mix(in srgb, var(--text) 3%, var(--surface)); }   /* 25 Nov 2026: neutral, not pink, so it doesn't clash with hover */
 .grid td.err { color: var(--red); }
 .grid td.editing { padding: 2px; overflow: visible; }
 .grid td:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
-.grid-sel { position: sticky; left: 0; z-index: 1; background: var(--surface); white-space: nowrap; }
-th.grid-sel { z-index: 3; background: var(--head); padding: 0 12px !important; }
+.grid-sel, .grid td.grid-frz { position: sticky; left: 0; z-index: 1; background-color: var(--surface) !important; white-space: nowrap; }
+.grid th.grid-frz { left: 0; z-index: 3; }
+th.grid-sel { z-index: 3; background-color: var(--head) !important; padding: 0 12px !important; }
+.grid th.grid-frz { background-color: var(--head); }
+/* row hover / ticked tint drawn on top of the solid background */
+.grid-sel, .grid .grid-frz { --frz-tint: 0 0 0 0 transparent; --frz-edge: 0 0 0 0 transparent; box-shadow: var(--frz-tint), var(--frz-edge); }
+.grid tbody tr:hover > td.grid-sel, .grid tbody tr:hover > td.grid-frz { --frz-tint: inset 0 0 0 999px color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+.grid tbody tr.picked > td.grid-sel, .grid tbody tr.picked > td.grid-frz { --frz-tint: inset 0 0 0 999px var(--navy-soft); }
+/* 25 Nov 2026 (Khairul): a clear line on the right of the frozen columns (drawn inside the cell: a border on a sticky cell
+   does not move with it in a collapsed table); darker, in the theme colour, once the table is scrolled sideways */
+.grid .grid-frz-last { position: sticky; }
+.grid .grid-frz-last::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 1px; pointer-events: none; background: var(--border); }
+.grid-wrap.scrolled .grid .grid-frz-last { --frz-edge: 4px 0 8px -4px rgba(0, 0, 0, .08); }
 .grid-sel input { vertical-align: middle; margin-right: 8px; }
 .grid-open { font-size: 12px; font-weight: 600; }
 .grid-add { text-align: center; }
@@ -327,4 +365,5 @@ th.grid-sel { z-index: 3; background: var(--head); padding: 0 12px !important; }
 .grid-col-modal { max-width: 520px; }
 .grid-col-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .grid-col-row .input { flex: 1; min-width: 140px; height: 34px; }
+.grid-cols :deep(.op-btn) { height: 32px; font-size: 13px; }
 </style>

@@ -30,6 +30,11 @@ export const PAGES = [
   { key: 'bookingSettings',  label: 'Booking settings (invoice, sources, fees)', group: 'Portfolio', to: [], editOnly: true },
   { key: 'newOwnerListings', label: 'Owner Leads',                   group: 'Leads & Agreements', to: ['/Procurement/listing-flow', '/Procurement/owner-leads'] },
   { key: 'offlineInquiries', label: 'Tenant Leads',                  group: 'Leads & Agreements', to: ['/Operations/offline-inquiries'] },
+  // 25 Nov 2026 (Khairul): Agreements and Renewals get their own ticks (were open to every role with this group). Base: see the
+  // records / renewals. Full: fill in, edit, generate, send links, archive (Agreements); start renewal, renew, not renewing,
+  // people in charge (Renewals). Screen only: firestore.rules are not changed. Older lists: AGR_MARK / agreementsUpgrade().
+  { key: 'agreements',       label: 'Agreements (records, fill in)', group: 'Leads & Agreements', to: ['/Agreements'] },
+  { key: 'renewals',         label: 'Agreement renewals',            group: 'Leads & Agreements', to: ['/Agreements/renewals'] },
   { key: 'agreementSetup',   label: 'Agreement Setup (forms, templates, formulas)', group: 'Leads & Agreements', to: ['/Agreements/setup'], viewOnly: true },
   { key: 'ezeeUpload',       label: 'Upload eZee Report',            group: 'Accounting',     to: ['/Finance/upload'] },
   { key: 'expenses',         label: 'Expenses & Others',             group: 'Accounting',     to: ['/Finance/expenses'] },
@@ -62,7 +67,7 @@ export const ACCESS_ROWS = PAGES.filter(p => !p.aiOnly).map(p => ({ id: p.key, l
 // The AI only ever gets None or Base (view).
 // Left out for the AI: payments and finance (Khairul 17 Nov 2026: not needed), people's work or personal records, and
 // pages that would let it act (forms, uploads). The rules accept only AI_VIEW_PERMS on roles/ai.
-const AI_SKIP = ['ownerCreds', 'ownerPayouts', 'agents', 'bookingForms', 'bulkUpload', 'offlineInquiries', 'agreementSetup', 'performance', 'driveFolders',
+const AI_SKIP = ['agreements', 'renewals', 'ownerCreds', 'ownerPayouts', 'agents', 'bookingForms', 'bulkUpload', 'offlineInquiries', 'agreementSetup', 'performance', 'driveFolders',
   'offlinePayments', 'ezeeUpload', 'expenses', 'monthEnd', 'invoices', 'reports'];
 const aiPage = p => !p.editOnly && !AI_SKIP.includes(p.key);
 export const AI_ROWS = PAGES.filter(aiPage).map(p => ({ id: p.key, label: p.label, group: p.group, keys: [p.key], ai: true }));
@@ -103,7 +108,7 @@ export const GROUP_NOTES = {
   Accounting: 'Any Accounting page lets them read the finance data. Any Accounting Full lets them change it.',
   Portfolio: 'Owners Base: names and contact only. Owners Full: can add and edit owners. Owners · Credentials: see (and with Full, change) IC, date of birth, address and bank details. Owners · Units & payouts: the owner\'s units, carried forward and payout history. Bookings Base: stay dates, deposit and payments; Full: can change them and see guest details. Offline Payments Full also lets them change the finance data. Early termination: end a booking early (move-out date, reason, the notice from the tenant) and record the deposit refund; they also need Bookings to open the booking. Only Directors can undo it. Booking settings: the gear on Bookings (invoice header, the default T&Cs and bank details).',
   Content: 'Everyone can read these. Full lets them change the text (What\'s New: post, edit and delete updates).',
-  'Leads & Agreements': 'Agreements and Renewals show for everyone with this group (not HR or IT). Agreement Setup lets them change forms, formulas, templates and where fields print.',
+  'Leads & Agreements': 'Agreements Base: see the records. Full: fill in, edit, generate and send agreements. Renewals Base: see the renewals list. Full: start renewals, renew, mark not renewing and set who is in charge. Agreement Setup lets them change forms, formulas, templates and where fields print.',
   'Company Settings': 'Branch Management Base: see the branches, their properties, links and staff, and each state\'s Drive folder. Full: add and edit branches, set a state\'s folder, create unit folders and change a property\'s units folder.',
   Marketing: 'Agent Database Base: the list of agents and their contact details. Full: add and edit agents and see their bank account number.',
   Performance: 'Quarterly performance management (quarters, COH, KPI, TMS administration). Everyone can still see their own results without this access.'
@@ -117,7 +122,16 @@ export const SPLIT_MARK = 'split.v2';
 // 23 Nov 2026: saved in every tick list made since the owner Credentials / Units & payouts ticks. A list without it is older:
 // Owners Full (or Bulk Upload Full) there also gives both ticks. firestore.rules reads it the same way (ownerCredsOk()).
 export const SPLIT3_MARK = 'split.v3';
-const MARKS = [SPLIT_MARK, SPLIT3_MARK];
+// 25 Nov 2026: saved in every tick list made since the Agreements and Renewals ticks. A list without it is older: roles that had
+// Agreements and Renewals in their sidebar (everyone except HR, IT, Housekeeping and the AI Agent) get both at Full.
+export const AGR_MARK = 'split.v4';
+const AGR_NONE = ['hr', 'it', 'housekeeping', 'ai'];
+export function agreementsUpgrade(list, role) {
+  const l = Array.isArray(list) ? list : [];
+  if (l.includes(AGR_MARK) || role === 'director' || role === 'branchDirector') return l;
+  return [...l, ...(AGR_NONE.includes(role) ? [] : ['agreements.view', 'agreements.edit', 'renewals.view', 'renewals.edit']), AGR_MARK];
+}
+const MARKS = [SPLIT_MARK, SPLIT3_MARK, AGR_MARK];
 
 // AI Agent (16 Nov 2026, Khairul): a login for an AI agent (Grok). Read-only and locked: no page ticks, can't open the
 // PMS screens, and the security rules let it read only what they list for it (properties). Not a BUILTIN_ROLES role, so it
@@ -128,16 +142,18 @@ export const AI_ROLE = 'ai';
 // Directors are not listed: they can do everything. KEEP IN STEP WITH presetFor() in firestore.rules.
 export const PRESETS = {
   finance: [...both('reports'), ...both('ezeeUpload'), ...both('expenses'), ...both('monthEnd'), ...both('invoices'),
-    ...both('offlinePayments'), ...both('owners'), ...both('portfolio'), ...both('bookings'), ...both('bulkUpload'), ...both('offlineInquiries'), SPLIT_MARK],
+    ...both('offlinePayments'), ...both('owners'), ...both('portfolio'), ...both('bookings'), ...both('bulkUpload'), ...both('offlineInquiries'),
+    ...both('agreements'), ...both('renewals'), SPLIT_MARK, 'split.v4'],
   // 13 Nov 2026: Operations work owner listings too (Owner Leads Edit; Operations Setup is theirs)
   // 23 Nov 2026: Booking settings (invoice, T&Cs)
-  operations: ['owners.view', 'portfolio.view', ...both('bookings'), ...both('offlineInquiries'), 'bookingForms.view', ...both('newOwnerListings'), 'offlinePayments.view', ...both('driveFolders'), 'bookingSettings.edit', SPLIT_MARK],
-  it: [SPLIT_MARK],
-  hr: ['playbook.edit', 'sops.edit', SPLIT_MARK],
-  procurement: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), SPLIT_MARK],
-  marketing: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), ...both('agents'), SPLIT_MARK],   // agents: 20 Nov 2026
+  operations: ['owners.view', 'portfolio.view', ...both('bookings'), ...both('offlineInquiries'), 'bookingForms.view', ...both('newOwnerListings'), 'offlinePayments.view', ...both('driveFolders'), 'bookingSettings.edit',
+    ...both('agreements'), ...both('renewals'), SPLIT_MARK, 'split.v4'],
+  it: [SPLIT_MARK, 'split.v4'],
+  hr: ['playbook.edit', 'sops.edit', SPLIT_MARK, 'split.v4'],
+  procurement: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), ...both('agreements'), ...both('renewals'), SPLIT_MARK, 'split.v4'],
+  marketing: ['owners.view', 'portfolio.view', 'bookings.view', ...both('newOwnerListings'), ...both('agents'), ...both('agreements'), ...both('renewals'), SPLIT_MARK, 'split.v4'],   // agents: 20 Nov 2026
   // Housekeeping (17 Nov 2026): the always-open pages only to start; HR or the Director add pages per person or on Roles.
-  housekeeping: [SPLIT_MARK],
+  housekeeping: [SPLIT_MARK, 'split.v4'],
   // AI Agent: Properties Base to start; the Director changes it on Roles (Base only). KEEP IN STEP WITH aiViewPerms() in the rules.
   ai: ['portfolio.view', SPLIT_MARK]
 };
@@ -171,7 +187,7 @@ export const AI_VIEW_PERMS = [...PAGES.filter(aiPage).map(p => p.key + '.view'),
 export function permsOf(me) {
   if (!me || !me.role) return [];
   if (me.role === AI_ROLE) return cleanAiPerms(PRESETS[AI_ROLE] || []);
-  return upgradePerms(Array.isArray(me.perms) ? me.perms : (PRESETS[me.role] || []));
+  return upgradePerms(agreementsUpgrade(Array.isArray(me.perms) ? me.perms : (PRESETS[me.role] || []), me.role));
 }
 
 // Branch Directors (24 Nov 2026, Khairul): a Director's view and edit, but only for their own branches (users/{uid}.branches;

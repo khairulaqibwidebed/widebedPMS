@@ -139,7 +139,16 @@ const anniversary = (arrival, n) => {
 // 25 Nov 2026 (Khairul): a Monthly Lease counts 30 nights per month from the check-in; the nights left over are a new month
 // charged by nights (rent / 30 x nights). 25 Nov - 23 Feb (90 nights) = 3 months of 30 nights; 25 Nov - 26 Feb (93 nights)
 // = 3 months + a 4th of 3 nights. Yearly leases and early terminations keep calendar months (below).
-function monthsOf(arrival, departure, rent, fullLast = false, { monthly = false } = {}) {
+// 25 Nov 2026 (Khairul): extraNight (the booking's "Last night is part of the month" switch): a stay that ends exactly ONE
+// night past a whole month or year (15 Dec - 15 Jan, a 31-day month) has that night in its last month at the same rent,
+// instead of a 1-night month of its own.
+function monthsOf(arrival, departure, rent, fullLast = false, { monthly = false, extraNight = false } = {}) {
+  const out = monthsRaw(arrival, departure, rent, fullLast, { monthly });
+  const last = out[out.length - 1];
+  if (extraNight && out.length > 1 && Math.round((Date.parse(last.to) - Date.parse(last.from)) / 86400000) === 1) { out.pop(); out[out.length - 1].to = last.to; }
+  return out;
+}
+function monthsRaw(arrival, departure, rent, fullLast = false, { monthly = false } = {}) {
   if (!arrival || !departure || departure <= arrival) return [];
   const out = [];
   if (monthly) {
@@ -172,7 +181,7 @@ export function leaseMonths(b, rent) {
   const n = nightsOf(b?.arrival, b?.departure);
   if (n < 30) return [];
   const et = b.earlyTermination && b.earlyTermination.date ? b.earlyTermination : null;
-  return monthsOf(b.arrival, b.departure, Number(rent) || 0, et?.type === 'sudden', { monthly: n < 365 && !et })
+  return monthsOf(b.arrival, b.departure, Number(rent) || 0, et?.type === 'sudden', { monthly: n < 365 && !et, extraNight: !!b.extraNight })
     .map(x => ({ ...x, m: x.from.slice(0, 7), rent: Math.round(x.rent * 100) / 100 }));
 }
 // Which lease month a calendar month ('YYYY-MM', a payment's For month or a month charge) counts in: the last month that starts
@@ -249,7 +258,7 @@ export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '
   // move-in date (19 Oct - 19 Nov is month 1, 19 Nov - 19 Dec month 2); a last part month is charged by days (rent / 30 x days).
   // 20 Nov 2026: the deposit and fees are month charges too (older bookings: their old fields on the check-in month, see allMonthCharges).
   const et = b.earlyTermination && b.earlyTermination.date ? b.earlyTermination : null;
-  const months = longTerm && rental > 0 ? monthsOf(b.arrival, b.departure, rental, et?.type === 'sudden', { monthly: nights < 365 && !et }) : [];   // 24 Nov 2026: Monthly Lease in whole months
+  const months = longTerm && rental > 0 ? monthsOf(b.arrival, b.departure, rental, et?.type === 'sudden', { monthly: nights < 365 && !et, extraNight: !!b.extraNight }) : [];   // 24 Nov 2026: Monthly Lease in whole months
   // 20 Nov 2026: extra charges added to a month on the booking (Portfolio > Bookings > Total Payments), b.monthCharges
   // { 'YYYY-MM': [{ key, label, amount, note }] }. On a multi-month invoice each goes on the month that starts in that
   // calendar month (a later calendar month with no invoice month of its own goes on the last one).

@@ -9,7 +9,7 @@
       </div>
       <div class="head-tools">
         <button v-if="form && isAdmin" class="btn" @click="links = form">Fill-in links</button>
-        <button v-if="form" class="btn btn-primary" @click="newRecord(form.id)">+ New {{ form.name }}</button>
+        <button v-if="form && canEdit" class="btn btn-primary" @click="newRecord(form.id)">+ New record</button>
         <AgreementGuide :key="form ? 'records' : 'home'" :page="form ? 'records' : 'home'" :admin="isAdmin" :first-visit="!form" />
       </div>
     </div>
@@ -26,17 +26,19 @@
       <article v-for="f in forms" :key="f.id" class="card ag-card" tabindex="0" @click="openForm(f.id)" @keydown.enter.self="openForm(f.id)">
         <div class="ag-card-top">
           <span class="ag-card-icon" aria-hidden="true">📄</span>
-          <div class="ag-card-name"><b>{{ f.name }}</b><small>{{ (templatesAll.filter(t => t.formId === f.id).length) }} template(s)</small></div>
+          <div class="ag-card-name"><b>{{ f.name }}</b><small>{{ plural(templatesAll.filter(t => t.formId === f.id).length, 'template') }}</small></div>
           <span class="pill blue" v-if="counts[f.id]?.submitted" title="Sent in through a link, waiting for a check">{{ counts[f.id].submitted }} to check</span>
         </div>
         <div class="ag-card-stats">
-          <span><b>{{ counts[f.id]?.all ?? '…' }}</b> records</span>
-          <span><b>{{ counts[f.id]?.draft ?? '…' }}</b> draft</span>
-          <span><b>{{ counts[f.id]?.completed ?? '…' }}</b> completed</span>
+          <!-- 25 Nov 2026 (Khairul): zero counts in grey, so cards with records stand out; "1 record", "2 records" -->
+          <span :class="{ zero: counts[f.id]?.all === 0 }"><b>{{ counts[f.id]?.all ?? '…' }}</b> {{ counts[f.id]?.all === 1 ? 'record' : 'records' }}</span>
+          <span :class="{ zero: counts[f.id]?.draft === 0 }"><b>{{ counts[f.id]?.draft ?? '…' }}</b> draft</span>
+          <span :class="{ zero: counts[f.id]?.completed === 0 }"><b>{{ counts[f.id]?.completed ?? '…' }}</b> completed</span>
         </div>
         <div class="ag-card-acts" @click.stop>
+          <!-- 25 Nov 2026 (Khairul): + Fill in first, in a soft tint (solid on hover) so seven cards don't shout -->
+          <button v-if="canEdit" class="btn btn-sm ag-fill" @click="newRecord(f.id)">+ Fill in</button>
           <button class="btn btn-sm" @click="openForm(f.id)">Open records</button>
-          <button class="btn btn-sm btn-primary" @click="newRecord(f.id)">+ Fill in</button>
           <button v-if="isAdmin" class="btn btn-sm" @click="links = f">Fill-in links</button>
         </div>
       </article>
@@ -46,35 +48,46 @@
 
       <div class="card rec-card">
         <div class="ag-bar rec-bar">
-          <div class="pills" role="group" aria-label="Status">
-            <button v-for="s in STATUS_TABS" :key="s.key" class="pill-btn" :class="{ on: status === s.key }" @click="status = s.key">{{ s.label }} ({{ countOf(s.key) }})</button>
+          <!-- 25 Nov 2026 (Khairul): softer active pill (+ New record stays the strongest button), muted counts, empty ones dimmed,
+               a line before Archived -->
+          <div class="pills rec-pills" role="group" aria-label="Status">
+            <button v-for="s in STATUS_TABS" :key="s.key" class="pill-btn" :class="{ on: status === s.key, zero: !countOf(s.key), arch: s.key === 'archived' }" @click="status = s.key">{{ s.label }} <span class="rec-n">{{ countOf(s.key) }}</span></button>
           </div>
           <span class="grow"></span>
-          <label class="sr-only" for="viewPick">Table view</label>
-          <select id="viewPick" class="select" :value="viewId" @change="pickView($event.target.value)">
+          <!-- 25 Nov 2026 (Khairul): the view picker shows only once a view has been saved -->
+          <label class="sr-only" for="viewPick" v-if="views.length">Table view</label>
+          <select id="viewPick" class="select" v-if="views.length" :value="viewId" @change="pickView($event.target.value)">
             <option value="">Default view</option>
             <option v-for="v in views" :key="v.id" :value="v.id">{{ v.name }}</option>
           </select>
           <button class="btn btn-sm" :disabled="!viewChanged" @click="saveCurrentView">{{ viewId ? 'Save view' : 'Save as view' }}</button>
           <button class="btn btn-sm" v-if="viewId" @click="ask = { kind: 'viewName', title: 'Save as a new view', value: currentViewName + ' copy' }">Save as new</button>
           <button class="btn btn-sm" v-if="viewId" @click="removeView">Delete view</button>
+          <!-- 25 Nov 2026 (Khairul): Import and Export in one menu -->
+          <span class="rec-io" v-click-outside="() => (ioOpen = false)" v-esc="() => (ioOpen = false)">
+            <button class="btn btn-sm" type="button" aria-haspopup="menu" :aria-expanded="String(ioOpen)" @click="ioOpen = !ioOpen">Import / Export ▾</button>
+            <span class="rec-io-menu" role="menu" v-if="ioOpen">
+              <label v-if="canEdit" role="menuitem" class="rec-io-item" :class="{ disabled: busy }">Import CSV / Excel<input type="file" hidden accept=".csv,.xlsx,.xls" @change="ioOpen = false; importFile($event)"></label>
+              <button role="menuitem" type="button" class="rec-io-item" @click="ioOpen = false; exportAs('csv')">Export CSV</button>
+              <button role="menuitem" type="button" class="rec-io-item" @click="ioOpen = false; exportAs('xlsx')">Export Excel</button>
+            </span>
+          </span>
         </div>
 
-        <div class="ag-bar rec-bar">
-          <span class="note" v-if="selected.length">{{ selected.length }} selected</span>
-          <span class="note" v-else>Tick a row to use these:</span>
-          <button class="btn btn-sm btn-primary" :disabled="selected.length !== 1" @click="openGenerate" title="Pick one record">Generate agreement</button>
-          <button class="btn btn-sm" :disabled="!selected.length || busy" @click="duplicate">Duplicate</button>
-          <button class="btn btn-sm" v-if="status !== 'archived'" :disabled="!selected.length || busy" @click="setStatus('archived')">Archive</button>
-          <button class="btn btn-sm" v-else :disabled="!selected.length || busy" @click="setStatus('draft')">Restore</button>
+        <!-- 25 Nov 2026 (Khairul): the bulk actions show only once a row is ticked -->
+        <div class="ag-bar rec-bar rec-sel" v-if="canEdit && selected.length">
+          <b class="rec-sel-n">{{ selected.length }} selected</b>
+          <button class="btn btn-sm btn-primary" :disabled="selected.length !== 1" @click="openGenerate" :title="selected.length !== 1 ? 'Tick one record only' : ''">Generate agreement</button>
+          <button class="btn btn-sm" :disabled="busy" @click="duplicate">Duplicate</button>
+          <button class="btn btn-sm" v-if="status !== 'archived'" :disabled="busy" @click="setStatus('archived')">Archive</button>
+          <button class="btn btn-sm" v-else :disabled="busy" @click="setStatus('draft')">Restore</button>
           <span class="grow"></span>
-          <label class="btn btn-sm" :class="{ disabled: busy }">Import CSV / Excel<input type="file" hidden accept=".csv,.xlsx,.xls" @change="importFile"></label>
-          <button class="btn btn-sm" @click="exportAs('csv')">Export CSV</button>
-          <button class="btn btn-sm" @click="exportAs('xlsx')">Export Excel</button>
+          <button class="link" type="button" @click="selected = []">Clear</button>
         </div>
 
         <RecordGrid ref="grid" :fields="form.fields" :rows="rows" v-model:view="view" v-model:selected="selected" :can-edit-columns="isAdmin"
           @edit="onEdit" @open="id => router.push('/Agreements/record/' + id)" @column="onColumn" />
+        <!-- 25 Nov 2026 (Khairul): how-to line under the table, put back -->
         <p class="note rec-note">Click <b>Open</b> on a row to see the whole agreement. Tick rows to Generate (one), Duplicate or Archive them. Double-click a cell to edit it (formula columns work themselves out). Drag a column title to move it, drag its edge to resize. Changes save straight away.</p>
       </div>
     </template>
@@ -133,11 +146,13 @@ import './agreements.css';
 
 const route = useRoute(), router = useRouter(), session = useSession();
 const isAdmin = computed(() => can(session, 'agreementSetup.view'));
+const canEdit = computed(() => can(session, 'agreements.edit'));   // 25 Nov 2026: Agreements Full (Base only sees the records)
 const STATUS_TABS = [{ key: 'active', label: 'All open' }, { key: 'submitted', label: 'To check' }, { key: 'draft', label: 'Draft' }, { key: 'completed', label: 'Completed' }, { key: 'archived', label: 'Archived' }];
 const COLUMN_TYPES = FIELD_TYPES.filter(t => ['text', 'textarea', 'number', 'currency', 'date', 'dropdown', 'checkbox', 'email', 'phone'].includes(t.type));
 const blankView = () => ({ order: [], hidden: [], widths: {}, sort: null, filters: [], search: '' });
 
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
+const ioOpen = ref(false);   // Import / Export menu
 const forms = ref([]), formId = ref(''), records = ref([]), templates = ref([]), views = ref([]);
 const viewId = ref(''), view = ref(blankView()), selected = ref([]), status = ref('active');
 const gen = ref(null), ask = ref(null), importing = ref(null), grid = ref(null), links = ref(null);
@@ -278,6 +293,7 @@ function removeView() {
 }
 
 // ---- Record actions ----
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const newRecord = id => router.push({ path: '/Agreements/record/new', query: { form: id } });
 function openGenerate() {
   const r = records.value.find(x => x.id === selected.value[0]);
@@ -351,10 +367,27 @@ async function exportAs(kind) {
 .ag-card-stats { display: flex; gap: 16px; font-size: 13px; color: var(--muted); }
 .ag-card-stats b { color: var(--text); font-size: 16px; margin-right: 2px; font-variant-numeric: tabular-nums; }
 .ag-card-acts { display: flex; gap: 6px; flex-wrap: wrap; cursor: default; }
+.ag-fill { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
+.ag-fill:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.ag-card-stats .zero, .ag-card-stats .zero b { color: var(--muted); opacity: .75; }
 .rec-card { padding: 16px; }
 .rec-bar { margin-bottom: 10px; }
+.rec-io { position: relative; }
+.rec-io-menu { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; min-width: 190px; padding: 6px; display: grid; gap: 2px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 28px rgba(0,0,0,.14); }
+.rec-io-item { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 7px; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+.rec-io-item:hover { background: var(--hover); }
+.rec-io-item.disabled { opacity: .5; pointer-events: none; }
+.rec-sel { padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); }
+.rec-sel-n { font-size: 13px; margin-right: 4px; }
 .rec-note { margin: 10px 0 0; }
 label.btn.disabled { opacity: .55; pointer-events: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .notice ul { margin: 6px 0 0; padding-left: 18px; }
+.rec-pills .pill-btn.on { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-color: var(--accent); color: var(--accent); }
+.rec-n { margin-left: 2px; color: var(--muted); font-weight: 500; }
+.rec-pills .pill-btn.on .rec-n { color: inherit; opacity: .65; }
+.rec-pills .pill-btn.zero:not(.on) { opacity: .55; }
+.rec-pills .pill-btn.arch { position: relative; margin-left: 13px; }
+.rec-pills .pill-btn.arch::before { content: ""; position: absolute; left: -10px; top: 7px; bottom: 7px; width: 1px; background: var(--border); }
 </style>

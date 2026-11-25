@@ -1,7 +1,8 @@
 <template>
   <main class="content">
     <div class="loading-bar" v-show="loading"></div>
-    <div class="ag-crumb"><button class="link" @click="back">← {{ form ? form.name : 'Agreements' }}</button></div>
+    <!-- 25 Nov 2026 (Khairul): on a new record the back link lines up with the step-by-step form (860px wide, centred) -->
+    <div class="ag-crumb" :class="{ 'wz-crumb': isNew && form && !done }"><button class="link" @click="back">← {{ form ? form.name : 'Agreements' }}</button></div>
 
     <!-- New record: step by step, then a thank-you page -->
     <template v-if="form && isNew">
@@ -32,6 +33,7 @@
           </div>
         </div>
         <div class="head-tools">
+          <template v-if="canEdit">
           <button class="btn" :disabled="busy" @click="saveNow">Save</button>
           <button class="btn" :disabled="busy" @click="links = true">Send to fill in & sign</button>
           <!-- Less used: in a menu, so the main steps stand out (13 Nov 2026) -->
@@ -46,6 +48,7 @@
           </span>
           <button class="btn" v-if="status !== 'completed' && status !== 'archived'" :disabled="busy" @click="changeStatus('completed')">{{ status === 'submitted' ? 'Checked: mark completed' : 'Mark completed' }}</button>
           <button class="btn btn-primary" :disabled="busy" @click="openGenerate">Generate agreement</button>
+          </template>
           <AgreementGuide page="record" :admin="isAdmin" />
         </div>
       </div>
@@ -68,7 +71,7 @@
       <div class="rec-layout">
         <div class="card">
           <form class="ag-form" @submit.prevent novalidate>
-            <FieldInput v-for="f in shownFields" :key="f.id" :field="f" :disabled="busy"
+            <FieldInput v-for="f in shownFields" :key="f.id" :field="f" :disabled="busy || !canEdit"
               :model-value="f.type === 'formula' ? computed_[f.id] : values[f.id]" :error="errors[f.id] || ''"
               @update:model-value="v => setValue(f, v)" />
           </form>
@@ -82,7 +85,7 @@
             <div class="kv"><span>Status</span><span><span class="pill" :class="tState.pill">{{ tState.label }}</span></span></div>
             <div class="field rec-ic">
               <span class="rec-ic-lbl">In charge</span>
-              <PeoplePicker :model-value="inChargeOf(record)" :staff="staff" :disabled="busy" label="Add a person in charge" @update:model-value="setInCharge" />
+              <PeoplePicker :model-value="inChargeOf(record)" :staff="staff" :disabled="busy || !canRenew" label="Add a person in charge" @update:model-value="setInCharge" />
               <span class="help">They get the renewal reminders, with the person who made it{{ remindAlso ? ' and ' + remindAlso : '' }}.</span>
             </div>
             <RouterLink class="btn btn-sm" to="/Agreements/renewals">Open Renewals</RouterLink>
@@ -131,11 +134,16 @@ import { loadFile } from '@/lib/agreements/drive.js';
 import { downloadBytes } from '@/lib/agreements/bytes.js';
 import { can } from '@/lib/access.js';
 import { useSession } from '@/stores/session.js';
+import { askConfirm } from '@/lib/confirm.js';
 import './agreements.css';
 
 const route = useRoute(), router = useRouter(), session = useSession();
 const isAdmin = computed(() => can(session, 'agreementSetup.view'));
 const isNew = computed(() => route.params.id === 'new');
+const canEdit = computed(() => can(session, 'agreements.edit'));   // 25 Nov 2026: Agreements Full (Base only sees the records)
+const canRenew = computed(() => can(session, 'renewals.edit'));   // who is in charge: Renewals Full
+// Agreements Base can't fill in a new record: back to the list
+watch(() => isNew.value && !canEdit.value, no => { if (no) router.replace('/Agreements'); }, { immediate: true });
 
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
 const moreOpen = ref(false);
@@ -285,7 +293,10 @@ async function download(h) {
 
 watch(okMsg, m => { if (m) setTimeout(() => { if (okMsg.value === m) okMsg.value = ''; }, 3500); });
 onBeforeRouteLeave(async () => {
-  if (isNew.value && touched.value && !busy.value && !done.value) return window.confirm('Leave without saving this new record?');
+  // 25 Nov 2026 (Khairul): the app's own popup instead of the browser's confirm box
+  if (isNew.value && touched.value && !busy.value && !done.value) {
+    return askConfirm({ title: 'Leave without saving?', message: 'This new record has not been saved. Save a draft first to keep what you typed.', confirmText: 'Leave', danger: true });
+  }
   await autosave.flush();
   return true;
 });
@@ -306,4 +317,5 @@ onBeforeRouteLeave(async () => {
 .rec-ext { background: var(--blue-soft); color: var(--blue); }
 .page-head .sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 @media (max-width: 1000px) { .rec-layout { grid-template-columns: minmax(0, 1fr); } .rec-side { position: static; } }
+.wz-crumb { display: flex; max-width: 860px; margin-left: auto; margin-right: auto; }
 </style>

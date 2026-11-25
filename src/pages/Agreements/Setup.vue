@@ -31,10 +31,11 @@
               <td class="num">{{ templates.filter(t => t.masterId === m.id).length }}</td>
               <td><span class="pill" :class="m.editing ? 'amber' : 'green'">{{ m.editing ? 'Being edited by ' + m.editing.byName : 'Ready' }}</span></td>
               <td class="muted">{{ when(m.updatedAt) }}</td>
-              <td class="setup-acts">
-                <RouterLink class="act-pill" :to="'/Agreements/setup/master/' + m.id">Open / edit</RouterLink>
-                <button class="act-pill danger" @click="archive('master', m)">Archive</button>
-              </td>
+              <!-- 25 Nov 2026 (Khairul): one line of actions: a neutral main button, then an icon (masters) or a ⋯ menu (forms, templates) -->
+              <td class="setup-acts-td"><div class="setup-acts">
+                <RouterLink class="st-btn" :to="'/Agreements/setup/master/' + m.id"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Open / edit</RouterLink>
+                <button type="button" class="st-icon st-del" aria-label="Archive" title="Archive" @click="archive('master', m)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg></button>
+              </div></td>
             </tr>
             <SkeletonRows v-if="loading && !masters.length" table :cols="5" />
             <tr v-if="!loading && !masters.length"><td colspan="5" class="muted">No master files yet. Add a Word file or a Google Docs link.</td></tr>
@@ -64,15 +65,12 @@
               <td class="num">{{ f.fields.filter(x => !['section', 'note'].includes(x.type)).length }}</td>
               <td class="num">{{ f.fields.filter(x => x.type === 'formula').length }}</td>
               <td class="num">{{ templates.filter(t => t.formId === f.id).length }}</td>
-              <td><span class="pill" :class="f.renewal?.on ? 'green' : 'grey'">{{ f.renewal?.on ? 'Reminders on' : 'Off' }}</span></td>
+              <td><button type="button" class="pill st-rn" :class="f.renewal?.on ? 'green' : 'grey'" title="Renewal settings" @click="renewalFor = f">{{ f.renewal?.on ? 'Reminders on' : 'Off' }}</button></td>
               <td class="muted">{{ when(f.updatedAt) }}</td>
-              <td class="setup-acts">
-                <RouterLink class="act-pill" :to="'/Agreements/setup/form/' + f.id">Edit fields</RouterLink>
-                <button class="act-pill" @click="renewalFor = f">Renewal</button>
-                <button class="act-pill" @click="ask = { kind: 'renameForm', item: f }">Rename</button>
-                <button class="act-pill" @click="copyForm(f)">Duplicate</button>
-                <button class="act-pill danger" @click="archive('form', f)">Archive</button>
-              </td>
+              <td class="setup-acts-td"><div class="setup-acts">
+                <RouterLink class="st-btn" :to="'/Agreements/setup/form/' + f.id"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Edit fields</RouterLink>
+                <button type="button" class="st-more" :class="{ on: rowMenu && rowMenu.item === f }" aria-label="More actions" title="More actions" aria-haspopup="menu" :aria-expanded="String(!!rowMenu && rowMenu.item === f)" @click.stop="openMenu($event, 'form', f)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div></td>
             </tr>
             <SkeletonRows v-if="loading && !forms.length" table :cols="7" />
             <tr v-if="!loading && !forms.length"><td colspan="7" class="muted">No forms yet. Start from the tenancy forms in your sheet or a blank one.</td></tr>
@@ -104,12 +102,10 @@
               <td class="num">{{ t.pages.length }}</td>
               <td class="num">{{ (t.mappings || []).length }}</td>
               <td class="muted">{{ when(t.updatedAt) }}</td>
-              <td class="setup-acts">
-                <RouterLink class="act-pill" :to="'/Agreements/setup/template/' + t.id">Place fields</RouterLink>
-                <button class="act-pill" @click="ask = { kind: 'renameTemplate', item: t }">Rename</button>
-                <button class="act-pill" @click="copyTemplate(t)">Duplicate</button>
-                <button class="act-pill danger" @click="archive('template', t)">Archive</button>
-              </td>
+              <td class="setup-acts-td"><div class="setup-acts">
+                <RouterLink class="st-btn" :to="'/Agreements/setup/template/' + t.id"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>Place fields</RouterLink>
+                <button type="button" class="st-more" :class="{ on: rowMenu && rowMenu.item === t }" aria-label="More actions" title="More actions" aria-haspopup="menu" :aria-expanded="String(!!rowMenu && rowMenu.item === t)" @click.stop="openMenu($event, 'template', t)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+              </div></td>
             </tr>
             <SkeletonRows v-if="loading && !templates.length" table :cols="7" />
             <tr v-if="!loading && !templates.length"><td colspan="7" class="muted">No templates yet.</td></tr>
@@ -146,6 +142,19 @@
         </select>
       </div>
     </NameDialog>
+    <div class="st-menu" v-if="rowMenu" role="menu" :style="{ top: rowMenu.top != null ? rowMenu.top + 'px' : 'auto', bottom: rowMenu.bottom != null ? rowMenu.bottom + 'px' : 'auto', right: rowMenu.right + 'px' }" v-click-outside="closeMenu">
+      <template v-if="rowMenu.kind === 'form'">
+        <button type="button" role="menuitem" @click="pick(() => renewalFor = rowMenu.item)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>Renewal</button>
+        <button type="button" role="menuitem" @click="pick(() => ask = { kind: 'renameForm', item: rowMenu.item })"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Rename</button>
+        <button type="button" role="menuitem" @click="pick(() => copyForm(rowMenu.item))"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>Duplicate</button>
+      </template>
+      <template v-else>
+        <button type="button" role="menuitem" @click="pick(() => ask = { kind: 'renameTemplate', item: rowMenu.item })"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Rename</button>
+        <button type="button" role="menuitem" @click="pick(() => copyTemplate(rowMenu.item))"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>Duplicate</button>
+      </template>
+      <hr>
+      <button type="button" role="menuitem" class="st-menu-del" @click="pick(() => archive(rowMenu.kind, rowMenu.item))"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg>Archive</button>
+    </div>
     <NameDialog v-if="ask && ask.kind === 'renameForm'" title="Rename form" label="Form name" :value="ask.item.name" @close="ask = null" @done="n => rename('form', ask.item, n)" />
     <NameDialog v-if="ask && ask.kind === 'renameTemplate'" title="Rename template" label="Template name" :value="ask.item.name" @close="ask = null" @done="n => rename('template', ask.item, n)" />
     <RenewalSettings v-if="renewalFor" :form="renewalFor" @close="renewalFor = null"
@@ -224,7 +233,7 @@
 <script setup>
 // Agreement setup: forms and templates. Needs the "Agreement setup" tick (Directors always have it).
 import AgreementGuide from '@/components/agreements/AgreementGuide.vue';
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import NameDialog from '@/components/agreements/NameDialog.vue';
 import ConfirmDialog from '@/components/agreements/ConfirmDialog.vue';
@@ -240,6 +249,21 @@ const router = useRouter();
 const loading = ref(true), busy = ref(false), error = ref(''), okMsg = ref('');
 const forms = ref([]), templates = ref([]), masters = ref([]), ask = ref(null), upload = ref(null), addMaster = ref(null), renewalFor = ref(null);
 // Which drop-down sections are open, remembered in this browser (all open at first).
+// 25 Nov 2026 (Khairul): the ⋯ menu on form and template rows. Fixed to the screen under the button; closes on scroll.
+const rowMenu = ref(null);
+function openMenu(e, kind, item) {
+  if (rowMenu.value?.item === item) { rowMenu.value = null; return; }
+  const r = e.currentTarget.getBoundingClientRect(), H = 170;
+  const up = r.bottom + 6 + H > window.innerHeight;   // near the bottom: open upwards, pinned by its bottom edge so it sits right on the button
+  rowMenu.value = { kind, item, top: up ? null : r.bottom + 6, bottom: up ? window.innerHeight - r.top + 6 : null, right: Math.max(8, window.innerWidth - r.right) };
+}
+const closeMenu = () => { rowMenu.value = null; };
+const pick = fn => { fn(); rowMenu.value = null; };
+const onScroll = () => { if (rowMenu.value) rowMenu.value = null; };
+const onKey = e => { if (e.key === 'Escape') onScroll(); };
+onMounted(() => { window.addEventListener('scroll', onScroll, true); window.addEventListener('keydown', onKey); });
+onBeforeUnmount(() => { window.removeEventListener('scroll', onScroll, true); window.removeEventListener('keydown', onKey); });
+
 const OPEN_KEY = 'wb.agreementSetupClosed';
 const closed = ref((() => { try { const v = JSON.parse(localStorage.getItem(OPEN_KEY)); return Array.isArray(v) ? v : []; } catch (_) { return []; } })());
 const isOpen = k => !closed.value.includes(k);
@@ -358,7 +382,31 @@ async function doUpload() {
 .group-body { margin-top: 14px; }
 .setup-name { font-weight: 600; color: var(--text); }
 .setup-name:hover { color: var(--accent); }
-.setup-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; white-space: nowrap; }
+/* 25 Nov 2026 (Khairul): row actions on one line */
+.setup-acts-td { width: 1%; }
+.setup-acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; white-space: nowrap; }
+.st-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; background: #fff; border: 1px solid #e2e8f0;
+  color: var(--text); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background .15s, border-color .15s, color .15s; }
+.st-btn:hover { background: color-mix(in srgb, var(--accent) 6%, #fff); border-color: color-mix(in srgb, var(--accent) 45%, #e2e8f0); color: var(--accent); }
+.st-btn svg, .st-icon svg, .st-more svg, .st-menu svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.st-btn svg { color: var(--muted); }
+.st-btn:hover svg { color: inherit; }
+.st-icon, .st-more { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer;
+  transition: background .15s, color .15s; }
+.st-icon svg, .st-more svg { width: 16px; height: 16px; }
+.st-del:hover { color: #ef4444; background: #fef2f2; }
+.st-more svg { fill: currentColor; stroke: none; }
+.st-more:hover, .st-more.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.st-rn { border: 0; font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.st-rn:hover { filter: brightness(.95); text-decoration: underline; }
+.st-menu { position: fixed; z-index: 60; width: max-content; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 28px rgba(0,0,0,.14); }
+.st-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px 8px 10px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.st-menu button svg { color: var(--muted); }
+.st-menu button:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+.st-menu button:hover svg { color: inherit; }
+.st-menu hr { margin: 4px 2px; border: 0; border-top: 1px solid var(--border); }
+.st-menu .st-menu-del, .st-menu .st-menu-del svg { color: #ef4444; }
+.st-menu .st-menu-del:hover { background: #fef2f2; }
 .setup-help ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
 .setup-help code { background: var(--chip); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 </style>

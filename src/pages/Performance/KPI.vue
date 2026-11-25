@@ -144,13 +144,13 @@
           <table class="table hover-rows">
             <thead><tr><th>Employee</th><th>KPI</th><th>Self-rating</th><th>Your rating</th><th>Final score</th><th></th></tr></thead>
             <tbody>
-              <tr v-for="row in allRows.filter(r => r.submission?.status === 'done')" :key="row.assignment.id">
+              <tr v-for="row in allRows.filter(r => r.submission?.status === 'done')" :key="row.assignment.id" class="clickable" @click="openReview(row)">
                 <td>{{ row.assignment.employeeName }}</td>
                 <td>{{ row.assignment.title }}</td>
                 <td>{{ row.submission.selfRating }} / 5</td>
                 <td>{{ row.submission.finalApprovedRating }} / 5</td>
                 <td>{{ taskScoreText(row.assignment, row.submission) }}</td>
-                <td><button class="act-pill" @click="openReview(row)">View</button></td>
+                <td class="chev-col"><ViewChevron label="Open KPI review" @click.stop="openReview(row)" /></td>
               </tr>
               <tr v-if="!allRows.some(r => r.submission?.status === 'done')"><td colspan="6" class="muted">No approved KPIs yet.</td></tr>
             </tbody>

@@ -18,7 +18,7 @@ const TOP = { items: [P('Dashboard', '/Dashboard', 'dashboard'), P('Issues', '/O
 const PORTFOLIO = G('Portfolio', 'layers', [P('Owners', '/Portfolio/owners', 'user'), P('Properties', '/Portfolio/properties', 'building'),
   P('Bookings', '/Portfolio/bookings', 'calendar'), P('Fees & Rates', '/Portfolio/fees-rates', 'percent'), P('Utility Lodgment Form', '/Operations/booking-forms', 'clipboard'),
   P('Offline Payments', '/Finance/offline-payments', 'creditCard'), P('Bulk Upload', '/Portfolio/bulk-upload', 'table')]);
-// Leads follow their ticks; Agreements and Renewals are for everyone who has this group (not HR or IT).
+// Leads, Agreements and Renewals follow their ticks (Agreements and Renewals since 25 Nov 2026; before, everyone with this group).
 // Owner Leads (13 Nov 2026: Owner Leads and Listing Flow are one page) follows the Owner Leads View tick.
 const LEADS = G('Leads & Agreements', 'handshake', [P('Owner Leads', '/Procurement/listing-flow', 'home'), P('Tenant Leads', '/Operations/offline-inquiries', 'message'),
   P('Agreements', '/Agreements', 'fileText'), P('Renewals', '/Agreements/renewals', 'refresh')]);

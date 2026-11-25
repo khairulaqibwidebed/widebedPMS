@@ -42,7 +42,7 @@
                   <span class="pill green" v-else>Booked</span>
                   <span class="pill blue ez-via" v-if="fromMonth(b)" title="Added or changed by Accounting's Monthly check">Monthly check</span>
                 </td>
-                <td class="num"><button type="button" class="eye-btn" title="View booking" aria-label="View booking" @click.stop="open = b"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 11.5A4.5 4.5 0 1112 7.5a4.5 4.5 0 010 9zm0-7.2a2.7 2.7 0 100 5.4 2.7 2.7 0 000-5.4z"/></svg></button></td>
+                <td class="chev-col"><ViewChevron label="Open booking" @click.stop="open = b" /></td>
               </tr>
               <tr v-show="!shown.length"><td :colspan="showAmounts ? 10 : 9" class="muted">{{ loading ? 'Loading eZee bookings…' : emptyMsg }}</td></tr>
             </tbody>
@@ -153,8 +153,6 @@ export default {
 .ez-via { margin-left: 6px; }
 tr.dim td { opacity: .65; }
 .small { font-size: 12px; font-weight: 400; }
-table.table .eye-btn svg { fill: var(--muted); transition: fill var(--fast); }
-table.table tr:hover .eye-btn svg { fill: var(--accent); }
 .ez-modal { max-width: 560px; }
 .ez-dl { margin: 0; } .ez-dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 14px; }
 .ez-dl dt { color: var(--muted); } .ez-dl dd { margin: 0; text-align: right; }
