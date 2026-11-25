@@ -89,3 +89,7 @@ export const linkCheck = (state, properties) => call({ action: 'linkCheck', stat
 // makeUnitFolders: makes them: { made: [{ id, unit, name, link }] }
 export const unitPlan = properties => call({ action: 'unitPlan', properties });
 export const makeUnitFolders = properties => call({ action: 'makeUnitFolders', properties });
+
+// 24 Nov 2026 (Bulk Upload > Cancel bookings): the text of a printed PDF (pictures of pages), read by Google Drive (OCR).
+// data = the PDF as base64. Accounting and Directors only (api/drive.js).
+export const readPdfText = (name, data) => call({ action: 'ocr', name, data }).then(j => String(j.text || ''));
