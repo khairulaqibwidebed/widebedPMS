@@ -6,6 +6,8 @@
 // data: { company, topic, date, venue, staffName, ic, joinDate, leaveYear, leave: { cells: [{ label, days }], total }, position,
 //         questions: [{ title, mark }], average, raters, expected }
 // 17 Nov 2026: IC No. under Staff Name, and a small "Leave taken" table under Join Date.
+// 25 Nov 2026: "Leave taken until <session date>", and data.notes (the write-in boxes typed on the page, see emptyNotes in
+// oneToOne.js) printed in their boxes: ratings, what is / isn't working, Behaviour scores and remarks, Action, signature names.
 // opts: { logoBytes (JPG, optional), fallbackFontBytes (a TTF for names the built-in fonts can't print, optional) }
 const A4 = [595.28, 841.89];
 const X0 = 28, WIDTH = 546;                        // the tables' left edge and width (the template's margins)
@@ -62,6 +64,15 @@ export async function buildOneToOnePdf(data, opts = {}) {
     return w;
   };
   const lines = (list, x, top, o = {}) => { const lead = o.lead || (o.size || 9) + 1.5; list.forEach((s, k) => text(s, x, top + k * lead, o)); return list.length * lead; };
+  // Typed text in a box: keeps the line breaks HR typed, wraps to maxW, stops at `bottom` (the last line ends with …).
+  const para = (s, x, top, maxW, bottom, o = {}) => {
+    const size = o.size || 9, lead = o.lead || size + 2;
+    let ls = String(s ?? '').split('\n').flatMap(p => (p.trim() ? wrap(p, o.font || F.n, size, maxW) : ['']));
+    while (ls.length && !ls[ls.length - 1]) ls.pop();
+    const fit = Math.max(0, Math.floor((bottom - top) / lead));
+    if (ls.length > fit) { ls = ls.slice(0, fit); if (fit) ls[fit - 1] = ls[fit - 1].replace(/.{0,2}$/, '…'); }
+    lines(ls, x, top, { size, lead, font: o.font || F.n });
+  };
   const hline = (x1, x2, top) => page.drawLine({ start: { x: x1, y: A4[1] - top }, end: { x: x2, y: A4[1] - top }, thickness: 0.75, color: black });
   const vline = (x, t1, t2) => page.drawLine({ start: { x, y: A4[1] - t1 }, end: { x, y: A4[1] - t2 }, thickness: 0.75, color: black });
   const box = (x, top, w, h) => { hline(x, x + w, top); hline(x, x + w, top + h); vline(x, top, top + h); vline(x + w, top, top + h); };
@@ -93,7 +104,8 @@ export async function buildOneToOnePdf(data, opts = {}) {
   const lv = data.leave || { cells: [], total: '' };
   const lcols = [...lv.cells, { label: 'Total', days: lv.total }];
   const lx = X0 + 398, lw = WIDTH - 398, ltop = 116, lrow = 14, colW = lw / lcols.length;
-  text(`Leave taken${data.leaveYear ? ` in ${data.leaveYear}` : ''} (days):`, lx, 102, { font: F.b, size: 8.5 });
+  const lvTitle = data.leaveUntil ? `Leave taken until ${data.leaveUntil}` : 'Leave taken';
+  text(widthOf(`${lvTitle} (days):`, F.b, 8.5) <= lw ? `${lvTitle} (days):` : `${lvTitle}:`, lx, 102, { font: F.b, size: 8.5, maxW: lw });
   box(lx, ltop, lw, lrow * 2); hline(lx, lx + lw, ltop + lrow);
   lcols.forEach((c, k) => {
     if (k) vline(lx + k * colW, ltop, ltop + lrow * 2);
@@ -108,14 +120,22 @@ export async function buildOneToOnePdf(data, opts = {}) {
   const cx = [X0, X0 + cw[0], X0 + cw[0] + cw[1], X0 + cw[0] + cw[1] + cw[2]];
   box(X0, T, WIDTH, H); cx.slice(1).forEach(x => vline(x, T, B));
   const head = { font: F.b, size: 8.5 };
+  const nt = data.notes || {};
   text('Code of Honor :', cx[0] + 5, T + 4, head);
-  lines(wrap('Overall Self Rating (1-10) :', F.b, 8.5, cw[1] - 10), cx[1] + 5, T + 4, head);
+  const selfH = lines(wrap('Overall Self Rating (1-10) :', F.b, 8.5, cw[1] - 10), cx[1] + 5, T + 4, head);
   text('What is Working (Ind):', cx[2] + 5, T + 4, head);
   text('What is Not Working (Ind) :', cx[3] + 5, T + 4, head);
   const second = T + H * 0.645;                    // the lower labels sit about two thirds down, as in the template
-  lines(wrap('Superior Rating (1-10) :', F.b, 8.5, cw[1] - 10), cx[1] + 5, second, head);
+  const supH = lines(wrap('Superior Rating (1-10) :', F.b, 8.5, cw[1] - 10), cx[1] + 5, second, head);
   text('What is Working (Co):', cx[2] + 5, second, head);
   text('What is Not Working (Co):', cx[3] + 5, second, head);
+  // What HR typed: the ratings big under their labels, the four boxes as paragraphs
+  if (nt.selfRating) text(nt.selfRating, cx[1] + cw[1] / 2, T + 10 + selfH, { font: F.b, size: 18, align: 'center' });
+  if (nt.superiorRating) text(nt.superiorRating, cx[1] + cw[1] / 2, second + 6 + supH, { font: F.b, size: 18, align: 'center' });
+  para(nt.workingInd, cx[2] + 5, T + 20, cw[2] - 10, second - 6);
+  para(nt.notWorkingInd, cx[3] + 5, T + 20, cw[3] - 10, second - 6);
+  para(nt.workingCo, cx[2] + 5, second + 16, cw[2] - 10, B - 6);
+  para(nt.notWorkingCo, cx[3] + 5, second + 16, cw[3] - 10, B - 6);
 
   // Code of Honor: one line per question, spread down the column; the mark right-aligned and bold.
   const q = data.questions || [], n = q.length;
@@ -154,6 +174,7 @@ export async function buildOneToOnePdf(data, opts = {}) {
     text('Self', gx[6] + 4, t + 3, { size: 9 }); text('Superior', gx[7] + 4, t + 3, { size: 9 });
   });
   for (const [name, , cells] of BEHAVIOUR) {
+    const bv = nt.behaviour?.[name.toLowerCase()] || {};
     // Each row is as tall as its longest cell
     const wrapped = cells.map((pair, k) => pair.map(phrase => wrap(phrase, F.n, bSize, gw[1 + k * 2] - 6)));
     const h = Math.max(...wrapped.map(pair => pair.reduce((a, ls) => a + ls.length * bLead, 0) + pairGap * (pair.length - 1))) + 7;
@@ -163,8 +184,13 @@ export async function buildOneToOnePdf(data, opts = {}) {
         const col = 1 + k * 2; let y = t + 3;
         pair.forEach(ls => { ls.forEach((s, j) => text(s, gx[col] + gw[col] / 2, y + j * bLead, { size: bSize, align: 'center' })); y += ls.length * bLead + pairGap; });
       });
+      if (bv.self) text(bv.self, gx[6] + gw[6] / 2, t + h / 2 - 6, { font: F.b, size: 12, align: 'center' });
+      if (bv.superior) text(bv.superior, gx[7] + gw[7] / 2, t + h / 2 - 6, { font: F.b, size: 12, align: 'center' });
     });
-    row(15, t => text('Remark:', gx[1] - 5, t + 3, { size: 9, align: 'right' }), true);
+    row(15, t => {
+      text('Remark:', gx[1] - 5, t + 3, { size: 9, align: 'right' });
+      if (bv.remark) text(bv.remark, gx[1] + 5, t + 3, { size: 9, maxW: X0 + WIDTH - gx[1] - 10 });
+    }, true);
   }
 
   // Action: the box takes all the space down to the signatures. Its top row: "Action:" on the left,
@@ -181,24 +207,34 @@ export async function buildOneToOnePdf(data, opts = {}) {
   const widths = choices.map(o => sq + gap + widthOf(o, F.n, tick.size));
   const total = widths.reduce((a, w) => a + w, 0) + between * (choices.length - 1) + 4 + otherLine;
   let x = X0 + WIDTH - 10 - total;
+  const ticked = ['confirmation', 'extend', 'training', 'other'].map(k => nt.actions?.[k] === true);
   choices.forEach((o, k) => {
     box(x, mid - sq / 2, sq, sq);
+    if (ticked[k]) {   // a cross in the box
+      page.drawLine({ start: { x: x + 2, y: A4[1] - (mid - sq / 2 + 2) }, end: { x: x + sq - 2, y: A4[1] - (mid + sq / 2 - 2) }, thickness: 1.2, color: black });
+      page.drawLine({ start: { x: x + 2, y: A4[1] - (mid + sq / 2 - 2) }, end: { x: x + sq - 2, y: A4[1] - (mid - sq / 2 + 2) }, thickness: 1.2, color: black });
+    }
     text(o, x + sq + gap, mid - 4.5, tick);
     x += widths[k] + between;
   });
   hline(x - between + 4, x - between + 4 + otherLine, mid + 5);   // the line after "Other:" to write on
+  if (nt.otherAction) text(nt.otherAction, x - between + 6, mid - 4.5, { size: 9, maxW: otherLine - 4 });
   // Under the tick boxes, the template's own lines; the rest is space to write in.
   const body = aTop + headH;
-  text('1.     Recommendation for Confirmation:  N/A', X0 + 8, body + 16, { size: 9 });
-  text('If Yes, action:', X0 + 26, body + 36, { font: F.i, size: 9 });
+  const recW = text('1.     Recommendation for Confirmation:  ', X0 + 8, body + 16, { size: 9 });
+  text(nt.recommendation ?? 'N/A', X0 + 8 + recW, body + 16, { size: 9, maxW: WIDTH - recW - 20 });
+  const yesW = text('If Yes, action:  ', X0 + 26, body + 36, { font: F.i, size: 9 });
+  if (nt.ifYes) para(nt.ifYes, X0 + 26 + yesW, body + 36, WIDTH - 26 - yesW - 16, body + 70);
   text('2.     Quarterly Review :', X0 + 8, body + 74, { size: 9 });
+  para(nt.quarterlyReview, X0 + 26, body + 90, WIDTH - 42, aBottom - 6);
 
   // Signatures, side by side under the box
   const sTop = aBottom + 14;
-  [['Attended by:', X0 + 5], ['Acknowledged by:', X0 + WIDTH / 2 + 20]].forEach(([label, sx]) => {
+  [['Attended by:', X0 + 5, nt.attendedBy], ['Acknowledged by:', X0 + WIDTH / 2 + 20, nt.acknowledgedBy]].forEach(([label, sx, who]) => {
     text(label, sx, sTop, { size: 10 });
     hline(sx, sx + 170, sTop + 38);
-    text('Name:', sx, sTop + 44, { size: 10 });
+    const nW = text('Name: ', sx, sTop + 44, { size: 10 });
+    if (who) text(who, sx + nW, sTop + 44, { size: 10, maxW: 220 - nW });
   });
   footer('');
   return pdf.save();

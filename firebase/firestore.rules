@@ -1,4 +1,8 @@
 rules_version = '2';
+// Draft 1.13, 25 Nov 2026 (Crane): One To One Session forms are saved (Performance > One To One Session > Save).
+//   oneToOneForms/{quarterId}_{uid} { quarterId, uid, date, venue, topic, staffName, position, ic, leave, notes, updatedBy,
+//   updatedByName, updatedAt }: HR and Directors read and write (they are the only ones who see the COH marks); Directors
+//   delete. No other change.
 // Draft 1.12, 25 Nov 2026 (Crane): Bulk Upload > New bookings (eZee) and Cancel bookings (eZee) for everyone with the Bulk
 //   Upload Full tick (bulkEzee()), like the other Bulk Upload functions (was Accounting and Directors only). They may:
 //   - bookings/{id} (eZee bookings, Accounting's Month-End copy) and its private/main: read, add and change; importBatches:
@@ -828,6 +832,20 @@ service cloud.firestore {
         && request.resource.data.venues is list && request.resource.data.venues.size() <= 50
         && request.resource.data.lastVenue is string && request.resource.data.lastVenue.size() <= 80
         && request.resource.data.updatedBy == request.auth.uid;
+    }
+
+    // One To One Session forms (Draft 1.13): one per person per quarter, typed and saved by HR / Directors.
+    match /oneToOneForms/{id} {
+      allow read: if hrOrDir();
+      allow create, update: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['quarterId', 'uid', 'date', 'venue', 'topic', 'staffName', 'position', 'ic', 'leave', 'notes',
+             'updatedBy', 'updatedByName', 'updatedAt'])
+        && request.resource.data.quarterId is string && request.resource.data.uid is string
+        && id == request.resource.data.quarterId + '_' + request.resource.data.uid
+        && request.resource.data.leave is map && request.resource.data.notes is map
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isDirector();
     }
 
     // Unit types added with "+ Add type" on Add unit: anyone who can add or edit units may add to the list.
