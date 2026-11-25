@@ -14,6 +14,8 @@
         <MonthPicker :ahead="1" v-model="asOf" @change="reload()" v-if="!acc.viewOnly" />
         <RefreshButton @refresh="go()" />
         <button class="btn" type="button" v-if="isTop" @click="stampOpen = true">Link owners and tenants</button>
+        <!-- 25 Nov 2026 (Khairul): moved up from the bar above the list (that bar is gone; Search is inside the card) -->
+        <button class="btn btn-primary" type="button" @click="openAdd(null)" v-if="acc.canAdd">+ Add property</button>
       </div>
     </div>
 
@@ -33,12 +35,37 @@
         <button type="button" class="card kpi kpi-link" :class="{ on: propAttn }" @click="propAttn = !propAttn; toList()" title="Show only properties with units not set up"><div class="label">Needs attention</div><div class="value" :class="{ alert: notSetUp }">{{ notSetUp }}</div><div class="hint">{{ propAttn ? 'Showing these properties · click to show all' : 'Units not set up yet' }}</div></button>
       </template>
     </section>
-    <div class="pf-bar">
-      <input class="input" type="search" placeholder="Search property..." v-model="propSearch" aria-label="Search property">
-      <button class="btn btn-primary" @click="openAdd(null)" v-if="acc.canAdd">+ Add property</button>
-    </div>
     <section class="card" ref="propList">
-      <h2 class="t">{{ acc.viewOnly ? 'Properties' : `Properties · ${monthName(asOf)}` }}</h2>
+      <!-- 25 Nov 2026 (Khairul): Directors switch the list between active and switched-off properties, in the card header -->
+      <div class="pf-head">
+        <h2 class="t">{{ view === 'off' ? `Switched off (${switchedOff.length})` : acc.viewOnly ? 'Properties' : `Properties · ${monthName(asOf)}` }}</h2>
+        <div class="seg slide pf-view" role="radiogroup" aria-label="Show properties" v-if="isDirector && switchedOff.length">
+          <button type="button" role="radio" :aria-checked="view === 'active'" :class="{ on: view === 'active' }" @click="view = 'active'">{{ `Active (${properties.length})` }}</button>
+          <button type="button" role="radio" :aria-checked="view === 'off'" :class="{ on: view === 'off' }" @click="view = 'off'">{{ `Switched off (${switchedOff.length})` }}</button>
+        </div>
+      </div>
+      <input class="input pf-search" type="search" placeholder="Search property..." v-model="propSearch" aria-label="Search property">
+      <template v-if="view === 'off'">
+        <p class="card-intro">Hidden from every list and drop-down. Switch one back on, or delete one that has no units and no history.</p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Property</th><th>Short code</th><th>State</th><th></th></tr></thead>
+            <tbody>
+              <tr v-for="p in shownOff" :key="p.id">
+                <td class="strong">{{ p.name || p.id }}</td>
+                <td>{{ p.code || '—' }}</td>
+                <td>{{ stateOf(p) || '—' }}</td>
+                <td class="num off-acts">
+                  <button class="btn btn-sm" type="button" @click="openOffAct(p, 'on')">Switch on</button>
+                  <button class="btn btn-sm off-del" type="button" @click="openOffAct(p, 'delete')">Delete</button>
+                </td>
+              </tr>
+              <tr v-if="!shownOff.length"><td colspan="4" class="muted">No switched-off property matches the search.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+      <template v-else>
       <Paged :items="shownProperties" v-slot="{ pageRows }">
       <div class="table-wrap">
         <!-- 20 Nov 2026 (Khairul): fixed column widths so the columns don't jump when changing pages -->
@@ -81,28 +108,7 @@
       </div>
       </Paged>
       <div class="card-foot"><span>{{ `Click a property to open its tabs (${acc.PTABS.map(t => t.label).join(', ')}).` }}</span></div>
-    </section>
-
-    <!-- Switched-off properties (Directors, 17 Nov 2026): hidden everywhere else; switch back on or delete here -->
-    <section class="card" v-if="isDirector && switchedOff.length">
-      <h2 class="t">{{ `Switched off (${switchedOff.length})` }}</h2>
-      <p class="card-intro">Hidden from every list and drop-down. Switch one back on, or delete one that has no units and no history.</p>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Property</th><th>Short code</th><th>State</th><th></th></tr></thead>
-          <tbody>
-            <tr v-for="p in switchedOff" :key="p.id">
-              <td class="strong">{{ p.name || p.id }}</td>
-              <td>{{ p.code || '—' }}</td>
-              <td>{{ stateOf(p) || '—' }}</td>
-              <td class="num off-acts">
-                <button class="btn btn-sm" type="button" @click="openOffAct(p, 'on')">Switch on</button>
-                <button class="btn btn-sm off-del" type="button" @click="openOffAct(p, 'delete')">Delete</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      </template>
     </section>
 
     <!-- Switch on / Delete a switched-off property: asks the reason (audit log) -->
@@ -201,7 +207,8 @@ export default {
       // Set property states popup: the list is fixed when it opens, so saved rows stay on screen as "Saved"
       statesOpen: false, statesList: [], statePick: {}, stateSaved: {}, stateBusy: '', statesErr: '',
       stampOpen: false,
-      switchedOff: [], offAct: null,   // Directors: switched-off properties; { p, kind: 'on' | 'delete', reason, busy, error }
+      switchedOff: [], offAct: null, view: 'active',   // view: 'active' | 'off' (toolbar toggle, 25 Nov 2026)
+        // Directors: switched-off properties; { p, kind: 'on' | 'delete', reason, busy, error }
       driveStatus: {}   // id -> 'linked' | 'missing' | 'state' (green dot = has a Drive folder)
     };
   },
@@ -216,7 +223,15 @@ export default {
       const q = this.propSearch.trim().toLowerCase();
       const attn = this.propAttn ? new Set(this.allUnits.filter(x => !x.terms).map(x => x.propertyId)) : null;
       return this.properties.filter(p => (!q || p.name.toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q)) && (!attn || attn.has(p.id)));
+    },
+    shownOff() {
+      const q = this.propSearch.trim().toLowerCase();
+      return this.switchedOff.filter(p => !q || (p.name || p.id).toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q));
     }
+  },
+  watch: {
+    // Back to the active list once the last switched-off property is switched on or deleted
+    switchedOff(v) { if (!v.length) this.view = 'active'; }
   },
   async mounted() {
     await this.go();
@@ -396,6 +411,11 @@ export default {
 .p-state.none { color: var(--danger, #c0392b); font-weight: 600; }
 .st-wrap { max-height: 55vh; overflow: auto; }
 .st-sel { height: 34px; min-width: 170px; }
+.pf-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.pf-head .t { margin: 0; }
+.pf-search { width: 100%; height: 38px; margin-bottom: 14px; }
+.pf-view { margin: 0; width: 300px; flex: none; }
+@media (max-width: 640px) { .pf-view { width: 100%; } }
 .off-acts { white-space: nowrap; }
 .off-acts .btn + .btn { margin-left: 6px; }
 .off-del { color: var(--red, #c0392b); border-color: currentColor; }

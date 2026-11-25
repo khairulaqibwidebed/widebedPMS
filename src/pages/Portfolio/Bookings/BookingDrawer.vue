@@ -114,7 +114,9 @@
               <div class="tp-row" :class="{ open: add.m === c.m }">
                 <span class="tp-m">{{ c.from ? c.label : shortName(c.m) }}<small v-if="c.from">{{ leaseSpan(c) }}</small></span>
                 <span><span class="pill" :class="MONTH_PAY[c.status].cls">{{ MONTH_PAY[c.status].label }}</span></span>
-                <span class="tp-amt"><b>{{ `RM ${amt(c.paid)}` }}</b><small v-if="c.due + c.extra > 0">{{ ` / ${amt(c.due + c.extra)}` }}</small></span>
+                <!-- 25 Nov 2026 (Khairul): a month's paid figure is what it kept: its own payments plus what was carried in,
+                     less what it carried on to the next month (the last month keeps any overpayment for the stay) -->
+                <span class="tp-amt"><b>{{ `RM ${amt(keptOf(c))}` }}</b><small v-if="c.due + c.extra > 0">{{ ` / ${amt(c.due + c.extra)}` }}</small></span>
                 <button v-if="editable" type="button" class="tp-plus" @click="add.m === c.m ? (add.m = '') : startAdd(c.m)" :title="`Add a charge to ${monthTag(c)}`" :aria-label="`Add a charge to ${monthTag(c)}`">+</button>
               </div>
               <div class="tp-charge" v-for="ch in c.charges" :key="ch.m + '-' + ch.j">
@@ -485,11 +487,15 @@ export default {
     monthTag(c) { return c && c.from ? `${c.label} · ${leaseSpan(c)}` : shortName(c?.m || ''); },
     leaseSpan,
     leaseLabel, monthName, chargeLabel,
+    keptOf(c) {
+      const last = this.cal.findIndex(x => x.m === c.m) === this.cal.length - 1;
+      return Math.round((c.paid + (c.carryIn || 0) - (last ? 0 : c.carryOut || 0)) * 1000) / 1000;
+    },
     // The year line: months, how many paid / part / unpaid, and paid against due for that year (all months, not only the filtered ones)
     yearSum(y) {
       const ms = this.cal.filter(c => c.m.startsWith(y)), n = k => ms.filter(c => c.status === k).length;
       const parts = [['paid', 'paid'], ['part', 'part paid'], ['unpaid', 'unpaid']].map(([k, l]) => (n(k) ? `${n(k)} ${l}` : '')).filter(Boolean);
-      return { text: `${ms.length} month${ms.length === 1 ? '' : 's'} · ${parts.join(', ')}`, paid: ms.reduce((a, c) => a + c.paid, 0), due: ms.reduce((a, c) => a + c.due + c.extra, 0) };
+      return { text: `${ms.length} month${ms.length === 1 ? '' : 's'} · ${parts.join(', ')}`, paid: ms.reduce((a, c) => a + this.keptOf(c), 0), due: ms.reduce((a, c) => a + c.due + c.extra, 0) };   // 25 Nov 2026: kept, so a carry into the next year counts there
     },
     // Years fold open and shut; by default only the current year is open (or the first year if the stay is not in it)
     yearShut(y) {
