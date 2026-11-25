@@ -715,8 +715,7 @@ export default {
         // Open the first tab that needs a look, else the first
         this.tab = (this.parts.find(p => this.needsLook(p)) || this.parts[0])?.key || '';
         this.checked = true;
-        // 24 Nov 2026: the booking form opens by itself on the first new row (filled in from the file)
-        if (this.isNew && this.queue.length) { const f = this.queue[0]; this.tab = f.part.key; this.$nextTick(() => this.openForm(f.x, f.part)); }
+        // 25 Nov 2026: the booking form no longer opens by itself; staff open it from a row (Fill in booking form)
       } catch (e) { this.error = e.code ? friendlyError(e, 'read the bookings') : e.message; }
       this.busy = false; this.percent = 0;
     },
