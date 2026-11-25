@@ -617,6 +617,16 @@ export default {
         if (!by.has(k)) { const g = { id: 'grp_' + k, isGroup: true, members: [] }; by.set(k, g); out.push(g); }
         by.get(k).members.push(r);
       });
+      // 25 Nov 2026 (Khairul): newest created first (several property queries are merged, so sort here); payments imported
+      // together share a created time, so those go by payment date, newest first
+      // Imported rows were stamped with the payment date as it was in the sheet; a date fixed later (or a mistyped future year)
+      // left that stamp behind, so imported rows (and any stamp in the future) go by the payment date as it is now.
+      const byDate = r => Date.parse(`${r.date || '1970-01-01'}T12:00:00+08:00`) || 0, soon = Date.now() + 864e5;
+      const at = r => {
+        if (r.createdAt === null) return 9e15;   // just saved, not stamped yet
+        const ms = r.createdAt?.toMillis?.() || (r.createdAt?.seconds ? r.createdAt.seconds * 1000 : 0);
+        return r.source === 'excel-import' || ms > soon ? byDate(r) : ms;
+      };
       return out.map(g => {
         if (!g.isGroup) return g;
         const m = [...g.members].sort((a, b) => String(a.unitCode || '').localeCompare(String(b.unitCode || ''))), r0 = m[0];
@@ -627,7 +637,7 @@ export default {
           propertyName: props.join(', '), unitCode: `${m.length} units: ${m.map(x => x.unitCode).filter(Boolean).join(', ')}`,
           bookingNo: m.map(x => x.bookingNo).filter(Boolean).join(', '), status: st.size === 1 ? r0.status : 'Mixed',
           remarks: [...new Set(m.map(x => x.remarks).filter(Boolean))].join(', ') };
-      });
+      }).sort((x, y) => at(y) - at(x) || String(y.date || '').localeCompare(String(x.date || '')));
     },
     gView() { return this.gKey ? this.listRows.find(r => r.id === this.gKey) || null : null; },
     shown() {
