@@ -14,13 +14,15 @@
         <PropertyPicker v-model="propertyId" :properties="properties" :before="[{ value: 'all', label: 'All properties' }]" @change="reload()" />
         <MonthPicker :ahead="1" v-model="asOf" @change="reload()" v-if="!acc.viewOnly" />
         <RefreshButton @refresh="go()" />
+        <!-- 25 Nov 2026 (Khairul): moved up from the list card, as on Properties -->
+        <button class="btn btn-primary" type="button" @click="openOwner(null)" v-if="acc.canAdd">+ Add owner</button>
         <!-- 16 Nov 2026: one-off for Directors, so Owners Base can read names and contact (private/contact) -->
         <button class="btn" v-if="acc.isTopDirector && splitTodo" @click="splitContacts()" :disabled="busy" title="Copies names and contact details (owners, tenants, booking guests) into the part Owners Base and the AI Agent can read. IC, passport, address and bank details stay where they are.">Set up contact details</button>
       </div>
     </div>
 
 
-    <OwnersList :owners="owners" :units="units" :properties="properties" :bf-lines="bfLines" :property-id="propertyId" :acc="acc" :loading="loading"
+    <OwnersList :owners="owners" :units="units" :properties="properties" :bf-lines="bfLines" :property-id="propertyId" :acc="acc" :loading="loading" add-in-header
       @open="openOwner" @add="openOwner(null)" />
 
     <OwnerDrawer v-if="drawer" :owner="drawer.owner" :prefill="drawer.prefill" :owners="owners" :units="units" :properties="properties" :bf-lines="bfLines"

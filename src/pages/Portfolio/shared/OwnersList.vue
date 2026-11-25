@@ -2,13 +2,13 @@
   <section class="card">
     <div class="card-head"><h2>{{ `Owners · ${shownOwners.length}` }}</h2>
       <!-- 16 Nov 2026: the same switch as Table / Cards on Bookings -->
-      <div class="seg slide st-seg" role="radiogroup" aria-label="Show owners"><button type="button" role="radio" :aria-checked="String(!showInactive)" :class="{ on: !showInactive }" @click="showInactive = false">Active</button><button type="button" role="radio" :aria-checked="String(showInactive)" :class="{ on: showInactive }" @click="showInactive = true">Deactivated</button></div></div>
+      <div class="seg slide st-seg" role="radiogroup" aria-label="Show owners"><button type="button" role="radio" :aria-checked="String(!showInactive)" :class="{ on: !showInactive }" @click="showInactive = false">{{ `Active (${activeCount})` }}</button><button type="button" role="radio" :aria-checked="String(showInactive)" :class="{ on: showInactive }" @click="showInactive = true">{{ `Deactivated (${offCount})` }}</button></div></div>
     <p class="card-intro" v-if="acc.canEdit && !acc.ownerFull">Owner names and contact details are personal data (PDPA). Click an owner to change their name and contact. IC, date of birth, address and bank details need Owners Full access.</p>
     <p class="card-intro" v-else-if="acc.viewOnly && acc.ownerNames && !acc.ownerFull">Owner details are personal data (PDPA). Click an owner to see their contact details. IC, date of birth, address and bank details need Owners Full access.</p>
     <p class="card-intro" v-else-if="acc.viewOnly && !acc.ownerNames">Owner names, contact and bank details are personal data (PDPA). This list shows each owner's units only.</p>
-    <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Accounting and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.
-      Owner details can later come from the Google Sheet staff already keep (cached copy plus Sync now).</p>
-    <div class="toolbar tb-split"><input class="input" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"><button class="btn btn-primary" @click="$emit('add')" v-if="acc.canAdd">+ Add owner</button></div>
+    <p class="card-intro" v-else>Owner names and bank details are personal data (PDPA). Only Accounting and Directors can see the full details; this list shows the owner's name and the last 4 digits of the bank account.</p>
+    <!-- 25 Nov 2026 (Khairul): on the Owners page + Add owner is in the page header (addInHeader); Search then fills the row -->
+    <div class="toolbar tb-split"><input class="input" :class="{ 'ol-search': addInHeader }" type="search" placeholder="Search owner name or unit" v-model="ownerSearch" aria-label="Search owner"><button class="btn btn-primary" @click="$emit('add')" v-if="acc.canAdd && !addInHeader">+ Add owner</button></div>
     <Paged :items="shownOwners" v-slot="{ pageRows }">
     <div class="table-wrap">
       <table class="table">
@@ -18,14 +18,14 @@
           <template v-for="own in pageRows" :key="own.id">
             <tr v-if="acc.viewOnly" :class="{ clickable: acc.ownerLevel !== 'none' }" @click="acc.ownerLevel !== 'none' && $emit('open', own)">
               <td class="strong" v-if="acc.ownerNames">{{ nameOf(own.id) || 'No name saved' }}</td>
-              <td>{{ unitsOf(own.id).map(x => propertyId === 'all' ? `${x.unitCode} · ${propertyNameOf(x.propertyId)}` : x.unitCode).join(', ') || '—' }}</td>
+              <td :title="unitList(own.id, propertyId === 'all').all"><span v-if="!unitsOf(own.id).length" class="dash">—</span>{{ unitList(own.id, propertyId === 'all').shown }}<span class="more" v-if="unitList(own.id, propertyId === 'all').more">{{ `+${unitList(own.id, propertyId === 'all').more} more` }}</span></td>
               <td><span class="pill" :class="own.active === false ? 'grey' : 'green'">{{ own.active === false ? 'Deactivated' : 'Active' }}</span></td>
             </tr>
             <tr class="clickable" @click="$emit('open', own)" v-else>
               <td class="strong">{{ nameOf(own.id) || 'No name saved' }}</td>
-              <td>{{ unitsOf(own.id).map(x => x.unitCode).join(', ') || '—' }}</td>
-              <td>{{ [...new Set(unitsOf(own.id).map(x => arrLabel(x.terms?.arrangement)))].join(', ') || '—' }}</td>
-              <td>{{ own.bankLast4 ? `Bank transfer ···${own.bankLast4}` : '—' }}</td>
+              <td :title="unitList(own.id).all"><span v-if="!unitsOf(own.id).length" class="dash">—</span>{{ unitList(own.id).shown }}<span class="more" v-if="unitList(own.id).more">{{ `+${unitList(own.id).more} more` }}</span></td>
+              <td><span v-if="!unitsOf(own.id).length" class="dash">—</span>{{ [...new Set(unitsOf(own.id).map(x => arrLabel(x.terms?.arrangement)))].join(', ') }}</td>
+              <td><template v-if="own.bankLast4">{{ `Bank transfer ···${own.bankLast4}` }}</template><span v-else class="dash">—</span></td>
               <td class="num" :class="{ 'neg-amt': carriedOf(own.id) < 0 }">{{ amt(carriedOf(own.id)) }}</td>
               <td class="num"><button class="navlink" @click.stop="$emit('open', own)">View</button></td>
             </tr>
@@ -54,21 +54,28 @@ export default {
     bfLines: { type: Array, required: true },
     propertyId: { type: String, required: true },   // 'all' or one property
     acc: { type: Object, required: true },
-    loading: { type: Boolean, default: false }
+    loading: { type: Boolean, default: false },
+    addInHeader: { type: Boolean, default: false }   // the page shows + Add owner in its header (Owners page)
   },
   emits: ['open', 'add'],
   data() { return { ownerSearch: '', showInactive: false }; },
   computed: {
     property() { return this.properties.find(p => p.id === this.propertyId) || {}; },
-    shownOwners() {
-      const q = this.ownerSearch.trim().toLowerCase();
+    // Owners this person may see for the property picked, before Active / Deactivated and the search (toggle counts)
+    baseOwners() {
       const pid = this.propertyId;
       // 18 Nov 2026 (Khairul): without Owners Full only the owner's contact part can be read; an owner whose name that
       // person can't read is left out entirely instead of showing "No name saved".
       // Lists with no name column (acc.ownerNames off) show every owner as before.
       const full = ownerPrivLevel() === 'main' || (this.acc.viewOnly && !this.acc.ownerNames);
-      return this.owners.filter(x => (full || this.nameOf(x.id)) && (this.showInactive ? x.active === false : x.active !== false)
-        && (pid === 'all' || this.unitsOf(x.id).some(y => y.propertyId === pid) || (pid !== 'all' && this.property.info?.ownerId === x.id))
+      return this.owners.filter(x => (full || this.nameOf(x.id))
+        && (pid === 'all' || this.unitsOf(x.id).some(y => y.propertyId === pid) || (pid !== 'all' && this.property.info?.ownerId === x.id)));
+    },
+    activeCount() { return this.baseOwners.filter(x => x.active !== false).length; },
+    offCount() { return this.baseOwners.filter(x => x.active === false).length; },
+    shownOwners() {
+      const q = this.ownerSearch.trim().toLowerCase();
+      return this.baseOwners.filter(x => (this.showInactive ? x.active === false : x.active !== false)
         && (!q || (x.code || x.id).toLowerCase().includes(q) || this.nameOf(x.id).toLowerCase().includes(q) || this.unitsOf(x.id).some(y => y.unitCode.toLowerCase().includes(q))));
     }
   },
@@ -77,11 +84,19 @@ export default {
     nameOf(id) { return ownerName(this.owners, id); },
     unitsOf(id) { return ownerUnits(this.units, id); },
     carriedOf(id) { return carried(this.units, this.bfLines, id); },
-    propertyNameOf(id) { return this.properties.find(p => p.id === id)?.name || ''; }
+    propertyNameOf(id) { return this.properties.find(p => p.id === id)?.name || ''; },
+    // 25 Nov 2026 (Khairul): the first 3 units, then "+N more" (the full list is in the cell's tooltip)
+    unitList(id, withProp = false) {
+      const all = this.unitsOf(id).map(x => withProp ? `${x.unitCode} · ${this.propertyNameOf(x.propertyId)}` : x.unitCode);
+      return { all: all.join(', '), shown: all.slice(0, 3).join(', '), more: Math.max(0, all.length - 3) };
+    }
   }
 };
 </script>
 
 <style scoped>
-.st-seg { margin: 0; width: 220px; flex: none; }
+.st-seg { margin: 0; width: 280px; flex: none; }
+.toolbar .ol-search { flex: 1; max-width: none; }
+.dash { color: var(--muted); opacity: .6; }
+.more { margin-left: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
 </style>

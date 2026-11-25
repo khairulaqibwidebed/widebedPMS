@@ -64,7 +64,7 @@
       <!-- One tab per property found in the file -->
       <div class="bz-tabs" role="tablist" aria-label="Properties in this file">
         <button v-for="pt in parts" :key="pt.key" type="button" role="tab" class="bz-tab" :class="{ on: pt.key === tab, warn: needsLook(pt) }" :aria-selected="pt.key === tab" @click="tab = pt.key">
-          <b>{{ pt.label }}</b><small>{{ tabNote(pt) }}</small>
+          <b>{{ pt.label }}</b><small v-for="(line, i) in tabNote(pt)" :key="i">{{ line }}</small>
         </button>
       </div>
 
@@ -519,16 +519,17 @@ export default {
     matchedOn(x) { const s = x.sure || {}; return [s.folio && 'folio no.', s.dates && 'dates', s.name && 'guest'].filter(Boolean).join(', ') || '—'; },
     propLabel(id) { const p = this.properties.find(x => x.id === id); return p ? `${p.name}${p.code ? ` (${p.code})` : ''}${p.info?.state ? ` · ${p.info.state}` : ''}` : id; },
     // What the tab says under the property name
+    // 25 Nov 2026: one line per count (was one long line), so New and Cancel tabs look the same
     tabNote(p) {
-      if (!p.prop) return p.ask?.length ? `${p.size} rows · choose the property` : `${p.size} rows · not found`;
-      if (!(this.isNew ? p.g : p.c)) return 'Checking…';
+      if (!p.prop) return [`${p.size} rows`, p.ask?.length ? 'choose the property' : 'not found'];
+      if (!(this.isNew ? p.g : p.c)) return ['Checking…'];
       if (this.isNew) {
         const g = p.g, add = g.ready.length + g.clash.filter(x => x.choice === 'add' || x.choice === 'replace').length + g.cancelled.filter(x => x.choice === 'add').length;
         const mg = (this.isMonth && p.mg) || EMPTY_MONTH, gone = mg.gone.length + mg.missing.length;
-        return [`${add} new`, gone && `${gone} only in the PMS`, g.cancelled.length && `${g.cancelled.length} cancelled here`, g.fill.length && `${g.fill.length} to fill in`, g.changed.length && `${g.changed.length} changed`, g.clash.length && `${g.clash.length} ${g.clash.length === 1 ? 'clash' : 'clashes'}`].filter(Boolean).join(' · ');
+        return [`${add} new`, gone && `${gone} only in the PMS`, g.cancelled.length && `${g.cancelled.length} cancelled here`, g.fill.length && `${g.fill.length} to fill in`, g.changed.length && `${g.changed.length} changed`, g.clash.length && `${g.clash.length} ${g.clash.length === 1 ? 'clash' : 'clashes'}`].filter(Boolean);
       }
       const c = p.c;
-      return [`${c.cancel.length + c.check.filter(x => x.go).length + c.offOnly.filter(x => x.go).length} to cancel`, c.check.length && `${c.check.length} to check`].filter(Boolean).join(' · ');
+      return [`${c.cancel.length + c.check.filter(x => x.go).length + c.offOnly.filter(x => x.go).length} to cancel`, c.check.length && `${c.check.length} to check`, c.offOnly.length && `${c.offOnly.length} still in Bookings`].filter(Boolean);
     },
     needsLook(p) { const x = this.isNew ? p.g : p.c, mg = (this.isMonth && p.mg) || EMPTY_MONTH; return !p.prop || (!!x && (this.isNew ? x.clash.length + x.fill.length + mg.gone.length + mg.missing.length + this.formRows(p).filter(y => !this.stagedOf(y, p) && !this.madeOf(y, p)).length > 0 : x.check.length + x.offOnly.length > 0)); },
     // Replace is offered when every clash is an eZee booking saved in the PMS (an offline booking is cancelled on its own page)
@@ -715,8 +716,7 @@ export default {
         // Open the first tab that needs a look, else the first
         this.tab = (this.parts.find(p => this.needsLook(p)) || this.parts[0])?.key || '';
         this.checked = true;
-        // 24 Nov 2026: the booking form opens by itself on the first new row (filled in from the file)
-        if (this.isNew && this.queue.length) { const f = this.queue[0]; this.tab = f.part.key; this.$nextTick(() => this.openForm(f.x, f.part)); }
+        // 25 Nov 2026: the booking form no longer opens by itself; staff open it from a row (Fill in booking form)
       } catch (e) { this.error = e.code ? friendlyError(e, 'read the bookings') : e.message; }
       this.busy = false; this.percent = 0;
     },
@@ -1035,10 +1035,11 @@ export default {
 .bz-hint { margin: 0 0 14px; font-size: 13px; }
 /* One tab per property in the file: scrolls sideways inside itself when there are many */
 .bz-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; scrollbar-width: thin; }
-.bz-tab { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 14px; min-width: 150px; max-width: 260px;
+.bz-tab { flex: none; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 2px; text-align: left; padding: 12px 28px 12px 16px; width: 220px; box-sizing: border-box;
   border: 1.5px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; position: relative; }
 .bz-tab b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.bz-tab small { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.bz-tab small { font-size: 12.5px; color: var(--muted); white-space: nowrap; line-height: 1.45; }
+.bz-tab b { margin-bottom: 2px; }
 .bz-tab:hover { border-color: var(--accent); }
 .bz-tab.on { border-color: var(--accent); background: var(--accent-soft); }
 .bz-tab.warn::after { content: ''; position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }

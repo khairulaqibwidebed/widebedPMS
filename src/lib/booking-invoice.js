@@ -134,11 +134,24 @@ const anniversary = (arrival, n) => {
 };
 // fullLast (20 Nov 2026): an early termination with no notice pays the last part month in full
 // monthly (24 Nov 2026, Khairul): a Monthly Lease (30 to 364 nights, not ended early) is charged in whole months only. A stay
-// shorter than its first month end (30 Nov - 30 Dec) is still one month; days after the last whole month are not charged
-// (the last month runs to the check-out). Yearly leases and early terminations keep the last part month by days.
+// shorter than its first month end (30 Nov - 30 Dec) is still one month. Yearly leases and early terminations keep the last
+// part month by days.
+// 25 Nov 2026 (Khairul): a Monthly Lease counts 30 nights per month from the check-in; the nights left over are a new month
+// charged by nights (rent / 30 x nights). 25 Nov - 23 Feb (90 nights) = 3 months of 30 nights; 25 Nov - 26 Feb (93 nights)
+// = 3 months + a 4th of 3 nights. Yearly leases and early terminations keep calendar months (below).
 function monthsOf(arrival, departure, rent, fullLast = false, { monthly = false } = {}) {
   if (!arrival || !departure || departure <= arrival) return [];
   const out = [];
+  if (monthly) {
+    const plus = (d, n) => iso(new Date(Date.parse(d) + n * 86400000));
+    const total = Math.round((Date.parse(departure) - Date.parse(arrival)) / 86400000);
+    for (let i = 0, at = arrival; i * 30 < total && i < 120; i++) {
+      const nights = Math.min(30, total - i * 30), to = plus(arrival, i * 30 + nights);
+      out.push({ label: `Month ${i + 1}`, from: at, to, days: nights < 30 ? nights : 0, rent: num(nights < 30 ? rent / 30 * nights : rent) });
+      at = to;
+    }
+    return out;
+  }
   let from = arrival;
   for (let i = 1; i <= 120; i++) {
     const to = anniversary(arrival, i);
@@ -146,11 +159,6 @@ function monthsOf(arrival, departure, rent, fullLast = false, { monthly = false 
     out.push({ label: `Month ${i}`, from, to, days: 0, rent: num(rent) }); from = to;
   }
   if (from < departure) {
-    if (monthly) {
-      if (out.length) out[out.length - 1].to = departure;
-      else out.push({ label: 'Month 1', from, to: departure, days: 0, rent: num(rent) });
-      return out;
-    }
     const days = Math.round((Date.parse(departure) - Date.parse(from)) / 86400000);
     out.push({ label: `Month ${out.length + 1}`, from, to: departure, days: fullLast ? 0 : days, rent: num(fullLast ? rent : rent / 30 * days) });
   }
