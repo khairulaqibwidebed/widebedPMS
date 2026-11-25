@@ -60,9 +60,10 @@
                 </button>
               </div>
             </div>
-            <FormField id="bPhone" label="Phone" req placeholder="e.g. 012-345 6789" v-model="bk.phone" inputmode="tel" @change="refill(true)" />
+            <!-- 25 Nov 2026: eZee rows (Bulk Upload): OTA bookings often have no phone or IC, so both are optional there -->
+            <FormField id="bPhone" :label="prefill ? 'Phone (optional for eZee bookings)' : 'Phone'" :req="!prefill" placeholder="e.g. 012-345 6789" v-model="bk.phone" inputmode="tel" @change="refill(true)" />
             <FormField id="bEmail" label="Email" type="email" placeholder="name@email.com" v-model="bk.email" />
-            <FormField id="bIc" label="IC / Passport" req placeholder="e.g. 900101-14-5678 or A12345678" v-model="bk.icPassport" />
+            <FormField id="bIc" :label="prefill ? 'IC / Passport (optional for eZee bookings)' : 'IC / Passport'" :req="!prefill" placeholder="e.g. 900101-14-5678 or A12345678" v-model="bk.icPassport" />
             <FormField id="bNat" label="Nationality" v-model="bk.nationality" placeholder="e.g. Malaysian" />
             <FormField id="bDob" label="Date of birth" type="date" v-model="bk.dob" />
             <div class="field"><label for="bGender">Gender</label>
@@ -226,9 +227,9 @@
           </div>
           <div class="field" style="margin-top:12px"><label :class="{ req: (!longTerm && !unpaid) || +bk.amount > 0 }" for="bNote">Purpose</label>
             <textarea class="input" id="bNote" style="height:90px" v-model="bk.note" placeholder="e.g. Rental, security deposit. Long notes are fine, e.g. Deposit = RM2000, Rental = RM2200, Total = RM4200; (-) Payroll = RM3050; Balance = RM950"></textarea></div>
-          <div class="field" id="bReceipt" tabindex="-1" style="margin-top:12px"><label :class="{ req: +bk.amount > 0 }">Receipt</label>
+          <div class="field" id="bReceipt" tabindex="-1" style="margin-top:12px"><label :class="{ req: +bk.amount > 0 && !isOta }">{{ isOta ? 'Receipt (optional for OTA: the booking site holds the payment record)' : 'Receipt' }}</label>
             <DriveFiles kind="offline-payments" :key="bk.payId" :record-id="bk.payId" :label="payLabel()" :list-on-load="false" @folder="l => bk.docsLink = l" /></div>
-          <p class="help">The payment is saved under Accounting › Offline Payments (status Pending), not on the booking. Accounting checks it there.</p>
+          <p class="help">{{ payChecked ? 'The payment is saved under Accounting › Offline Payments when you press Continue to confirm on the upload (Checked when you have Offline Payments Edit, otherwise Pending for Accounting).' : 'The payment is saved under Accounting › Offline Payments (status Pending), not on the booking. Accounting checks it there.' }}</p>
         </div>
 
         <!-- 6. Handover -->
@@ -347,7 +348,9 @@ const YEARS = Array.from({ length: 10 }, (_, i) => ({ value: String(i + 1), labe
 const plusYears = (iso, n) => `${+iso.slice(0, 4) + (+n || 1)}${iso.slice(4, 7)}-01`;
 // The Type of rent value (Daily / Monthly / Yearly) for a stay's nights or dates (termOf in lib/rent-term.js)
 const termValue = b => RENT_TERMS.find(x => x.key === termOf({ nights: b.nights, arrival: b.arrival, departure: b.departure }))?.value || '';
-const PAY_MODES = ['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x }));
+// 25 Nov 2026: OTA = paid through the booking site (Agoda, Booking.com...); its receipt is optional
+const PAY_MODES = [{ value: 'OTA', label: 'OTA (paid through the booking site)' },
+  ...['Bank transfer', 'Cash', 'Card', 'Online banking / QR', 'Cheque', 'Other'].map(x => ({ value: x, label: x }))];
 const FEES = [{ key: 'utilityDeposit', label: 'Utility deposit' }, { key: 'internetFee', label: 'Internet fees' }, { key: 'carparkFee', label: 'Carpark fees' },
   { key: 'cleaningFee', label: 'Cleaning fees' }, { key: 'taFee', label: 'Tenancy agreement fees', short: 'Tenancy agreement' }, { key: 'taStampFee', label: 'Tenancy agreement stamping fees', short: 'TA stamping' },
   { key: 'gatewayFee', label: 'Payment gateway charges', short: 'Payment gateway' }, { key: 'cardFee', label: 'Credit card charges' }, { key: 'othersFee', label: 'Others' }];
@@ -449,6 +452,7 @@ export default {
     leaseEnd() { const d = this.bk.departure; if (!d) return ''; const t = new Date(Date.parse(d) - 864e5); return t.toISOString().slice(0, 10); },
     hasStay() { return !!(this.bk.arrival && this.bk.departure) && this.nights >= 0; },
     longTerm() { return this.nights >= LONG_TERM_NIGHTS; },
+    isOta() { return this.bk?.payMode === 'OTA'; },   // 25 Nov 2026: paid through the booking site, receipt optional
     // 20 Nov 2026: 2 months of rent is worked out for a Long-term lease (365+ nights) only; an amount typed in the box wins.
     // Monthly term and Short term: only what is typed (empty = no deposit).
     autoDeposit() { return leaseTerm(this.nights) === 'long'; },
@@ -496,7 +500,7 @@ export default {
       const paid = +b.amount > 0;
       return [
         { key: 'tenant', label: 'Tenant', problem: this.tenantProblem(), required: [
-          { label: 'Name', filled: filled(b.name) }, { label: 'Phone', filled: phoneKey(b.phone).length >= 9 }, { label: 'IC / Passport', filled: filled(b.icPassport) },
+          { label: 'Name', filled: filled(b.name) }, ...(this.prefill ? [] : [{ label: 'Phone', filled: phoneKey(b.phone).length >= 9 }, { label: 'IC / Passport', filled: filled(b.icPassport) }]),
           ...(b.gender === 'Other' ? [{ label: 'Gender (type it)', filled: filled(b.genderOther) }] : []),
           ...b.coTenants.flatMap((c, i) => [{ label: `Tenant ${i + 2} name`, filled: filled(c.name) }, { label: `Tenant ${i + 2} phone`, filled: phoneKey(c.phone).length >= 9 },
             { label: `Tenant ${i + 2} IC / Passport`, filled: filled(c.icPassport) }, ...(c.gender === 'Other' ? [{ label: `Tenant ${i + 2} gender (type it)`, filled: filled(c.genderOther) }] : [])])] },
@@ -509,7 +513,7 @@ export default {
         { key: 'invoice', label: 'Invoice', required: [] },
         { key: 'payment', label: 'Payment', notNeeded: this.unpaid && !paid, required: [
           ...(!this.longTerm && !this.unpaid ? [{ label: 'Amount paid', filled: paid }] : []),
-          ...(paid ? [{ label: 'Mode of payment', filled: filled(b.payMode) }, { label: 'Purpose', filled: filled(b.note) }, { label: 'Receipt', filled: filled(b.docsLink) }] : [])] },
+          ...(paid ? [{ label: 'Mode of payment', filled: filled(b.payMode) }, { label: 'Purpose', filled: filled(b.note) }, ...(this.isOta ? [] : [{ label: 'Receipt', filled: filled(b.docsLink) }])] : [])] },
         { key: 'handover', label: 'Handover', required: [
           ...(filled(b.mainPasscode) ? [{ label: 'Main door passcode expiry', filled: filled(b.currentExpiry) }] : []),
           ...(filled(b.nextPasscode) ? [{ label: 'Next door passcode expiry', filled: filled(b.nextExpiry) }] : [])] },
@@ -1023,9 +1027,9 @@ export default {
       pending = pending === true || this.unpaidNew;   // 16 Nov 2026: Unpaid = Awaiting payment
       const b = this.bk, ld = this.lead;
       const base = !b.name.trim() ? 'Add the tenant\'s name.'
-        : phoneKey(b.phone).length < 9 ? 'Add a full phone number. It is how a returning tenant is recognised.'
+        : (!this.prefill || b.phone.trim()) && phoneKey(b.phone).length < 9 ? (this.prefill ? 'That phone number looks short. Add the full number or leave it empty.' : 'Add a full phone number. It is how a returning tenant is recognised.')
         : !emailOk(b.email.trim()) ? 'That email address doesn\'t look right.'
-        : !b.icPassport.trim() ? 'Add the IC or passport number.'
+        : !this.prefill && !b.icPassport.trim() ? 'Add the IC or passport number.'
         : b.gender === 'Other' && !b.genderOther.trim() ? 'Type the gender, or pick another option.'
         : !b.unitId ? 'Choose the property and unit.'
         : !b.rentType ? 'Choose the type of rent.'
@@ -1039,7 +1043,7 @@ export default {
       const err = base || (pending || this.fillOf ? this.coError() : !this.longTerm && !this.unpaid && !(+b.amount > 0) ? 'Add the amount paid.'
         : +b.amount > 0 && !b.payMode ? 'Choose the mode of payment.'
         : +b.amount > 0 && !b.note.trim() ? 'Add the purpose of the payment.'
-        : +b.amount > 0 && !b.docsLink ? 'Upload at least one receipt for the payment.'
+        : +b.amount > 0 && !b.docsLink && !this.isOta ? 'Upload at least one receipt for the payment.'
         : b.mainPasscode.trim() && !b.currentExpiry ? 'Add the expiry date of the main door passcode.'
         : b.nextPasscode.trim() && !b.nextExpiry ? 'Add the expiry date of the next door passcode.' : this.coError());
       if (err) { this.formError = err; this.focusFor(err); return; }
