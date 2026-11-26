@@ -1,13 +1,11 @@
 <template>
-  <!-- HR > My Leave (26 Nov 2026, Crane): everyone applies for leave here as well as in the attendance app, sees their
-       requests and withdraws one while it is waiting, and sees their days per type for the year. Logic: leave.js. -->
-  <main class="content">
+  <!-- HR > Leave, "My leave" (26 Nov 2026, Crane): everyone applies for leave here as well as in the attendance app, sees
+       their requests and withdraws one while it is waiting, and sees their days per type for the year. Shown inside Leave.vue
+       (the only part of that page staff see). Emits "changed" after a request is sent or withdrawn. Logic: leave.js. -->
+  <div class="ml">
     <div class="loading-bar" v-show="loading"></div>
-    <div class="page-head">
-      <div>
-        <h1>My leave</h1>
-        <div class="sub">Apply for leave or MC, and see what you have left this year. The same requests show in the attendance app.</div>
-      </div>
+    <div class="ml-top">
+      <span class="muted">Apply for leave or MC, and see what you have left. The same requests show in the attendance app.</span>
       <label class="ml-year"><span>Year</span>
         <select class="select" v-model.number="year" @change="loadEnt()"><option v-for="y in years" :key="y" :value="y">{{ y }}</option></select></label>
     </div>
@@ -68,7 +66,7 @@
         <p class="empty" v-if="!loading && !mine.length">No leave requests yet.</p>
       </section>
     </div>
-  </main>
+  </div>
 </template>
 
 <script>
@@ -83,6 +81,7 @@ import {
 const emptyForm = () => ({ type: 'annual', from: '', to: '', halfDay: false, note: '' });
 
 export default {
+  emits: ['changed'],
   data() {
     return {
       STATUS, types: [],
@@ -134,12 +133,13 @@ export default {
         this.flash('Request sent. HR has been told; you\'ll get a notification when they answer.');
         this.f = emptyForm();
         await this.load();
+        this.$emit('changed');
       } catch (e) { this.error = e.code ? friendlyError(e, 'send the request') : e.message; }
       this.busy = false;
     },
     async withdraw(r) {
       this.busy = true; this.error = '';
-      try { await withdrawLeave(r, this.me); this.withdrawing = ''; this.flash('Request withdrawn.'); await this.load(); }
+      try { await withdrawLeave(r, this.me); this.withdrawing = ''; this.flash('Request withdrawn.'); await this.load(); this.$emit('changed'); }
       catch (e) { this.error = e.code ? friendlyError(e, 'withdraw the request') : e.message; }
       this.busy = false;
     }
@@ -148,6 +148,7 @@ export default {
 </script>
 
 <style scoped>
+.ml-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .ml-year { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-2); }
 .ml-year .select { height: 38px; }
 .ml-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }

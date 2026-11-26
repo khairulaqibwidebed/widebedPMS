@@ -1,17 +1,20 @@
 <template>
-  <!-- HR > Leave (26 Nov 2026, Crane): leave and MC requests (from the attendance app and My Leave), leave added for someone,
-       and the days each person gets per year. HR, Directors and Branch Directors (their own branches' staff). Logic: leave.js. -->
+  <!-- HR > Leave (26 Nov 2026, Crane). One page for everyone:
+       - My leave (MyLeave.vue): every staff member's own balance, apply form and requests. Staff see only this.
+       - HR, Directors and Branch Directors (their own branches' staff) also get Requests, Add leave for someone, Leave days and
+         Leave types. ?tab=mine|requests|add|days|types opens a tab. Logic: leave.js. -->
   <main class="content">
     <div class="loading-bar" v-show="loading"></div>
     <div class="page-head">
       <div>
         <h1>Leave</h1>
-        <div class="sub">Leave and MC requests from the attendance app and the PMS, and the leave days each person gets. Nobody answers or sets their own.</div>
+        <div class="sub">{{ manager ? 'Your own leave, plus everyone\'s requests and leave days. Nobody answers or sets their own.' : 'Your leave and MC.' }}</div>
       </div>
-      <router-link class="btn" to="/HR/my-leave">My leave</router-link>
     </div>
 
-    <div class="tabs" role="tablist">
+    <!-- Staff: only My leave, no tabs. HR / Directors: My leave plus the HR tabs. -->
+    <div class="tabs" role="tablist" v-if="manager">
+      <button type="button" role="tab" :aria-selected="String(tab === 'mine')" :class="{ on: tab === 'mine' }" @click="tab = 'mine'">My leave</button>
       <button type="button" role="tab" :aria-selected="String(tab === 'requests')" :class="{ on: tab === 'requests' }" @click="tab = 'requests'">
         Requests <span class="lv-count" v-if="waitingCount">{{ waitingCount }}</span></button>
       <button type="button" role="tab" :aria-selected="String(tab === 'add')" :class="{ on: tab === 'add' }" @click="tab = 'add'">Add leave for someone</button>
@@ -19,6 +22,9 @@
       <button type="button" role="tab" :aria-selected="String(tab === 'types')" :class="{ on: tab === 'types' }" @click="openTypes()">Leave types</button>
     </div>
 
+    <MyLeave v-if="tab === 'mine'" @changed="manager && loadYear()" />
+
+    <template v-if="manager && tab !== 'mine'">
     <div class="notice error" v-if="error">{{ error }}</div>
     <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
     <div class="notice warn" v-if="!enabled">Leave is turned off in the attendance app (Attendance › Office settings). Leave already approved still counts, and this page keeps working.</div>
@@ -161,6 +167,7 @@
         Add or turn off leave types on the Leave types tab.</p>
     </section>
 
+
     <!-- ================= Leave types (26 Nov 2026, rules Draft 1.16): the built-in five + HR's own ================= -->
     <section class="card lv-types" v-if="tab === 'types'">
       <div class="card-head"><h2>Leave types</h2><span class="muted">{{ `${typeDraft.length} of ${MAX_TYPES}` }}</span></div>
@@ -183,6 +190,7 @@
       </div>
       <p class="help">The attendance app shows the types you add here once it reads this list (an app update). Until then it shows only the built-in five.</p>
     </section>
+    </template>
   </main>
 </template>
 
@@ -190,6 +198,7 @@
 import { ROLE_LABEL } from '@/lib/firebase.js';
 import { friendlyError } from '@/lib/finance-data.js';
 import { useSession } from '@/stores/session.js';
+import MyLeave from './MyLeave.vue';
 import { loadConfig, loadStaff, loadHolidays, pad, dayKey } from './attendance.js';
 import {
   STATUS, rangeText, daysText, workingDays, balanceFor, overBy, cleanDays, daysInput, sortForHR, leaveEnabled,
@@ -199,13 +208,17 @@ import {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const emptyAdd = () => ({ uid: '', type: 'annual', from: '', to: '', halfDay: false, note: '' });
 
+const TABS = ['mine', 'requests', 'add', 'days', 'types'];
+const MANAGERS = ['hr', 'director', 'branchDirector'];   // the rules' hrOrDir()
+
 export default {
+  components: { MyLeave },
   data() {
     const y = +dayKey().slice(0, 4);
     return {
       STATUS, MONTHS, MAX_TYPES,
       types: [], typeDraft: [], newType: '',   // leave types in use; the Leave types tab's working copy
-      tab: 'requests', loading: true, busy: false, error: '', okMsg: '',
+      tab: 'mine', loading: false, busy: false, error: '', okMsg: '',
       cfg: {}, staff: [], holidays: {}, list: [], ents: {}, year: y,
       fStatus: '', fMonth: '', fPerson: '', fType: '', answering: null,
       add: emptyAdd(),
@@ -214,6 +227,8 @@ export default {
   },
   computed: {
     me() { return useSession(); },
+    // HR, Directors and Branch Directors see the HR tabs; everyone else only My leave
+    manager() { return MANAGERS.includes(this.me.role); },
     myUid() { return this.me.user?.uid; },
     enabled() { return leaveEnabled(this.cfg); },
     years() { const y = +dayKey().slice(0, 4); return [y - 2, y - 1, y, y + 1]; },
@@ -254,11 +269,20 @@ export default {
       return this.staff.filter(s => s.uid !== this.myUid && this.types.some(t => (this.draft[s.uid]?.[t.key] ?? '') !== (daysInput(this.ents[s.uid]?.days)[t.key] ?? ''))).map(s => s.uid);
     }
   },
+  watch: {
+    // A notification clicked while already on this page (?tab=…) switches the tab
+    '$route.query.tab'(t) { if (this.manager && TABS.includes(t)) { if (t === 'types') this.openTypes(); else this.tab = t; } }
+  },
   async mounted() {
+    const want = String(this.$route.query.tab || '');
+    if (!this.manager) { this.tab = 'mine'; return; }   // staff: nothing else to load (and they can't read others' leave)
+    this.tab = TABS.includes(want) ? want : 'requests';
+    this.loading = true;
     try {
       const [cfg, staff, hol, types] = await Promise.all([loadConfig(), loadStaff(), loadHolidays(), loadLeaveTypes()]);
       this.cfg = cfg; this.staff = staff; this.holidays = hol; this.types = [...types];
     } catch (e) { this.error = friendlyError(e, 'load the staff list'); }
+    if (this.tab === 'types') this.openTypes();   // after the saved types are loaded
     await this.loadYear();
   },
   methods: {

@@ -12,7 +12,7 @@
 //                                      { types: [{ key, label, active, builtIn }], typeKeys: [every custom key ever saved],
 //                                      updatedBy, updatedByName, updatedAt }. A type is never deleted once saved, only turned off
 //                                      (old requests keep their type). The built-in five can be renamed or turned off, never removed.
-// Pages: HR > Leave (Leave.vue, HR / Directors / Branch Directors) and HR > My Leave (MyLeave.vue, everyone).
+// Page: HR > Leave (Leave.vue) for everyone: the My leave tab (MyLeave.vue); HR / Directors / Branch Directors also the HR tabs.
 import { db, ROLE_LABEL } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { audit } from '@/lib/finance-data.js';
@@ -76,7 +76,7 @@ export const STATUS = {
 };
 // Where the notifications point. The attendance app's link (AppConstants.pmsAttendanceLink) should be LEAVE_LINK_HR.
 export const LEAVE_LINK_HR = '/HR/leave';
-export const LEAVE_LINK_STAFF = '/HR/my-leave';
+export const LEAVE_LINK_STAFF = '/HR/leave?tab=mine';
 export const MAX_DAYS = 60;
 
 const r2 = n => Math.round(n * 100) / 100;
