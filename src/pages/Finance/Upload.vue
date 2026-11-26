@@ -151,7 +151,7 @@
         <div>
           <div class="notice" style="margin-top:0">Accounting's completed statement for <b>{{ monthName(check.month) }}</b>. It is kept as reference: what each owner was paid, that month's daily rental bookings with Accounting's amount for each, the payout history, and negative balances to carry into <span>{{ monthName(check.next) }}</span>.</div>
           <div class="summary-grid">
-            <div><b>{{ check.units.length }}</b><span>units on Payment To Owner</span></div>
+            <div><b>{{ check.units.length }}</b><span>{{ check.layout === 'unitTabs' ? 'unit statements' : check.layout === 'summary' ? 'units on the Summary' : 'units on Payment To Owner' }}</span></div>
             <div><b>{{ amt(check.balToPay) }}</b><span>paid to owners (RM)</span></div>
             <div><b>{{ check.negatives.length }}</b><span>{{ `negative, carried into ${shortName(check.next)}` }}</span></div>
             <div><b>{{ check.historyCount }}</b><span>past months from the unit sheets</span></div>
@@ -243,7 +243,7 @@ import { db } from '@/lib/firebase.js';
 import { clearCache } from '@/lib/cache.js';
 import { parseCSV, readEzee, bookingPTO, effectiveRates, DEFAULT_OTA, DM_STARTER, unitIdOf, byUnit, r2, nextMonth } from '@/lib/engine.js';
 import { legacyRate, arrangementName } from '@/lib/fee-types.js';
-import { parseFinanceStatement, sheetText, rowHash } from '@/lib/finance-import.js';
+import { parseFinanceStatement, parseUnitStatements, isUnitStatementBook, looseUnit, flatUnit, sheetText, rowHash } from '@/lib/finance-import.js';
 import { saveEzeeBookings } from '@/lib/ezee-save.js';
 import { markDirty, markFrom } from '@/lib/summary-data.js';
 import { ALL_MONTHS } from '@/lib/summaries.js';
@@ -268,6 +268,8 @@ async function readFile(file) {
   const X = await loadXlsxLib();
   const wb = X.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
   if (wb.SheetNames.some(n => /^payment to owner$/i.test(n.trim()))) return { kind: 'statement', statement: parseFinanceStatement(X, wb) };
+  // CS / Robertson style: a "Summary" tab and/or one MONTHLY STATEMENT tab per unit (26 Nov 2026)
+  if (isUnitStatementBook(X, wb)) return { kind: 'statement', statement: parseUnitStatements(X, wb) };
   const ws = wb.Sheets[wb.SheetNames[0]];
   return { kind: 'ezee', rows: sheetText(X, ws) };
 }
@@ -482,7 +484,9 @@ export default {
       // The statement's "Property" cell can be a code (DM) or a name (Windmill); unit codes ("WM B1906") carry the code too
       const nk = v => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const unitPrefix = (st.units[0]?.unitCode || '').split(' ')[0];
-      const isIt = p => [p.code, p.name, p.ezeeName].some(v => nk(v) && nk(v) === nk(st.propertyCode)) || (unitPrefix && nk(p.code) === nk(unitPrefix));
+      // Per-unit statement files name the building ("PJ Centrestage", "Robertson"): a Portfolio name holding it counts too
+      const nameHit = p => st.layout && nk(st.propertyName).length >= 4 && [p.name, p.ezeeName].some(v => nk(v) && (nk(v).includes(nk(st.propertyName)) || nk(st.propertyName).includes(nk(v))));
+      const isIt = p => [p.code, p.name, p.ezeeName].some(v => nk(v) && nk(v) === nk(st.propertyCode)) || (unitPrefix && nk(p.code) === nk(unitPrefix)) || nameHit(p);
       if (prop && st.propertyCode && !isIt(prop)) {
         const others = this.properties.filter(isIt), other = others[0];
         if (!other) throw new Error(`This statement is for property ${st.propertyCode}, not ${prop.name}. Pick the right property.`);
@@ -497,10 +501,15 @@ export default {
       this.stage = 3;
       const code = prop?.code || st.propertyCode || 'DM';
       const property = prop ? { code: prop.code, id: prop.id, name: prop.name, isNew: false }
-        : { code, id: await newPropertyId(code === 'DM' ? "D'Majestic" : code, this.defaultState), name: code === 'DM' ? "D'Majestic" : '', state: this.defaultState, isNew: true };
+        : { code, id: await newPropertyId(code === 'DM' ? "D'Majestic" : (st.propertyName || code), this.defaultState), name: code === 'DM' ? "D'Majestic" : (st.propertyName || ''), state: this.defaultState, isNew: true };
       const units = prop ? await loadUnits(prop.id) : [];
       const bare = c => c.replace(/^[A-Z]{2,4} (?=[A-Z]\d)/, '');   // "WM B1906" is "B1906" in the Portfolio
-      const unitFor = c => units.find(u => u.unitCode === c || (u.aliases || []).includes(c) || u.unitCode === bare(c))?.unitCode || c;
+      const unitFor0 = c => units.find(u => u.unitCode === c || (u.aliases || []).includes(c) || u.unitCode === bare(c))?.unitCode;
+      // Per-unit statement files write units their own way ("CS B-07-03A", "ROBE S-30-09"): match the Portfolio unit with
+      // the same number whatever the prefix, dashes or leading zeros; a unit not in the Portfolio takes this property's code
+      const unitFor = !st.layout ? c => unitFor0(c) || c
+        : c => unitFor0(c) || units.find(u => looseUnit(u.unitCode) === looseUnit(c) || flatUnit(u.unitCode) === flatUnit(c))?.unitCode
+          || (prop?.code && c.split(' ')[0] !== prop.code ? `${prop.code} ${c.split(' ').slice(1).join(' ')}` : c);
       const existing = {};
       if (prop) (await getDocs(query(collection(db, 'payoutHistory'), where('propertyId', '==', prop.id)))).docs.forEach(d => existing[d.id] = d.data());
       // Month rows: this month from Payment To Owner; earlier months from each unit sheet's Monthly Payout Summary.
@@ -575,7 +584,7 @@ export default {
         }
       }
       this.check = {
-        kind: 'statement', property, month: st.month, next, units: mine,
+        kind: 'statement', layout: st.layout || '', property, month: st.month, next, units: mine,
         nextCompleted: mine.filter(u => u.payout < 0 && !thisDone.has(idOf(u.unitCode)) && nextDone.has(idOf(u.unitCode))).map(u => u.unitCode),
         lockedUnits: mine.filter(u => thisDone.has(idOf(u.unitCode))).map(u => u.unitCode),
         balToPay: r2(mine.filter(u => u.payout > 0).reduce((s, u) => s + u.payout, 0)),
