@@ -114,45 +114,52 @@ export async function buildOneToOnePdf(data, opts = {}) {
     if (c.days !== '') text(c.days, cx, ltop + lrow + 3.5, { font: k === lcols.length - 1 ? F.b : F.n, size: 8.5, align: 'center' });
   });
 
-  // The big table: Code of Honor | ratings | what is working | what is not working
-  const T = 162, B = 794, H = B - T;
-  const cw = [2376, 1701, 3148, 3543].map(w => w * WIDTH / 10768);
-  const cx = [X0, X0 + cw[0], X0 + cw[0] + cw[1], X0 + cw[0] + cw[1] + cw[2]];
-  box(X0, T, WIDTH, H); cx.slice(1).forEach(x => vline(x, T, B));
+  // 26 Nov 2026: the Code of Honor marks are their own table on top (three questions a row, in the form's order, read down
+  // each column, Average on the last line); the box under it keeps the ratings and what is / isn't working, now wider.
   const head = { font: F.b, size: 8.5 };
   const nt = data.notes || {};
-  text('Code of Honor :', cx[0] + 5, T + 4, head);
-  const selfH = lines(wrap('Overall Self Rating (1-10) :', F.b, 8.5, cw[1] - 10), cx[1] + 5, T + 4, head);
-  text('What is Working (Ind):', cx[2] + 5, T + 4, head);
-  text('What is Not Working (Ind) :', cx[3] + 5, T + 4, head);
-  const second = T + H * 0.645;                    // the lower labels sit about two thirds down, as in the template
-  const supH = lines(wrap('Superior Rating (1-10) :', F.b, 8.5, cw[1] - 10), cx[1] + 5, second, head);
-  text('What is Working (Co):', cx[2] + 5, second, head);
-  text('What is Not Working (Co):', cx[3] + 5, second, head);
-  // What HR typed: the ratings big under their labels, the four boxes as paragraphs
-  if (nt.selfRating) text(nt.selfRating, cx[1] + cw[1] / 2, T + 10 + selfH, { font: F.b, size: 18, align: 'center' });
-  if (nt.superiorRating) text(nt.superiorRating, cx[1] + cw[1] / 2, second + 6 + supH, { font: F.b, size: 18, align: 'center' });
-  para(nt.workingInd, cx[2] + 5, T + 20, cw[2] - 10, second - 6);
-  para(nt.notWorkingInd, cx[3] + 5, T + 20, cw[3] - 10, second - 6);
-  para(nt.workingCo, cx[2] + 5, second + 16, cw[2] - 10, B - 6);
-  para(nt.notWorkingCo, cx[3] + 5, second + 16, cw[3] - 10, B - 6);
-
-  // Code of Honor: one line per question, spread down the column; the mark right-aligned and bold.
-  const q = data.questions || [], n = q.length;
-  const listTop = T + 24, listBottom = B - 34;     // the last 34 pt are for "Average :"
-  const step = n ? Math.min(30, (listBottom - listTop) / n) : 0;
-  const size = Math.max(5.5, Math.min(8.5, step - 1.5));
-  const lead = size + 1.2, markW = 26, titleW = cw[0] - 10 - markW;
-  const maxLines = Math.max(1, Math.floor(step / lead));
+  const q = data.questions || [];
+  const qRows = Math.max(1, Math.ceil(q.length / 3));
+  const cT = 162, hdrH = 16, rowH = qRows > 9 ? 13 : 15, avgH = 18;
+  const tW = WIDTH * 0.24, mW = WIDTH / 3 - tW;                  // one question's title and mark cells
+  const cB = cT + hdrH + qRows * rowH + avgH;
+  box(X0, cT, WIDTH, cB - cT);
+  hline(X0, X0 + WIDTH, cT + hdrH);
+  for (let r = 1; r <= qRows; r++) hline(X0, X0 + WIDTH, cT + hdrH + r * rowH);
+  [1, 2, 3, 4, 5].forEach(k => vline(X0 + Math.ceil(k / 2) * tW + Math.floor(k / 2) * mW, cT + hdrH, cB - avgH));
+  vline(X0 + WIDTH - mW, cB - avgH, cB);
+  const hW = text('Code of Honor', X0 + 5, cT + 4, { font: F.b, size: 9.5 });
+  if (data.raters) text(`(average from ${data.raters}${data.expected ? ` of ${data.expected}` : ''} colleague${data.raters === 1 ? '' : 's'}, on a scale of 1 to 5)`, X0 + 10 + hW, cT + 5, { font: F.i, size: 8, maxW: WIDTH - hW - 16 });
   q.forEach((item, k) => {
-    const top = listTop + k * step + Math.max(0, (step - lead * Math.min(maxLines, 2)) / 2);
-    let ls = wrap(`${item.title} :`, F.n, size, titleW);
-    if (ls.length > maxLines) { ls = ls.slice(0, maxLines); ls[maxLines - 1] = ls[maxLines - 1].replace(/.{2}$/, '…'); }
-    lines(ls, cx[0] + 5, top, { size, lead });
-    if (item.mark !== '' && item.mark != null) text(String(item.mark), cx[0] + cw[0] - 6, top, { font: F.b, size: Math.max(size, 7), align: 'right' });
+    const col = Math.floor(k / qRows), row = k % qRows;
+    const x = X0 + col * (tW + mW), top = cT + hdrH + row * rowH + (rowH - 8.5) / 2;
+    const title = String(item.title || '');
+    const size = Math.max(6.5, Math.min(8.5, 8.5 * (tW - 10) / Math.max(1, widthOf(title, F.n, 8.5))));   // a long title shrinks a little first
+    text(title, x + 5, top + (8.5 - size) / 2, { size, maxW: tW - 10 });
+    if (item.mark !== '' && item.mark != null) text(String(item.mark), x + tW + mW / 2, top, { font: F.b, size: 9, align: 'center' });
   });
-  text('Average :', cx[0] + 5, B - 22, { font: F.b, size: 12 });
-  if (data.average) text(String(data.average), cx[0] + cw[0] - 6, B - 22, { font: F.b, size: 12, align: 'right' });
+  text('Average :', X0 + WIDTH - mW - 6, cB - avgH + 3.5, { font: F.b, size: 11, align: 'right' });
+  if (data.average) text(String(data.average), X0 + WIDTH - mW / 2, cB - avgH + 3.5, { font: F.b, size: 11, align: 'center' });
+
+  // The box: ratings | what is working | what is not working, Individual on top, Colleague below
+  const T = cB + 10, B = 794, H = B - T;
+  const cw = [0.18, 0.41, 0.41].map(f => f * WIDTH);
+  const cx = [X0, X0 + cw[0], X0 + cw[0] + cw[1]];
+  const second = T + H / 2;
+  box(X0, T, WIDTH, H); cx.slice(1).forEach(x => vline(x, T, B)); hline(X0, X0 + WIDTH, second);
+  const selfH = lines(wrap('Overall Self Rating (1-10) :', F.b, 8.5, cw[0] - 10), cx[0] + 5, T + 4, head);
+  text('What is Working (Ind):', cx[1] + 5, T + 4, head);
+  text('What is Not Working (Ind) :', cx[2] + 5, T + 4, head);
+  const supH = lines(wrap('Superior Rating (1-10) :', F.b, 8.5, cw[0] - 10), cx[0] + 5, second + 4, head);
+  text('What is Working (Co):', cx[1] + 5, second + 4, head);
+  text('What is Not Working (Co):', cx[2] + 5, second + 4, head);
+  // What HR typed: the ratings big under their labels, the four boxes as paragraphs
+  if (nt.selfRating) text(nt.selfRating, cx[0] + cw[0] / 2, T + 10 + selfH, { font: F.b, size: 18, align: 'center' });
+  if (nt.superiorRating) text(nt.superiorRating, cx[0] + cw[0] / 2, second + 10 + supH, { font: F.b, size: 18, align: 'center' });
+  para(nt.workingInd, cx[1] + 5, T + 20, cw[1] - 10, second - 6);
+  para(nt.notWorkingInd, cx[2] + 5, T + 20, cw[2] - 10, second - 6);
+  para(nt.workingCo, cx[1] + 5, second + 20, cw[1] - 10, B - 6);
+  para(nt.notWorkingCo, cx[2] + 5, second + 20, cw[2] - 10, B - 6);
   const from = data.raters ? `Code of Honor marks: the average from ${data.raters}${data.expected ? ` of ${data.expected}` : ''} colleague${data.raters === 1 ? '' : 's'}, on a scale of 1 to 5.` : 'Code of Honor marks: no colleague has rated this person yet.';
   footer(from);
 

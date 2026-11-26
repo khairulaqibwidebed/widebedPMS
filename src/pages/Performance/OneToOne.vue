@@ -155,8 +155,9 @@
               <span class="oo-lbl">Sort</span>
               <button v-for="o in SORTS" :key="o.key" type="button" class="oo-chip" :class="{ on: cohSort === o.key }" :aria-pressed="String(cohSort === o.key)" @click="setSort(o.key)">{{ o.label }}</button>
             </div>
-            <div class="oo-coh">
-            <div v-for="q in cohList" :key="q.title" class="oo-bar-row">
+            <div class="oo-coh" :style="{ '--rows': Math.ceil(cohList.length / 2) }">
+            <div v-for="(q, k) in cohList" :key="q.title" class="oo-bar-row">
+              <span class="oo-rank">{{ k + 1 }}</span>
               <span class="oo-bar-name" :title="q.title">{{ q.title }}</span>
               <span class="oo-bar"><span :class="{ low: q.mark !== '' && Number(q.mark) < 3.5 }" :style="{ width: q.mark === '' ? '0%' : (Number(q.mark) / 5 * 100) + '%' }"></span></span>
               <b class="oo-bar-mark">{{ q.mark || '—' }}</b>
@@ -592,8 +593,10 @@ export default {
 .oo-fold-body { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .oo-sort { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
 .oo-sort .oo-lbl { margin-right: 4px; }
-.oo-coh { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; row-gap: 9px; }
-@media (max-width: 760px) { .oo-coh { grid-template-columns: minmax(0, 1fr); } }
+/* 26 Nov 2026: the order runs down the left column, then down the right (was left, right, left, right) */
+.oo-coh { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 1), auto); grid-auto-flow: column; column-gap: 32px; row-gap: 9px; }
+.oo-rank { flex: 0 0 22px; text-align: right; font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .oo-coh { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; } }
 .oo-bar-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .oo-bar-name { flex: 0 0 170px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oo-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--chip); overflow: hidden; }
