@@ -117,6 +117,10 @@ const routes = [
   page('/HR/announcements', () => import('./pages/HR/Announcements.vue'), 'Announcements', ALL),
   // Staff Attendance (11 Nov 2026): everyone's clock-ins from the attendance app, holidays, office settings. Directors and HR only.
   page('/HR/attendance', () => import('./pages/HR/Attendance.vue'), 'Attendance', DH),
+  // Leave and MC (26 Nov 2026, rules Drafts 1.14 / 1.15): HR > Leave for HR, Directors and Branch Directors (requests, add for
+  // someone, leave days); HR > My Leave for everyone. The attendance app's PMS link (AppConstants.pmsAttendanceLink) is /HR/leave.
+  page('/HR/leave', () => import('./pages/HR/Leave.vue'), 'Leave', DH),
+  page('/HR/my-leave', () => import('./pages/HR/MyLeave.vue'), 'My Leave', ALL),
   page('/Notifications', () => import('./pages/Notifications.vue'), 'Notifications', ALL),
   page('/whats-new', () => import('./pages/WhatsNew/WhatsNew.vue'), "What's New", ALL),
 

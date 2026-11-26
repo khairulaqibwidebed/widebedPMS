@@ -2,6 +2,9 @@
 // this page lets HR and Directors read everyone's, fix a missed clock-in or clock-out, keep the public holiday list and
 // change the office settings. Firestore rules: Draft 0.49 (the app), 0.51 (corrections here), 0.52 (several clock-ins a day),
 // 0.59 (a holiday can leave some staff out: exceptUids), 0.61 (several locations: config.places, clockInPlace / clockOutPlace).
+// 26 Nov 2026 (Crane, leave, rules Drafts 1.14 / 1.15): a working day with approved leave and no clock-in is Leave (type),
+// never Absent; a Leave (days) column next to Absent; Absent counts from each person's own start (HR details join date,
+// else users/{uid}.joinDate, else their first clock-in) and never before the first day the app was used; config.leaveEnabled.
 // Times are Malaysia time (UTC+8, no daylight saving) whatever the computer is set to.
 import { db } from '@/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, writeBatch, serverTimestamp, Timestamp, deleteDoc, deleteField } from 'firebase/firestore';
@@ -16,7 +19,8 @@ export const DEFAULT_CFG = Object.freeze({
   lat: 3.156812, lng: 101.722188, radiusM: 250,
   workStartMin: 540, lateAfterMin: 550, workEndMin: 1080, workDays: [1, 2, 3, 4, 5],
   allowOffsite: true,         // Draft 0.54: clock in / out away from the office is allowed and shown as Off-site
-  places: []                  // Draft 0.61: the other locations (properties): { name, address, lat, lng, radiusM, cosLat }
+  places: [],                 // Draft 0.61: the other locations (properties): { name, address, lat, lng, radiusM, cosLat }
+  leaveEnabled: true          // Draft 1.14: false hides Apply leave and the Leave tab in the app (missing = on)
 });
 // What a clock-in at the main office is recorded as (the same word in the app and the rules).
 export const MAIN_PLACE = 'WIDEBED';
@@ -81,6 +85,7 @@ export async function saveConfig(cfg, me) {
     workStartMin: Math.round(cfg.workStartMin), lateAfterMin: Math.round(cfg.lateAfterMin), workEndMin: Math.round(cfg.workEndMin),
     workDays: [...cfg.workDays].map(Number).sort(),
     allowOffsite: cfg.allowOffsite !== false,
+    leaveEnabled: cfg.leaveEnabled !== false,
     places: cleanPlaces(cfg.places),
     updatedBy: me.user.uid, updatedAt: serverTimestamp()
   };
@@ -88,7 +93,8 @@ export async function saveConfig(cfg, me) {
   b.set(doc(db, 'config', 'attendance'), data);
   audit(b, me, { action: 'attendance.settings', entity: 'config/attendance',
     changes: [{ field: 'office', to: `${data.lat}, ${data.lng} · ${data.radiusM} m` }, { field: 'late after', to: hm(data.lateAfterMin) },
-      { field: 'other locations', to: data.places.map(p => `${p.name} (${p.radiusM} m)`).join(', ') || 'none' }] });
+      { field: 'other locations', to: data.places.map(p => `${p.name} (${p.radiusM} m)`).join(', ') || 'none' },
+      { field: 'leave in the app', to: data.leaveEnabled ? 'on' : 'off' }] });
   await b.commit();
 }
 
@@ -132,8 +138,23 @@ export async function loadStaff() {
   const snap = await getDocs(collection(db, 'users'));
   return snap.docs.map(d => ({ uid: d.id, ...d.data() }))
     .filter(u => u.active !== false && u.role && seesStaff(u))   // Branch Directors: staff in their branches only (24 Nov 2026)
-    .map(u => ({ uid: u.uid, name: u.displayName || u.email || 'Unknown', email: u.email || '', role: u.role, intern: !!u.intern }))
+    .map(u => ({ uid: u.uid, name: u.displayName || u.email || 'Unknown', email: u.email || '', role: u.role, intern: !!u.intern, joinDate: u.joinDate || '' }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+// HR details (staffHR/{uid}: join date) for everyone, {} when they can't be read.
+export async function loadHRDetails() {
+  try { return Object.fromEntries((await getDocs(collection(db, 'staffHR'))).docs.map(d => [d.id, d.data()])); } catch (_) { return {}; }
+}
+// Each person's first clock-in ever, for the people given (one small read each; index uid + date). { uid: 'YYYY-MM-DD' }
+export async function loadFirstClockIns(uids) {
+  const out = {};
+  await Promise.all(uids.map(async uid => {
+    try {
+      const snap = await getDocs(query(collection(db, 'attendance'), where('uid', '==', uid), orderBy('date'), limit(1)));
+      if (!snap.empty) out[uid] = snap.docs[0].data().date;
+    } catch (_) { /* no index or no access: that person just has no start date */ }
+  }));
+  return out;
 }
 // { '2026-12-25': { name: 'Christmas Day', exceptUids: ['uid1'] } }. exceptUids = staff left out (Draft 0.59); empty = everyone.
 export async function loadHolidays(from, to) {
@@ -356,7 +377,9 @@ const myMinutes = t => { const ms = toMs(t); if (ms == null) return null; const 
 export const reportDate = key => `${key.slice(2)} ${WD[weekday(key)]}`;   // 2026-10-01 -> "26-10-01 Thu"
 const hoursMins = m => (m >= 60 ? `${Math.floor(m / 60)} Hours ${m % 60} Mins` : `${m} Mins`);
 
-export function dailyReport({ records, staff, holidays, cfg, from, to, today, firstDay, deptLabel, staffFilter = '', deptFilter = '' }) {
+// leave: Map('{uid}_{day}' -> { label, half }) of approved leave (leave.js leaveByDay). starts: { uid: 'YYYY-MM-DD' } each
+// person's own start (leave.js startDates); Absent never counts before it, nor before firstDay (the app's first use).
+export function dailyReport({ records, staff, holidays, cfg, from, to, today, firstDay, deptLabel, staffFilter = '', deptFilter = '', leave = null, starts = null }) {
   const days = daysBetween(from, to);
   const byDay = groupDays(records);
   const workDays = new Set(cfg.workDays || DEFAULT_CFG.workDays);
@@ -379,10 +402,15 @@ export function dailyReport({ records, staff, holidays, cfg, from, to, today, fi
       const hol = holidayFor(holidays, key, p.uid);
       const workDay = workDays.has(weekday(key)) && !hol;
       const base = { key, date: reportDate(key), uid: p.uid, name: p.name, role: p.role, holiday: hol, workDay, att: d || null };
+      const lv = leave?.get(`${p.uid}_${key}`) || null;
+      const lvText = lv ? `Leave (${lv.label}${lv.half ? ', half day' : ''})` : '';
       if (!d) {
         if (hol) return { ...base, type: 'span', text: `Public Holiday: ${hol}`, fill: 'FFFF00' };
         if (!workDay) return { ...base, type: 'span', text: 'Rest', fill: 'FFFF00' };
-        if (key >= today || !firstDay || key < firstDay) return { ...base, type: 'blank', shift, status: '', statusKind: '' };
+        // Approved leave on a working day with no clock-in: Leave, never Absent (today and future days too)
+        if (lv) return { ...base, type: 'leave', shift, leave: lv.half ? 0.5 : 1, status: lvText, statusKind: 'leave' };
+        const start = starts?.[p.uid] || '';
+        if (key >= today || !firstDay || key < firstDay || (start && key < start)) return { ...base, type: 'blank', shift, status: '', statusKind: '' };
         return { ...base, type: 'absent', shift, absent: 1, status: 'Absent', statusKind: 'absent' };
       }
       // Clocked in: one In / Out pair per clock-in. Off-site = clocked in or out away from the office (Draft 0.54).
@@ -419,13 +447,15 @@ export function dailyReport({ records, staff, holidays, cfg, from, to, today, fi
       else if (!workDay) { status = 'Off day work'; statusKind = 'offday'; }
       else if (fullDay) { status = 'Normal'; statusKind = 'normal'; }
       else { status = `Short ${hoursMins(required - dayMin)}`; statusKind = 'short'; }
+      // Leave on a day they also clocked in (a half day, usually): counted as leave, shown under the status
       return { ...base, type: 'work', shift: shiftText, pairs, workMin: dayMin, lateMin, open: d.open, status, statusKind,
-        offsite: pairs.some(x => x.inOff || x.outOff) };
+        offsite: pairs.some(x => x.inOff || x.outOff), leave: lv && workDay ? (lv.half ? 0.5 : 1) : 0, leaveText: workDay ? lvText : '' };
     });
     const totals = {
       work: rows.reduce((t, r) => t + (r.workMin || 0), 0),
       late: rows.reduce((t, r) => t + (r.lateMin || 0), 0),
-      absent: rows.reduce((t, r) => t + (r.absent || 0), 0)
+      absent: rows.reduce((t, r) => t + (r.absent || 0), 0),
+      leave: rows.reduce((t, r) => t + (r.leave || 0), 0)
     };
     const group = p.intern ? 'Interns' : (dept || 'No department');
     return { uid: p.uid, name: p.name, position: p.intern ? `Intern ${dept}`.trim() : dept, group, rows, totals };
@@ -443,7 +473,7 @@ export function dailyReport({ records, staff, holidays, cfg, from, to, today, fi
 
 // Totals across the report for the cards above the table.
 export function reportTotals(report) {
-  const t = { present: 0, late: 0, absent: 0, noClockOut: 0, minutes: 0, short: 0, offsite: 0 };
+  const t = { present: 0, late: 0, absent: 0, noClockOut: 0, minutes: 0, short: 0, offsite: 0, leave: 0 };
   for (const g of report.groups) for (const p of g.people) for (const r of p.rows) {
     if (r.type === 'work') {
       t.present++; if (r.lateMin != null) t.late++; if (r.pairs.some(x => x.outResult === 'Missing')) t.noClockOut++; t.minutes += r.workMin || 0;
@@ -451,6 +481,7 @@ export function reportTotals(report) {
       if (r.offsite) t.offsite++;
     }
     if (r.type === 'absent') t.absent++;
+    t.leave += r.leave || 0;
   }
   return t;
 }
@@ -469,9 +500,9 @@ const st = (o = {}) => ({
 export function reportSheet(report, XLSX, generatedAt) {
   const S = report.maxSessions;
   const W = 6;                                 // columns per clock-in: In (Punch Time, Result, Location), Out (the same three). Location: 12 Nov 2026
-  const nCols = 4 + S * W + 4;                 // A–D, In/Out pairs, the three number columns, then Status (540-minute rule)
+  const nCols = 4 + S * W + 5;                 // A–D, In/Out pairs, the four number columns (Leave: 26 Nov 2026), then Status (540-minute rule)
   const last = nCols - 1;
-  const cIdx = { work: 4 + S * W, late: 5 + S * W, absent: 6 + S * W, status: 7 + S * W };
+  const cIdx = { work: 4 + S * W, late: 5 + S * W, absent: 6 + S * W, leave: 7 + S * W, status: 8 + S * W };
   const ws = {}, merges = [], rowsH = [];
   const put = (r, c, v, style, extra = {}) => {
     const cell = typeof v === 'number' ? { t: 'n', v } : { t: 's', v: v == null ? '' : String(v) };
@@ -496,7 +527,7 @@ export function reportSheet(report, XLSX, generatedAt) {
     put(3, c, 'Punch Time:', H); put(3, c + 1, 'Result', H); put(3, c + 2, 'Location', H);
     put(3, c + 3, 'Punch Time:', H); put(3, c + 4, 'Result', H); put(3, c + 5, 'Location', H);
   }
-  [['Work Duration (Minutes)', cIdx.work], ['Late for (Minutes)', cIdx.late], ['Absent Days', cIdx.absent], ['Status', cIdx.status]].forEach(([t, c]) => { put(2, c, t, H); put(3, c, '', H); merge(2, c, 3, c); });
+  [['Work Duration (Minutes)', cIdx.work], ['Late for (Minutes)', cIdx.late], ['Absent Days', cIdx.absent], ['Leave Days', cIdx.leave], ['Status', cIdx.status]].forEach(([t, c]) => { put(2, c, t, H); put(3, c, '', H); merge(2, c, 3, c); });
   rowsH[3] = { hpt: 24 };
 
   // The black bar under the header, as in the payroll file
@@ -520,7 +551,8 @@ export function reportSheet(report, XLSX, generatedAt) {
             const c = 4 + k * W, x = row.pairs?.[k];
             // Location: an off-site one is light blue and opens the exact spot on Google Maps
             const loc = (cc, text, off, url) => put(r, cc, text || '', st({ sz: 10, fill: off ? 'CCFFFF' : '' }), off && url ? { l: { Target: url, Tooltip: 'Open the spot on Google Maps' } } : {});
-            put(r, c, x ? x.inTime : '', D); put(r, c + 1, x ? x.inResult : (row.type === 'absent' && k === 0 ? 'Absent' : ''), st({ fill: x ? x.inFill : (row.type === 'absent' && k === 0 ? 'FF8080' : '') }));
+            const noIn = !x && k === 0 && (row.type === 'absent' || row.type === 'leave');
+            put(r, c, x ? x.inTime : '', D); put(r, c + 1, x ? x.inResult : (noIn ? (row.type === 'leave' ? row.status : 'Absent') : ''), st({ fill: x ? x.inFill : (noIn ? (row.type === 'leave' ? 'CCE5FF' : 'FF8080') : '') }));
             loc(c + 2, x?.inPlace, x?.inOff, x?.inMap);
             put(r, c + 3, x ? x.outTime : '', D); put(r, c + 4, x ? x.outResult : '', st({ fill: x ? x.outFill : '' }));
             loc(c + 5, x?.outPlace, x?.outOff && !!x?.outTime, x?.outMap);
@@ -528,8 +560,9 @@ export function reportSheet(report, XLSX, generatedAt) {
           put(r, cIdx.work, row.type === 'work' ? row.workMin : '', D);
           put(r, cIdx.late, row.lateMin != null ? row.lateMin : '', D);
           put(r, cIdx.absent, row.absent || '', D);
-          const sFill = { short: 'FFFFCC', missing: 'FF8080', absent: 'FF8080' }[row.statusKind] || '';
-          put(r, cIdx.status, row.status || '', st({ fill: sFill }));
+          put(r, cIdx.leave, row.leave || '', D);
+          const sFill = { short: 'FFFFCC', missing: 'FF8080', absent: 'FF8080', leave: 'CCE5FF' }[row.statusKind] || '';
+          put(r, cIdx.status, [row.status, row.leaveText].filter(Boolean).join(' · '), st({ fill: sFill || (row.leaveText ? 'CCE5FF' : '') }));
         }
         rowsH[r] = { hpt: row.pairs?.some(x => x.outResult.startsWith('Leave Early') || x.inPlace.length > 34 || x.outPlace.length > 34) ? 57 : 28.5 };
         r++;
@@ -544,7 +577,7 @@ export function reportSheet(report, XLSX, generatedAt) {
       fillRow(r, 2, last, T);
       const col = c => XLSX.utils.encode_col(c);
       const sum = (c, v) => put(r, c, v, T, { f: `SUM(${col(c)}${first + 1}:${col(c)}${r})` });
-      sum(cIdx.work, p.totals.work); sum(cIdx.late, p.totals.late); sum(cIdx.absent, p.totals.absent);
+      sum(cIdx.work, p.totals.work); sum(cIdx.late, p.totals.late); sum(cIdx.absent, p.totals.absent); sum(cIdx.leave, p.totals.leave);
       rowsH[r] = { hpt: 33 };
       r += 1;
     }
@@ -552,7 +585,7 @@ export function reportSheet(report, XLSX, generatedAt) {
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(r - 1, 3), c: last } });
   ws['!merges'] = merges;
   ws['!rows'] = rowsH;
-  ws['!cols'] = [{ wch: 31 }, { wch: 34 }, { wch: 15.4 }, { wch: 16 }, ...Array.from({ length: S * W }, (_, i) => ({ wch: [10, 14, 34][i % 3] })), { wch: 13 }, { wch: 11 }, { wch: 9 }, { wch: 18 }];
+  ws['!cols'] = [{ wch: 31 }, { wch: 34 }, { wch: 15.4 }, { wch: 16 }, ...Array.from({ length: S * W }, (_, i) => ({ wch: [10, 14, 34][i % 3] })), { wch: 13 }, { wch: 11 }, { wch: 9 }, { wch: 9 }, { wch: 22 }];
   return ws;
 }
 

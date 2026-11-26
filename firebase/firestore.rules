@@ -1,4 +1,28 @@
 rules_version = '2';
+// Draft 1.16, 26 Nov 2026 (Crane): HR's own leave types. config/leaveTypes { types: [{ key, label, active, builtIn }],
+//   typeKeys (every custom key ever saved, never shrinks), updatedBy, updatedByName, updatedAt }: every staff member reads (the
+//   PMS and the attendance app show the list); HR and Directors write (at most 30 types). attendanceLeave.type and the keys of
+//   leaveEntitlements.days may now be one of the built-in five OR a key in typeKeys (leaveTypeKeys()). Rules can't loop over
+//   a map, so a custom type's number in leaveEntitlements.days (0 to 365) is checked by the PMS; the built-in five are still
+//   checked here. No other change.
+// Draft 1.15, 26 Nov 2026 (Crane): leave days per person. leaveEntitlements/{uid}_{year} { uid, year, days: { annual, mc,
+//   emergency, unpaid, other } (each 0 to 365, halves allowed; a type left out has no limit), note (<= 300), updatedBy,
+//   updatedByName, updatedAt }. HR and Directors read all and set them (HR > Leave in the PMS), never their own (a Director
+//   sets HR's). Each person reads their own (the attendance app shows days left). Nobody deletes (set 0 instead).
+//   No other change.
+// Draft 1.14, 26 Nov 2026 (Crane): Staff Attendance app 1.5.0, leave and correction requests.
+//   - attendanceLeave/{id} (new): leave and MC. Staff ask for their own (status pending, byHR false) and withdraw it while
+//     it is waiting. HR and Directors read all; they approve or decline a waiting request (a reason is needed to decline),
+//     cancel an approved one (with a reason), or add leave for someone else (saved approved, byHR true). Nobody answers or
+//     adds their own. Fields { uid, name, department, type (annual | mc | emergency | unpaid | other), from, to
+//     (YYYY-MM-DD), halfDay (one day only), days (0.5 to 60 working days), note (<= 300), status, byHR, resolvedBy,
+//     resolvedByName, resolvedAt, resolveNote (<= 300), createdAt, updatedAt }. Nobody deletes.
+//   - attendanceCorrections/{id} (new): the app's "Request a correction" (1.4.0) had no rule yet, so requests were refused.
+//     Staff create their own (pending) and withdraw it while it is waiting; HR and Directors read all and mark someone
+//     else's Fixed (done) or Declined (a reason is needed). The attendance record itself is still fixed on the PMS
+//     Attendance page as before. Nobody deletes.
+//   - config/attendance may also hold leaveEnabled (bool; false hides leave in the app).
+//   No other change.
 // Draft 1.13, 25 Nov 2026 (Crane): One To One Session forms are saved (Performance > One To One Session > Save).
 //   oneToOneForms/{quarterId}_{uid} { quarterId, uid, date, venue, topic, staffName, position, ic, leave, notes, updatedBy,
 //   updatedByName, updatedAt }: HR and Directors read and write (they are the only ones who see the COH marks); Directors
@@ -2716,12 +2740,156 @@ service cloud.firestore {
       allow read: if anyStaff();
       allow write: if hrOrDir()
         && request.resource.data.keys().hasOnly(['officeName', 'address', 'lat', 'lng', 'radiusM', 'cosLat', 'workStartMin',
-             'workEndMin', 'lateAfterMin', 'workDays', 'allowOffsite', 'places', 'updatedBy', 'updatedAt'])
+             'workEndMin', 'lateAfterMin', 'workDays', 'allowOffsite', 'leaveEnabled', 'places', 'updatedBy', 'updatedAt'])
         && request.resource.data.get('places', []) is list && request.resource.data.get('places', []).size() <= 30
         && request.resource.data.get('allowOffsite', true) is bool
+        && request.resource.data.get('leaveEnabled', true) is bool   // Draft 1.14
         && request.resource.data.lat is number && request.resource.data.lng is number
         && request.resource.data.radiusM is number && request.resource.data.radiusM >= 50 && request.resource.data.radiusM <= 2000
         && request.resource.data.cosLat is number && request.resource.data.lateAfterMin is int && request.resource.data.workDays is list;
+    }
+
+    // ---------------- Staff Attendance: correction requests (Draft 1.14) ----------------
+    // The app's "Request a correction" (Attendance details). HR fixes the record on the PMS Attendance page, then marks it here.
+    match /attendanceCorrections/{id} {
+      allow read: if hrOrDir() || (anyStaff() && resource.data.uid == request.auth.uid);
+      allow create: if anyStaff()
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'date', 'session', 'kind', 'proposedClockIn',
+             'proposedClockOut', 'note', 'status', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.name is string && request.resource.data.name.size() <= 120
+        && request.resource.data.department is string && request.resource.data.department.size() <= 120
+        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.session is int && request.resource.data.session >= 1 && request.resource.data.session <= 10
+        && request.resource.data.kind in ['clockIn', 'clockOut', 'missingOut', 'location', 'other']
+        && (!('proposedClockIn' in request.resource.data)
+            || (request.resource.data.proposedClockIn is string && request.resource.data.proposedClockIn.matches('^[0-2][0-9]:[0-5][0-9]$')))
+        && (!('proposedClockOut' in request.resource.data)
+            || (request.resource.data.proposedClockOut is string && request.resource.data.proposedClockOut.matches('^[0-2][0-9]:[0-5][0-9]$')))
+        && request.resource.data.note is string && request.resource.data.note.size() >= 5 && request.resource.data.note.size() <= 500
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      // Withdraw your own while it is waiting.
+      allow update: if anyStaff()
+        && resource.data.uid == request.auth.uid && resource.data.status == 'pending'
+        && changed().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status == 'withdrawn'
+        && request.resource.data.updatedAt == request.time;
+      // HR / Directors answer someone else's: Fixed (done) or Declined (with a reason).
+      allow update: if hrOrDir()
+        && resource.data.uid != request.auth.uid && resource.data.status == 'pending'
+        && changed().hasOnly(['status', 'resolvedBy', 'resolvedByName', 'resolvedAt', 'resolveNote', 'updatedAt'])
+        && request.resource.data.status in ['done', 'declined']
+        && request.resource.data.resolvedBy == request.auth.uid
+        && request.resource.data.resolvedByName is string && request.resource.data.resolvedByName.size() <= 120
+        && request.resource.data.resolvedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.get('resolveNote', '') is string && request.resource.data.get('resolveNote', '').size() <= 300
+        && (request.resource.data.status == 'done' || request.resource.data.get('resolveNote', '').size() >= 3);
+      allow delete: if false;
+    }
+
+    // ---------------- Leave types (Draft 1.16) ----------------
+    // KEEP IN STEP WITH LEAVE_TYPES in src/pages/HR/leave.js and the attendance app.
+    function builtInLeaveTypes() { return ['annual', 'mc', 'emergency', 'unpaid', 'other']; }
+    function leaveTypeKeys() {
+      let p = /databases/$(database)/documents/config/leaveTypes;
+      return exists(p) ? builtInLeaveTypes().concat(get(p).data.get('typeKeys', [])) : builtInLeaveTypes();
+    }
+    match /config/leaveTypes {
+      allow read: if anyStaff();
+      allow write: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['types', 'typeKeys', 'updatedBy', 'updatedByName', 'updatedAt'])
+        && request.resource.data.types is list && request.resource.data.types.size() > 0 && request.resource.data.types.size() <= 30
+        && request.resource.data.typeKeys is list && request.resource.data.typeKeys.size() <= 60
+        // a key once saved stays, so leave already saved under it stays valid
+        && (resource == null || request.resource.data.typeKeys.hasAll(resource.data.get('typeKeys', [])))
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedByName is string && request.resource.data.updatedByName.size() <= 120
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // ---------------- Staff Attendance: leave and MC (Draft 1.14) ----------------
+    // Approved leave is shown as Leave and is not counted as Absent (app 1.5.0). Using it is optional.
+    function leaveOk(d) {
+      return d.name is string && d.name.size() <= 120
+        && d.department is string && d.department.size() <= 120
+        && d.type is string && d.type in leaveTypeKeys()   // Draft 1.16: HR's own types too
+        && d.from is string && d.from.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.to is string && d.to.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.to >= d.from
+        && d.halfDay is bool && (d.halfDay == false || (d.from == d.to && d.days == 0.5))
+        && d.days is number && d.days >= 0.5 && d.days <= 60
+        && d.note is string && d.note.size() <= 300
+        && d.createdAt == request.time && d.updatedAt == request.time;
+    }
+    match /attendanceLeave/{id} {
+      allow read: if hrOrDir() || (anyStaff() && resource.data.uid == request.auth.uid);
+      // Ask for your own leave.
+      allow create: if anyStaff()
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'type', 'from', 'to', 'halfDay', 'days', 'note',
+             'status', 'byHR', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending' && request.resource.data.byHR == false
+        && leaveOk(request.resource.data);
+      // HR / Directors add leave for someone else, approved at once.
+      allow create: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'department', 'type', 'from', 'to', 'halfDay', 'days', 'note',
+             'status', 'byHR', 'resolvedBy', 'resolvedByName', 'resolvedAt', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid is string && request.resource.data.uid != request.auth.uid
+        && request.resource.data.status == 'approved' && request.resource.data.byHR == true
+        && request.resource.data.resolvedBy == request.auth.uid
+        && request.resource.data.resolvedByName is string && request.resource.data.resolvedByName.size() <= 120
+        && request.resource.data.resolvedAt == request.time
+        && leaveOk(request.resource.data);
+      // Withdraw your own while it is waiting.
+      allow update: if anyStaff()
+        && resource.data.uid == request.auth.uid && resource.data.status == 'pending'
+        && changed().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status == 'withdrawn'
+        && request.resource.data.updatedAt == request.time;
+      // HR / Directors: approve or decline someone else's waiting request, or cancel an approved one (a reason is needed
+      // to decline or cancel).
+      allow update: if hrOrDir()
+        && resource.data.uid != request.auth.uid
+        && ((resource.data.status == 'pending' && request.resource.data.status in ['approved', 'declined'])
+            || (resource.data.status == 'approved' && request.resource.data.status == 'cancelled'))
+        && changed().hasOnly(['status', 'resolvedBy', 'resolvedByName', 'resolvedAt', 'resolveNote', 'updatedAt'])
+        && request.resource.data.resolvedBy == request.auth.uid
+        && request.resource.data.resolvedByName is string && request.resource.data.resolvedByName.size() <= 120
+        && request.resource.data.resolvedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.get('resolveNote', '') is string && request.resource.data.get('resolveNote', '').size() <= 300
+        && (request.resource.data.status == 'approved' || request.resource.data.get('resolveNote', '').size() >= 3);
+      allow delete: if false;
+    }
+
+    // ---------------- Leave days per person (Draft 1.15) ----------------
+    // Set by HR / Directors in the PMS; the attendance app reads your own to show days left. id = {uid}_{year}.
+    function leaveDaysOk(m) {
+      return m is map && m.size() <= 30 && m.keys().hasOnly(leaveTypeKeys())   // Draft 1.16: HR's own types too
+        && (!('annual' in m) || (m.annual is number && m.annual >= 0 && m.annual <= 365))
+        && (!('mc' in m) || (m.mc is number && m.mc >= 0 && m.mc <= 365))
+        && (!('emergency' in m) || (m.emergency is number && m.emergency >= 0 && m.emergency <= 365))
+        && (!('unpaid' in m) || (m.unpaid is number && m.unpaid >= 0 && m.unpaid <= 365))
+        && (!('other' in m) || (m.other is number && m.other >= 0 && m.other <= 365));
+    }
+    match /leaveEntitlements/{id} {
+      // Your own by its id, so asking for a year HR hasn't set yet is allowed (it just doesn't exist).
+      allow read: if hrOrDir() || (anyStaff() && id.matches(request.auth.uid + '_[0-9]{4}'));
+      allow create, update: if hrOrDir()
+        && request.resource.data.keys().hasOnly(['uid', 'year', 'days', 'note', 'updatedBy', 'updatedByName', 'updatedAt'])
+        && request.resource.data.uid is string && request.resource.data.uid != request.auth.uid
+        && request.resource.data.year is int && request.resource.data.year >= 2020 && request.resource.data.year <= 2100
+        && id == request.resource.data.uid + '_' + string(request.resource.data.year)
+        && (resource == null || (resource.data.uid == request.resource.data.uid && resource.data.year == request.resource.data.year))
+        && leaveDaysOk(request.resource.data.days)
+        && request.resource.data.get('note', '') is string && request.resource.data.get('note', '').size() <= 300
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedByName is string && request.resource.data.updatedByName.size() <= 120
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
     }
 
   }

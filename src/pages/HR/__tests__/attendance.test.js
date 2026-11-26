@@ -271,7 +271,8 @@ describe('locations (Draft 0.61)', () => {
     const enc = ({ r, c }) => String.fromCharCode(65 + c) + (r + 1);
     const ws = A.reportSheet(rep, { utils: { encode_cell: enc, encode_col: c => String.fromCharCode(65 + c), encode_range: x => `${enc(x.s)}:${enc(x.e)}` } }, 'now');
     expect([ws.E4.v, ws.F4.v, ws.G4.v, ws.H4.v, ws.I4.v, ws.J4.v]).toEqual(['Punch Time:', 'Result', 'Location', 'Punch Time:', 'Result', 'Location']);
-    expect([ws.K3.v, ws.L3.v, ws.M3.v, ws.N3.v]).toEqual(['Work Duration (Minutes)', 'Late for (Minutes)', 'Absent Days', 'Status']);
+    // 26 Nov 2026: Leave Days sits between Absent Days and Status
+    expect([ws.K3.v, ws.L3.v, ws.M3.v, ws.N3.v, ws.O3.v]).toEqual(['Work Duration (Minutes)', 'Late for (Minutes)', 'Absent Days', 'Leave Days', 'Status']);
     expect([ws.E7.v, ws.G7.v, ws.H7.v, ws.J7.v, ws.K7.v]).toEqual(['09:00', 'WIDEBED', '18:00', 'Off-site: Jalan Ampang, Kuala Lumpur', 540]);
     expect(ws.J7.l.Target).toBe('https://www.google.com/maps?q=3.16,101.71');
     expect(ws.G7.l).toBeUndefined();

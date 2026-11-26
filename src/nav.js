@@ -37,12 +37,15 @@ const PERFORMANCE_ADMIN = G('Performance', 'chart', [P('My Performance', '/Perfo
 const PLAYBOOK = G('Playbook', 'bookOpen', [P('Onboarding', '/Playbook/onboarding', 'book'), P('Business Model', '/Playbook/business-model', 'briefcase')]);
 // HR: things to do first, then SOPs (one page for every SOP, 6 Nov 2026).
 const SOPS = [P('SOPs', '/HR/sops', 'scrollText')];
-const HR_STAFF = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), P('Salary Advance', '/HR/salary-advance', 'coins'), P('Raise a Complaint', '/HR/raise-complaint', 'flag'), ...SOPS]);
+// Leave (26 Nov 2026): HR > Leave for Directors and HR (requests, leave days); My Leave for everyone.
+const LEAVE = P('Leave', '/HR/leave', 'listChecks');
+const MY_LEAVE = P('My Leave', '/HR/my-leave', 'calendar');
+const HR_STAFF = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), P('Salary Advance', '/HR/salary-advance', 'coins'), MY_LEAVE, P('Raise a Complaint', '/HR/raise-complaint', 'flag'), ...SOPS]);
 // Attendance (11 Nov 2026): Directors and HR only, never tickable.
 const ATTENDANCE = P('Attendance', '/HR/attendance', 'clock');
-const HR_DIR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), ATTENDANCE, P('Salary Advance', '/HR/salary-advance', 'coins'), P('Raise a Complaint', '/HR/raise-complaint', 'flag'),
+const HR_DIR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), ATTENDANCE, LEAVE, P('Salary Advance', '/HR/salary-advance', 'coins'), MY_LEAVE, P('Raise a Complaint', '/HR/raise-complaint', 'flag'),
   P('Director Complaints', '/HR/director-complaints', 'shieldAlert'), ...SOPS]);
-const HR_HR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), ATTENDANCE, P('Salary Advance', '/HR/salary-advance', 'coins'),
+const HR_HR = G('HR', 'idCard', [P('Announcements', '/HR/announcements', 'megaphone'), ATTENDANCE, LEAVE, P('Salary Advance', '/HR/salary-advance', 'coins'), MY_LEAVE,
   P('Staff Complaints', '/HR/staff-complaints', 'messageAlert'), P('Director Complaints', '/HR/director-complaints', 'shieldAlert'), ...SOPS]);
 // Every role's own account page, last in the sidebar.
 const MY_ACCOUNT = G('My Account', 'userCircle', [P('Profile & Appearance', '/Settings/appearance', 'palette')]);
