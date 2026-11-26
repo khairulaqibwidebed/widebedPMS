@@ -14,6 +14,9 @@ import { feeType, round05, DEFAULT_ARRANGEMENTS, arrangementsOf, DEFAULT_NET_REN
 //   Direct      PTO = (room + SST) / 1.08   (Finance always takes 8% off, even when eZee shows no SST)
 //   Long-term   PTO = room + SST
 //   Early check-in goes to the owner after SST; other incidentals stay with Widebed.
+//   Extend Check-out goes to the owner after SST too, the same way (26 Nov 2026: Finance's Oct sheet, DMRS38503 DM 12-04:
+//   PTO = AR - (AQ + AF - DL) + AK, with AK = Extend Check-out / 1.08). Late checkout and damage claim stay with Widebed.
+//   Room Upgrade goes to the owner after SST too (26 Nov 2026, Khairul: Finance's Oct sheet, DMRS38892 DM 1808: + AI).
 
 export const r3 = x => Math.round((x + Math.sign(x) * 1e-9) * 1000) / 1000;   // calculations keep 3 decimals; screens and files show 2
 export const r2 = x => Math.round((x + Math.sign(x) * 1e-9) * 100) / 100;
@@ -106,6 +109,7 @@ const AMOUNTS = {
   sst: 'SST (RM)',
   cleaningFee: 'Cleaning Fee (RM) (Exclusive of Tax)',
   earlyCheckIn: 'Early Check-in (RM) (Exclusive of Tax)',
+  extendCheckOut: 'Extend Check-out (RM) (Exclusive of Tax)',   // 26 Nov 2026: owner's, after SST (like early check-in)
   roomUpgrade: 'Room Upgrade (RM) (Exclusive of Tax)',
   tourismTax: 'Tourism Tax (RM) (Exclusive of Tax)',
   securityDeposit: 'Security Deposit (RM) (Exclusive of Tax)',
@@ -148,6 +152,8 @@ export function readEzee(rows) {
       private: {}, raw: {}
     };
     for (const [k, h] of Object.entries(AMOUNTS)) rec[k] = num(get(r, h));
+    // 26 Nov 2026: kept only when there is one, so bookings without it keep their saved fingerprint (rawHash) and are not rewritten
+    if (!rec.extendCheckOut) delete rec.extendCheckOut;
     header.forEach((h, i) => {
       const key = 'c' + String(i + 1).padStart(3, '0');
       if (PRIVATE_COLS[h]) { rec.private[PRIVATE_COLS[h]] = String(r[i] ?? '') || null; rec.raw[key] = null; }
@@ -225,15 +231,20 @@ export function bookingPTO(b, rates) {
     method = 'Direct'; guestPaid = AU + AX; pto = (AU + AX) / 1.08;
   }
   const early = rates.earlyCheckInToOwner && !final ? AK / 1.08 : 0;
-  pto = r3(pto + early);
+  // 26 Nov 2026: Extend Check-out, same rule as early check-in (owner's after SST; a final Trip.com amount already holds it)
+  const extend = rates.earlyCheckInToOwner && !final ? num(v.extendCheckOut) / 1.08 : 0;
+  // 26 Nov 2026 (Khairul): Room Upgrade too, same rule (owner's after SST)
+  const upgrade = rates.earlyCheckInToOwner && !final ? num(v.roomUpgrade) / 1.08 : 0;
+  pto = r3(pto + early + extend + upgrade);
   // Edit all (ARR-14): typed-over figures win over the worked-out ones
   const ov = k => (v[k] != null && v[k] !== '' ? num(v[k]) : null);
   if (ov('ovGuestPaid') != null) guestPaid = ov('ovGuestPaid');
   if (ov('ovPlatform') != null) platform = ov('ovPlatform');
   if (ov('ovPto') != null) pto = ov('ovPto');
   if (v.manual) { estimated = false; note = ''; }   // added by hand on Month-end: its figures are typed, never an estimate
-  if (num(v.roomUpgrade)) note = (note ? note + ' ' : '') + 'Room Upgrade not paid to owner (rule not confirmed).';
-  return { cleaning: AG, cleaningIn, method, otaKey, guestPaid, platform, early, pto, estimated, note, final, edited: !!b.edits };
+  // Note kept on Month-end (Khairul 26 Nov 2026) so the row stands out
+  if (num(v.roomUpgrade)) note = (note ? note + ' ' : '') + `Room Upgrade RM ${r2(num(v.roomUpgrade)).toFixed(2)} paid to owner after SST.`;
+  return { cleaning: AG, cleaningIn, method, otaKey, guestPaid, platform, early, extend, upgrade, pto, estimated, note, final, edited: !!b.edits };
 }
 
 // ---------- One unit, one month ----------
