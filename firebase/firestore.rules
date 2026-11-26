@@ -1,4 +1,6 @@
 rules_version = '2';
+// Draft 1.17, 26 Nov 2026 (Khairul): Owner Portal. Issues: staff who work a Customer ticket (or Directors) may hide / show it to the
+//   owner (the portal only lists Customer tickets): issues/{id}.hideFromOwner (bool), with audit + updatedAt only. Any status, Completed too.
 // Draft 1.16, 26 Nov 2026 (Crane): HR's own leave types. config/leaveTypes { types: [{ key, label, active, builtIn }],
 //   typeKeys (every custom key ever saved, never shrinks), updatedBy, updatedByName, updatedAt }: every staff member reads (the
 //   PMS and the attendance app show the list); HR and Directors write (at most 30 types). attendanceLeave.type and the keys of
@@ -1533,6 +1535,10 @@ service cloud.firestore {
     // Issues: seen by the tagged roles, the person who raised it and Directors. Every role raises tickets.
     // Completed tickets are locked.
     match /issues/{id} {
+      // Draft 1.17: Owner Portal hide / show (cheap field checks first, role check last)
+      allow update: if changed().hasOnly(['hideFromOwner', 'audit', 'updatedAt'])
+        && request.resource.data.hideFromOwner is bool
+        && worksIssue(resource.data);
       allow read: if canSeeIssue(resource.data) || (isAI() && can('aiIssues.view'))   // Draft 0.74
         // Draft 0.80: Accounting / Directors read completed Customer tickets (Expenses > Maintenance, Master Record)
         // Draft 0.85: every Customer ticket (In progress and Cancelled too: the Maintenance tab and the Google Sheet)

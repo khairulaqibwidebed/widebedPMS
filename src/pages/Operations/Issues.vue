@@ -167,7 +167,7 @@
                 <div class="kv"><span>People</span><span class="ppl"><template v-for="p in ticket.assignees" :key="p.uid"><span class="who"><Avatar :uid="p.uid" :name="p.name" role="" :size="20" />{{ p.name }}</span></template><span v-if="!ticket.assignees.length">—</span></span></div>
                 <div class="kv"><span>Drive folder</span><span><a v-if="ticket.driveFolderUrl" :href="ticket.driveFolderUrl" target="_blank" rel="noopener">Open folder</a><template v-else>Made with the first file</template></span></div>
                 <!-- 26 Nov 2026 (Khairul): the Owner Portal shows this ticket's progress to the owner unless it is hidden here -->
-                <div class="kv"><span>Owner portal</span><span>{{ ticket.hideFromOwner ? 'Hidden from owner' : 'Shown to owner' }}<button type="button" class="btn" v-if="canHideFromOwner()" style="margin-left:8px;padding:2px 10px" :disabled="busy" @click="toggleOwnerView()">{{ ticket.hideFromOwner ? 'Show' : 'Hide' }}</button></span></div>
+                <div class="kv owner-view"><span>Owner portal</span><span>{{ ticket.hideFromOwner ? 'Hidden from owner' : 'Shown to owner' }}<button type="button" class="link" v-if="canHideFromOwner()" :disabled="busy" @click="toggleOwnerView()">{{ ticket.hideFromOwner ? 'Show' : 'Hide' }}</button></span></div>
               </template>
               <button class="btn" style="width:100%;margin-top:8px" v-show="ticket.status !== 'done' && canUpdate()" @click="openTags()">Edit Department Tags </button>
             <ConfirmReason v-if="reopen" style="margin-top:12px" :title="'Reopen ' + ticket.id + '?'" text="It goes back to In progress. The completion details stay in the audit log." label="Reason" placeholder="e.g. Leak came back" v-model="reopen.reason" confirm-text="Reopen" :busy="busy" @confirm="doReopen()" @cancel="reopen = null" />
@@ -1398,5 +1398,10 @@ export default {
     .side-note { color: var(--muted); font-size: 11px; margin-top: 10px; }
     .modal .field { margin-bottom: 12px; }
     /* 24 Nov 2026: the three summary cards stay side by side on half screen; phones show them two per row (app.css) */
+.kv.owner-view { align-items: baseline; }
+.kv.owner-view span:first-child { white-space: nowrap; }
+.kv.owner-view .link { margin-left: 10px; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; }
+.kv.owner-view .link:hover { text-decoration: underline; }
+.kv.owner-view .link:disabled { opacity: .5; cursor: default; }
 .kv .late { color: var(--danger, #c0392b); font-weight: 600; }
 </style>
