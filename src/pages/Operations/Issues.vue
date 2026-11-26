@@ -166,6 +166,8 @@
                 <div class="kv"><span>Area</span><span>{{ ticket.area || '—' }}</span></div>
                 <div class="kv"><span>People</span><span class="ppl"><template v-for="p in ticket.assignees" :key="p.uid"><span class="who"><Avatar :uid="p.uid" :name="p.name" role="" :size="20" />{{ p.name }}</span></template><span v-if="!ticket.assignees.length">—</span></span></div>
                 <div class="kv"><span>Drive folder</span><span><a v-if="ticket.driveFolderUrl" :href="ticket.driveFolderUrl" target="_blank" rel="noopener">Open folder</a><template v-else>Made with the first file</template></span></div>
+                <!-- 26 Nov 2026 (Khairul): the Owner Portal shows this ticket's progress to the owner unless it is hidden here -->
+                <div class="kv"><span>Owner portal</span><span>{{ ticket.hideFromOwner ? 'Hidden from owner' : 'Shown to owner' }}<button type="button" class="btn" v-if="canHideFromOwner()" style="margin-left:8px;padding:2px 10px" :disabled="busy" @click="toggleOwnerView()">{{ ticket.hideFromOwner ? 'Show' : 'Hide' }}</button></span></div>
               </template>
               <button class="btn" style="width:100%;margin-top:8px" v-show="ticket.status !== 'done' && canUpdate()" @click="openTags()">Edit Department Tags </button>
             <ConfirmReason v-if="reopen" style="margin-top:12px" :title="'Reopen ' + ticket.id + '?'" text="It goes back to In progress. The completion details stay in the audit log." label="Reason" placeholder="e.g. Leak came back" v-model="reopen.reason" confirm-text="Reopen" :busy="busy" @confirm="doReopen()" @cancel="reopen = null" />
@@ -587,6 +589,18 @@ export default {
     visible() { return this.tickets.filter(t => t.status !== 'deleted' && this.canSee(t)); },
     canUpdate() { const t = this.ticket; return t && canWrite && t.status !== 'done' && (isDirector || t.tags.includes(myRole) || this.isPerson(t)); },
     canComment() { return canWrite; },
+    // 26 Nov 2026: Hide from owner / Show to owner (Customer tickets, any status), for the people who work the ticket
+    canHideFromOwner() { const t = this.ticket; return !!t && canWrite && typeOf(t) === 'customer' && (isDirector || t.tags.includes(myRole) || this.isPerson(t)); },
+    async toggleOwnerView() {
+      const t = this.ticket, next = !t.hideFromOwner; this.busy = true; this.error = '';
+      try {
+        await this.change({ hideFromOwner: next }, [next ? 'hid this ticket from the owner (Owner Portal)' : 'showed this ticket to the owner (Owner Portal)'], 'issue.ownerView',
+          [{ field: 'hideFromOwner', old: !next, new: next }]);
+        t.hideFromOwner = next;
+        const row = this.tickets.find(x => x.id === t.id); if (row) row.hideFromOwner = next;
+      } catch (e) { this.error = friendlyError(e, 'change this'); }
+      this.busy = false;
+    },
     // The status is always shown in PMS words (Open, In progress, Completed). Tickets tagged Operations or Procurement have a
     // card in the task system (TMS, Maintenance workspace); its column (e.g. DOING) is shown only when hovering the status.
     statusLabel(t) { return STATUS[t.status].label; },
