@@ -9,18 +9,18 @@ import { loadMyTheme } from '../lib/theme.js';
 let checking = null;
 
 export const useSession = defineStore('session', {
-  state: () => ({ user: null, role: null, perms: null, intern: false, states: [], properties: [], branches: [], name: '', active: false, checked: false }),
+  state: () => ({ user: null, role: null, perms: null, intern: false, states: [], properties: [], branches: [], name: '', active: false, weakPassword: false, checked: false }),
   actions: {
     // Asks Firebase once; later calls reuse the answer.
     async check() {
       if (this.checked) return this;
       checking ||= whoAmI().then(me => {
-        Object.assign(this, { user: me.user, role: me.role, perms: me.perms ?? null, intern: !!me.intern, states: me.states || [], properties: me.properties || [], branches: me.branches || [], name: me.name || '', active: me.active ?? false, checked: true });
+        Object.assign(this, { user: me.user, role: me.role, perms: me.perms ?? null, intern: !!me.intern, states: me.states || [], properties: me.properties || [], branches: me.branches || [], name: me.name || '', active: me.active ?? false, weakPassword: !!me.weakPassword, checked: true });
         loadMyTheme(me.user?.uid);
       });
       await checking;
       return this;
     },
-    set(me) { Object.assign(this, { user: me.user, role: me.role, perms: me.perms ?? null, intern: !!me.intern, states: me.states || [], properties: me.properties || [], branches: me.branches || [], name: me.name || '', active: me.active ?? true, checked: true }); }
+    set(me) { Object.assign(this, { user: me.user, role: me.role, perms: me.perms ?? null, intern: !!me.intern, states: me.states || [], properties: me.properties || [], branches: me.branches || [], name: me.name || '', active: me.active ?? true, weakPassword: !!me.weakPassword, checked: true }); }
   }
 });
