@@ -30,8 +30,10 @@
 
     <div class="card" v-if="!loading">
       <div class="table-wrap">
-        <table class="table hover-rows">
-          <thead><tr><th>Employee</th><th>COH</th><th>KPI</th><th>TMS</th><th>Total</th><th>Ready</th><th>Scored on</th><th></th></tr></thead>
+        <!-- 26 Nov 2026: fixed column widths so nothing shifts when sorting, searching or filtering -->
+        <table class="table hover-rows fixed-cols">
+          <colgroup><col style="width:26%"><col style="width:9%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:16%"><col style="width:8%"></colgroup>
+          <thead><tr><th>Employee</th><th>COH</th><th>KPI</th><th>TMS</th><th :aria-sort="sortDir === 'desc' ? 'descending' : sortDir === 'asc' ? 'ascending' : 'none'"><button type="button" class="sort-th" :title="sortTitle" @click="toggleSort">Total <span class="sort-arrow" aria-hidden="true">{{ sortDir === 'desc' ? '▼' : sortDir === 'asc' ? '▲' : '↕' }}</span></button></th><th>Ready</th><th>Scored on</th><th></th></tr></thead>
           <tbody>
             <tr v-for="r in shown" :key="r.employeeId">
               <td>{{ nameOf(r.employeeId) }} <small class="muted" v-if="scoredOf(r) === 'none'">· COH only</small></td>
@@ -158,10 +160,18 @@ const GROUPS = [{ value: 'all', label: 'All Employees' }, { value: 'interns', la
 const search = ref('');
 const group = ref('all');
 const isIntern = uid => staff.value.find(e => e.uid === uid)?.intern === true;
+// 26 Nov 2026: click the Total header: highest first, then lowest first, then back to the normal order.
+// Rows with no total yet (Pending) always stay at the bottom. Works on top of search + filter; Export Excel follows it.
+const sortDir = ref('');   // '' | 'desc' | 'asc'
+const toggleSort = () => { sortDir.value = sortDir.value === '' ? 'desc' : sortDir.value === 'desc' ? 'asc' : ''; };
+const sortTitle = computed(() => sortDir.value === '' ? 'Sort by total, highest first' : sortDir.value === 'desc' ? 'Sort by total, lowest first' : 'Back to normal order');
 const shown = computed(() => {
   const q = search.value.trim().toLowerCase();
-  return results.value.filter(r => (group.value === 'all' || (group.value === 'interns') === isIntern(r.employeeId))
+  const rows = results.value.filter(r => (group.value === 'all' || (group.value === 'interns') === isIntern(r.employeeId))
     && (!q || String(nameOf(r.employeeId)).toLowerCase().includes(q)));
+  if (!sortDir.value) return rows;
+  const sign = sortDir.value === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => a.finalScore == null ? (b.finalScore == null ? 0 : 1) : b.finalScore == null ? -1 : sign * (a.finalScore - b.finalScore));
 });
 const cell = (score, status) => status === 'insufficientData' ? 'Insufficient data' : status === 'pending' ? 'Pending'
   : status === 'n/a' ? 'N/A' : status === 'notApplicable' ? 'Not scored' : score != null ? score.toFixed(2) : '—';
@@ -245,5 +255,12 @@ async function openHistory(r) {
 .search-box svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .search-box .input { width: 100%; max-width: none; padding-left: 36px; }
 .shown-count { font-size: 13px; }
+.sort-th { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font: inherit; color: inherit; }
+.sort-th:hover, .sort-th:focus-visible { color: var(--accent); }
+.sort-th:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.sort-arrow { font-size: 14px; line-height: 1; opacity: .8; display: inline-block; width: 14px; text-align: center; }
+.fixed-cols { table-layout: fixed; width: 100%; min-width: 900px; }
+.fixed-cols td:first-child { overflow-wrap: anywhere; }
+.fixed-cols .scored-on { max-width: 100%; }
 .scored-err { margin-top: 4px; max-width: 220px; font-size: 11.5px; line-height: 1.35; color: var(--red); }
 </style>
