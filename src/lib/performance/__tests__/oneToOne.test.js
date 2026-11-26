@@ -78,17 +78,18 @@ describe('the PDF', () => {
 });
 
 describe('Saved form and write-in boxes (25 Nov 2026)', () => {
-  it('fills Attended by with the staff name and keeps unknown keys out', () => {
+  it('fills Attended by with the bosses and Acknowledged by with the staff name, and keeps unknown keys out', () => {
     const n = O.cleanNotes({ workingInd: 'On time', hack: 'x', actions: { extend: true, nope: true }, behaviour: { positive: { self: '4' } } }, 'Aina');
-    expect(n.attendedBy).toBe('Aina');
+    expect(n.attendedBy).toBe('Ivan Chong, Ms Chloe');   // 26 Nov 2026: the bosses
+    expect(n.acknowledgedBy).toBe('Aina');               // the staff member
     expect(n.recommendation).toBe('N/A');
     expect(n.hack).toBeUndefined();
     expect(n.actions).toEqual({ confirmation: false, extend: true, training: false, other: false });
     expect(n.behaviour.positive).toEqual({ self: '4', superior: '', remark: '' });
   });
-  it('keeps an Attended by typed by hand, even empty', () => {
+  it('keeps names typed by hand, even empty', () => {
     expect(O.cleanNotes({ attendedBy: 'Someone else' }, 'Aina').attendedBy).toBe('Someone else');
-    expect(O.cleanNotes({ attendedBy: '' }, 'Aina').attendedBy).toBe('');
+    expect(O.cleanNotes({ acknowledgedBy: '' }, 'Aina').acknowledgedBy).toBe('');
   });
   it('counts what has been filled in', () => {
     expect(O.notesFilled(O.emptyNotes('Aina'))).toBe(0);
@@ -98,9 +99,9 @@ describe('Saved form and write-in boxes (25 Nov 2026)', () => {
     const rec = O.formRecord({ quarterId: 'q', uid: 'u', date: '2026-11-25', venue: '  Office ', topic: 'T', edit: { staffName: 'Aina', leave: { mc: '2', bad: 1 }, notes: {} } });
     expect(rec.venue).toBe('Office');
     expect(rec.leave).toEqual({ mc: '2', unpaid: '', annual: '', other: '' });
-    expect(rec.notes.attendedBy).toBe('Aina');
+    expect(rec.notes.acknowledgedBy).toBe('Aina');
     const f = O.formData({ row: { name: 'Aina', position: '', evaluations: [], expected: 0 }, questions: [], date: '2026-11-25', venue: '', edits: {} });
     expect(f.leaveUntil).toBe('25/11/2026');
-    expect(f.notes.attendedBy).toBe('Aina');
+    expect(f.notes.acknowledgedBy).toBe('Aina');
   });
 });

@@ -198,6 +198,11 @@
                   <span class="help">For when they forget it. Works straight away; tell them the new one in person.</span>
                 </div>
                 <button type="button" class="btn" v-else @click="sendReset()" :disabled="panel.busy">Send password reset email</button>
+                <!-- 26 Nov 2026: 5 wrong passwords lock sign-in for 15 minutes (api/login-guard.js); Directors and HR can lift it now -->
+                <div class="field" style="margin-top:12px">
+                  <button type="button" class="btn" @click="unlockSignIn()" :disabled="panel.busy">Unlock sign-in</button>
+                  <span class="help">After 5 wrong passwords, sign-in is locked for 15 minutes. This lifts the lock straight away.</span>
+                </div>
               </div>
             </template>
             <!-- Account status (12 Nov 2026): two clear choices instead of a small tick at the bottom -->
@@ -282,6 +287,7 @@ import OptionPicker from '@/components/OptionPicker.vue';
 import { STATES, statesOf, statesText } from '@/lib/states.js';
 import StaffPropertiesField from '@/components/StaffPropertiesField.vue';
 import { loadBranches } from '@/lib/branches.js';
+import { guardCall } from '@/lib/login-guard.js';
 import { HK_ROLE, hkEmail, usernameOf, usernameOk, cleanUsername, passwordProblem } from '@/lib/housekeeping.js';
 import { PAGES, ACCESS_ROWS, GROUP_NOTES, PRESETS, permsOf, cleanPerms, samePerms, permLabel, levelsOf, rowLevel, setRowLevel, LEVEL_LABEL, levelLabel, AI_ROLE } from '@/lib/access.js';
 
@@ -614,6 +620,17 @@ export default {
         p.newPassword = '';
         this.panelOpen = false;
       } catch (e) { p.error = 'Could not set the password: ' + (e.message || e); }
+      p.busy = false;
+    },
+
+    async unlockSignIn() {
+      const p = this.panel;
+      p.busy = true; p.error = '';
+      try {
+        const j = await guardCall('unlock', { email: p.email });
+        this.okMsg = j.wasLocked ? `Sign-in unlocked for ${p.displayName || p.email}. They can try again now.` : `${p.displayName || p.email} was not locked out.`;
+        this.panelOpen = false;
+      } catch (e) { p.error = 'Could not unlock: ' + (e.message || e); }
       p.busy = false;
     },
 

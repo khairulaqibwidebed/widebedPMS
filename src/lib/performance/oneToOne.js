@@ -101,11 +101,13 @@ export const BEHAVIOURS = [{ key: 'positive', label: 'Positive' }, { key: 'passi
 export const ACTIONS = [{ key: 'confirmation', label: 'Confirmation' }, { key: 'extend', label: 'Extend' }, { key: 'training', label: 'Need Training' }, { key: 'other', label: 'Other' }];
 const TEXT_KEYS = { selfRating: 4, superiorRating: 4, workingInd: 1500, notWorkingInd: 1500, workingCo: 1500, notWorkingCo: 1500, otherAction: 80,
   recommendation: 120, ifYes: 200, quarterlyReview: 1500, attendedBy: 120, acknowledgedBy: 120 };
+// Signatures (26 Nov 2026): Attended by = the bosses (ATTENDED_BY to start), Acknowledged by = the staff member. Both editable.
+export const ATTENDED_BY = 'Ivan Chong, Ms Chloe';
 export const emptyNotes = (staffName = '') => ({
   selfRating: '', superiorRating: '', workingInd: '', notWorkingInd: '', workingCo: '', notWorkingCo: '',
   behaviour: Object.fromEntries(BEHAVIOURS.map(b => [b.key, { self: '', superior: '', remark: '' }])),
   actions: Object.fromEntries(ACTIONS.map(a => [a.key, false])), otherAction: '',
-  recommendation: 'N/A', ifYes: '', quarterlyReview: '', attendedBy: staffName, acknowledgedBy: ''
+  recommendation: 'N/A', ifYes: '', quarterlyReview: '', attendedBy: ATTENDED_BY, acknowledgedBy: staffName
 });
 const str = (v, max) => String(v ?? '').replace(/\r\n?/g, '\n').slice(0, max);
 // Tidied to the shape above (unknown keys dropped, text cut to its length). `staffName` fills Attended by when it was never set.
@@ -122,7 +124,7 @@ export function cleanNotes(n = {}, staffName = '') {
 // How many of the write-in boxes have something in them (shown next to "Write-in boxes" while it is closed).
 export function notesFilled(n = {}) {
   const c = cleanNotes(n);
-  let k = ['selfRating', 'superiorRating', 'workingInd', 'notWorkingInd', 'workingCo', 'notWorkingCo', 'ifYes', 'quarterlyReview', 'acknowledgedBy', 'otherAction'].filter(x => c[x].trim()).length;
+  let k = ['selfRating', 'superiorRating', 'workingInd', 'notWorkingInd', 'workingCo', 'notWorkingCo', 'ifYes', 'quarterlyReview', 'otherAction'].filter(x => c[x].trim()).length;
   for (const b of BEHAVIOURS) k += ['self', 'superior', 'remark'].filter(x => c.behaviour[b.key][x].trim()).length;
   return k + ACTIONS.filter(a => c.actions[a.key]).length;
 }

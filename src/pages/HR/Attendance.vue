@@ -14,7 +14,11 @@
       <button type="button" role="tab" :aria-selected="String(tab === 'records')" :class="{ on: tab === 'records' }" @click="tab = 'records'">Records</button>
       <button type="button" role="tab" :aria-selected="String(tab === 'holidays')" :class="{ on: tab === 'holidays' }" @click="tab = 'holidays'">Public holidays</button>
       <button type="button" role="tab" :aria-selected="String(tab === 'settings')" :class="{ on: tab === 'settings' }" @click="tab = 'settings'">Office settings</button>
+      <!-- Leave requests and leave days have their own page (26 Nov 2026) -->
+      <router-link class="at-tab-link" to="/HR/leave">Leave →</router-link>
     </div>
+    <div class="notice error" v-if="error">{{ error }}</div>
+    <div class="notice ok" v-if="okMsg">{{ okMsg }}</div>
 
 
     <!-- ================= Records ================= -->
@@ -32,7 +36,7 @@
         <div class="kpi"><div class="label">Days present</div><div class="value">{{ totals.present }}</div><div class="hint">days with a clock-in</div></div>
         <div class="kpi"><div class="label">Late arrivals</div><div class="value" :class="{ alert: totals.late }">{{ totals.late }}</div><div class="hint">{{ `after ${hm(cfg.lateAfterMin)}` }}</div></div>
         <div class="kpi"><div class="label">Absent / no clock-out</div><div class="value" :class="{ alert: totals.absent + totals.noClockOut }">{{ totals.absent + totals.noClockOut }}</div>
-          <div class="hint">{{ `${totals.absent} absent · ${totals.noClockOut} no clock-out` }}</div></div>
+          <div class="hint">{{ `${totals.absent} absent · ${totals.noClockOut} no clock-out · ${fmtDays(totals.leave)} leave` }}</div></div>
         <div class="kpi"><div class="label">Hours worked</div><div class="value">{{ duration(totals.minutes) || '0h 00m' }}</div><div class="hint">{{ `${totals.short} short day${totals.short === 1 ? '' : 's'} · ${totals.offsite} with off-site` }}</div></div>
       </div>
 
@@ -58,7 +62,7 @@
           <table class="table hover-rows at-table">
             <!-- Fixed column widths, so opening a person's days doesn't make the columns jump (12 Nov 2026) -->
             <colgroup>
-              <col class="c-name"><col class="c-pos"><col class="c-date"><col><col class="c-num"><col class="c-num"><col class="c-abs">
+              <col class="c-name"><col class="c-pos"><col class="c-date"><col><col class="c-num"><col class="c-num"><col class="c-abs"><col class="c-abs">
               <col class="c-status"><col class="c-act">
             </colgroup>
             <thead>
@@ -69,11 +73,11 @@
                     placeholder="All names" @update:model-value="v => (nameFilter = v)" />
                 </th>
                 <th>Position</th><th>Date</th><th>Clock in → out</th>
-                <th class="num">Work (min)</th><th class="num">Late (min)</th><th class="num">Absent</th><th>Status</th><th></th>
+                <th class="num">Work (min)</th><th class="num">Late (min)</th><th class="num">Absent</th><th class="num">Leave</th><th>Status</th><th></th>
               </tr>
             </thead>
             <tbody v-for="g in report.groups" :key="g.title">
-              <tr class="at-group"><td :colspan="9">{{ g.title }}</td></tr>
+              <tr class="at-group"><td :colspan="10">{{ g.title }}</td></tr>
               <template v-for="p in g.people" :key="p.uid">
                 <!-- person summary -->
                 <tr class="at-person" @click="toggle(p.uid)">
@@ -86,10 +90,11 @@
                     <span class="pill blue" v-if="sumOf(p).offsite">{{ `${sumOf(p).offsite} off-site` }}</span>
                     <span class="pill red" v-if="sumOf(p).missing">{{ `${sumOf(p).missing} missing clock-out` }}</span>
                   </td>
-                  <td class="num"><b>{{ p.totals.work }}</b></td><td class="num"><b>{{ p.totals.late }}</b></td><td class="num"><b>{{ p.totals.absent }}</b></td>
+                  <td class="num"><b>{{ p.totals.work }}</b></td><td class="num"><b>{{ p.totals.late }}</b></td><td class="num"><b>{{ p.totals.absent }}</b></td><td class="num"><b>{{ fmtDays(p.totals.leave, true) }}</b></td>
                   <td>
                     <span class="pill green" v-if="sumOf(p).normal">{{ `${sumOf(p).normal} normal` }}</span>
                     <span class="pill amber" v-if="sumOf(p).short">{{ `${sumOf(p).short} short` }}</span>
+                    <span class="pill blue" v-if="p.totals.leave">{{ `${fmtDays(p.totals.leave)} leave` }}</span>
                   </td>
                   <td></td>
                 </tr>
@@ -98,12 +103,13 @@
                   <tr v-for="row in daysOf(p)" :key="p.uid + row.key" class="at-day" :class="{ 'at-today': row.key === today }">
                     <td></td><td></td>
                     <td class="nowrap" :class="{ 'at-red-text': row.type === 'span' }">{{ row.date }}</td>
-                    <td v-if="row.type === 'span'" colspan="5"><span class="pill grey">{{ row.text }}</span></td>
+                    <td v-if="row.type === 'span'" colspan="6"><span class="pill grey">{{ row.text }}</span></td>
                     <template v-else>
                       <td>
                         <!-- flex goes on this div, not the <td>: a flex <td> stops being a table cell (short cell, white gap below) -->
                         <div class="at-pairs">
                         <span v-if="row.type === 'absent'" class="pill red">Absent</span>
+                        <span v-if="row.type === 'leave'" class="pill blue">{{ row.status }}</span>
                         <span v-for="(x, k) in (row.pairs || [])" :key="k" class="at-pair">
                           <span class="nowrap">{{ `${x.inTime || '—'} → ${x.outTime || '—'}` }}</span>
                           <!-- Where (Draft 0.61): WIDEBED / a property, or Off-site with the address; an off-site one opens the spot on the map -->
@@ -120,7 +126,9 @@
                       <td class="num">{{ row.type === 'work' && row.workMin != null ? row.workMin : '' }}</td>
                       <td class="num">{{ row.lateMin != null ? row.lateMin : '' }}</td>
                       <td class="num">{{ row.absent || '' }}</td>
-                      <td><span v-if="row.status" :class="statusPill(row.statusKind)">{{ row.status }}</span></td>
+                      <td class="num">{{ row.leave || '' }}</td>
+                      <td><span v-if="row.status" :class="statusPill(row.statusKind)">{{ row.status }}</span>
+                        <span v-if="row.leaveText" class="pill blue at-leave-pill">{{ row.leaveText }}</span></td>
                     </template>
                     <td class="at-act">
                       <button type="button" class="btn btn-sm" v-if="canFix(row)" @click="openFix(fixRow(row))"
@@ -130,12 +138,13 @@
                 </template>
               </template>
             </tbody>
-            <tbody v-if="!loading && !report.groups.length"><tr><td colspan="9" class="muted">No staff match these filters.</td></tr></tbody>
+            <tbody v-if="!loading && !report.groups.length"><tr><td colspan="10" class="muted">No staff match these filters.</td></tr></tbody>
           </table>
         </div>
         <div class="card-foot">
           <span>Status: <b>Normal</b> = {{ requiredMinutes(cfg) }} minutes or more that day (leaving before {{ hm(cfg.workEndMin) }} is fine then); <b>Short</b> = less.
-            Off-site = clocked in or out away from the office. Absent = a working day with no clock-in, counted from {{ firstDay ? dateText(firstDay) : 'the first clock-in' }} (when the app started being used). Rest days are never absent; public holidays aren't either, for the staff the holiday is for.
+            Off-site = clocked in or out away from the office. Absent = a working day with no clock-in and no approved leave, counted from each person's own start (join date in HR details, else their first clock-in), and never before {{ firstDay ? dateText(firstDay) : 'the first clock-in' }} (when the app started being used). Rest days are never absent; public holidays aren't either, for the staff the holiday is for.
+            Leave = approved leave in days (a half day is 0.5).
             Late for (Minutes) counts from {{ hm(cfg.workStartMin) }} once it is after {{ hm(cfg.lateAfterMin) }}. Hover Fix to see a late reason. You can't fix your own records.</span>
         </div>
       </section>
@@ -239,6 +248,9 @@
               <label class="check" v-for="d in 7" :key="d"><input type="checkbox" :value="d" v-model="form.workDays"><span>{{ DAY_NAMES[d] }}</span></label>
             </div>
           </div>
+          <!-- Draft 1.14: leaveEnabled (missing = on) -->
+          <label class="check"><input type="checkbox" v-model="form.leaveEnabled"><span>Leave in the attendance app
+            <small>Staff can apply for leave and see the Leave tab in the app. Off hides both; leave already approved still counts. HR > Leave keeps working.</small></span></label>
           <label class="check"><input type="checkbox" v-model="form.allowOffsite"><span>Allow off-site clock-in / clock-out
             <small>Staff away from the office and the other locations (e.g. at a client) can still clock in and out; it's shown as Off-site with the address. Off: only inside a location's allowed distance.</small></span></label>
           <p class="help">The app reads these when staff clock in. Clocking in after "Late after" on a working day needs a reason. Changes apply from the next clock-in.</p>
@@ -336,11 +348,14 @@ import {
   minutesOf, clock, hhmm, hm, duration, dayKey, monthRange, weekday, saveCorrection, addHoliday, addHolidays, removeHoliday,
   parseHolidayLines, pad, sessionTimes, dailyReport, reportTotals, reportSheet, generatedStamp, requiredMinutes
 } from './attendance.js';
+import { loadHRDetails, loadFirstClockIns } from './attendance.js';
+import { loadLeaveBetween, leaveByDay, startDates, loadLeaveTypes } from './leave.js';
 
 const toTime = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 const toMin = t => { const [h, m] = String(t || '0:0').split(':').map(Number); return h * 60 + m; };
 const formOf = c => ({ officeName: c.officeName, address: c.address || '', lat: c.lat, lng: c.lng, radiusM: c.radiusM,
   start: toTime(c.workStartMin), late: toTime(c.lateAfterMin), end: toTime(c.workEndMin), workDays: [...(c.workDays || [])], allowOffsite: c.allowOffsite !== false,
+  leaveEnabled: c.leaveEnabled !== false,
   places: (c.places || []).map(p => ({ name: p.name, address: p.address || '', lat: p.lat, lng: p.lng, radiusM: p.radiusM, paste: '', pasteOk: true })) });
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -351,6 +366,7 @@ export default {
     return {
       KIND, DAY_NAMES, MAIN_PLACE, MAX_PLACES, tab: 'records', loading: true, busy: false, exporting: false, error: '', okMsg: '',
       cfg: { ...DEFAULT_CFG }, staff: [], records: [], holidays: {}, allHolidays: {}, firstDay: null,
+      leaveList: [], starts: {},   // approved leave touching the dates shown; each person's own start (26 Nov 2026)
       from: m.from, to: m.to, quick: 'month', nameFilter: [], deptFilter: '', full: false, opened: [], hideRest: true,
       fix: null, hDate: '', hName: '', hBulk: '', hYear: new Date().getFullYear(), removing: '',
       hExcept: [], hEditing: '', hSearch: '',   // holiday form: uids left out, the date being edited, name search
@@ -364,8 +380,10 @@ export default {
     // The Daily Report (payroll layout): every person, every day of the range. Table and Excel both use it.
     report() {
       return dailyReport({ records: this.records, staff: this.staff, holidays: this.holidays, cfg: this.cfg, from: this.from, to: this.to,
-        today: this.today, firstDay: this.firstDay, deptLabel: r => ROLE_LABEL[r] || r || '', staffFilter: this.nameFilter, deptFilter: this.deptFilter });
+        today: this.today, firstDay: this.firstDay, deptLabel: r => ROLE_LABEL[r] || r || '', staffFilter: this.nameFilter, deptFilter: this.deptFilter,
+        leave: this.leaveMap, starts: this.starts });
     },
+    leaveMap() { return leaveByDay(this.leaveList); },
     totals() { return reportTotals(this.report); },
     peopleCount() { return this.report.groups.reduce((n, g) => n + g.people.length, 0); },
     nameOptions() { return this.staffOptions.filter(o => o.value); },
@@ -414,8 +432,13 @@ export default {
     window.addEventListener('keydown', this.onKey);
     this.loading = true;
     try {
-      const [cfg, staff, first, hol] = await Promise.all([loadConfig(), loadStaff(), loadFirstDay(), loadHolidays()]);
+      // loadLeaveTypes: HR's own leave type names for "Leave (…)" (26 Nov 2026)
+      const [cfg, staff, first, hol] = await Promise.all([loadConfig(), loadStaff(), loadFirstDay(), loadHolidays(), loadLeaveTypes()]);
       this.cfg = cfg; this.form = formOf(cfg); this.staff = staff; this.firstDay = first; this.allHolidays = hol;
+      // Each person's own start: HR details join date, else users/{uid}.joinDate, else their first clock-in (read only for those with neither)
+      const hr = await loadHRDetails();
+      const noJoin = staff.filter(s => !/^\d{4}-\d{2}-\d{2}$/.test(hr[s.uid]?.joinDate || s.joinDate || '')).map(s => s.uid);
+      this.starts = startDates(staff, hr, await loadFirstClockIns(noJoin));
     } catch (e) { this.error = friendlyError(e, 'load attendance settings and staff'); }
     await this.load();
   },
@@ -426,7 +449,9 @@ export default {
     closeFix() { if (!this.busy) this.fix = null; },
     pair(row, k) { return row.pairs ? row.pairs[k - 1] : null; },
     resultPill(kind) { return { late: 'pill amber', offsite: 'pill blue', early: 'pill amber', missing: 'pill red' }[kind] || ''; },
-    statusPill(kind) { return { normal: 'pill green', short: 'pill amber', missing: 'pill red', absent: 'pill red', working: 'pill blue', offday: 'pill grey' }[kind] || 'pill grey'; },
+    statusPill(kind) { return { normal: 'pill green', short: 'pill amber', missing: 'pill red', absent: 'pill red', working: 'pill blue', offday: 'pill grey', leave: 'pill blue' }[kind] || 'pill grey'; },
+    // 1.5 -> "1.5 days"; bare = the number only (0 shows as 0)
+    fmtDays(n, bare = false) { const v = Math.round((n || 0) * 100) / 100; return bare ? v : `${v} day${v === 1 ? '' : 's'}`; },
     exitFull() { this.full = false; },
     isOpen(uid) { return this.peopleCount === 1 || this.opened.includes(uid); },   // one person shown: always open
     toggle(uid) { this.opened = this.opened.includes(uid) ? this.opened.filter(u => u !== uid) : [...this.opened, uid]; },
@@ -443,7 +468,7 @@ export default {
     },
     requiredMinutes,
     // Fix / Add: not your own, not a day still running, not rest days with nothing to fix, not the future
-    canFix(row) { return row.uid !== this.myUid && row.key <= this.today && !(row.att && row.att.open && row.key === this.today) && (row.type === 'work' || row.type === 'absent' || (row.type === 'blank' && row.key < this.today)); },
+    canFix(row) { return row.uid !== this.myUid && row.key <= this.today && !(row.att && row.att.open && row.key === this.today) && (row.type === 'work' || row.type === 'absent' || ((row.type === 'blank' || row.type === 'leave') && row.key < this.today)); },
     fixRow(row) { return { uid: row.uid, name: row.name, role: row.role, date: row.key, rec: row.att }; },
     dateText(k) { if (!k) return ''; const [y, m, d] = k.split('-'); return `${+d} ${MON[+m - 1]} ${y}`; },
     deptOf(r) { const s = this.staff.find(x => x.uid === r.uid); return r.rec?.department || ROLE_LABEL[r.role || s?.role] || r.role || ''; },
@@ -458,6 +483,8 @@ export default {
       this.loading = true; this.error = '';
       try {
         this.records = await loadRecords(this.from, this.to);
+        // Approved leave (rules Draft 1.14). Not published yet = no leave shown, the rest still works.
+        try { this.leaveList = await loadLeaveBetween(this.from, this.to); } catch (_) { this.leaveList = []; }
         this.holidays = Object.fromEntries(Object.entries(this.allHolidays).filter(([d]) => d >= this.from && d <= this.to));
       } catch (e) { this.error = friendlyError(e, 'load attendance'); }
       this.loading = false;
@@ -594,6 +621,8 @@ export default {
 </script>
 
 <style scoped>
+.at-tab-link { margin-left: auto; align-self: center; font-size: 13px; color: var(--accent); text-decoration: none; padding: 0 4px; }
+.at-leave-pill { display: inline-block; margin-top: 3px; font-size: 11px; }
 .at-date { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
 .at-date .input { height: 36px; width: auto; }
 .at-dist { display: block; color: var(--muted); font-size: 11px; }

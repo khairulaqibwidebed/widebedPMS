@@ -225,8 +225,8 @@
             <div>
               <div class="oo-kicker">Signatures</div>
               <div class="oo-two">
-                <div class="field"><label for="ooAtt">Attended by</label><input id="ooAtt" class="input" maxlength="120" v-model="edit.notes.attendedBy" :placeholder="form.staffName"></div>
-                <div class="field"><label for="ooAck">Acknowledged by</label><input id="ooAck" class="input" maxlength="120" v-model="edit.notes.acknowledgedBy" placeholder="HR / Director"></div>
+                <div class="field"><label for="ooAtt">Attended by</label><input id="ooAtt" class="input" maxlength="120" v-model="edit.notes.attendedBy" :placeholder="ATTENDED_BY"></div>
+                <div class="field"><label for="ooAck">Acknowledged by</label><input id="ooAck" class="input" maxlength="120" v-model="edit.notes.acknowledgedBy" :placeholder="form.staffName"></div>
               </div>
             </div>
           </div>
@@ -253,7 +253,7 @@
 // The form is the PDF drawn by lib/performance/oneToOnePdf.js (laid out like HR's Word template); what you see is what prints.
 import { listQuarters } from '@/lib/performance/quarters.js';
 import { loadSession, loadVenues, saveVenues, formData, longDate, fileName, cleanVenues, DEFAULT_VENUES, TOPIC, LEAVE_TYPES, emptyLeave,
-  BEHAVIOURS, ACTIONS, emptyNotes, cleanNotes, notesFilled, formRecord, loadForms, saveForm } from '@/lib/performance/oneToOne.js';
+  BEHAVIOURS, ACTIONS, ATTENDED_BY, emptyNotes, cleanNotes, notesFilled, formRecord, loadForms, saveForm } from '@/lib/performance/oneToOne.js';
 import { askConfirm } from '@/lib/confirm.js';
 import { buildOneToOnePdf } from '@/lib/performance/oneToOnePdf.js';
 import { CJK_FONT_URL } from '@/lib/agreements/pdf.js';
@@ -276,7 +276,7 @@ export default {
       loading: true, error: '', quarters: [], quarterId: '', questions: [], rows: [], unreadable: 0, search: '', selectedUid: '',
       date: todayKey(), venues: [...DEFAULT_VENUES], venue: DEFAULT_VENUES[0], venueOpen: false, newVenue: '', venueLocal: false,
       pdfUrl: '', building: false, fontMissing: false, editOpen: false,
-      TOPIC, LEAVE_TYPES, BEHAVIOURS, ACTIONS, topic: TOPIC, edit: { staffName: '', position: '', ic: '', leave: emptyLeave(), notes: emptyNotes() },
+      TOPIC, LEAVE_TYPES, BEHAVIOURS, ACTIONS, ATTENDED_BY, topic: TOPIC, edit: { staffName: '', position: '', ic: '', leave: emptyLeave(), notes: emptyNotes() },
       // Saved forms (25 Nov 2026): saved = { uid: record } for this quarter; snapshot = the form as last loaded or saved, to tell unsaved changes
       saved: {}, formsLocked: false, saving: false, snapshot: '', pending: null, writeOpen: false,
       cohOpen: false, filter: 'all', BEHAVIOUR_HINT, SORTS, cohSort: readSort()   // 25 Nov 2026 redesign: marks closed until Show; All / Not saved / Saved
@@ -335,7 +335,8 @@ export default {
   watch: {
     quarterId() { this.loadQuarter(); },
     // Attended by follows the staff name while it hasn't been changed by hand
-    'edit.staffName'(name, old) { if (this.edit.notes && this.edit.notes.attendedBy === old) this.edit.notes.attendedBy = name; },
+    // Acknowledged by (the staff member) follows the staff name while it hasn't been changed by hand (26 Nov 2026: was Attended by)
+    'edit.staffName'(name, old) { if (this.edit.notes && this.edit.notes.acknowledgedBy === old) this.edit.notes.acknowledgedBy = name; },
     form: { handler() { this.queueBuild(); }, deep: true }
   },
   async created() {
