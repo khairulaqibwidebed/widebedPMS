@@ -149,11 +149,18 @@
               <span class="oo-showbtn">{{ cohOpen ? 'Hide' : 'Show' }} <span class="oo-chev" :class="{ up: cohOpen }" aria-hidden="true">▾</span></span>
             </span>
           </button>
-          <div class="oo-fold-body oo-coh" v-if="cohOpen">
-            <div v-for="(q, k) in form.questions" :key="k" class="oo-bar-row">
+          <div class="oo-fold-body" v-if="cohOpen">
+            <!-- Sort (26 Nov 2026): form order, high to low or low to high; the choice is remembered on this computer -->
+            <div class="oo-sort" role="group" aria-label="Sort marks">
+              <span class="oo-lbl">Sort</span>
+              <button v-for="o in SORTS" :key="o.key" type="button" class="oo-chip" :class="{ on: cohSort === o.key }" :aria-pressed="String(cohSort === o.key)" @click="setSort(o.key)">{{ o.label }}</button>
+            </div>
+            <div class="oo-coh">
+            <div v-for="q in cohList" :key="q.title" class="oo-bar-row">
               <span class="oo-bar-name" :title="q.title">{{ q.title }}</span>
               <span class="oo-bar"><span :class="{ low: q.mark !== '' && Number(q.mark) < 3.5 }" :style="{ width: q.mark === '' ? '0%' : (Number(q.mark) / 5 * 100) + '%' }"></span></span>
               <b class="oo-bar-mark">{{ q.mark || '—' }}</b>
+            </div>
             </div>
             <p v-if="!form.questions.length" class="muted oo-empty">No Code of Honor questions in this quarter.</p>
           </div>
@@ -254,6 +261,10 @@ import logoUrl from '@/assets/widebed-vacation-rentals.jpg';
 
 const todayKey = () => { const d = new Date(Date.now() + 8 * 3600 * 1000); return d.toISOString().slice(0, 10); };   // Malaysia day
 const LOCAL_KEY = 'wb.oneToOne.venues';
+// Code of Honor marks sort (26 Nov 2026), kept on this computer
+const SORT_KEY = 'wb.oneToOne.cohSort';
+const SORTS = [{ key: 'form', label: 'Form order' }, { key: 'high', label: 'High to low' }, { key: 'low', label: 'Low to high' }];
+const readSort = () => { try { const v = localStorage.getItem(SORT_KEY); return SORTS.some(o => o.key === v) ? v : 'form'; } catch { return 'form'; } };
 // The scale on page 2, as a reminder under each behaviour (1 → 3 → 5)
 const BEHAVIOUR_HINT = { positive: 'I can’t → I will try → No problem', passionate: 'No energy → Normal → Full of energy', accountability: 'Never complete → Late → Always complete' };
 let logoBytes = null, fallbackFont;   // loaded once
@@ -267,7 +278,7 @@ export default {
       TOPIC, LEAVE_TYPES, BEHAVIOURS, ACTIONS, topic: TOPIC, edit: { staffName: '', position: '', ic: '', leave: emptyLeave(), notes: emptyNotes() },
       // Saved forms (25 Nov 2026): saved = { uid: record } for this quarter; snapshot = the form as last loaded or saved, to tell unsaved changes
       saved: {}, formsLocked: false, saving: false, snapshot: '', pending: null, writeOpen: false,
-      cohOpen: false, filter: 'all', BEHAVIOUR_HINT   // 25 Nov 2026 redesign: marks closed until Show; All / Not saved / Saved
+      cohOpen: false, filter: 'all', BEHAVIOUR_HINT, SORTS, cohSort: readSort()   // 25 Nov 2026 redesign: marks closed until Show; All / Not saved / Saved
     };
   },
   computed: {
@@ -279,6 +290,17 @@ export default {
     filters() {
       const n = this.rows.filter(r => this.saved[r.uid]).length;
       return [{ key: 'all', label: 'All', count: this.rows.length }, { key: 'unsaved', label: 'Not saved', count: this.rows.length - n }, { key: 'saved', label: 'Saved', count: n }];
+    },
+    // The marks in the picked order; questions with no mark yet always go last
+    cohList() {
+      const qs = (this.form?.questions || []).map((q, i) => ({ ...q, i }));
+      if (this.cohSort === 'form') return qs;
+      const dir = this.cohSort === 'high' ? -1 : 1;
+      return qs.sort((a, b) => {
+        const am = a.mark === '' ? null : Number(a.mark), bm = b.mark === '' ? null : Number(b.mark);
+        if (am === null || bm === null) return (am === null) - (bm === null) || a.i - b.i;
+        return (am - bm) * dir || a.i - b.i;
+      });
     },
     cohSub() {
       const f = this.form;
@@ -428,6 +450,7 @@ export default {
 
     // "Abdullah (Erwin)" -> "AE"
     initials(name) { return String(name || '').replace(/[()]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?'; },
+    setSort(key) { this.cohSort = key; try { localStorage.setItem(SORT_KEY, key); } catch { /* private window: just this visit */ } },
     resetEdits() { this.edit = { ...this.edit, staffName: this.sel.name, position: this.sel.position, ic: this.sel.ic || '' }; this.topic = TOPIC; },   // the leave and write-in boxes stay
 
     // ---- The PDF ----
@@ -476,7 +499,7 @@ export default {
 .oo-filters { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .oo-chip { border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px; cursor: pointer; }
 .oo-chip:hover { border-color: var(--accent); color: var(--accent); }
-.oo-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }   /* 25 Nov 2026 (Khairul): theme colour, not black */
+.oo-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }   /* 26 Nov 2026: theme colour, was black */
 .oo-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; border-top: 1px solid var(--line); }
 .oo-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
 .oo-row:hover { background: #F7F8FA; }
@@ -567,6 +590,8 @@ export default {
 .oo-chev { display: inline-block; transition: transform .15s; }
 .oo-chev.up { transform: rotate(180deg); }
 .oo-fold-body { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.oo-sort { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.oo-sort .oo-lbl { margin-right: 4px; }
 .oo-coh { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; row-gap: 9px; }
 @media (max-width: 760px) { .oo-coh { grid-template-columns: minmax(0, 1fr); } }
 .oo-bar-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
