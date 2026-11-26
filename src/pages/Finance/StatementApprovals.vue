@@ -23,13 +23,14 @@
     <!-- Waiting, grouped by property and month -->
     <template v-if="tab === 'waiting'">
       <section class="card" v-if="!groups.length && !loading"><div class="empty">Nothing is waiting for approval.</div></section>
-      <template v-for="g in groups" :key="g.key">
-        <section class="card sa-group">
+      <!-- 26 Nov 2026 (Khairul): each property month folds (click its title); the first one starts open -->
+      <template v-for="(g, gi) in groups" :key="g.key">
+        <section class="card sa-group" :class="{ shut: isShut(g, gi) }">
           <div class="card-head">
-            <h2>{{ `${g.propertyName} · ${monthName(g.month)}` }} <span class="pill blue">{{ `${g.items.length} waiting` }}</span></h2>
+            <h2><button type="button" class="sa-fold" :aria-expanded="String(!isShut(g, gi))" @click="toggleGroup(g, gi)"><span class="sa-caret" aria-hidden="true">{{ isShut(g, gi) ? '▸' : '▾' }}</span>{{ `${g.propertyName} · ${monthName(g.month)}` }}</button> <span class="pill blue">{{ `${g.items.length} waiting` }}</span></h2>
             <button class="btn btn-primary" :disabled="busy" @click="askAll(g)">{{ `Approve all ${g.items.filter(x => !x.again).length}` }}</button>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" v-if="!isShut(g, gi)">
             <table class="table">
               <thead><tr><th>Unit</th><th>Arrangement</th><th class="num">Total receivable</th><th class="num">Payout</th><th>Sent</th><th>Look at</th><th class="num"></th></tr></thead>
               <tbody>
@@ -159,7 +160,7 @@ export default {
   data() {
     return {
       amt, pct, dmy, stamp, monthName,
-      tab: 'waiting', properties: [], propertyId: 'all', month: monthOffset(-1), waitMonth: '',
+      tab: 'waiting', groupShut: {}, properties: [], propertyId: 'all', month: monthOffset(-1), waitMonth: '',
       HISTORY_PAGE, historyMore: false, historyLast: null, historyBusy: false, waiting: [], returnedCount: null, history: [], historyLoaded: false,
       loading: true, busy: false, error: '', okMsg: '',
       sel: null, drawerError: '', returning: false, returnReason: '', overrideReason: ''
@@ -191,6 +192,8 @@ export default {
     // A booking moved in shows only as Moved in, even if it was first added by hand on the other unit (statements sent before 3 Nov listed it twice)
     addedOnly(h) { return (h?.added || []).filter(x => !(h.moved || []).some(m => m.reservationNo === x)); },
     handText(h) { const add = this.addedOnly(h); return [add.length ? `${add.length} added` : '', h.moved?.length ? `${h.moved.length} moved in` : '', h.movedOut?.length ? `${h.movedOut.length} moved out` : '', h.removed?.length ? `${h.removed.length} removed` : ''].filter(Boolean).join(' · '); },
+    isShut(g, i) { return g.key in this.groupShut ? this.groupShut[g.key] : i > 0; },
+    toggleGroup(g, i) { this.groupShut = { ...this.groupShut, [g.key]: !this.isShut(g, i) }; },
     propertyName(id) { return this.properties.find(p => p.id === id)?.name || id; },
     // On Waiting the month is an optional filter (all months until one is picked); on History it picks the month to read
     pickMonth(m) { if (this.tab === 'waiting') this.waitMonth = m; else { this.month = m; this.loadHistory(); } },
@@ -346,6 +349,10 @@ export default {
 <style scoped>
 .sa-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .sa-group { margin-bottom: 16px; }
+.sa-group.shut .card-head { margin-bottom: 0; }
+.sa-fold { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; display: inline-flex; align-items: center; }
+.sa-fold:hover { color: var(--accent); }
+.sa-caret { display: inline-block; width: 18px; color: var(--muted); font-size: 14px; }
 .sa-group .card-head h2 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sa-sum { margin-bottom: 18px; }
 .sa-sum .row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
