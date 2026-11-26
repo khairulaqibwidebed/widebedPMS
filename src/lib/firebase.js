@@ -89,6 +89,7 @@ export async function profileOf(user) {
       states: Array.isArray(p.states) ? p.states : [],   // the states they work in (12 Nov 2026); Directors see every state
       properties: active && p.role === 'branchDirector' ? await branchProperties(user.uid, p) : Array.isArray(p.properties) ? p.properties : [],   // the properties they may see (12 Nov 2026, lib/property-scope.js); Directors see all
       branches: Array.isArray(p.branches) ? p.branches.filter(Boolean) : [],   // 23 Nov 2026: Branch Management
+      weakPassword: active && p.weakPassword === true,   // 26 Nov 2026: set by api/login-guard.js; must change it (pages/ChangePassword.vue)
       active
     };
   } catch (_) {

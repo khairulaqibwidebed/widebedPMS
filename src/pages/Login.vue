@@ -38,6 +38,7 @@ import { auth, db, configMissing, profileOf, ALLOWED_ROLES } from '../lib/fireba
 import { useSession } from '../stores/session.js';
 import { hkEmail, cleanUsername } from '../lib/housekeeping.js';
 import { homeFor } from '../nav.js';
+import { guardAttempt } from '../lib/login-guard.js';
 
 const NO_ACCESS = 'Your account has no access to this system yet. Ask a Director to give you a role.';
 // 17 Nov 2026: AI Agent logins (role 'ai') read data only, never the screens
@@ -64,7 +65,7 @@ export default {
     // Already signed in with a working role: go straight to the dashboard.
     if (!configMissing) {
       const me = await useSession().check();
-      if (me.user && ALLOWED_ROLES.includes(me.role)) this.$router.replace(homeFor(me.role));
+      if (me.user && ALLOWED_ROLES.includes(me.role)) this.$router.replace(me.weakPassword ? '/change-password' : homeFor(me.role));
     }
   },
   methods: {
@@ -74,12 +75,22 @@ export default {
       if (!this.password) return this.err = 'Enter your password.';
       this.busy = true;
       try {
+        // 26 Nov 2026: the server checks the password first and counts wrong ones (lib/login-guard.js, api/login-guard.js)
+        const g = await guardAttempt(this.signInEmail, this.password);
+        if (g.ok === false) {
+          this.err = g.code === 'auth/invalid-credential' && g.left > 0 && g.left <= 3
+            ? `${g.error} ${g.left} ${g.left === 1 ? 'try' : 'tries'} left before sign-in is locked for 15 minutes.` : g.error;
+          this.busy = false;
+          return;
+        }
         const cred = await signInWithEmailAndPassword(auth, this.signInEmail, this.password);
         const profile = await profileOf(cred.user);
+        if (g.weak) profile.weakPassword = true;
         if (!ALLOWED_ROLES.includes(profile.role)) { await signOut(auth); throw { code: profile.role === 'ai' ? 'aionly' : 'noaccess' }; }
         try { await updateDoc(doc(db, 'users', cred.user.uid), { lastLoginAt: serverTimestamp() }); } catch (_) {}
         useSession().set({ user: cred.user, ...profile });
-        this.$router.replace(homeFor(profile.role));
+        // A staff password that misses the strong rule: change it before anything else (pages/ChangePassword.vue)
+        this.$router.replace(profile.weakPassword ? '/change-password' : homeFor(profile.role));
       } catch (e) {
         this.err = e.code === 'aionly' ? AI_ONLY : e.code === 'noaccess' ? NO_ACCESS
           : ['auth/user-not-found', 'auth/wrong-password'].includes(e.code) ? MESSAGES['auth/invalid-credential']
