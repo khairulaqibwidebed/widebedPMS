@@ -11,19 +11,29 @@
           <option v-for="q in quarters" :key="q.id" :value="q.id">{{ q.name }}</option>
         </select>
         <button class="btn" :disabled="busy || isFinal" @click="recompute">Recalculate</button>
-        <button class="btn" :disabled="busy || !results.length" @click="exportExcel">Export Excel</button>
+        <button class="btn" :disabled="busy || !shown.length" @click="exportExcel">Export Excel</button>
       </div>
     </div>
 
 
     <div class="notice error" v-if="error" style="margin-bottom:12px;">{{ error }}</div>
 
+    <!-- 26 Nov 2026: search by name + Interns / Staff filter (intern = users/{uid}.intern, the HR details tick). Export Excel exports these rows. -->
+    <div class="toolbar" v-if="!loading && results.length">
+      <div class="search-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="input" type="search" v-model="search" placeholder="Search employee name" aria-label="Search employee name">
+      </div>
+      <OptionPicker v-model="group" :options="GROUPS" label="Employee group" />
+      <span class="muted shown-count" v-if="shown.length !== results.length">Showing {{ shown.length }} of {{ results.length }}</span>
+    </div>
+
     <div class="card" v-if="!loading">
       <div class="table-wrap">
         <table class="table hover-rows">
           <thead><tr><th>Employee</th><th>COH</th><th>KPI</th><th>TMS</th><th>Total</th><th>Ready</th><th>Scored on</th><th></th></tr></thead>
           <tbody>
-            <tr v-for="r in results" :key="r.employeeId">
+            <tr v-for="r in shown" :key="r.employeeId">
               <td>{{ nameOf(r.employeeId) }} <small class="muted" v-if="scoredOf(r) === 'none'">· COH only</small></td>
               <td>{{ cell(r.cohScore, r.componentStatuses.coh) }}</td>
               <td>{{ cell(r.kpiScore, r.componentStatuses.kpi) }}</td>
@@ -41,6 +51,7 @@
               <td><button class="act-pill" v-if="(r.revisionNumber || 1) > 1" @click="openHistory(r)">History</button></td>
             </tr>
             <tr v-if="!results.length"><td colspan="8" class="muted">No participants, or nothing calculated yet — click Recalculate.</td></tr>
+            <tr v-else-if="!shown.length"><td colspan="8" class="muted">No employees match this search or filter.</td></tr>
           </tbody>
         </table>
       </div>
@@ -118,6 +129,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
 import { listStaff } from '@/lib/agreements/data.js';
+import OptionPicker from '@/components/OptionPicker.vue';
 import { listQuarters, getQuarter } from '@/lib/performance/quarters.js';
 import { normalizeStatus, STATUS_LABELS } from '@/lib/performance/quarterStatus.js';
 import { listResults, recomputeAll, readyToFinalize, finalizeQuarter, exportResultsReport, requestCorrection, listRevisions,
@@ -139,6 +151,18 @@ const correctionReason = ref('');
 const revisions = ref([]);
 
 const nameOf = uid => staff.value.find(e => e.uid === uid)?.name || uid;
+
+// 26 Nov 2026: search + group filter. Interns = the Intern tick on Staff accounts > HR details (users/{uid}.intern);
+// anyone not ticked (or no longer an active account) counts as Staff. "Before you finalize" still counts everyone.
+const GROUPS = [{ value: 'all', label: 'All Employees' }, { value: 'interns', label: 'Interns' }, { value: 'staff', label: 'Staff (Non-interns)' }];
+const search = ref('');
+const group = ref('all');
+const isIntern = uid => staff.value.find(e => e.uid === uid)?.intern === true;
+const shown = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  return results.value.filter(r => (group.value === 'all' || (group.value === 'interns') === isIntern(r.employeeId))
+    && (!q || String(nameOf(r.employeeId)).toLowerCase().includes(q)));
+});
 const cell = (score, status) => status === 'insufficientData' ? 'Insufficient data' : status === 'pending' ? 'Pending'
   : status === 'n/a' ? 'N/A' : status === 'notApplicable' ? 'Not scored' : score != null ? score.toFixed(2) : '—';
 const formatWhen = ts => ts?.toDate ? ts.toDate().toLocaleString() : '—';
@@ -167,7 +191,8 @@ async function recompute() {
   try { results.value = await recomputeAll(quarterId.value); okMsg.value = 'Recalculated.'; } catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 async function exportExcel() {
-  try { await exportResultsReport(quarter.value, results.value, nameOf); } catch (e) { error.value = e.message; }
+  // 26 Nov 2026: exports what is on screen (search + filter)
+  try { await exportResultsReport(quarter.value, shown.value, nameOf); } catch (e) { error.value = e.message; }
 }
 async function finalize() {
   busy.value = true; error.value = '';
@@ -216,5 +241,9 @@ async function openHistory(r) {
 </script>
 
 <style scoped>
+.search-box { position: relative; flex: 1 1 260px; max-width: 380px; }
+.search-box svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.search-box .input { width: 100%; max-width: none; padding-left: 36px; }
+.shown-count { font-size: 13px; }
 .scored-err { margin-top: 4px; max-width: 220px; font-size: 11.5px; line-height: 1.35; color: var(--red); }
 </style>

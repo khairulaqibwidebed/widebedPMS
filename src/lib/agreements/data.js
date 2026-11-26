@@ -148,7 +148,7 @@ export async function addGenerated(data) {
 export async function listStaff() {
   return rows(await getDocs(collection(db, 'users')))
     .filter(u => u.active !== false && u.role)
-    .map(u => ({ uid: u.id, name: u.displayName || u.email || 'Staff', role: u.role }))
+    .map(u => ({ uid: u.id, name: u.displayName || u.email || 'Staff', role: u.role, intern: u.intern === true }))   // intern: HR details tick (26 Nov 2026, Final Approval filter)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 // Keeps the saved end date in step with the answers (no "last changed" stamp: nobody edited the record).
