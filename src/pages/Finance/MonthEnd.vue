@@ -94,7 +94,7 @@
       <section class="card" ref="checks">
         <div class="card-head"><h2>Before you can complete</h2>
           <button class="btn btn-sm starter-btn" v-if="starterAvailable()" @click="starterAsk = !starterAsk" :aria-expanded="starterAsk"
-            title="Fill in the D'Majestic units that aren't set up">⚡ Starter settings</button></div>
+            title="Fill in the D'Majestic units that aren't set up"><Icon name="bolt" /> Starter settings</button></div>
         <!-- Starter settings: a slim confirm strip instead of a big box -->
         <div class="starter-strip" v-if="starterAvailable() && starterAsk">
           <span>Set arrangement and fixed rent for the D'Majestic units that aren't set up (Accounting's Sep 2026 set-up), from <b>{{ monthName(month) }}</b>. You can edit any unit afterwards.</span>

@@ -8,7 +8,7 @@
     <div class="d-prog" v-if="busy"><span :style="{ width: pct + '%' }"></span></div>
     <p class="help loading-line" v-if="loading">Loading files…</p>
     <ul class="d-list" v-else-if="files.length">
-      <li v-for="f in files" :key="f.id"><span class="d-ico">{{ icon(f) }}</span><span class="d-name">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
+      <li v-for="f in files" :key="f.id"><span class="d-ico"><Icon :name="icon(f)" /></span><span class="d-name">{{ f.name }}</span><span class="muted">{{ size(f.size) }}</span>
         <button type="button" class="ico-btn" title="View" aria-label="View" @click="view(f)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
         <button type="button" class="ico-btn x-btn" v-if="!readonly" title="Remove" aria-label="Remove" :disabled="busy" @click="remove(f)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></li>
     </ul>
@@ -53,7 +53,7 @@ export default {
       this.vLoading = false;
     },
     close() { if (this.url) URL.revokeObjectURL(this.url); this.viewing = null; this.url = ''; },
-    icon(f) { return f.mimeType?.startsWith('image/') ? '🖼️' : f.mimeType?.startsWith('video/') ? '🎬' : '📄'; },
+    icon(f) { return f.mimeType?.startsWith('image/') ? 'image' : f.mimeType?.startsWith('video/') ? 'video' : 'file'; },
     size(n) { return !n ? '' : n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`; },
     async load() {
       this.loading = true; this.error = '';

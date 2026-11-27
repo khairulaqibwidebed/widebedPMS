@@ -486,7 +486,7 @@ export default {
 .bm-switch { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; cursor: pointer; user-select: none; }
 .bm-switch.dis { cursor: default; opacity: .7; }
 .bm-switch input { position: absolute; opacity: 0; pointer-events: none; }
-.bm-switch i { width: 38px; height: 22px; border-radius: 999px; background: #d1d5db; position: relative; transition: background .15s; }
+.bm-switch i { width: 38px; height: 22px; border-radius: 999px; background: var(--border); position: relative; transition: background .15s; }
 .bm-switch i::after { content: ''; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
 .bm-switch input:checked + i { background: var(--accent); }
 .bm-switch input:checked + i::after { left: 19px; }
@@ -515,13 +515,13 @@ export default {
 .bm-table td, .bm-table th { padding: 11px 14px; }
 .bm-table .strong { font-weight: 600; }
 .bm-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: var(--chip, #f3f4f6); padding: 2px 7px; border-radius: 6px; }
-.bm-move { margin-left: 8px; background: #fef3c7; color: #92400e; font-weight: 600; }
+.bm-move { margin-left: 8px; background: var(--amber-soft); color: var(--amber); font-weight: 600; }
 .bm-sync { display: grid; gap: 10px; max-width: 720px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; margin-top: 4px; }
 .bm-sync .help, .bm-sync .notice { margin: 0; }
 .bm-sync .field { margin: 0; }
 .bm-sync-head { display: flex; align-items: center; gap: 10px; font-size: 15px; }
-.bm-pill.on { background: #ecfdf3; color: #047857; }
-.bm-pill.warn { background: #fef3c7; color: #92400e; }
+.bm-pill.on { background: var(--green-soft); color: var(--green); }
+.bm-pill.warn { background: var(--amber-soft); color: var(--amber); }
 .bm-sync-acts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .bm-dots { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text-2); cursor: pointer; }
 .bm-dots:hover, .bm-dots[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }

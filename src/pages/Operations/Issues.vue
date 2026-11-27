@@ -89,7 +89,7 @@
               <div class="post-head"><Avatar :uid="ticket.raisedByUid" :name="ticket.raisedBy" :role="ticket.raisedRole" :size="24" /><b>{{ ticket.raisedBy }}</b><span class="tag role-tint" :style="roleTint(ticket.raisedRole)" v-if="showRole(ticket.raisedBy, ticket.raisedRole)">{{ tagLabel(ticket.raisedRole) }}</span><span class="when">{{ stamp(ticket.raisedAt) }}</span><span class="tag">Original issue</span></div>
               <p>{{ ticket.body }}</p>
               <!-- 17 Nov 2026: posted files as preview cards (photos show a thumbnail); click opens the viewer -->
-              <div class="previews posted" v-show="ticket.links.length"><template v-for="l in ticket.links" :key="l.url"><button type="button" class="pv" :title="'Open ' + l.name" @click="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })"><span class="pv-open"><img v-if="thumbs[l.url] && thumbs[l.url] !== 'none'" :src="thumbs[l.url]" alt=""><span class="pv-ico" v-else>{{ fileIcon(l.name) }}</span></span><span class="pv-name">{{ l.name }}</span></button></template></div>
+              <div class="previews posted" v-show="ticket.links.length"><template v-for="l in ticket.links" :key="l.url"><button type="button" class="pv" :title="'Open ' + l.name" @click="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })"><span class="pv-open"><img v-if="thumbs[l.url] && thumbs[l.url] !== 'none'" :src="thumbs[l.url]" alt=""><span class="pv-ico" v-else><Icon :name="fileIcon(l.name)" /></span></span><span class="pv-name">{{ l.name }}</span></button></template></div>
             </div>
             <!-- 17 Nov 2026: comment box under the original issue, newest comments first -->
             <!-- 17 Nov 2026: files picked, pasted (Ctrl+V) or dropped stay on this device until Post comment, which uploads
@@ -107,7 +107,7 @@
                     <button type="button" class="pv-open" @click="openLocal(l)" :aria-label="'Preview ' + l.name">
                       <img v-if="l.preview && l.kind === 'image'" :src="l.preview" alt="">
                       <video v-else-if="l.preview && l.kind === 'video'" :src="l.preview" muted preload="metadata"></video>
-                      <span class="pv-ico" v-else>{{ l.kind === 'video' ? '🎬' : icon(l.name) }}</span>
+                      <span class="pv-ico" v-else><Icon :name="l.kind === 'video' ? 'video' : icon(l.name)" /></span>
                     </button>
                     <span class="pv-name">{{ l.name }}</span>
                     <button type="button" class="pv-x" @click="dropFile(i)" :disabled="draft.sending !== null" aria-label="Remove">×</button>
@@ -127,7 +127,7 @@
               <div class="post">
                 <div class="post-head"><Avatar :uid="c.byUid" :name="c.by" :role="c.byRole" :size="24" /><b>{{ c.by }}</b><span class="tag role-tint" :style="roleTint(c.byRole)" v-if="showRole(c.by, c.byRole)">{{ tagLabel(c.byRole) }}</span><span class="when">{{ stamp(c.at) }}</span></div>
                 <p>{{ c.text }}</p>
-                <div class="previews posted" v-show="c.links.length"><template v-for="l in c.links" :key="l.url"><button type="button" class="pv" :title="'Open ' + l.name" @click="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })"><span class="pv-open"><img v-if="thumbs[l.url] && thumbs[l.url] !== 'none'" :src="thumbs[l.url]" alt=""><span class="pv-ico" v-else>{{ fileIcon(l.name) }}</span></span><span class="pv-name">{{ l.name }}</span></button></template></div>
+                <div class="previews posted" v-show="c.links.length"><template v-for="l in c.links" :key="l.url"><button type="button" class="pv" :title="'Open ' + l.name" @click="$refs.viewer.open({ name: l.name, url: l.url, kind: 'issues' })"><span class="pv-open"><img v-if="thumbs[l.url] && thumbs[l.url] !== 'none'" :src="thumbs[l.url]" alt=""><span class="pv-ico" v-else><Icon :name="fileIcon(l.name)" /></span></span><span class="pv-name">{{ l.name }}</span></button></template></div>
               </div>
             </template>
 
@@ -245,7 +245,7 @@
               <span class="help" v-else>Choose the property and unit first to upload, so files go to the unit's folder.</span>
             </div>
             <div class="help">Files stay in the company Google Drive; the ticket keeps only the link.</div></div>
-          <div class="files" v-show="raise.links.length"><template v-for="(l, i) in raise.links" :key="l.url + i"><span class="file-chip"><span>{{ icon(l.name) + ' ' + l.name }}</span><button type="button" @click="raise.links.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
+          <div class="files" v-show="raise.links.length"><template v-for="(l, i) in raise.links" :key="l.url + i"><span class="file-chip"><span><Icon :name="icon(l.name)" /> {{ l.name }}</span><button type="button" @click="raise.links.splice(i, 1)" aria-label="Remove">×</button></span></template></div>
           <div class="modal-foot"><button type="button" class="btn" @click="raise = null">Cancel</button><button class="btn btn-primary" :disabled="busy">Raise ticket</button></div>
         </form>
       </template>
@@ -637,7 +637,7 @@ export default {
       return days === 1 ? 'Yesterday' : days < 7 ? `${days} days ago` : this.day(iso);
     },
     stamp(iso) { return iso ? `${this.day(iso)}, ${iso.slice(11, 16)}` : ''; },
-    icon(fn) { return /\.(jpe?g|png|gif|webp|heic)$/i.test(fn) || /photo|image|picture/i.test(fn) ? '🖼' : /\.(xlsx?|csv)$/i.test(fn) || /sheet/i.test(fn) ? '📊' : '📄'; },
+    icon(fn) { return /\.(jpe?g|png|gif|webp|heic)$/i.test(fn) || /photo|image|picture/i.test(fn) ? 'image' : /\.(xlsx?|csv)$/i.test(fn) || /sheet/i.test(fn) ? 'sheet' : 'file'; },
     // Add Drive link: a name and a Google Drive URL (nothing is uploaded to the PMS).
     // picked: the files as chosen on this device, for a preview before posting (never saved; links keep name and url only)
     addUploaded(target, files, picked = []) {
@@ -655,7 +655,7 @@ export default {
     // Ctrl+V in the comment box: pasted screenshots or copied files are uploaded to the ticket's folder. Plain text pastes as usual.
     // Posted files (17 Nov 2026): a thumbnail for each photo, read through /api/drive (photos up to 4 MB), 3 at a time.
     // thumbs[url] = blob URL, or 'none' when it can't be shown (the card then shows an icon).
-    fileIcon(n) { return /\.(mp4|mov|m4v|webm|avi|3gp)$/i.test(n) ? '🎬' : /\.pdf$/i.test(n) ? '📕' : this.icon(n); },
+    fileIcon(n) { return /\.(mp4|mov|m4v|webm|avi|3gp)$/i.test(n) ? 'video' : /\.pdf$/i.test(n) ? 'file' : this.icon(n); },
     async loadThumbs() {
       const all = [...(this.ticket?.links || []), ...this.replies.flatMap(c => c.links || [])];
       const todo = all.filter(l => l.url && !(l.url in this.thumbs) && /\.(jpe?g|png|gif|webp)$/i.test(l.name || ''));
@@ -1354,7 +1354,7 @@ export default {
     .pv { position: relative; width: 120px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; display: flex; flex-direction: column; }
     .pv-open { border: 0; padding: 0; background: var(--bg, #f4f5f7); height: 80px; display: grid; place-items: center; cursor: pointer; }
     .pv-open img, .pv-open video { width: 100%; height: 80px; object-fit: cover; display: block; }
-    .pv-ico { font-size: 26px; }
+    .pv-ico { font-size: 26px; color: var(--muted); display: grid; place-items: center; }
     .pv-busy { height: 106px; align-items: center; justify-content: center; gap: 6px; }
     .pv-name { font-size: 11px; padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .pv-x { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; line-height: 20px; padding: 0; cursor: pointer; }

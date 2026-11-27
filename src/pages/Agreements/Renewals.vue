@@ -299,5 +299,5 @@ async function renew(r) {
 .act-pill.rn-main { background: var(--accent); border-color: var(--accent); color: #fff; }   /* solid, so it holds up on the pink row hover */
 .act-pill.rn-main:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, #000); border-color: color-mix(in srgb, var(--accent) 85%, #000); color: #fff; }
 .act-pill.rn-no { border-color: transparent; background: none; color: var(--muted); }
-.act-pill.rn-no:hover:not(:disabled) { background: #ef4444; border-color: #ef4444; color: #fff; }   /* 25 Nov 2026: bright red on hover, clear on the pink row */
+.act-pill.rn-no:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #fff; }   /* 25 Nov 2026: bright red on hover, clear on the pink row */
 </style>

@@ -68,8 +68,8 @@ export default {
 .act { position: relative; flex: none; }
 .act-menu { position: absolute; right: 0; top: 38px; z-index: 20; min-width: 140px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.14); padding: 6px; display: flex; flex-direction: column; }
 .act-menu button { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: 0; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-weight: 500; color: var(--text); cursor: pointer; }
-.act-menu button.danger { color: #c0392b; }
-@media (hover: hover) { .act-menu button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); } .act-menu button.danger:hover:not(:disabled) { background: #fdecea; color: #c0392b; } .ico-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); } }
+.act-menu button.danger { color: var(--danger); }
+@media (hover: hover) { .act-menu button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); } .act-menu button.danger:hover:not(:disabled) { background: #fdecea; color: var(--danger); } .ico-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); } }
 .sop-prog { margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--accent-soft); font-size: 13px; }
 .sop-prog-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; overflow-wrap: anywhere; }
 .sop-bar { height: 8px; border-radius: 8px; background: var(--surface); overflow: hidden; }

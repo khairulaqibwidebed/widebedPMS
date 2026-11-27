@@ -504,7 +504,7 @@ export default {
 .oo-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }   /* 26 Nov 2026: theme colour, was black */
 .oo-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; border-top: 1px solid var(--line); }
 .oo-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
-.oo-row:hover { background: #F7F8FA; }
+.oo-row:hover { background: var(--head); }
 .oo-row.on { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .oo-av { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--chip); color: var(--text-2); }
 .oo-row.on .oo-av { background: var(--accent); color: #fff; }
@@ -514,10 +514,10 @@ export default {
 .oo-who small { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oo-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .oo-n { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; font-variant-numeric: tabular-nums; }
-.oo-n.green { background: #e3f6ea; color: #15803d; }
-.oo-n.amber { background: #fff4dc; color: #8a5300; }
+.oo-n.green { background: var(--green-soft); color: var(--green); }
+.oo-n.amber { background: var(--amber-soft); color: var(--amber); }
 .oo-n.grey { background: var(--chip); color: var(--text-2); }
-.oo-saved { font-size: 11px; font-weight: 600; color: #15803d; white-space: nowrap; }
+.oo-saved { font-size: 11px; font-weight: 600; color: var(--green); white-space: nowrap; }
 .oo-key { margin: 0; padding: 10px 16px 12px; font-size: 11px; border-top: 1px solid var(--line); }
 .oo-empty { padding: 18px; text-align: center; }
 
@@ -529,8 +529,8 @@ export default {
 .oo-title h2 { margin: 0; font-size: 21px; font-weight: 700; }
 .oo-badges { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .oo-badge { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--chip); color: var(--text-2); }
-.oo-badge.amber { background: #fff4dc; color: #8a5300; }
-.oo-badge.green { background: #e3f6ea; color: #15803d; }
+.oo-badge.amber { background: var(--amber-soft); color: var(--amber); }
+.oo-badge.green { background: var(--green-soft); color: var(--green); }
 .oo-badge.accent { background: var(--accent-soft); color: var(--accent); }
 .oo-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .oo-acts .btn { height: 40px; }
@@ -538,13 +538,13 @@ export default {
 .oo-save { padding: 0 22px; }
 .oo-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; margin-right: 4px; white-space: nowrap; }
 .oo-status i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-.oo-status.green { color: #15803d; }
-.oo-status.amber { color: #8a5300; }
-.oo-status.amber i { background: #d97706; }
+.oo-status.green { color: var(--green); }
+.oo-status.amber { color: var(--amber); }
+.oo-status.amber i { background: var(--amber); }
 .oo-status.grey { color: var(--text-2); }
 .oo-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
 @media (max-width: 760px) { .oo-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.oo-facts > div { display: grid; gap: 4px; min-width: 0; background: #F7F8FA; border-radius: 10px; padding: 12px 14px; }
+.oo-facts > div { display: grid; gap: 4px; min-width: 0; background: var(--head); border-radius: 10px; padding: 12px 14px; }
 .oo-facts b { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oo-facts b.muted { font-size: 13px; font-weight: 500; color: var(--muted); }
 .oo-lbl { font-size: 11px; font-weight: 600; color: var(--text-2); }
@@ -602,7 +602,7 @@ export default {
 .oo-bar-name { flex: 0 0 170px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oo-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--chip); overflow: hidden; }
 .oo-bar span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
-.oo-bar span.low { background: #d97706; }
+.oo-bar span.low { background: var(--amber); }
 .oo-bar-mark { flex: 0 0 30px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
 
 /* Write-in boxes */

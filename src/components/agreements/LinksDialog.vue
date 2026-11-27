@@ -307,7 +307,7 @@ code { font-size: 12px; }
 .lk-icon svg { width: 17px; height: 17px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: stroke var(--fast, .15s); }
 .lk-icon:hover, .lk-icon:focus-visible { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .lk-icon:hover svg, .lk-icon:focus-visible svg { stroke: var(--accent); }
-.lk-icon.del:hover, .lk-icon.del:focus-visible { background: #fef2f2; }
-.lk-icon.del:hover svg, .lk-icon.del:focus-visible svg { stroke: #ef4444; }
+.lk-icon.del:hover, .lk-icon.del:focus-visible { background: var(--red-soft); }
+.lk-icon.del:hover svg, .lk-icon.del:focus-visible svg { stroke: var(--danger); }
 .lk-new-btn { margin-left: auto; }
 </style>

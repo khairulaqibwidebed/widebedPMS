@@ -27,7 +27,7 @@
         <template v-else-if="!loading && !activeEvaluatee">
           <div class="coh-header">
             <div>
-              <div class="coh-greeting">Hello, {{ session.name }} <span aria-hidden="true">👋</span></div>
+              <div class="coh-greeting">Hello, {{ session.name }}</div>
               <div class="coh-sub">Quarter {{ quarter.name }}</div>
             </div>
           </div>

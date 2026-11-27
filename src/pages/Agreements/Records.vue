@@ -25,7 +25,7 @@
     <div v-else-if="!form" class="ag-cards">
       <article v-for="f in forms" :key="f.id" class="card ag-card" tabindex="0" @click="openForm(f.id)" @keydown.enter.self="openForm(f.id)">
         <div class="ag-card-top">
-          <span class="ag-card-icon" aria-hidden="true">📄</span>
+          <span class="ag-card-icon" aria-hidden="true"><Icon name="file" /></span>
           <div class="ag-card-name"><b>{{ f.name }}</b><small>{{ plural(templatesAll.filter(t => t.formId === f.id).length, 'template') }}</small></div>
           <span class="pill blue" v-if="counts[f.id]?.submitted" title="Sent in through a link, waiting for a check">{{ counts[f.id].submitted }} to check</span>
         </div>

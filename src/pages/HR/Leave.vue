@@ -424,7 +424,7 @@ export default {
 .lv-bal { display: grid; gap: 8px; }
 .lv-bal-row { display: grid; grid-template-columns: 130px 1fr; gap: 2px 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
 .lv-bal-row small { grid-column: 2; }
-.lv-savebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 12px; border-radius: 10px; background: #fff4dc; color: #8a5300; font-weight: 600; font-size: 13px; }
+.lv-savebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 12px; border-radius: 10px; background: var(--amber-soft); color: var(--amber); font-weight: 600; font-size: 13px; }
 .lv-savebar span { flex: 1; }
 .lv-days { min-width: 900px; }
 .lv-days td { vertical-align: top; }

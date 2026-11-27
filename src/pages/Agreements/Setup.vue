@@ -98,7 +98,7 @@
             <tr v-for="t in templates" :key="t.id">
               <td><RouterLink class="setup-name" :to="'/Agreements/setup/template/' + t.id">{{ t.name }}</RouterLink></td>
               <td>{{ formName(t.formId) }}</td>
-              <td class="muted">{{ t.masterId ? '📄 ' + masterName(t.masterId) : t.fileName }} <span class="tag">v{{ t.version }}</span></td>
+              <td class="muted"><template v-if="t.masterId"><Icon name="file" /> {{ masterName(t.masterId) }}</template><template v-else>{{ t.fileName }}</template> <span class="tag">v{{ t.version }}</span></td>
               <td class="num">{{ t.pages.length }}</td>
               <td class="num">{{ (t.mappings || []).length }}</td>
               <td class="muted">{{ when(t.updatedAt) }}</td>
@@ -385,16 +385,16 @@ async function doUpload() {
 /* 25 Nov 2026 (Khairul): row actions on one line */
 .setup-acts-td { width: 1%; }
 .setup-acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; white-space: nowrap; }
-.st-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; background: #fff; border: 1px solid #e2e8f0;
+.st-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; background: #fff; border: 1px solid var(--border);
   color: var(--text); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background .15s, border-color .15s, color .15s; }
-.st-btn:hover { background: color-mix(in srgb, var(--accent) 6%, #fff); border-color: color-mix(in srgb, var(--accent) 45%, #e2e8f0); color: var(--accent); }
+.st-btn:hover { background: color-mix(in srgb, var(--accent) 6%, #fff); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
 .st-btn svg, .st-icon svg, .st-more svg, .st-menu svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .st-btn svg { color: var(--muted); }
 .st-btn:hover svg { color: inherit; }
 .st-icon, .st-more { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer;
   transition: background .15s, color .15s; }
 .st-icon svg, .st-more svg { width: 16px; height: 16px; }
-.st-del:hover { color: #ef4444; background: #fef2f2; }
+.st-del:hover { color: var(--danger); background: var(--red-soft); }
 .st-more svg { fill: currentColor; stroke: none; }
 .st-more:hover, .st-more.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 .st-rn { border: 0; font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
@@ -405,8 +405,8 @@ async function doUpload() {
 .st-menu button:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
 .st-menu button:hover svg { color: inherit; }
 .st-menu hr { margin: 4px 2px; border: 0; border-top: 1px solid var(--border); }
-.st-menu .st-menu-del, .st-menu .st-menu-del svg { color: #ef4444; }
-.st-menu .st-menu-del:hover { background: #fef2f2; }
+.st-menu .st-menu-del, .st-menu .st-menu-del svg { color: var(--danger); }
+.st-menu .st-menu-del:hover { background: var(--red-soft); }
 .setup-help ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
 .setup-help code { background: var(--chip); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 </style>

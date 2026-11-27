@@ -186,7 +186,17 @@ export function leaseMonths(b, rent) {
 }
 // Which lease month a calendar month ('YYYY-MM', a payment's For month or a month charge) counts in: the last month that starts
 // in it or before it (a month before the stay counts in the first)
-export const leaseSlot = (months, ym) => { let at = 0; months.forEach((x, i) => { if (x.m <= ym) at = i; }); return at; };
+// 27 Nov 2026 (Khairul): a Monthly Lease runs in 30-night months, so two can start in one calendar month (1 Dec - 31 Dec, then
+// 31 Dec - 30 Jan). A 'YYYY-MM' key goes on the FIRST lease month starting in it; a charge for a later one is keyed by that
+// month's start date 'YYYY-MM-DD' (leaseKey) and goes on the month it falls in.
+export const leaseSlot = (months, ym) => {
+  const k = String(ym || ''), m = x => String(x.from || x.m || '').slice(0, 7); let at = 0;
+  if (k.length > 7) { months.forEach((x, i) => { if (String(x.from || '') <= k) at = i; }); return at; }
+  const first = months.findIndex(x => m(x) === k); if (first >= 0) return first;
+  months.forEach((x, i) => { if (m(x) <= k) at = i; }); return at;
+};
+// The month charge key for lease month i: 'YYYY-MM' for the first month starting in that calendar month, else its start date
+export const leaseKey = (months, i) => { const k = String(months[i]?.from || '').slice(0, 7); return months.findIndex(x => String(x.from || '').slice(0, 7) === k) === i ? k : months[i].from; };
 // "30 Nov – 31 Dec 2026"
 export const leaseSpan = x => (x ? `${day(x.from).replace(/ \d{4}$/, x.from.slice(0, 4) === x.to.slice(0, 4) ? '' : ` ${x.from.slice(0, 4)}`)} – ${day(x.to)}` : '');
 // 20 Nov 2026: a stay ended early WITH notice pays its last part month by days. { m: 'YYYY-MM' (the move-out month), due }
@@ -197,7 +207,7 @@ export function invoiceMonthKeys(arrival, departure) {
   const nights = arrival && departure ? Math.round((Date.parse(departure) - Date.parse(arrival)) / 86400000) : 0;
   if (!arrival) return [];
   if (nights < 30) return [String(arrival).slice(0, 7)];
-  return [...new Set(leaseMonths({ arrival, departure }, 1).map(m => m.m))];
+  const ms = leaseMonths({ arrival, departure }, 1); return ms.map((_, i) => leaseKey(ms, i));   // 27 Nov 2026: one key per lease month
 }
 export function termLastDue(b) {
   const e = b?.earlyTermination;
@@ -269,7 +279,7 @@ export function invoiceOf(b, t, { propertyName = '', unitCode = '', unitType = '
   const folded = extras.filter(into), asLines = extras.filter(c => !into(c)), add = list => num(list.reduce((t, c) => t + c.v, 0));
   let amounts, monthlyRent = rental, perNight = null;
   if (months.length > 1) {
-    const slot = ym => { let at = 0; months.forEach((m, i) => { if (m.from.slice(0, 7) <= ym) at = i; }); return at; };
+    const slot = ym => leaseSlot(months, ym);   // 27 Nov 2026: same as the Payments tab
     months.forEach((m, i) => {
       m.folded = add(folded.filter(c => slot(c.ym) === i));
       m.rent = num(m.rent + m.folded);

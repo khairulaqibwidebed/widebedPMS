@@ -456,12 +456,12 @@ export default {
     .pair-edit { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr) 28px; gap: 6px; margin-bottom: 6px; }
     .step-edit { position: relative; padding: 6px 14px 12px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
     .item-no { display: block; min-height: 38px; line-height: 38px; margin-bottom: 2px !important; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
-    .del-btn { position: absolute; top: 12px; right: 14px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; border: 1px solid #f0c4be; background: #fdecea; color: #c0392b; cursor: pointer; }
+    .del-btn { position: absolute; top: 12px; right: 14px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; border: 1px solid color-mix(in srgb, var(--red) 35%, var(--border)); background: var(--red-soft); color: var(--danger); cursor: pointer; }
     .del-btn svg { width: 14px; height: 14px; }
-    @media (hover: hover) { .del-btn:hover { background: #c0392b; border-color: #c0392b; color: #fff; } }
-    .del-btn:focus-visible { background: #c0392b; border-color: #c0392b; color: #fff; }
-    .item-edit .icon-btn, .pair-edit .icon-btn { color: #c0392b; font-size: 18px; border-radius: 7px; }
-    @media (hover: hover) { .item-edit .icon-btn:hover, .pair-edit .icon-btn:hover { background: #fdecea; } }
+    @media (hover: hover) { .del-btn:hover { background: var(--danger); border-color: var(--danger); color: #fff; } }
+    .del-btn:focus-visible { background: var(--danger); border-color: var(--danger); color: #fff; }
+    .item-edit .icon-btn, .pair-edit .icon-btn { color: var(--danger); font-size: 18px; border-radius: 7px; }
+    @media (hover: hover) { .item-edit .icon-btn:hover, .pair-edit .icon-btn:hover { background: var(--red-soft); } }
     .step-edit .stage-title { margin-bottom: 6px; }
     .leave-modal { max-width: 440px; }
     .tabs-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }

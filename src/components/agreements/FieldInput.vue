@@ -5,7 +5,7 @@
   <div v-else-if="field.type === 'note'" class="ag-note wide" :class="{ link: field.display === 'link' }">
     <template v-if="field.display === 'link'">
       <button type="button" class="ag-note-link" :aria-expanded="String(noteOpen)" :aria-controls="id" @click="noteOpen = !noteOpen">
-        <span aria-hidden="true">📄</span> {{ noteOpen ? 'Hide' : 'Read' }} {{ field.label }}
+        <Icon name="file" /> {{ noteOpen ? 'Hide' : 'Read' }} {{ field.label }}
       </button>
       <div v-if="noteOpen" :id="id" class="ag-note-body">
         <div class="ag-note-text">{{ field.content || '(No text yet)' }}</div>
@@ -67,7 +67,7 @@
     <div v-else-if="field.type === 'image' || field.type === 'file'" class="ag-upload">
       <template v-if="modelValue && modelValue.id">
         <button v-if="!uploader" type="button" class="link" @click="download">{{ modelValue.name }}</button>
-        <span v-else class="ag-file">📎 {{ modelValue.name }}</span>
+        <span v-else class="ag-file"><Icon name="clip" /> {{ modelValue.name }}</span>
         <button type="button" class="btn btn-sm" :disabled="disabled" @click="set('')">Remove</button>
       </template>
       <label v-else class="filedrop" :class="{ off: disabled || busy }">

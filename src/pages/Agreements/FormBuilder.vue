@@ -56,7 +56,7 @@
                   <button type="button" class="icon-btn" title="Move up" aria-label="Move up" :disabled="i === 0" @click.stop="move(i, -1)">↑</button>
                   <button type="button" class="icon-btn" title="Move down" aria-label="Move down" :disabled="i === fields.length - 1" @click.stop="move(i, 1)">↓</button>
                   <button type="button" class="icon-btn" title="Duplicate" aria-label="Duplicate" @click.stop="duplicate(f)">⧉</button>
-                  <button type="button" class="icon-btn" title="Delete" aria-label="Delete" @click.stop="askDelete(f)">🗑</button>
+                  <button type="button" class="icon-btn" title="Delete" aria-label="Delete" @click.stop="askDelete(f)"><Icon name="trash" /></button>
                 </span>
               </li>
               <li v-if="!fields.length" key="_empty" class="fb-empty">No fields yet. Pick a field type on the left, or drag one here.</li>
