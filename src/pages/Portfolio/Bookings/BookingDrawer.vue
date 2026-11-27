@@ -131,7 +131,7 @@
               <div class="tp-charge" v-for="ch in c.charges" :key="ch.m + '-' + ch.j">
                 <span>{{ chargeLabel(ch.x) }}</span>
                 <b>{{ `RM ${amt(ch.x.amount)}` }}</b>
-                <button v-if="editable" type="button" class="mc-x" @click="removeCharge(ch.m, ch.j)" :aria-label="`Remove ${chargeLabel(ch.x)} from ${monthTag(c)}`">×</button>
+                <button v-if="editable" type="button" class="mc-x" @click="removeCharge(ch.m, ch.j, c)" :aria-label="`Remove ${chargeLabel(ch.x)} from ${monthTag(c)}`">×</button>
               </div>
               <!-- 23 Nov 2026: carry forward (paid over the month's total goes to the next month) -->
               <div class="tp-charge tp-carry" v-if="c.carryIn > 0"><span>{{ `Carried from ${monthTag(cal[cal.findIndex(x => x.k === c.k) - 1])}` }}</span><b>{{ `+ RM ${amt(c.carryIn)}` }}</b><span></span></div>
@@ -542,7 +542,11 @@ export default {
       this.bk.f.monthCharges = { ...this.bk.f.monthCharges, [a.m]: list };
       this.add = { m: '', key: '', amount: '', note: '' };
     },
-    removeCharge(m, j) {
+    // 27 Nov 2026 (Khairul): ask before a month charge is removed
+    async removeCharge(m, j, c) {
+      const x = (this.bk.f.monthCharges[m] || [])[j]; if (!x) return;
+      if (!await askConfirm({ title: 'Delete this charge?', message: `${chargeLabel(x)}, RM ${amt(x.amount)} is removed from ${this.monthTag(c)}. Save booking afterwards to keep the change.`, confirmText: 'Delete charge', danger: true })) return;
+      if ((this.bk.f.monthCharges[m] || [])[j] !== x) return;
       const list = (this.bk.f.monthCharges[m] || []).filter((_, i) => i !== j), next = { ...this.bk.f.monthCharges };
       if (list.length) next[m] = list; else delete next[m];
       this.bk.f.monthCharges = next;
