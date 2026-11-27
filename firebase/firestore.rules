@@ -1,4 +1,8 @@
 rules_version = '2';
+// Draft 1.18, 27 Nov 2026 (Khairul): Owner booking requests from the Owner Portal. ownerBookingRequests/{id} is written ONLY by the
+//   portal's server (Admin key, bypasses rules); staff read it (same readers as Bookings) and Confirm or Decline a waiting request.
+//   An update may only change status (pending -> confirmed | declined) with decidedAt / decidedByUid / decidedByName / declineReason /
+//   updatedAt, by someone who works bookings. Nobody creates or deletes from the app.
 // Draft 1.17, 26 Nov 2026 (Khairul): Owner Portal. Issues: staff who work a Customer ticket (or Directors) may hide / show it to the
 //   owner (the portal only lists Customer tickets): issues/{id}.hideFromOwner (bool), with audit + updatedAt only. Any status, Completed too.
 // Draft 1.16, 26 Nov 2026 (Crane): HR's own leave types. config/leaveTypes { types: [{ key, label, active, builtIn }],
@@ -1454,6 +1458,19 @@ service cloud.firestore {
 
     // Not the bookings collection: Finance's month-end reads bookings, and these are paid from eZee.
     // offline_{inquiryId} from Create booking, or offline_BK-0001 for a direct booking (no inquiry).
+    // Draft 1.18: Owner booking requests (made in the Owner Portal; the portal's server writes them). Cheap field checks first, role last.
+    match /ownerBookingRequests/{id} {
+      allow update: if resource.data.status == 'pending'
+        && changed().hasOnly(['status', 'decidedAt', 'decidedByUid', 'decidedByName', 'declineReason', 'updatedAt'])
+        && request.resource.data.status in ['confirmed', 'declined']
+        && request.resource.data.decidedByUid == request.auth.uid
+        && request.resource.data.decidedAt == request.time
+        && (request.resource.data.status == 'confirmed' || (request.resource.data.get('declineReason', '') is string && request.resource.data.get('declineReason', '').size() > 0 && request.resource.data.get('declineReason', '').size() <= 300))
+        && (finOrDir() || isOps() || can('bookings.edit'));
+      allow read: if finOrDir() || isOps() || can('bookings.view');
+      allow create, delete: if false;
+    }
+
     match /offlineBookings/{bookingId} {
       // Draft 1.02: customFees (amounts in custom fees) is a map of at most 30. On an update only checked when it changes.
       function customFeesOk() {

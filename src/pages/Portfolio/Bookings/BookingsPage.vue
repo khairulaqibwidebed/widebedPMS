@@ -78,28 +78,32 @@
       <!-- 23 Nov 2026: rows per page (10 / 25 / 50) next to the page numbers; remembered on this browser -->
       <Paged :items="shown" :size="pageSize" :sizes="[10, 25, 50]" @update:size="setPageSize" v-slot="{ pageRows }">
       <div class="bk-list" v-if="view === 'cards'">
-        <div class="bk-card" :class="{ cancelled: row.status === 'cancelled' }" v-for="row in pageRows" :key="row.id" role="button" tabindex="0"
-          @click="open = row" @keydown.enter.prevent="open = row" @keydown.space.prevent="open = row" :aria-label="`Open booking ${row.bookingNo || row.id}`">
+        <div class="bk-card" :class="{ cancelled: row.status === 'cancelled', owner: row.ownerReq }" v-for="row in pageRows" :key="row.id" role="button" tabindex="0"
+          @click="openRow(row)" @keydown.enter.prevent="openRow(row)" @keydown.space.prevent="openRow(row)" :aria-label="`Open booking ${row.bookingNo || row.id}`">
           <!-- 13 Nov 2026 hierarchy (same as Offline Payments cards): who, then where, then the stay, then the small print; money and payment status on the right -->
           <div class="bk-main">
             <!-- 20 Nov 2026 (Khairul): two-line cards. Left = who + booking no., then where + status; middle = stay + lease type; right = rate, then payment -->
-            <div class="bk-name">{{ guestName(row) }} <span class="bk-no">{{ row.bookingNo || row.id }}</span></div>
+            <div class="bk-name" v-if="row.ownerReq">{{ row.ownerName || 'Owner' }} <span class="pill owner-tag">Owner</span></div>
+            <div class="bk-name" v-else>{{ guestName(row) }} <span class="bk-no">{{ row.bookingNo || row.id }}</span></div>
             <div class="bk-place"><span>{{ [row.propertyName, row.unitCode || row.unitId].filter(Boolean).join(' · ') || 'No unit' }}</span>
-              <span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span>
+              <span class="pill amber" v-if="row.ownerReq && row.status === 'pending'">Awaiting confirmation</span>
+              <span class="pill green" v-else-if="row.ownerReq">Confirmed</span>
+              <span class="pill red" v-else-if="row.status === 'cancelled'">Cancelled</span>
               <span class="pill amber" v-else-if="row.status === 'pending'" title="Saved before payment; open it to download the invoice or finish it">Awaiting payment</span>
               <span class="pill amber" v-else-if="row.earlyTermination?.date" :title="`Check-out was ${dmy(row.earlyTermination.originalDeparture)}`">Terminated early</span>
               <span class="pill amber" v-else-if="!row.ezeeReservationNo" title="No eZee reservation no. linked">Not in eZee</span></div>
           </div>
           <div class="bk-mid">
             <div class="bk-stay"><span class="bk-k">Stay</span>{{ `${niceDate(row.arrival) || '—'} to ${niceDate(row.departure) || '—'}` }}</div>
-            <div class="bk-meta">{{ [leaseLabel(bookingNights(row)), nights(row) ? `${nights(row)} ${nights(row) === 1 ? 'night' : 'nights'}` : '', row.ezeeReservationNo ? `eZee ${row.ezeeReservationNo}` : ''].filter(Boolean).join(' · ') }}</div>
+            <div class="bk-meta" v-if="row.ownerReq">{{ [`${row.nights} ${row.nights === 1 ? 'night' : 'nights'}`, row.note ? `“${row.note}”` : ''].filter(Boolean).join(' · ') }}</div>
+            <div class="bk-meta" v-else>{{ [leaseLabel(bookingNights(row)), nights(row) ? `${nights(row)} ${nights(row) === 1 ? 'night' : 'nights'}` : '', row.ezeeReservationNo ? `eZee ${row.ezeeReservationNo}` : ''].filter(Boolean).join(' · ') }}</div>
           </div>
-          <div class="bk-side" v-if="acc.bkView">
+          <div class="bk-side" v-if="acc.bkView && !row.ownerReq">
             <b class="bk-amt">{{ rateOf(row) ? `RM ${amt(rateOf(row))}` : '—' }}<small>{{ row.longTerm ? ' /month' : ' total' }}</small></b>
             <div class="mp-list" v-if="row.status !== 'pending' && row.status !== 'cancelled'"><span class="pill" v-for="m in pillMonths(row)" :key="m" :class="MONTH_PAY[monthStatus(row, m)].cls" :title="monthPayTip(row, m)">{{ `${payTag(m)} · ${MONTH_PAY[monthStatus(row, m)].label}` }}</span></div>
           </div>
           <span v-else></span>
-          <ViewChevron label="Open booking" @click.stop="open = row" />
+          <ViewChevron :label="row.ownerReq ? 'Open owner request' : 'Open booking'" @click.stop="openRow(row)" />
         </div>
         <p class="muted bk-empty" v-show="!shown.length">{{ emptyMsg }}</p>
       </div>
@@ -108,7 +112,18 @@
           <thead><tr><th>Booking no.</th><th>Unit</th><th>Tenant</th><th>Check-in</th><th>Check-out</th><th class="type-cell">Type</th><th class="num" v-if="acc.bkView">Amount (RM)</th><th class="pay-cell" v-if="acc.bkView" title="Paid, part paid or unpaid for each month picked">Payment by month</th><th></th></tr></thead>
           <tbody>
             <template v-for="row in pageRows" :key="row.id">
-              <tr class="clickable" @click="open = row">
+              <tr class="clickable owner-row" v-if="row.ownerReq" @click="openRow(row)">
+                <td class="strong nw"><span class="pill owner-tag">Owner</span></td>
+                <td class="nw">{{ row.unitCode || '—' }}</td>
+                <td class="bk-tenant">{{ row.ownerName || 'Owner' }}<div class="muted small" v-if="row.note">“{{ row.note }}”</div></td>
+                <td class="nw">{{ dmy(row.arrival) }}</td>
+                <td class="nw">{{ dmy(row.departure) }}</td>
+                <td class="nw type-cell"><div>{{ row.nights }} {{ row.nights === 1 ? 'night' : 'nights' }}</div></td>
+                <td class="num nw" v-if="acc.bkView">—</td>
+                <td class="pay-cell" v-if="acc.bkView"><span class="pill amber" v-if="row.status === 'pending'">Awaiting confirmation</span><span class="pill green" v-else>Confirmed</span></td>
+                <td class="chev-col"><ViewChevron label="Open owner request" @click.stop="openRow(row)" /></td>
+              </tr>
+              <tr class="clickable" v-else @click="openRow(row)">
                 <td class="strong nw">{{ row.bookingNo || row.id }}</td>
                 <td class="nw">{{ row.unitCode || row.unitId || '—' }}</td>
                 <td class="bk-tenant">{{ guestName(row) }}</td>
@@ -118,7 +133,7 @@
                 <td class="nw type-cell"><div>{{ leaseLabel(bookingNights(row)) }}</div><div class="type-tag" v-if="row.status === 'cancelled' || row.status === 'pending' || row.earlyTermination?.date"><span class="pill red" v-if="row.status === 'cancelled'">Cancelled</span><span class="pill amber" v-else-if="row.status === 'pending'">Awaiting payment</span><span class="pill amber" v-else-if="row.earlyTermination?.date" :title="`Check-out was ${dmy(row.earlyTermination.originalDeparture)}`">Terminated early</span></div></td>
                 <td class="num nw" v-if="acc.bkView">{{ row.longTerm ? `${amt(row.monthlyRent)} /M` : paidOf(row) }}</td>
                 <td class="pay-cell" v-if="acc.bkView"><div class="mp-list"><span class="pill" v-for="m in pillMonths(row)" :key="m" :class="MONTH_PAY[monthStatus(row, m)].cls" :title="monthPayTip(row, m)">{{ `${payTag(m)} · ${MONTH_PAY[monthStatus(row, m)].label}` }}</span><span class="muted" v-if="!pillMonths(row).length">—</span></div></td>
-                <td class="chev-col"><ViewChevron label="Open booking" @click.stop="open = row" /></td>
+                <td class="chev-col"><ViewChevron label="Open booking" @click.stop="openRow(row)" /></td>
               </tr>
             </template>
             <tr v-show="!shown.length"><td :colspan="9 - (!acc.bkView ? 2 : 0)" class="muted">{{ emptyMsg }}</td></tr>
@@ -129,6 +144,8 @@
       <div class="card-foot" v-if="acc.bkView"><span>Invoice and receipt PDFs are made from a booking, approved by Accounting, saved to the company Google Drive and listed on Accounting › Invoices & Receipts. Nothing is sent automatically.</span></div>
     </section>
 
+    <!-- 27 Nov 2026 (Khairul): owner requests from the Owner Portal sit in this list with an Owner tag; click one to Confirm or Decline -->
+    <OwnerRequests v-if="reqOpen" :key="reqOpen.id" :r="reqOpen" :can-decide="acc.bkEdit || acc.guestNames" @close="reqOpen = null" />
     <BookingDrawer v-if="open" :key="open.id" :booking="open" :acc="acc" @close="open = null" @saved="onSaved" @patched="onPatched" @deleted="onDeleted" />
   </main>
 </template>
@@ -156,6 +173,10 @@ import PropertyPicker from '@/components/PropertyPicker.vue';
 import MonthPicker from '@/components/MonthPicker.vue';
 import RefreshButton from '@/components/RefreshButton.vue';
 import BookingDrawer from './BookingDrawer.vue';
+import OwnerRequests from './OwnerRequests.vue';
+import { collection, limit, query, where } from 'firebase/firestore';
+import { db } from '@/lib/firebase.js';
+import { mine } from '@/lib/property-scope.js';
 
 const me = useSession();
 // Cards or table, remembered on this browser only (table when nothing is saved)
@@ -171,7 +192,7 @@ const savedView = () => { try { return localStorage.getItem(VIEW_KEY) === 'cards
 
 export default {
   mixins: [liveMixin],
-  components: { PropertyPicker, OptionPicker, MonthPicker, RefreshButton, BookingDrawer, LiveStatus },
+  components: { PropertyPicker, OptionPicker, MonthPicker, RefreshButton, BookingDrawer, LiveStatus, OwnerRequests },
   data() {
     const q = this.$route.query;
     return {
@@ -183,6 +204,7 @@ export default {
       loading: true, bookingsLoading: false, error: '', okMsg: '',
       search: '', leases: [], statuses: [], monthSel: null, bkFrom: '', bkTo: '', drOpen: false, fltOpen: false, pageSize: savedSize(),
       open: null,   // the booking open in the drawer
+      ownerReqs: [], reqOpen: null,   // 27 Nov 2026: owner requests (pending + confirmed) shown in the list, and the one open
       view: savedView(),   // 'cards' or 'table'
       SORTS, sortBy: savedSort()   // 'checkin' or 'created'
     };
@@ -207,7 +229,8 @@ export default {
       return [
         { title: 'Lease type', key: 'leases', opts: [{ k: 'long', label: 'Yearly Lease', n: t('long') }, { k: 'monthly', label: 'Monthly Lease', n: t('monthly') }, { k: 'short', label: 'Daily Lease', n: t('short') }] },
         { title: 'Status', key: 'statuses', opts: [{ k: 'noEzee', label: 'Not in eZee yet', n: this.notInEzee }, { k: 'pending', label: 'Awaiting payment', n: this.pendingCount },
-          { k: 'cancelled', label: 'Cancelled', n: this.cancelledCount }, { k: 'terminated', label: 'Terminated early', n: this.terminatedCount }] }
+          { k: 'cancelled', label: 'Cancelled', n: this.cancelledCount }, { k: 'terminated', label: 'Terminated early', n: this.terminatedCount },
+          { k: 'owner', label: 'Owner requests waiting', n: this.ownerWaiting }] }
       ];
     },
     // The Filters button: "Filters" (or "Newest created") when nothing is ticked, the option's name for one, "Filters · 3" for several
@@ -218,6 +241,12 @@ export default {
       for (const g of this.kindGroups) for (const o of g.opts) if (o.k === picked[0]) return o.label;
       return 'Filters';
     },
+    // 27 Nov 2026 (Khairul): owner requests from the Owner Portal as list rows with an Owner tag (pending and confirmed; declined are left out)
+    ownerRows() {
+      return mine(this.ownerReqs).filter(r => this.propertyId === 'all' || r.propertyId === this.propertyId)
+        .map(r => ({ ...r, ownerReq: true, id: 'owner:' + r.id, reqId: r.id }));
+    },
+    ownerWaiting() { return this.ownerRows.filter(r => r.status === 'pending' && this.inPicked(r)).length; },
     propertyOptions() { return [{ value: 'all', label: 'All properties' }, ...this.properties.map(p => ({ value: p.id, label: p.name }))]; },
     // The month picker: several months (none ticked = every month). Left alone it follows the month in the address.
     monthsModel: { get() { return this.selMonths; }, set(v) { this.monthSel = v; } },
@@ -241,8 +270,10 @@ export default {
         || (k === 'cancelled' && x.status === 'cancelled')
         || (k === 'terminated' && x.status !== 'cancelled' && isTerminated(x)));
       const list = S.length ? this.bookings.filter(statusOk) : q && !L.length ? this.bookings : this.active;
+      const own = this.ownerRows.filter(x => (!S.length || (S.includes('owner') && x.status === 'pending')) && (q || this.inPicked(x)) && (!L.length || L.includes(term(x)))
+        && (!q || [x.unitCode, x.ownerName, 'owner'].some(v => (v || '').toLowerCase().includes(q))));
       return list.filter(x => (q || this.inPicked(x)) && (!L.length || L.includes(term(x)))
-        && (!q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo, this.names[x.id]].some(v => (v || '').toLowerCase().includes(q))))
+        && (!q || [x.id, x.unitCode, x.tenantId, x.ezeeReservationNo, this.names[x.id]].some(v => (v || '').toLowerCase().includes(q)))).concat(own)
         .sort(this.sortBy === 'created' ? (a, b) => msOf(b.createdAt) - msOf(a.createdAt) : (a, b) => (b.arrival || '').localeCompare(a.arrival || ''));
     }
   },
@@ -254,6 +285,8 @@ export default {
     bookings() { if (this.search.trim()) this.loadAllNames(); }
   },
   created() {
+    // Owner requests (27 Nov 2026): live; people without read access just see none
+    this.live('ownerRequests', query(collection(db, 'ownerBookingRequests'), where('status', 'in', ['pending', 'confirmed']), limit(100)), rows => { this.ownerReqs = rows; }, { onError: () => { this.ownerReqs = []; } });
     // A direct booking saved on Offline inquiries comes back here with its message.
     if (history.state?.okMsg) {
       this.okMsg = history.state.okMsg;
@@ -263,6 +296,7 @@ export default {
   mounted() { this.go(); },
   methods: {
     leaseLabel, bookingNights,
+    openRow(row) { if (row.ownerReq) this.reqOpen = this.ownerReqs.find(r => r.id === row.reqId) || null; else this.open = row; },
     termOfRow(x) { return leaseTerm(bookingNights(x)); },
     amt, dmy,
     setPageSize(n) { this.pageSize = n; try { localStorage.setItem(SIZE_KEY, String(n)); } catch { /* not remembered */ } },
@@ -493,4 +527,7 @@ export default {
   .bk-card .bk-side { grid-column: 2; grid-row: 1 / span 2; }
   .bk-card .view-chev { grid-column: 1 / -1; justify-self: start; }
 }
+/* 27 Nov 2026: owner requests in the list */
+.owner-tag { background: var(--accent-soft); color: var(--accent); font-weight: 600; }   /* theme colours, so dark mode is soft too */
+.bk-name .owner-tag { margin-left: 6px; font-size: 12px; vertical-align: middle; }
 </style>
