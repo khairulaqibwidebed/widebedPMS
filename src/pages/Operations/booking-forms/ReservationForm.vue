@@ -1266,6 +1266,12 @@ export default {
     async findClash(b) {
       try {
         const hit = x => x.status !== 'cancelled' && (x.arrival || '') < b.departure && (x.departure || '9999') > b.arrival;
+        // 27 Nov 2026 (Khairul): a CONFIRMED owner booking (from the Owner Portal) blocks the unit for those dates. Read on its own so a
+        // role without access to those requests does not lose the other checks.
+        try {
+          const own = await getDocs(query(collection(db, 'ownerBookingRequests'), where('unitId', '==', b.unitId), where('status', '==', 'confirmed')));
+          for (const d of own.docs) if (hit(d.data())) return { no: 'Owner booking', arrival: d.data().arrival, departure: d.data().departure };
+        } catch (e) { console.warn('Could not check owner bookings:', e.code || e.message); }
         const offs = await getDocs(query(collection(db, 'offlineBookings'), where('propertyId', '==', b.propertyId), where('unitId', '==', b.unitId)));
         for (const d of offs.docs) if (d.id !== this.fillOf?.id && hit(d.data())) return { no: d.data().bookingNo || d.id, arrival: d.data().arrival, departure: d.data().departure };
         const months = []; let y = +b.arrival.slice(0, 4), m = +b.arrival.slice(5, 7);
