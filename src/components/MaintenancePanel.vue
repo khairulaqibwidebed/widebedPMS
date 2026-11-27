@@ -126,7 +126,7 @@
          A reason is required; cannot be undone. -->
     <div class="modal-back mt-cf-back" v-if="purge" @click.self="!busy && (purge = null)">
       <div class="modal mt-cf" role="alertdialog" aria-modal="true" :aria-label="'Remove ' + purge.id + ' for good'" v-esc="() => { if (!busy) purge = null; }">
-        <div class="mt-cf-icon" aria-hidden="true">🗑</div>
+        <div class="mt-cf-icon" aria-hidden="true"><Icon name="trash" /></div>
         <h2>{{ `Remove ${purge.id} for good?` }}</h2>
         <p>The ticket and its comments are deleted and can't be brought back. Its Google Sheet row goes too; the Drive folder is kept.</p>
         <textarea class="input mt-cf-reason" rows="3" v-model="purge.reason" placeholder="Reason (kept in the audit log)" aria-label="Reason for removing"></textarea>

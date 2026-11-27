@@ -112,7 +112,7 @@
           </div>
           <div class="tp-list">
             <p class="tp-none" v-if="!calShown.length">No months here.</p>
-            <template v-for="(c, i) in calShown" :key="c.m">
+            <template v-for="(c, i) in calShown" :key="c.k">
               <!-- 20 Nov 2026: click a year line to fold its months away -->
               <button type="button" class="tp-year" v-if="i === 0 || c.m.slice(0, 4) !== calShown[i - 1].m.slice(0, 4)"
                 :aria-expanded="String(!yearShut(c.m.slice(0, 4)))" @click="toggleYear(c.m.slice(0, 4))">
@@ -120,13 +120,13 @@
                 <span class="tp-amt">{{ `RM ${amt(yearSum(c.m.slice(0, 4)).paid)}` }}<small>{{ ` / ${amt(yearSum(c.m.slice(0, 4)).due)}` }}</small></span>
               </button>
               <template v-if="!yearShut(c.m.slice(0, 4))">
-              <div class="tp-row" :class="{ open: add.m === c.m }">
+              <div class="tp-row" :class="{ open: add.m === c.k }">
                 <span class="tp-m">{{ c.from ? c.label : shortName(c.m) }}<small v-if="c.from">{{ leaseSpan(c) }}</small></span>
                 <span><span class="pill" :class="MONTH_PAY[c.status].cls">{{ MONTH_PAY[c.status].label }}</span></span>
                 <!-- 25 Nov 2026 (Khairul): a month's paid figure is what it kept: its own payments plus what was carried in,
                      less what it carried on to the next month (the last month keeps any overpayment for the stay) -->
                 <span class="tp-amt"><b>{{ `RM ${amt(keptOf(c))}` }}</b><small v-if="c.due + c.extra > 0">{{ ` / ${amt(c.due + c.extra)}` }}</small></span>
-                <button v-if="editable" type="button" class="tp-plus" @click="add.m === c.m ? (add.m = '') : startAdd(c.m)" :title="`Add a charge to ${monthTag(c)}`" :aria-label="`Add a charge to ${monthTag(c)}`">+</button>
+                <button v-if="editable" type="button" class="tp-plus" @click="add.m === c.k ? (add.m = '') : startAdd(c.k)" :title="`Add a charge to ${monthTag(c)}`" :aria-label="`Add a charge to ${monthTag(c)}`">+</button>
               </div>
               <div class="tp-charge" v-for="ch in c.charges" :key="ch.m + '-' + ch.j">
                 <span>{{ chargeLabel(ch.x) }}</span>
@@ -134,10 +134,10 @@
                 <button v-if="editable" type="button" class="mc-x" @click="removeCharge(ch.m, ch.j)" :aria-label="`Remove ${chargeLabel(ch.x)} from ${monthTag(c)}`">×</button>
               </div>
               <!-- 23 Nov 2026: carry forward (paid over the month's total goes to the next month) -->
-              <div class="tp-charge tp-carry" v-if="c.carryIn > 0"><span>{{ `Carried from ${monthTag(cal[cal.findIndex(x => x.m === c.m) - 1])}` }}</span><b>{{ `+ RM ${amt(c.carryIn)}` }}</b><span></span></div>
-              <div class="tp-charge tp-carry" v-if="c.carryOut > 0"><span>{{ cal.findIndex(x => x.m === c.m) < cal.length - 1 ? `Carried to ${monthTag(cal[cal.findIndex(x => x.m === c.m) + 1])}` : 'Paid over the total for the stay' }}</span><b>{{ `RM ${amt(c.carryOut)}` }}</b><span></span></div>
-              <div class="mc-form" v-if="editable && add.m === c.m">
-                <select class="input" :id="'mcKey' + c.m" v-model="add.key" :aria-label="`Charge for ${monthTag(c)}`">
+              <div class="tp-charge tp-carry" v-if="c.carryIn > 0"><span>{{ `Carried from ${monthTag(cal[cal.findIndex(x => x.k === c.k) - 1])}` }}</span><b>{{ `+ RM ${amt(c.carryIn)}` }}</b><span></span></div>
+              <div class="tp-charge tp-carry" v-if="c.carryOut > 0"><span>{{ cal.findIndex(x => x.k === c.k) < cal.length - 1 ? `Carried to ${monthTag(cal[cal.findIndex(x => x.k === c.k) + 1])}` : 'Paid over the total for the stay' }}</span><b>{{ `RM ${amt(c.carryOut)}` }}</b><span></span></div>
+              <div class="mc-form" v-if="editable && add.m === c.k">
+                <select class="input" :id="'mcKey' + c.k" v-model="add.key" :aria-label="`Charge for ${monthTag(c)}`">
                   <option value="" disabled>Choose charge…</option>
                   <option v-for="[k, l] in chargeChoices" :key="k" :value="k">{{ l }}</option>
                 </select>
@@ -266,7 +266,7 @@
           <button class="btn" v-if="termAllowed" v-show="!cancelling && !terminating" @click="startTerm()" :disabled="bk.busy || !bk.loaded">Early termination</button>
         </span>
         <template v-if="acc.bkEdit && cancelled">
-          <button class="icon-btn trash" style="margin-right:auto" @click="remove()" :disabled="bk.busy || !!deleteBlock || !bk.loaded" :title="deleteBlock || 'Delete this booking for good'" aria-label="Delete booking for good">🗑</button>
+          <button class="icon-btn trash" style="margin-right:auto" @click="remove()" :disabled="bk.busy || !!deleteBlock || !bk.loaded" :title="deleteBlock || 'Delete this booking for good'" aria-label="Delete booking for good"><Icon name="trash" /></button>
           <button class="btn btn-primary" @click="restore()" :disabled="bk.busy">Restore booking</button>
         </template>
         <button class="btn" @click="$emit('close')">Close</button>
@@ -294,7 +294,7 @@ import { MONTH_PAY, shortName, loadBookingDetails, saveOfflineBooking, setBookin
 import { doc, getDoc, updateDoc, getDocs, query, where, collection } from 'firebase/firestore';
 import { db } from '@/lib/firebase.js';
 import { can } from '@/lib/access.js';
-import { invoiceOf, propertyAddressOf, FEE_LABELS, chargeLabel, legacyCharges, allMonthCharges, addInto, depositOf, leaseMonths, leaseSlot, leaseSpan } from '@/lib/booking-invoice.js';
+import { invoiceOf, propertyAddressOf, FEE_LABELS, chargeLabel, legacyCharges, allMonthCharges, addInto, depositOf, leaseMonths, leaseSlot, leaseKey, leaseSpan } from '@/lib/booking-invoice.js';
 import InvoiceDialog from '@/components/InvoiceDialog.vue';
 import OptionPicker from '@/components/OptionPicker.vue';
 import { sourcesForForms, feesForForms, sourceOptions, normSources, normFees } from '@/lib/booking-settings.js';
@@ -433,7 +433,7 @@ export default {
       if (long) {
         const ms = leaseMonths({ arrival: f.arrival, departure: f.departure, earlyTermination: this.et, extraNight: !!f.extraNight }, rent);
         if (!ms.length) return [];
-        const rows = ms.map(x => ({ m: x.m, from: x.from, to: x.to, label: x.label, paid: 0, due: x.rent, extra: 0, charges: [] }));
+        const rows = ms.map((x, i) => ({ m: x.m, k: leaseKey(ms, i), from: x.from, to: x.to, label: x.label, paid: 0, due: x.rent, extra: 0, charges: [] }));   // 27 Nov 2026: k = this month's own key (two lease months can start in one calendar month)
         b.payments.filter(payCounts).forEach(x => rentalParts(x).forEach(p => { rows[leaseSlot(ms, p.m)].paid += p.amount; }));   // Checked only, Rental part only; 24 Nov 2026: each Rental line in its own month
         Object.entries(f.monthCharges || {}).sort(([p], [q]) => p.localeCompare(q)).forEach(([m, list]) => (list || []).forEach((x, j) => {
           const r = rows[leaseSlot(ms, m)]; r.extra += Number(x.amount) || 0; r.charges.push({ m, j, x });
@@ -450,7 +450,7 @@ export default {
         // 20 Nov 2026: terminated early with notice: the last part month is rent / 30 x days (sudden: in full)
         if (long && m === last && this.et?.type === 'notice') { const d = partDays(f.arrival, f.departure); if (d > 0) due = Math.round(rent / 30 * d * 100) / 100; }
         const extra = (f.monthCharges[m] || []).reduce((s, x) => s + (Number(x.amount) || 0), 0), all = due + extra;   // 20 Nov 2026: month charges
-        out.push({ m, paid, due, extra, charges: (f.monthCharges[m] || []).map((x, j) => ({ m, j, x })), status: all > 0 ? (paid >= all - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid') : (paid > 0 ? 'paid' : 'unpaid') });
+        out.push({ m, k: m, paid, due, extra, charges: (f.monthCharges[m] || []).map((x, j) => ({ m, j, x })), status: all > 0 ? (paid >= all - 0.005 ? 'paid' : paid > 0 ? 'part' : 'unpaid') : (paid > 0 ? 'paid' : 'unpaid') });
       }
       // 23 Nov 2026 (Khairul): leases carry forward. Paid over a month's total (rent + charges) goes to the next month; the
       // status counts it (lib/booking-pay.js withCarry). Short stays are paid as one amount, so nothing to carry.
@@ -515,7 +515,7 @@ export default {
     leaseSpan,
     leaseLabel, monthName, chargeLabel,
     keptOf(c) {
-      const last = this.cal.findIndex(x => x.m === c.m) === this.cal.length - 1;
+      const last = this.cal.findIndex(x => x.k === c.k) === this.cal.length - 1;
       return Math.round((c.paid + (c.carryIn || 0) - (last ? 0 : c.carryOut || 0)) * 1000) / 1000;
     },
     // The year line: months, how many paid / part / unpaid, and paid against due for that year (all months, not only the filtered ones)

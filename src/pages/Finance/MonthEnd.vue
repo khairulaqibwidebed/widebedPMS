@@ -63,7 +63,7 @@
     </section>
 
     <section class="card" v-show="rows.length || (!loading && propertyId)">
-      <div class="card-head"><h2>{{ `Statements · ${monthName(month)} · ${rows.length || refRows.length} units` }}</h2>
+      <div class="card-head"><h2>{{ `Statements · ${monthName(month)} · ${rows.length} units` }}</h2>
         <span class="help head-note">{{ completed ? `${monthName(month)} is completed. Statements are read-only.` : (checklist.length ? `${checklist.length} item${checklist.length === 1 ? '' : 's'} to fix before those units can be completed. Draft statements recalculate by themselves.` : 'All clear. Open each unit\'s statement to review it, then Approve & complete it.') }}</span></div>
     <Paged :items="shown()" v-slot="{ pageRows }">
     <div class="table-wrap stmt-wrap">
@@ -71,21 +71,7 @@
         <thead><tr><th>Unit</th><th>Arrangement</th><th class="num">Bookings</th><th class="num">Income</th>
           <th class="num">Fees & expenses</th><th class="num">Payout</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          <tr v-if="!rows.length && !refRows.length" class="no-rows"><td colspan="8">No bookings or fixed-rent units for this month. Upload the eZee report for it first.</td></tr>
-          <!-- A past month loaded from Finance's own statement file (Upload eZee report): read-only, Finance's figures -->
-          <tr v-if="!rows.length && refRows.length" class="no-rows"><td colspan="8">{{ `${monthName(month)} was loaded from Finance's statement file. These are Finance's figures, read-only. Negative balances carry into ${monthName(nextMonth(month))}.` }}</td></tr>
-          <template v-for="r in (rows.length ? [] : refRows)" :key="r.id">
-            <tr>
-              <td><b>{{ r.unitCode }}</b></td>
-              <td>{{ r.fixed ? 'Fixed rent' : '' }}</td>
-              <td class="num muted">-</td>
-              <td class="num">{{ r.totalIncome == null ? '' : amt(r.totalIncome) }}</td>
-              <td class="num">{{ r.charges == null ? '' : amt(-r.charges) }}</td>
-              <td class="num" :class="r.payout < 0 ? 'neg-amt' : ''"><b>{{ amt(r.payout) }}</b></td>
-              <td class="st-cell"><span class="pill grey" :title="SOURCE[r.source] || ''">From Finance's file</span></td>
-              <td></td>
-            </tr>
-          </template>
+          <tr v-if="!rows.length" class="no-rows"><td colspan="8">No bookings or fixed-rent units for this month. Upload the eZee report for it first.</td></tr>
           <template v-for="r in pageRows" :key="r.unitId">
             <tr class="clickable" @click="open(r)">
               <td><b>{{ r.unitCode }}</b></td>
@@ -99,8 +85,7 @@
             </tr>
           </template>
         </tbody>
-        <tfoot><tr v-if="rows.length || !refRows.length"><td colspan="3">Total</td><td class="num">{{ amt(summary.income) }}</td><td></td><td class="num">{{ amt(rows.reduce((s, r) => s + r.totals.payout, 0)) }}</td><td></td><td></td></tr>
-          <tr v-else><td colspan="3">{{ `Total · Bal to pay (positive only) ${amt(refRows.reduce((s, r) => s + (r.payout > 0 ? r.payout : 0), 0))}` }}</td><td class="num">{{ amt(refRows.reduce((s, r) => s + (r.totalIncome || 0), 0)) }}</td><td></td><td class="num">{{ amt(refRows.reduce((s, r) => s + (r.payout || 0), 0)) }}</td><td></td><td></td></tr></tfoot>
+        <tfoot><tr><td colspan="3">Total</td><td class="num">{{ amt(summary.income) }}</td><td></td><td class="num">{{ amt(rows.reduce((s, r) => s + r.totals.payout, 0)) }}</td><td></td><td></td></tr></tfoot>
       </table>
     </div>
     </Paged>
@@ -109,7 +94,7 @@
       <section class="card" ref="checks">
         <div class="card-head"><h2>Before you can complete</h2>
           <button class="btn btn-sm starter-btn" v-if="starterAvailable()" @click="starterAsk = !starterAsk" :aria-expanded="starterAsk"
-            title="Fill in the D'Majestic units that aren't set up">⚡ Starter settings</button></div>
+            title="Fill in the D'Majestic units that aren't set up"><Icon name="bolt" /> Starter settings</button></div>
         <!-- Starter settings: a slim confirm strip instead of a big box -->
         <div class="starter-strip" v-if="starterAvailable() && starterAsk">
           <span>Set arrangement and fixed rent for the D'Majestic units that aren't set up (Accounting's Sep 2026 set-up), from <b>{{ monthName(month) }}</b>. You can edit any unit afterwards.</span>
@@ -396,12 +381,12 @@ export default {
   data() {
     return {
       starterAsk: false,
-      STATUS, SOURCE, FEE_TYPES, SHORT, rm, amt, pct, dmy, monthName, nextMonth, pctOut, arrangementName,
+      STATUS, FEE_TYPES, SHORT, rm, amt, pct, dmy, monthName, nextMonth, pctOut, arrangementName,
       poolZero: {},   // Pool Sharing: units with 0 bookings confirmed by hand this month { unitId: { by, byName, at } }
       role: me.role,
       properties: [], propertyId: params.get('property') || lastProperty(), month: params.get('month') || monthOffset(-1),
       months: Array.from({ length: 13 }, (_, i) => monthOffset(1 - i)),
-      prop: null, ums: [], unitFull: {}, rateVersions: null, payHistory: {}, refRows: [],
+      prop: null, ums: [], unitFull: {}, rateVersions: null, payHistory: {},
       rows: [], checklist: [], summary: { income: 0, fixed: 0, share: 0, balToPay: 0, carried: 0 },
       completed: false,
       loading: true, busy: false, error: '', okMsg: '',
@@ -450,23 +435,10 @@ export default {
         this.poolZero = pm.month?.poolZero || {};
         await this.loadApprovals();
         this.compute();
-        await this.loadRefRows();
       } catch (e) { this.error = friendlyError(e, 'load the month'); }
       this.loading = false;
     },
 
-    // A month with nothing in the PMS but Finance's statement file uploaded (Upload eZee report, "Save as reference"):
-    // list what that file saved for each unit. Read the same way the unit page reads payout history (property + year).
-    async loadRefRows() {
-      this.refRows = [];
-      if (this.rows.length || !this.propertyId) return;
-      const pid = this.propertyId, mon = this.month;
-      const ph = await getDocs(query(collection(db, 'payoutHistory'), where('propertyId', '==', pid), where('year', '==', mon.slice(0, 4))));
-      if (pid !== this.propertyId || mon !== this.month) return;   // the picker changed while reading
-      this.refRows = ph.docs.map(d => ({ id: d.id, ...d.data() }))
-        .filter(d => d.month === mon && d.source === 'finance' && d.propertyId === pid)
-        .sort((a, b) => byUnit(a.unitCode || '', b.unitCode || ''));
-    },
     // Drafts are worked out by the engine (summaries.js keeps the result per unit, and works it out again when a unit's
     // data changes). Completion is per unit: a completed unit shows what was saved. A reopened unit is a draft again.
     compute() {

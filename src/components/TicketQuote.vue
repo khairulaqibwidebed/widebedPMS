@@ -27,7 +27,7 @@
         <div class="kv"><span>Invoice</span><span>{{ (q.invoiceNo || '—') + ' · RM ' + amt(q.invoiceAmount) }}</span></div>
         <div class="kv"><span>On statement</span><span>{{ monthName(q.expenseMonth) }}</span></div>
         <div class="files" v-show="(q.invoiceFiles || []).length">
-          <a class="file-chip" v-for="f in q.invoiceFiles" :key="f.link" :href="f.link" target="_blank" rel="noopener" @click.prevent="$emit('view', { name: f.name, url: f.link, kind: 'expenses' })">{{ '📄 ' + f.name }}</a>
+          <a class="file-chip" v-for="f in q.invoiceFiles" :key="f.link" :href="f.link" target="_blank" rel="noopener" @click.prevent="$emit('view', { name: f.name, url: f.link, kind: 'expenses' })"><Icon name="file" /> {{ f.name }}</a>
         </div>
       </template>
       <div class="kv" v-if="q.status === 'paid'"><span>Vendor paid</span><span>{{ dmy(q.paidDate) + (q.paidRef ? ' · ' + q.paidRef : '') }}</span></div>
@@ -95,7 +95,7 @@
         <div class="help" v-if="Number(inv.amount) && Math.abs(Number(inv.amount) - q.total) > 0.004">{{ `Differs from the approved quote (RM ${amt(q.total)}). Say why in the description.` }}</div>
         <FormField id="tqDesc" label="Description on the statement" req v-model="inv.desc" />
         <div class="field"><label class="req">Invoice file</label>
-          <div class="files" v-show="inv.files.length"><span class="file-chip" v-for="(f, i) in inv.files" :key="f.link">{{ '📄 ' + f.name }}<button type="button" @click="inv.files.splice(i, 1)" aria-label="Remove">×</button></span></div>
+          <div class="files" v-show="inv.files.length"><span class="file-chip" v-for="(f, i) in inv.files" :key="f.link"><Icon name="file" /> {{ f.name }}<button type="button" @click="inv.files.splice(i, 1)" aria-label="Remove">×</button></span></div>
           <UploadFile kind="expenses" :record-id="ticket.id + '-invoice'" :folder-label="ticket.id + ' ' + ticket.unit" :label="inv.files.length ? '＋ Add another file' : '⬆ Upload invoice'" @done="addFiles" />
         </div>
         <div class="modal-foot"><button type="button" class="btn" @click="inv = null">Cancel</button><button class="btn btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Add to statement' }}</button></div>

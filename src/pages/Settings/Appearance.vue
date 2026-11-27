@@ -206,7 +206,7 @@ export default {
     .id-body .wide { margin-top: auto; }
     .head-preview { margin-left: auto; align-self: end; justify-content: flex-end; }
     .pv-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-    .banner { height: 84px; background: linear-gradient(135deg, var(--brand), var(--accent)); }
+    .banner { height: 84px; background: var(--brand); }
     .id-body { display: grid; justify-items: center; gap: 8px; padding: 0 20px 22px; text-align: center; }
     .ava { margin-top: -52px; border-radius: 50%; border: 4px solid var(--surface); background: var(--surface); line-height: 0; }
     .id-name { margin: 6px 0 0; font-size: 18px; }
@@ -220,7 +220,7 @@ export default {
     .muted { color: var(--muted); font-size: 12px; }
     .small { margin: 0; }
     .ok { color: var(--green, #1F8A4C); font-size: 13px; margin: 0; }
-    .err { color: var(--red, #C0392B); font-size: 13px; margin: 0; }
+    .err { color: var(--danger); font-size: 13px; margin: 0; }
     .theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
     .choice.custom { cursor: pointer; }
     .pick { display: flex; gap: 8px; align-items: center; }

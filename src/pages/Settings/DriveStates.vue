@@ -37,13 +37,13 @@
             <div class="faq-a" v-show="guideOpen[1]">
             <p>Each state has one main folder (for example "Owner Files" for Kuala Lumpur). Inside it, the PMS expects:</p>
             <div class="tree">
-              <div><span class="ti">📁</span> State folder <small>e.g. Owner Files (SA, Statements)</small></div>
-              <div class="l1"><span class="ti">📁</span> Property <small>e.g. D'Majestic Place</small></div>
-              <div class="l2"><span class="ti">📁</span> Owner <small>holds the unit folders</small></div>
-              <div class="l3"><span class="ti">📁</span> Unit <small>e.g. DM 13-11</small></div>
-              <div class="l4"><span class="ti">📁</span> Maintenance</div>
-              <div class="l5"><span class="ti">📁</span> One folder per issue ticket <small>e.g. Leaking sink 2026-11-17 (A1B2C)</small></div>
-              <div class="l6"><span class="ti">🖼️</span> The photos and videos</div>
+              <div><span class="ti"><Icon name="folder" /></span> State folder <small>e.g. Owner Files (SA, Statements)</small></div>
+              <div class="l1"><span class="ti"><Icon name="folder" /></span> Property <small>e.g. D'Majestic Place</small></div>
+              <div class="l2"><span class="ti"><Icon name="folder" /></span> Owner <small>holds the unit folders</small></div>
+              <div class="l3"><span class="ti"><Icon name="folder" /></span> Unit <small>e.g. DM 13-11</small></div>
+              <div class="l4"><span class="ti"><Icon name="folder" /></span> Maintenance</div>
+              <div class="l5"><span class="ti"><Icon name="folder" /></span> One folder per issue ticket <small>e.g. Leaking sink 2026-11-17 (A1B2C)</small></div>
+              <div class="l6"><span class="ti"><Icon name="image" /></span> The photos and videos</div>
             </div>
             <p class="guide-note">Some properties keep their unit folders somewhere other than "Owner" (for example D Majestic uses "Profit Sharing"). See "How do I use a different folder for one property?" below.</p>
             </div>

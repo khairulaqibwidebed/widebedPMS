@@ -2,7 +2,7 @@
   <div class="pub">
     <header class="pub-top">
       <div class="pub-brand"><span class="brand-mark">W</span><span><b>Widebed</b><small>Agreements</small></span></div>
-      <span class="pub-secure" title="Your answers are sent securely">🔒 Secure form</span>
+      <span class="pub-secure" title="Your answers are sent securely"><Icon name="lock" /> Secure form</span>
     </header>
 
     <main class="pub-main">
@@ -11,7 +11,7 @@
 
       <!-- Link not valid / closed -->
       <div v-else-if="stage === 'error'" class="card pub-card pub-msg">
-        <div class="pub-emoji" aria-hidden="true">🔗</div>
+        <div class="pub-emoji" aria-hidden="true"><Icon name="link" /></div>
         <h1>{{ errorTitle }}</h1>
         <p>{{ error }}</p>
         <p class="pub-small">If you think this is a mistake, please contact the Widebed team who sent you this link.</p>
@@ -19,7 +19,7 @@
 
       <!-- Password -->
       <form v-else-if="stage === 'password'" class="card pub-card pub-pass" @submit.prevent="unlock">
-        <div class="pub-emoji" aria-hidden="true">🔐</div>
+        <div class="pub-emoji" aria-hidden="true"><Icon name="lock" /></div>
         <h1>{{ info.title || 'Agreement form' }}</h1>
         <p>{{ info.submitted ? 'This form was already submitted. Enter the password to download your copy.' : 'Enter the password Widebed gave you to open this form.' }}</p>
         <div class="notice error" v-if="error">{{ error }}</div>
@@ -155,7 +155,7 @@ async function downloadOld() {
 <style scoped>
 /* Full page of its own (covers the staff layout if the app wraps every page in it). */
 .pub { position: fixed; inset: 0; z-index: 200; overflow-y: auto; background: var(--bg); display: flex; flex-direction: column;
-  background-image: radial-gradient(circle at 15% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 45%); }
+ }
 .pub-top { display: flex; align-items: center; justify-content: space-between; padding: 16px clamp(16px, 4vw, 40px); }
 .pub-brand { display: flex; align-items: center; gap: 10px; }
 .pub-brand span:last-child { display: grid; line-height: 1.1; }

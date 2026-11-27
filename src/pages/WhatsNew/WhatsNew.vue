@@ -333,7 +333,7 @@ export default {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
 .wn-card:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.06); }
 /* Major update: big tinted card. Patch notes: compact row. */
-.wn-card.major { background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 14%, var(--surface)), var(--surface) 65%); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); padding: 24px 20px; }
+.wn-card.major { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); padding: 24px 20px; }
 .wn-card.major .wn-card-title { font-size: 21px; }
 .wn-card.major .wn-cal { flex-basis: 64px; background: var(--accent); color: #fff; }
 .wn-card.major .wn-kind { color: var(--accent); }
@@ -363,7 +363,7 @@ export default {
 /* Patch notes view */
 .wn-back { background: none; border: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; padding: 0; margin-bottom: 14px; }
 .wn-notes { max-width: 820px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.wn-hero { padding: 28px 28px 22px; background: linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #1a1d23)); color: #fff; }
+.wn-hero { padding: 28px 28px 22px; background: var(--accent); color: #fff; }
 .wn-hero .wn-kind { color: rgba(255,255,255,.8); }
 .wn-hero .wn-ver { background: rgba(255,255,255,.22); }
 .wn-hero-top { display: flex; gap: 8px; align-items: center; }

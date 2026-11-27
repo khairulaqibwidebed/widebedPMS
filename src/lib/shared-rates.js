@@ -69,10 +69,18 @@ export function combine(own, shared) {
 // Returns the property's own list unchanged when there is no shared version.
 export function mergeVersions(own, shared) {
   if (!shared || !shared.length) return own || [];
-  const months = [...new Set([...(own || []), ...shared].map(v => v.effectiveFrom || ''))].sort();
+  // Months before the shared set starts (26 Nov 2026, Khairul: a unit's settings for a past month showed only the four
+  // built-in arrangements): the shared arrangements can still be picked there. Only ids the property doesn't already
+  // have are added, so nothing already set up works out differently; OTA, early check-in and Tourism Tax stay as they were.
+  const extra = sharedList(shared[0]);
+  const early = o => {
+    const mine = arrangementsOf(o), add = Object.fromEntries(Object.entries(extra).filter(([id]) => !mine[id]));
+    return Object.keys(add).length ? { ...(o || {}), arrangements: { ...mine, ...add } } : o;
+  };
+  const months = [...new Set(['', ...(own || []), ...shared].map(v => (typeof v === 'string' ? v : v.effectiveFrom || '')))].sort();
   return months.map(m => {
     const s = latest(shared, m), o = latest(own, m);
-    if (!s) return o ? { ...o, effectiveFrom: m } : null;
+    if (!s) { const e = early(o); return e ? { ...e, effectiveFrom: m } : null; }
     return { ...combine(o, s), effectiveFrom: m, createdAt: null };
   }).filter(Boolean);
 }

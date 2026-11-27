@@ -269,14 +269,14 @@ async function saveParticipants() {
 .nw { white-space: nowrap; }
 .q-acts-td { width: 1%; }
 .q-acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; white-space: nowrap; }
-.q-btn { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 8px; background: #fff; border: 1px solid #e2e8f0;
+.q-btn { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 8px; background: #fff; border: 1px solid var(--border);
   color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
-.q-btn:hover { background: color-mix(in srgb, var(--accent) 6%, #fff); border-color: color-mix(in srgb, var(--accent) 45%, #e2e8f0); color: var(--accent); }
+.q-btn:hover { background: color-mix(in srgb, var(--accent) 6%, #fff); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
 .q-acts-th { text-align: right; }
 /* 25 Nov 2026 (Khairul): trash as a line icon (the emoji came out white and vanished): grey at rest, red with a soft red tint on hover */
 .q-del { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
 .q-del svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.q-del:hover, .q-del:focus-visible { background: #fef2f2; color: #ef4444; }
+.q-del:hover, .q-del:focus-visible { background: var(--red-soft); color: var(--danger); }
 .q-people { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; }
 .q-people svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .q-people span { text-decoration: underline; text-underline-offset: 3px; }
@@ -295,17 +295,17 @@ async function saveParticipants() {
 .pt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .pt-head h2 { margin: 0 0 6px; }
 .pt-x { flex: none; width: 32px; height: 32px; margin: -4px -8px 0 0; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
-.pt-x:hover { background: #f1f5f9; color: var(--text); }
+.pt-x:hover { background: var(--chip); color: var(--text); }
 .pt-search { width: 100%; height: 36px; margin: 4px 0 10px; font-size: 13px; }
 .pt-box { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.pt-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid var(--border); font-size: 13px; }
+.pt-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; background: var(--head); border-bottom: 1px solid var(--border); font-size: 13px; }
 .pt-all { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
 .pt-list { max-height: 340px; overflow-y: auto; }
 .pt-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; font-size: 14px; cursor: pointer; transition: background .12s; }
-.pt-row + .pt-row { border-top: 1px solid #f1f5f9; }
-.pt-row:hover { background: #f8fafc; }
+.pt-row + .pt-row { border-top: 1px solid var(--chip); }
+.pt-row:hover { background: var(--head); }
 .pt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pt-dept { flex: none; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 12px; font-weight: 500; }
+.pt-dept { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--chip); color: #64748b; font-size: 12px; font-weight: 500; }
 .pt-none { margin: 0; padding: 16px 14px; text-align: center; }
 .pt-box input[type="checkbox"] { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--theme-color, var(--brand)); cursor: pointer; }
 .status-help-list { display: grid; gap: 8px; margin: 14px 0 6px; max-height: 60vh; overflow: auto; }

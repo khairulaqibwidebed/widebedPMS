@@ -23,10 +23,10 @@
           <div class="bg-map">
             <div class="bg-hub"><span class="bg-av">KL</span><b>Kuala Lumpur branch</b><small>name · state · Active switch</small></div>
             <div class="bg-spokes">
-              <div class="bg-spoke t1"><span class="bg-ico">🏢</span><b>Properties</b><small>Each property is in ONE branch only.</small></div>
-              <div class="bg-spoke t2"><span class="bg-ico">👥</span><b>Staff</b><small>Who works here. Set on Staff accounts.</small></div>
-              <div class="bg-spoke t3"><span class="bg-ico">🔗</span><b>Links</b><small>Maintenance Sheet and any other links.</small></div>
-              <div class="bg-spoke t4"><span class="bg-ico">📁</span><b>Drive folder</b><small>The state's Google Drive folder.</small></div>
+              <div class="bg-spoke t1"><span class="bg-ico"><Icon name="building" /></span><b>Properties</b><small>Each property is in ONE branch only.</small></div>
+              <div class="bg-spoke t2"><span class="bg-ico"><Icon name="users" /></span><b>Staff</b><small>Who works here. Set on Staff accounts.</small></div>
+              <div class="bg-spoke t3"><span class="bg-ico"><Icon name="link" /></span><b>Links</b><small>Maintenance Sheet and any other links.</small></div>
+              <div class="bg-spoke t4"><span class="bg-ico"><Icon name="folder" /></span><b>Drive folder</b><small>The state's Google Drive folder.</small></div>
             </div>
           </div>
           <div class="bg-note"><b>Good to know:</b> a branch only groups things. What a staff member can SEE is still the properties ticked on their Staff account (section 5).</div>
@@ -192,7 +192,7 @@ export default {
 .bg-feature { border: 2px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 14px; padding: 18px; background: color-mix(in srgb, var(--accent-soft) 35%, var(--surface)); }
 .bg-small { font-size: 12px !important; color: var(--muted) !important; margin-top: 8px !important; }
 .bg-k { font-weight: 600; color: var(--text); }
-.bg-tag { display: inline-block; background: #fef3c7; color: #92400e; font-weight: 600; font-size: 11px; padding: 1px 7px; border-radius: 6px; }
+.bg-tag { display: inline-block; background: var(--amber-soft); color: var(--amber); font-weight: 600; font-size: 11px; padding: 1px 7px; border-radius: 6px; }
 
 /* 1. hub and spokes */
 .bg-map { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: center; margin-bottom: 12px; }
@@ -205,22 +205,22 @@ export default {
 .bg-spoke::before { content: ''; position: absolute; left: -16px; top: 50%; width: 16px; border-top: 2px dashed color-mix(in srgb, var(--accent) 40%, var(--border)); }
 .bg-spoke:nth-child(even)::before { display: none; }
 .bg-spoke .bg-ico { grid-row: 1 / 3; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 17px; }
-.bg-spoke.t1 .bg-ico { background: #fdf2fb; } .bg-spoke.t2 .bg-ico { background: #eef6ff; } .bg-spoke.t3 .bg-ico { background: #ecfdf3; } .bg-spoke.t4 .bg-ico { background: #fff7ed; }
+.bg-spoke.t1 .bg-ico { background: var(--accent-soft); } .bg-spoke.t2 .bg-ico { background: var(--blue-soft); } .bg-spoke.t3 .bg-ico { background: var(--green-soft); } .bg-spoke.t4 .bg-ico { background: var(--amber-soft); }
 .bg-spoke b { font-size: 14px; } .bg-spoke small { font-size: 12px; color: var(--muted); }
-.bg-note { font-size: 13px; line-height: 1.5; padding: 10px 14px; border-radius: 10px; background: #eef6ff; color: #1e3a8a; margin-top: 10px; }
-.bg-note.ok { background: #ecfdf3; color: #065f46; }
-.bg-note.warn { background: #fff7ed; color: #9a3412; }
+.bg-note { font-size: 13px; line-height: 1.5; padding: 10px 14px; border-radius: 10px; background: var(--blue-soft); color: var(--blue); margin-top: 10px; }
+.bg-note.ok { background: var(--green-soft); color: var(--green); }
+.bg-note.warn { background: var(--amber-soft); color: var(--amber); }
 
 /* 2. drawn screens */
 .bg-screens { display: grid; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); align-items: center; gap: 8px; margin-bottom: 12px; }
 .bg-screen { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 4px 14px rgba(0,0,0,.05); }
 .bg-sbar { display: flex; gap: 5px; padding: 7px 10px; background: var(--chip, #f3f4f6); }
-.bg-sbar span { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; }
+.bg-sbar span { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
 .bg-sbody { padding: 10px; display: grid; gap: 7px; }
-.bg-srow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; border: 1px solid #f0f0f2; }
-.bg-srow.head { background: #fafafa; border-color: transparent; }
+.bg-srow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); }
+.bg-srow.head { background: var(--head); border-color: transparent; }
 .bg-srow.hl { border-color: var(--accent); background: var(--accent-soft); }
-.bg-srow i, .bg-shead i { display: block; height: 8px; border-radius: 4px; background: #e5e7eb; }
+.bg-srow i, .bg-shead i { display: block; height: 8px; border-radius: 4px; background: var(--border); }
 .bg-srow i.pill { height: 12px; border-radius: 999px; }
 .bg-srow em, .bg-sfoot em { margin-left: auto; font-style: normal; font-size: 10px; font-weight: 700; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; background: var(--surface); }
 .bg-mini-av { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 8px; font-weight: 700; background: var(--accent-soft); color: var(--accent); flex: none; }
@@ -229,10 +229,10 @@ export default {
 .bg-stabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding: 0 2px; }
 .bg-stabs em { font-style: normal; font-size: 9px; font-weight: 700; color: var(--muted); padding: 4px 0; }
 .bg-stabs em.on { color: var(--accent); border-bottom: 2px solid var(--accent); }
-.bg-sfoot { display: flex; border-top: 1px solid #f0f0f2; padding-top: 6px; }
+.bg-sfoot { display: flex; border-top: 1px solid var(--line); padding-top: 6px; }
 .bg-sfoot em.btn-p { background: var(--accent); color: #fff; border-color: var(--accent); }
 .bg-arrow { font-size: 22px; color: var(--accent); text-align: center; font-weight: 700; }
-.bg-cap { font-size: 12px; color: var(--text-2); padding: 8px 10px; border-top: 1px solid #f0f0f2; line-height: 1.45; }
+.bg-cap { font-size: 12px; color: var(--text-2); padding: 8px 10px; border-top: 1px solid var(--line); line-height: 1.45; }
 .bg-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; line-height: 1.5; color: var(--text-2); }
 
 /* step cards */
@@ -248,7 +248,7 @@ export default {
 .bg-box small { font-size: 12px; color: var(--muted); }
 .bg-box.to { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .bg-prop { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--chip, #f3f4f6); text-decoration: line-through; color: var(--muted); }
-.bg-prop.new { text-decoration: none; background: #fef3c7; color: #92400e; }
+.bg-prop.new { text-decoration: none; background: var(--amber-soft); color: var(--amber); }
 .bg-flow { position: relative; display: grid; justify-items: center; gap: 4px; }
 .bg-flow span { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--surface); border: 1px solid var(--accent); border-radius: 999px; padding: 2px 8px; }
 .bg-flow i { display: block; width: 100%; height: 2px; background: var(--accent); position: relative; }
@@ -258,23 +258,23 @@ export default {
 .bg-funnel { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr) 20px minmax(0, 1fr); align-items: stretch; gap: 6px; margin-bottom: 12px; }
 .bg-fstep { display: grid; align-content: start; gap: 4px; padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
 .bg-fstep b { font-size: 14px; } .bg-fstep small { font-size: 12px; color: var(--text-2); line-height: 1.45; }
-.bg-fstep.ok { background: #ecfdf3; border-color: #a7f3d0; }
-.bg-fstep.ok .bg-step { background: #047857; color: #fff; }
+.bg-fstep.ok { background: var(--green-soft); border-color: color-mix(in srgb, var(--green) 40%, var(--border)); }
+.bg-fstep.ok .bg-step { background: var(--green); color: #fff; }
 .bg-farrow { display: grid; place-items: center; color: var(--accent); font-size: 18px; }
 
 /* 6. dots */
 .bg-dots { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 12px; font-size: 13px; color: var(--text-2); }
 .bg-dots span { display: inline-flex; align-items: center; gap: 6px; }
 .d { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.d.g { background: #16a34a; } .d.o { background: #f59e0b; } .d.r { background: #dc2626; }
+.d.g { background: var(--green); } .d.o { background: var(--amber); } .d.r { background: var(--danger); }
 
 /* 7. table */
 .bg-table { display: grid; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 13px; }
-.bg-trow { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; gap: 8px; padding: 10px 14px; border-top: 1px solid #f0f0f2; align-items: center; }
+.bg-trow { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); align-items: center; }
 .bg-trow:first-child { border-top: 0; }
-.bg-trow.head { background: #fafafa; font-size: 12px; font-weight: 600; color: var(--muted); }
+.bg-trow.head { background: var(--head); font-size: 12px; font-weight: 600; color: var(--muted); }
 .bg-trow > span:first-child { display: grid; } .bg-trow small { font-size: 11px; color: var(--muted); }
-.bg-trow .y { color: #047857; font-weight: 600; } .bg-trow .n { color: var(--muted); }
+.bg-trow .y { color: var(--green); font-weight: 600; } .bg-trow .n { color: var(--muted); }
 
 @media (max-width: 760px) {
   .bg-map, .bg-screens, .bg-move, .bg-funnel { grid-template-columns: minmax(0, 1fr); }

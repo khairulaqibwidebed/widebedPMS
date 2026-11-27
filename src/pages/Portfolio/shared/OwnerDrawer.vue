@@ -88,7 +88,7 @@
         </template>
       </form>
       <div class="drawer-foot">
-        <button class="icon-btn trash od-trash" style="margin-right:auto" v-if="acc.isDirector && !o.isNew" @click="remove()" :disabled="busy" title="Delete this owner from the system" aria-label="Delete owner">🗑</button>
+        <button class="icon-btn trash od-trash" style="margin-right:auto" v-if="acc.isDirector && !o.isNew" @click="remove()" :disabled="busy" title="Delete this owner from the system" aria-label="Delete owner"><Icon name="trash" /></button>
         <button class="btn" v-show="full && !o.isNew && o.active !== false && !o.deactivating" @click="startDeactivate()">Deactivate</button>
         <button class="btn btn-primary" v-show="full && !o.isNew && o.active === false" @click="reactivate()" :disabled="busy">Reactivate</button>
         <button class="btn" @click="$emit('close')">{{ readOnly ? 'Close' : 'Cancel' }}</button>

@@ -29,7 +29,7 @@
               @update:model-value="v => set(f, v)" />
           </template>
         </div>
-        <p class="wz-locked" v-if="current.shown.some(isLocked)">🔒 Greyed-out answers were filled in by Widebed and can't be changed here.</p>
+        <p class="wz-locked" v-if="current.shown.some(isLocked)"><Icon name="lock" /> Greyed-out answers were filled in by Widebed and can't be changed here.</p>
       </template>
 
       <template v-else>

@@ -9,6 +9,7 @@ import Capped from './components/Capped.vue';
 import SkeletonRows from './components/SkeletonRows.vue';
 import ProgressRing from './components/ProgressRing.vue';
 import ViewChevron from './components/ViewChevron.vue';
+import Icon from './components/Icon.vue';
 import { startBusyButtons } from './lib/busy-buttons.js';
 import { startRouteProgress } from './lib/route-progress.js';
 import { watchErrors } from './lib/scroll-to-error.js';
@@ -27,4 +28,4 @@ startCardTables();
 startSelectMenus();   // every plain <select> opens the themed list (13 Nov 2026)
 startBusyButtons();
 startRouteProgress(router);
-createApp(App).mixin(pagePopups).use(createPinia()).use(router).component('Paged', Paged).component('Capped', Capped).component('SkeletonRows', SkeletonRows).component('ProgressRing', ProgressRing).component('ViewChevron', ViewChevron).directive('esc', esc).directive('click-outside', clickOutside).mount('#app');
+createApp(App).mixin(pagePopups).use(createPinia()).use(router).component('Paged', Paged).component('Capped', Capped).component('SkeletonRows', SkeletonRows).component('ProgressRing', ProgressRing).component('ViewChevron', ViewChevron).component('Icon', Icon).directive('esc', esc).directive('click-outside', clickOutside).mount('#app');

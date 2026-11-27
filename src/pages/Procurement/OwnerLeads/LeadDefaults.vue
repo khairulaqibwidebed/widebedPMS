@@ -208,7 +208,7 @@ export default {
 .df-add { display: flex; gap: 8px; margin-top: 14px; }
 .df-add .input { flex: 1; min-width: 0; height: 38px; }
 .grip { display: inline-grid; place-items: center; flex: none; width: 20px; height: 32px; color: #94a3b8; cursor: grab; border-radius: 6px; }
-.grip:hover { color: var(--text); background: #f1f5f9; }
+.grip:hover { color: var(--text); background: var(--chip); }
 .grip:active { cursor: grabbing; }
 .grip svg { width: 16px; height: 16px; fill: currentColor; }
 .dragging { opacity: .4; }
@@ -219,12 +219,12 @@ export default {
 .mk-cat.drop-in { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 4%, transparent); }
 .mk-cat { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 .mk-cat-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.mk-cat-name { flex: 1; min-width: 0; height: 36px; font-weight: 700; background: #f8fafc; }
+.mk-cat-name { flex: 1; min-width: 0; height: 36px; font-weight: 700; background: var(--head); }
 .mk-cat-n { font-size: 12px; white-space: nowrap; }
 .mk-cat-head .icon-btn:disabled { opacity: .35; cursor: default; }
 .mk-del { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
 .mk-del svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.mk-del:hover, .mk-del:focus-visible { background: #fef2f2; color: #ef4444; }
+.mk-del:hover, .mk-del:focus-visible { background: var(--red-soft); color: var(--danger); }
 .mk-empty { margin: 0; font-size: 13px; }
 .mk-add { margin-top: 10px; }
 .mk-add .input { height: 34px; }

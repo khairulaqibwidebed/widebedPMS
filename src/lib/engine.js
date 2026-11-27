@@ -111,6 +111,7 @@ const AMOUNTS = {
   earlyCheckIn: 'Early Check-in (RM) (Exclusive of Tax)',
   extendCheckOut: 'Extend Check-out (RM) (Exclusive of Tax)',   // 26 Nov 2026: owner's, after SST (like early check-in)
   roomUpgrade: 'Room Upgrade (RM) (Exclusive of Tax)',
+  paymentGateway: 'Payment Gateway Charge (RM)',   // 27 Nov 2026: long-term bookings only, goes to the owner (Finance's Robertson Oct sheet)
   tourismTax: 'Tourism Tax (RM) (Exclusive of Tax)',
   securityDeposit: 'Security Deposit (RM) (Exclusive of Tax)',
   otherCharges: 'Other Charges (RM) (Exclusive of Tax)',
@@ -154,6 +155,7 @@ export function readEzee(rows) {
     for (const [k, h] of Object.entries(AMOUNTS)) rec[k] = num(get(r, h));
     // 26 Nov 2026: kept only when there is one, so bookings without it keep their saved fingerprint (rawHash) and are not rewritten
     if (!rec.extendCheckOut) delete rec.extendCheckOut;
+    if (!rec.paymentGateway) delete rec.paymentGateway;   // 27 Nov 2026: same reason
     header.forEach((h, i) => {
       const key = 'c' + String(i + 1).padStart(3, '0');
       if (PRIVATE_COLS[h]) { rec.private[PRIVATE_COLS[h]] = String(r[i] ?? '') || null; rec.raw[key] = null; }
@@ -226,7 +228,10 @@ export function bookingPTO(b, rates) {
     const tax = r3(comm * sstPct) + r3(pay * sstPct);
     guestPaid = T; platform = comm + pay + tax; pto = room - platform;
   } else if (longTerm) {
-    method = 'Long-term'; guestPaid = AU + AX; pto = AU + AX;
+    // 27 Nov 2026 (Khairul): eZee's Payment Gateway Charge is part of the rent on long-term bookings, as on Finance's
+    // statements (Robertson N-25-02 Oct: 2,783.03 + 222.62 = Total Receivable 3,005.65). Short-term bookings unchanged.
+    const PG = num(v.paymentGateway);
+    method = 'Long-term'; guestPaid = AU + AX + PG; pto = AU + AX + PG;
   } else {
     method = 'Direct'; guestPaid = AU + AX; pto = (AU + AX) / 1.08;
   }

@@ -1490,7 +1490,7 @@ export default {
   .op-table td .clamp { -webkit-line-clamp: unset; line-clamp: unset; display: inline; }
 }   /* 1 1 100%: the buttons wrap instead of running off a phone (24 Nov 2026) */
 .who { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.tag.st-edited { background: #E6EEFB; color: #2B5DB8; }
+.tag.st-edited { background: var(--blue-soft); color: var(--blue); }
 .rep-modal { max-width: 640px; }
 /* 16 Nov 2026: every picker in the report popup fills its column, all the same height */
 .rep-modal :deep(.op), .rep-modal :deep(.pp), .rep-modal :deep(.mp) { display: block; width: 100%; }
@@ -1518,12 +1518,12 @@ export default {
 .op-table .amt { font-variant-numeric: tabular-nums; }
 .op-table .eye-col { padding-left: 0; padding-right: 8px; }
 /* 20 Nov 2026 (Khairul): payment code readable: normal-size dark text on a light chip, one line, full text on hover */
-.op-code { display: block; width: fit-content; max-width: 100%; margin-top: 4px; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.op-code { display: block; width: fit-content; max-width: 100%; margin-top: 4px; padding: 2px 6px; border-radius: 4px; background: var(--chip); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .op-code .pc-k { font-family: inherit; font-size: 10px; margin-right: 6px; }
 .op-table .empty { text-align: center; padding: 28px 16px; }
 .op-table td :deep(.op-btn) { min-width: 110px; }
 .tag { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: 500; background: var(--head); color: var(--muted); }
-.tag.st-checked { background: #E3F4EA; color: #1E7A45; }
+.tag.st-checked { background: var(--green-soft); color: var(--green); }
 .tag.st-pending { background: #FDEFD9; color: #B26A00; }
 .tag.st-unknown { background: #ECEEF2; color: #555B66; }
 .tag.st-mixed { background: #ECEEF2; color: #333A45; }

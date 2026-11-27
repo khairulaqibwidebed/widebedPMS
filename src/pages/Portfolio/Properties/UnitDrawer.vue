@@ -106,7 +106,7 @@
         <div class="field"><label for="uWhy" class="req">Reason (audit log)</label><textarea class="input" id="uWhy" v-model="u.reason" placeholder="e.g. New owner agreement from June"></textarea></div>
       </form>
       <div class="drawer-foot">
-        <button class="icon-btn trash" style="margin-right:auto" v-if="acc.isDirector && !u.isNew" @click="remove()" :disabled="busy" title="Delete this unit from the system" aria-label="Delete unit">🗑</button>
+        <button class="icon-btn trash" style="margin-right:auto" v-if="acc.isDirector && !u.isNew" @click="remove()" :disabled="busy" title="Delete this unit from the system" aria-label="Delete unit"><Icon name="trash" /></button>
         <button class="btn" @click="$emit('close')">Cancel</button>
         <button class="btn btn-primary" type="submit" form="unitForm" :disabled="busy">{{ busy ? 'Saving…' : 'Save unit' }}</button>
       </div>
